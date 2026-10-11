@@ -38,10 +38,12 @@ class ParticleField {
 class ParticlesPainter extends CustomPainter {
   final ParticleField field;
   final ArtPalette palette;
+  final double k;
 
   ParticlesPainter({
     required this.field,
     required this.palette,
+    this.k = 1.0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -56,7 +58,7 @@ class ParticlesPainter extends CustomPainter {
       final py = yy * size.height;
       final edge = math.sin(yy * math.pi);
       final tw = 0.5 + 0.5 * math.sin(t * 2.0 + field.ph[i] * 3.0);
-      final alpha = _a((0.25 + 0.30 * tw) * edge);
+      final alpha = _a((0.25 + 0.30 * tw) * edge * k);
       final c = palette.at(field.x[i]);
       p.color = c.withOpacity(alpha * 0.25);
       canvas.drawCircle(Offset(xx, py), field.r[i] * 3.2, p);
@@ -66,7 +68,8 @@ class ParticlesPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(ParticlesPainter old) => old.palette != palette;
+  bool shouldRepaint(ParticlesPainter old) =>
+      old.palette != palette || old.k != k;
 }
 
 // ------------------------------------------------------------------- VHS
@@ -551,4 +554,112 @@ class WaterPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(WaterPainter old) => old.palette != palette || old.k != k;
+}
+
+
+// ------------------------------------------------------------- idle backdrop
+
+/// Shown when there is no album art: a deep night sky with slow aurora
+/// ribbons, soft drifting colour and a few twinkling stars.
+class IdleBackdropPainter extends CustomPainter {
+  final FxClock clock;
+  final ArtPalette palette;
+  final bool animate;
+
+  IdleBackdropPainter({
+    required this.clock,
+    required this.palette,
+    required this.animate,
+    required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final t = animate ? clock.t : 0.0;
+    final rect = Offset.zero & size;
+
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF05060F), Color(0xFF0B0A22), Color(0xFF150E2E)],
+        ).createShader(rect),
+    );
+
+    // Soft colour clouds that wander slowly.
+    final cols = [palette.a, palette.b, palette.c];
+    for (int i = 0; i < 3; i++) {
+      final ph = i * 2.1;
+      final cx = w * (0.5 + 0.38 * math.sin(t * 0.07 + ph));
+      final cy = h * (0.45 + 0.28 * math.cos(t * 0.05 + ph * 1.3));
+      final r = math.max(w, h) * (0.45 + 0.05 * math.sin(t * 0.11 + ph));
+      canvas.drawCircle(
+        Offset(cx, cy),
+        r,
+        Paint()
+          ..shader = RadialGradient(colors: [
+            cols[i].withOpacity(0.30),
+            cols[i].withOpacity(0.0),
+          ]).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r)),
+      );
+    }
+
+    // Aurora ribbons.
+    for (int i = 0; i < 3; i++) {
+      final path = Path();
+      final base = h * (0.28 + 0.16 * i);
+      path.moveTo(0, h);
+      for (double x = 0; x <= w + 12; x += 12) {
+        final u = x / w;
+        final y = base +
+            h * 0.07 * math.sin(u * 5.0 + t * 0.25 + i * 1.7) +
+            h * 0.04 * math.sin(u * 11.0 - t * 0.17 + i);
+        path.lineTo(x, y);
+      }
+      path.lineTo(w, h);
+      path.close();
+      canvas.drawPath(
+        path,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              cols[i].withOpacity(0.20),
+              cols[i].withOpacity(0.0),
+            ],
+          ).createShader(Rect.fromLTWH(0, base - h * 0.12, w, h * 0.6)),
+      );
+    }
+
+    // Stars.
+    final rnd = math.Random(11);
+    final sp = Paint();
+    for (int i = 0; i < 60; i++) {
+      final x = rnd.nextDouble() * w;
+      final y = rnd.nextDouble() * h * 0.7;
+      final r = 0.6 + rnd.nextDouble() * 1.3;
+      final tw = 0.5 + 0.5 * math.sin(t * (0.6 + rnd.nextDouble()) + i);
+      sp.color = Colors.white.withOpacity(0.12 + 0.35 * tw);
+      canvas.drawCircle(Offset(x, y), r, sp);
+    }
+
+    // Darken the edges a little so text always reads.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const RadialGradient(
+          radius: 1.0,
+          colors: [Color(0x00000000), Color(0x99000000)],
+          stops: [0.55, 1.0],
+        ).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(IdleBackdropPainter old) =>
+      old.palette != palette || old.animate != animate;
 }

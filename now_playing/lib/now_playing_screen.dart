@@ -52,7 +52,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final fxClock = FxClock();
   final ripples = RippleState();
   final _artKey = GlobalKey(); // lets rings and rays find the cover
-  final _navKey = GlobalKey(); // the navigation card in the Drive theme
   // Record Cut: the spin is kept apart from the layout so only a cached
   // layer is turned each frame.
   final _recAngle = ValueNotifier<double>(0); // turns, 0..1
@@ -86,7 +85,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (_lastArtPalette != null && _time - _artNullSince < 4) {
       return _lastArtPalette!;
     }
-    return ArtPalette.neutral;
+    return ArtPalette.fallback;
   }
 
   @override
@@ -145,7 +144,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       boot: settings.bootStart,
       music: settings.musicStart,
       graceSec: settings.graceSec,
-      quietMin: settings.quietMin,
       allowVideo: settings.allowVideo,
       allowNav: settings.allowNavAudio,
       avoidNav: settings.avoidNav,
@@ -337,14 +335,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
-            if (heavy) ..._extraFx(settings.effects),
+            if (heavy) ..._extraFx(),
             if (vhs) ..._vhsBackdrop(fx),
             if (settings.bgEffects && settings.particles && heavy)
               IgnorePointer(
                 child: RepaintBoundary(
                   child: CustomPaint(
                     painter: ParticlesPainter(
-                        field: particles, palette: _palette, repaint: _tick),
+                        field: particles,
+                        palette: _palette,
+                        k: settings.kParticles,
+                        repaint: _tick),
                   ),
                 ),
               ),
@@ -412,13 +413,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final art = model.art;
     final Widget child;
     if (art == null) {
-      child = Container(
+      child = SizedBox.expand(
         key: const ValueKey('empty'),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF0B1224), Color(0xFF04050A)],
+        child: RepaintBoundary(
+          child: CustomPaint(
+            painter: IdleBackdropPainter(
+              clock: fxClock,
+              palette: ArtPalette.fallback,
+              animate: !settings.performance,
+              repaint: _tick,
+            ),
           ),
         ),
       );
@@ -472,8 +476,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: child,
       builder: (context, c) {
         final size = MediaQuery.of(context).size;
-        final dx = math.sin(_time * 0.08) * size.width * 0.03;
-        final dy = math.cos(_time * 0.06) * size.height * 0.03;
+        final m = settings.kMotion;
+        final dx = math.sin(_time * 0.08) * size.width * 0.03 * m;
+        final dy = math.cos(_time * 0.06) * size.height * 0.03 * m;
         return Transform.translate(
           offset: Offset(dx, dy),
           child: Transform.scale(scale: 1.18, child: c),
@@ -485,29 +490,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // -------------------------------------------------------------- VHS layers
 
   /// The optional effects, each switched on or off in settings.
-  List<Widget> _extraFx(double k) {
+  List<Widget> _extraFx() {
     final p = _palette;
     Widget layer(CustomPainter painter) => IgnorePointer(
           child: RepaintBoundary(child: CustomPaint(painter: painter)),
         );
     return [
       if (settings.fxGlow)
-        layer(GlowPainter(clock: fxClock, palette: p, k: k, repaint: _tick)),
+        layer(GlowPainter(
+            clock: fxClock, palette: p, k: settings.kGlow, repaint: _tick)),
       if (settings.fxSweep)
-        layer(SweepPainter(clock: fxClock, palette: p, k: k, repaint: _tick)),
+        layer(SweepPainter(
+            clock: fxClock, palette: p, k: settings.kSweep, repaint: _tick)),
       if (settings.fxRays)
         layer(RaysPainter(
-            clock: fxClock, artKey: _artKey, palette: p, k: k, repaint: _tick)),
+            clock: fxClock,
+            artKey: _artKey,
+            palette: p,
+            k: settings.kRays,
+            repaint: _tick)),
       if (settings.fxRipples)
         layer(RipplesPainter(
             state: ripples,
             clock: fxClock,
             artKey: _artKey,
             palette: p,
-            k: k,
+            k: settings.kRipples,
             repaint: _tick)),
       if (settings.fxWater)
-        layer(WaterPainter(clock: fxClock, palette: p, k: k, repaint: _tick)),
+        layer(WaterPainter(
+            clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),
     ];
   }
 
@@ -861,226 +873,132 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ------------------------------------------------------------------ drive
 
-  /// Opens the navigation app. In the Drive theme it asks Android for a
-  /// window exactly the size of the card (a little inside its border).
-  Future<void> _openNavigation() async {
-    Rect? bounds;
-    final box = _navKey.currentContext?.findRenderObject();
-    if (settings.theme == 4 && box is RenderBox && box.attached && box.hasSize) {
-      final tl = box.localToGlobal(Offset.zero);
-      final dpr = MediaQuery.of(context).devicePixelRatio;
-      const inset = 8.0;
-      bounds = Rect.fromLTWH(
-        (tl.dx + inset) * dpr,
-        (tl.dy + inset) * dpr,
-        (box.size.width - 2 * inset) * dpr,
-        (box.size.height - 2 * inset) * dpr,
-      );
-    }
-    final r = await Native.launchNavigation(settings.navPkg, bounds);
+  /// Starts the Drive overlay: VYBE drawn over the navigation app, with the
+  /// middle of the screen left open for the map. Then opens the map app.
+  Future<void> _startDrive() async {
+    final r = await Native.startDrive(
+      pkg: settings.navPkg,
+      swap: settings.driveSwap,
+      centerFrac: settings.driveCardWidth,
+      controls: settings.driveControls,
+      autoClose: settings.driveAutoClose,
+    );
     if (!mounted) return;
     String? msg;
-    if (r == 'nopkg') {
-      msg = 'No navigation app found. Choose one in Settings.';
-    } else if (r == 'none') {
-      msg = 'Could not open the navigation app.';
-    } else if (r == 'full' && bounds != null) {
-      msg = 'Opened full screen. This unit did not allow a window.';
+    if (r == 'permission') {
+      msg = 'Allow "Display over other apps" for VYBE first (Settings > Permissions).';
+      Native.openOverlaySettings();
+    } else if (r == 'nolistener') {
+      msg = 'Turn on notification access for VYBE first (Settings > Permissions).';
+    } else {
+      final nav = await Native.launchNavigation(settings.navPkg, null);
+      if (!mounted) return;
+      if (nav == 'nopkg') {
+        msg = 'Drive is on. Choose a navigation app in Settings, then open it.';
+      } else if (nav == 'none') {
+        msg = 'Drive is on, but the navigation app could not be opened.';
+      }
     }
     if (msg != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
       );
     }
   }
 
-  /// Music on one side and a card for navigation on the other. VYBE cannot
-  /// draw another app's map, so the card is a frame: the navigation button
-  /// asks Android to open the nav app in a window the size of the card.
+  /// A preview of the Drive layout and the button that starts it. The real
+  /// layout is drawn by the overlay on top of the map app.
   Widget _driveLayout(double w, double h, bool narrow) {
-    final gap = math.min(w, h) * 0.025;
     final frac = settings.driveCardWidth;
     final swap = settings.driveSwap;
-    final music = Padding(padding: EdgeInsets.all(gap), child: _drivePane());
-    final card = Padding(padding: EdgeInsets.all(gap), child: _navCard());
-    if (narrow) {
-      return Column(
-        children: [
-          Expanded(flex: 6, child: swap ? card : music),
-          Expanded(flex: 5, child: swap ? music : card),
-        ],
-      );
-    }
-    final musicFlex = ((1 - frac) * 100).round();
-    final cardFlex = (frac * 100).round();
-    return Row(
-      children: [
-        Expanded(flex: swap ? cardFlex : musicFlex, child: swap ? card : music),
-        Expanded(flex: swap ? musicFlex : cardFlex, child: swap ? music : card),
-      ],
-    );
-  }
-
-  Widget _drivePane() {
-    return LayoutBuilder(builder: (context, box) {
-      final pw = box.maxWidth, ph = box.maxHeight;
-      final art = math.min(pw * 0.6, ph * 0.42);
-      final cw = pw * 0.88;
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0x66000000),
-          borderRadius: BorderRadius.circular(ph * 0.04),
-          border: Border.all(color: Colors.white12),
-        ),
-        child: Center(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: SizedBox(
-              width: cw,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _front(art, false),
-                  SizedBox(height: ph * 0.035),
-                  _title(ph * 0.06, Alignment.center, false),
-                  SizedBox(height: ph * 0.008),
-                  _artist(ph * 0.026, Alignment.center, false),
-                  if (_hasLyrics) ...[
-                    SizedBox(height: ph * 0.015),
-                    _lyricLine(ph * 0.03, Alignment.center),
-                  ],
-                  SizedBox(height: ph * 0.02),
-                  _seekBar(width: cw),
-                  SizedBox(
-                    width: cw,
-                    child: AnimatedBuilder(
-                      animation: _slow,
-                      builder: (context, _) => Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(_fmt(model.positionMs),
-                              style: const TextStyle(
-                                  color: Colors.white60, fontSize: 15)),
-                          Text(_fmt(model.durationMs),
-                              style: const TextStyle(
-                                  color: Colors.white60, fontSize: 15)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  _driveButtons(ph),
-                  if (settings.visualizer) ...[
-                    SizedBox(height: ph * 0.02),
-                    _bars(ph * 0.07),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    });
-  }
-
-  Widget _driveButtons(double ph) {
-    final small = (ph * 0.085).clamp(32.0, 64.0).toDouble();
-    final big = (ph * 0.1).clamp(44.0, 80.0).toDouble();
-    Widget skip(IconData icon, VoidCallback onTap) => IconButton(
-          iconSize: small,
-          padding: EdgeInsets.all(small * 0.2),
-          color: Colors.white,
-          icon: Icon(icon),
-          onPressed: onTap,
-        );
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        skip(Icons.skip_previous_rounded, model.previous),
-        SizedBox(width: small * 0.4),
-        GestureDetector(
-          onTap: model.playPause,
-          child: Container(
-            width: big * 1.3,
-            height: big * 1.3,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _palette.a,
-              boxShadow: [
-                BoxShadow(
-                    color: _palette.a.withOpacity(0.45), blurRadius: big * 0.4),
-              ],
-            ),
-            child: Icon(
-              model.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              size: big,
-              color: Colors.black,
-            ),
-          ),
-        ),
-        SizedBox(width: small * 0.4),
-        skip(Icons.skip_next_rounded, model.next),
-      ],
-    );
-  }
-
-  /// The frame where the navigation window goes.
-  Widget _navCard() {
     final p = _palette;
-    return LayoutBuilder(builder: (context, box) {
-      final s = math.min(box.maxWidth, box.maxHeight);
-      return Container(
-        key: _navKey,
-        decoration: BoxDecoration(
-          color: const Color(0xCC05070D),
-          borderRadius: BorderRadius.circular(s * 0.05),
-          border: Border.all(color: p.a.withOpacity(0.8), width: 1.5),
-          boxShadow: [
-            BoxShadow(color: p.a.withOpacity(0.3), blurRadius: s * 0.06),
-            BoxShadow(color: p.c.withOpacity(0.2), blurRadius: s * 0.1),
+    final sideW = w * (1 - frac) / 2;
+    final art = math.min(sideW * 0.8, h * 0.5);
+    Widget artSide = SizedBox(
+      width: sideW,
+      child: Center(child: _front(art, false)),
+    );
+    Widget infoSide = SizedBox(
+      width: sideW,
+      child: Padding(
+        padding: EdgeInsets.all(h * 0.03),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _title(h * 0.05, Alignment.centerLeft, false),
+            SizedBox(height: h * 0.01),
+            _artist(h * 0.025, Alignment.centerLeft, false),
+            if (settings.visualizer) ...[
+              SizedBox(height: h * 0.03),
+              _bars(h * 0.12),
+            ],
           ],
         ),
-        child: Center(
+      ),
+    );
+    final cut = Container(
+      width: w * frac,
+      margin: EdgeInsets.symmetric(vertical: h * 0.04),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(h * 0.03),
+        border: Border.all(color: p.a.withOpacity(0.7), width: 1.5),
+        color: const Color(0x33000000),
+      ),
+      child: Center(
+        child: Padding(
+          padding: EdgeInsets.all(w * 0.02),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.navigation_rounded,
-                    size: (s * 0.16).clamp(36.0, 120.0).toDouble(), color: p.a),
-                SizedBox(height: s * 0.03),
-                Text(
-                  'Navigation',
-                  style: TextStyle(
-                    fontSize: (s * 0.05).clamp(20.0, 36.0).toDouble(),
-                    fontWeight: FontWeight.w300,
-                  ),
-                ),
-                SizedBox(height: s * 0.01),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: s * 0.08),
-                  child: Text(
-                    'Opens your navigation app in this card.',
-                    textAlign: TextAlign.center,
+                    size: (h * 0.12).clamp(32.0, 96.0).toDouble(), color: p.a),
+                SizedBox(height: h * 0.02),
+                Text('Drive',
                     style: TextStyle(
-                      fontSize: (s * 0.03).clamp(14.0, 20.0).toDouble(),
-                      color: Colors.white54,
-                    ),
-                  ),
+                        fontSize: (h * 0.05).clamp(20.0, 36.0).toDouble(),
+                        fontWeight: FontWeight.w300)),
+                SizedBox(height: h * 0.01),
+                Text(
+                  'VYBE floats over your map. The middle stays open for navigation.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: (h * 0.028).clamp(13.0, 18.0).toDouble(),
+                      color: Colors.white60),
                 ),
-                SizedBox(height: s * 0.04),
-                ElevatedButton.icon(
-                  onPressed: _openNavigation,
+                SizedBox(height: h * 0.025),
+                FilledButton.icon(
+                  onPressed: _startDrive,
                   icon: const Icon(Icons.navigation_rounded),
-                  label: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                    child: Text('Open navigation', style: TextStyle(fontSize: 18)),
-                  ),
+                  label: const Text('Start Drive'),
                 ),
+                if (settings.navLabel.isNotEmpty) ...[
+                  SizedBox(height: h * 0.01),
+                  Text('Map app: ${settings.navLabel}',
+                      style: const TextStyle(color: Colors.white38, fontSize: 13)),
+                ],
               ],
             ),
           ),
         ),
+      ),
+    );
+    if (narrow) {
+      return Column(
+        children: [
+          SizedBox(height: h * 0.3, child: Center(child: _front(h * 0.24, false))),
+          Expanded(child: Padding(padding: EdgeInsets.all(w * 0.04), child: cut)),
+        ],
       );
-    });
+    }
+    return Row(
+      children: [
+        swap ? infoSide : artSide,
+        cut,
+        swap ? artSide : infoSide,
+      ],
+    );
   }
 
   // ---------------------------------------------------------- edge to edge
@@ -1129,17 +1047,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           SizedBox(
             width: w * 0.09,
             height: h,
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: VerticalBarsPainter(
-                  sim: sim,
-                  palette: _palette,
-                  count: settings.barCount,
-                  gain: settings.sensitivity,
-                  repaint: _tick,
-                ),
-              ),
-            ),
+            child: _edgeBars(w * 0.09, leftEdge: true),
           ),
         Expanded(
           child: Padding(
@@ -1178,16 +1086,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           SizedBox(
             width: w,
             height: h * 0.08,
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: DownBarsPainter(
-                  sim: sim,
-                  palette: _palette,
-                  count: settings.barCount,
-                  gain: settings.sensitivity,
-                  repaint: _tick,
+            child: _downShade(
+              RepaintBoundary(
+                child: CustomPaint(
+                  painter: DownBarsPainter(
+                    sim: sim,
+                    palette: _palette,
+                    count: settings.barCount,
+                    gain: settings.sensitivity,
+                    repaint: _tick,
+                  ),
                 ),
               ),
+              h * 0.08,
             ),
           ),
         Expanded(
@@ -1238,6 +1149,65 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
+  /// A strip of vertical bars on a black shadow that is darkest at the screen
+  /// (or art) edge and fades out as it goes inward, so the bars pop.
+  Widget _edgeBars(double edge, {required bool leftEdge}) {
+    final shade = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: leftEdge ? Alignment.centerLeft : Alignment.centerRight,
+          end: leftEdge ? Alignment.centerRight : Alignment.centerLeft,
+          colors: const [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
+          stops: const [0.0, 0.45, 1.0],
+        ),
+      ),
+    );
+    return SizedBox(
+      width: edge,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: leftEdge ? 0 : null,
+            right: leftEdge ? null : 0,
+            top: 0,
+            bottom: 0,
+            width: edge * 1.9,
+            child: IgnorePointer(child: shade),
+          ),
+          Positioned.fill(child: leftEdge ? _vBars() : _flipX(_vBars())),
+        ],
+      ),
+    );
+  }
+
+  /// The same shadow for bars that hang down from a top edge.
+  Widget _downShade(Widget bars, double h) => Stack(
+        clipBehavior: Clip.none,
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            height: h * 1.8,
+            child: const IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
+                    stops: [0.0, 0.45, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(child: bars),
+        ],
+      );
+
   /// Mirrors a child left to right, so bars that grow from the left edge
   /// can grow from the right edge instead.
   Widget _flipX(Widget child) => Transform(
@@ -1264,16 +1234,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
           )
         : ClipOval(
-            child: ColorFiltered(
-              colorFilter: _grayDark,
-              child: Image.memory(
-                art.bytes,
-                width: d,
-                height: d,
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                filterQuality: FilterQuality.medium,
-              ),
+            child: Stack(
+              fit: StackFit.passthrough,
+              children: [
+                ColorFiltered(
+                  colorFilter: _grayDark,
+                  child: Image.memory(
+                    art.bytes,
+                    width: d,
+                    height: d,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    filterQuality: FilterQuality.medium,
+                  ),
+                ),
+                // Darker, so the record reads as black vinyl.
+                Positioned.fill(
+                  child: ColoredBox(color: Colors.black.withOpacity(0.5)),
+                ),
+              ],
             ),
           );
     final ring = math.max(2.0, d * 0.007).toDouble();
@@ -1366,25 +1345,72 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// The record with the visualizer running around its edge.
+  /// Size of the whole record block for a record of diameter [d]: the record,
+  /// the big blurred disc behind it, and room for the bars.
+  double _recBox(double d) => d * 1.62;
+
+  /// The record sits on a larger disc of blurred black and white cover art.
+  /// The visualizer runs along the left half of the disc's edge, facing the
+  /// song info.
   Widget _recordBlock(double d) {
-    final box = d * 1.28;
+    final box = _recBox(d);
+    final big = d * 1.34;
+    final art = model.art;
+    final Widget disc = ClipOval(
+      child: art == null
+          ? const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [Color(0xFF2A2440), Color(0xFF0B0A18)],
+                ),
+              ),
+            )
+          : ColorFiltered(
+              colorFilter: _grayDark,
+              child: ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(
+                    sigmaX: big * 0.03, sigmaY: big * 0.03, tileMode: TileMode.clamp),
+                child: Image.memory(
+                  art.bytes,
+                  width: big,
+                  height: big,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.low,
+                ),
+              ),
+            ),
+    );
     return SizedBox(
       width: box,
       height: box,
       child: Stack(
         alignment: Alignment.center,
         children: [
+          Container(
+            width: big,
+            height: big,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white24, width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.55),
+                    blurRadius: d * 0.08),
+              ],
+            ),
+            child: RepaintBoundary(child: disc),
+          ),
           if (settings.visualizer)
             Positioned.fill(
               child: RepaintBoundary(
                 child: CustomPaint(
-                  painter: FullRingPainter(
+                  painter: HalfRingPainter(
                     sim: sim,
                     palette: _palette,
-                    innerRadius: d / 2 * 1.04,
-                    maxLen: d * 0.12,
-                    count: settings.barCount,
+                    innerRadius: big / 2 + d * 0.02,
+                    maxLen: d * 0.14,
+                    count: math.max(24, settings.barCount ~/ 2),
                     gain: settings.sensitivity,
                     repaint: _tick,
                   ),
@@ -1404,7 +1430,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _recordLayout(double w, double h, bool narrow) {
     if (narrow) {
-      final d = math.min(w * 0.6, h * 0.34).toDouble();
+      final d = math.min(w * 0.46, h * 0.27).toDouble();
       return Center(
         child: FittedBox(
           fit: BoxFit.scaleDown,
@@ -1428,8 +1454,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
     }
-    final d = math.min(h * 0.74, w * 0.4).toDouble();
-    final box = d * 1.28;
+    final d = math.min(h * 0.6, w * 0.3).toDouble();
+    final box = _recBox(d);
     return Stack(
       children: [
         Positioned(
@@ -1472,32 +1498,83 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// the front cover's top-left corner is at (0, 0.25 s).
   Widget _fanCards(double s) {
     final yf = s * 0.25;
-    Widget back(double left, double top, double deg, double alpha) =>
-        Positioned(
-          left: left,
-          top: top,
-          child: Transform.rotate(
-            angle: deg * math.pi / 180,
-            alignment: Alignment.topLeft,
-            child: Opacity(
-              opacity: alpha,
-              child: ColorFiltered(
-                colorFilter:
-                    const ColorFilter.mode(Color(0x59000000), BlendMode.srcATop),
-                child: _artContent(s),
-              ),
+    // sigma 0 = sharp. Each cover further back is blurred more.
+    Widget back(double left, double top, double deg, double alpha, double sigma) {
+      Widget card = ColorFiltered(
+        colorFilter: const ColorFilter.mode(Color(0x59000000), BlendMode.srcATop),
+        child: _artContent(s),
+      );
+      card = ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(
+            sigmaX: sigma, sigmaY: sigma, tileMode: TileMode.decal),
+        child: card,
+      );
+      return Positioned(
+        left: left,
+        top: top,
+        child: Transform.rotate(
+          angle: deg * math.pi / 180,
+          alignment: Alignment.topLeft,
+          child: Opacity(
+            opacity: alpha,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // Drop shadow under the cover, for depth.
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(s * 0.07),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.7),
+                          blurRadius: s * 0.1,
+                          offset: Offset(s * 0.02, s * 0.03),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                card,
+              ],
             ),
           ),
-        );
+        ),
+      );
+    }
+
     return SizedBox(
       width: s * 1.45,
       height: s * 1.3,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          back(s * 0.5, yf - s * 0.246, 21, 0.6),
-          back(s * 0.237, yf - s * 0.175, 11, 0.8),
-          Positioned(left: 0, top: yf, child: _front(s, false)),
+          back(s * 0.5, yf - s * 0.246, 21, 0.75, s * 0.028),
+          back(s * 0.237, yf - s * 0.175, 11, 0.9, s * 0.011),
+          Positioned(
+            left: 0,
+            top: yf,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(s * 0.07),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.75),
+                          blurRadius: s * 0.12,
+                          offset: Offset(s * 0.015, s * 0.035),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                _front(s, false),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1542,7 +1619,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             top: 0,
             bottom: 0,
             width: edge,
-            child: _flipX(_vBars()),
+            child: _edgeBars(edge, leftEdge: false),
           ),
         Positioned(
           left: w * 0.58,
@@ -1805,13 +1882,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final edge = narrow ? w * 0.07 : w * 0.105;
     final strips = <Widget>[
       if (settings.visualizer) ...[
-        Positioned(left: 0, top: 0, bottom: 0, width: edge, child: _vBars()),
+        Positioned(
+            left: 0, top: 0, bottom: 0, width: edge,
+            child: _edgeBars(edge, leftEdge: true)),
         Positioned(
           right: 0,
           top: 0,
           bottom: 0,
           width: edge,
-          child: _flipX(_vBars()),
+          child: _edgeBars(edge, leftEdge: false),
         ),
       ],
     ];
@@ -2185,7 +2264,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: child,
       builder: (context, c) {
         final b = ((sim.bass - 0.15) / 0.6).clamp(0.0, 1.0).toDouble();
-        return Transform.scale(scale: 1.0 + 0.03 * b, child: c);
+        return Transform.scale(
+            scale: 1.0 + 0.03 * b * settings.kMotion, child: c);
       },
     );
   }
@@ -2212,7 +2292,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           scale: 1.06,
           child: ImageFiltered(
             imageFilter: ui.ImageFilter.blur(sigmaX: s * 0.04, sigmaY: s * 0.04),
-            child: Opacity(opacity: 0.55, child: _artContent(s)),
+            child: Opacity(
+                opacity: (0.75 * settings.kBloom).clamp(0.0, 1.0).toDouble(),
+                child: _artContent(s)),
           ),
         ),
       );
@@ -2367,7 +2449,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 btn(Icons.view_carousel_outlined, 36, _toggleTheme),
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
-                btn(Icons.navigation_rounded, 36, _openNavigation),
+                btn(Icons.navigation_rounded, 36, _startDrive),
                 const SizedBox(width: 12),
                 btn(Icons.skip_previous_rounded, 56, model.previous),
                 btn(

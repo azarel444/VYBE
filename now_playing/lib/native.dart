@@ -20,6 +20,39 @@ class Native {
     }
   }
 
+  /// Starts the Drive overlay. Returns 'ok', 'permission' (draw-over-apps is
+  /// off) or 'nolistener' (notification access is off).
+  static Future<String> startDrive({
+    required String pkg,
+    required bool swap,
+    required double centerFrac,
+    required bool controls,
+    required bool autoClose,
+  }) async {
+    try {
+      return (await _c.invokeMethod<String>('startDrive', {
+            'navPkg': pkg,
+            'swap': swap,
+            'center': centerFrac,
+            'controls': controls,
+            'autoClose': autoClose,
+          })) ??
+          'nolistener';
+    } catch (_) {
+      return 'nolistener';
+    }
+  }
+
+  static Future<void> stopDrive() => _fire('stopDrive');
+
+  static Future<bool> driveRunning() async {
+    try {
+      return (await _c.invokeMethod<bool>('driveRunning')) == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<void> openAccessSettings() => _fire('openAccessSettings');
   static Future<void> openOverlaySettings() => _fire('openOverlaySettings');
 

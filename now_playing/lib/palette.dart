@@ -11,9 +11,9 @@ class ArtPalette {
   const ArtPalette(this.a, this.b, this.c);
 
   static const fallback = ArtPalette(
-    Color(0xFF00E5FF), // cyan
-    Color(0xFFD65CFF), // magenta
-    Color(0xFFFF9A5A), // orange
+    Color(0xFF3DE0D0), // teal
+    Color(0xFF8B5CFF), // violet
+    Color(0xFFFF6FA8), // rose
   );
 
   /// Soft white-blue tints, used when the art has no real color (black and

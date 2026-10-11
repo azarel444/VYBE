@@ -295,21 +295,19 @@ class NowPlayingModel extends ChangeNotifier {
     required bool boot,
     required bool music,
     required int graceSec,
-    required int quietMin,
     required bool allowVideo,
     required bool allowNav,
     required bool avoidNav,
     required String navPkg,
   }) {
     final key =
-        '$boot|$music|$graceSec|$quietMin|$allowVideo|$allowNav|$avoidNav|$navPkg';
+        '$boot|$music|$graceSec|$allowVideo|$allowNav|$avoidNav|$navPkg';
     if (key == _sentLaunch) return;
     _sentLaunch = key;
     _control.invokeMethod('setLaunchSettings', {
       'boot': boot,
       'music': music,
       'graceSec': graceSec,
-      'quietMin': quietMin,
       'allowVideo': allowVideo,
       'allowNav': allowNav,
       'avoidNav': avoidNav,

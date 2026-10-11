@@ -16,7 +16,7 @@ object PlayerFilter {
 
     const val PREFS = "np_prefs"
 
-    private val navApps = setOf(
+    val navApps = setOf(
         "com.google.android.apps.maps", "com.waze", "com.sygic.aura",
         "com.here.app.maps", "net.osmand", "net.osmand.plus",
         "com.tomtom.gplay.navapp", "com.mapfactor.navigator",

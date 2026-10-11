@@ -34,7 +34,11 @@
 ## Using it
 - Tap the screen: controls appear for 5 seconds (theme switch, settings, previous, play/pause, next). A small label shows "live audio" or "simulated" so you can tell which visualizer is running.
 - Themes (the first button cycles them): Focused, Side by Side, VHS, Edge to Edge, Drive, Fan, Diagonal, Record Cut, Typo. The grid button next to it opens a list of all themes.
-- Drive: music on one side and a frame for navigation on the other. The Navigation button asks Android to open your nav app in a window the size of the frame. This needs freeform windows switched on in the head unit (Developer options, "Enable freeform windows") and a nav app that can be resized; otherwise the nav app opens full screen. Settings can swap the sides and change the card width.
+- Drive: VYBE floats over your navigation app. Album art and prev/play/next sit on one side, song info and a visualizer on the other, and the middle stays open for the map. Turn-by-turn text from the nav app's notification shows under the map when available. It needs "Display over other apps" and notification access. Choose Drive, tap Start Drive, and the nav app opens. Tap the X on the overlay to close it; it also closes by itself after guidance ends (Settings > Navigation).
+- Fan has drop shadows and more blur on each cover further back. Visualizers that come off screen edges have a black shadow that fades inward. Record Cut has a large blurred black and white disc behind the record, with the visualizer on its left half.
+- With no album art, VYBE shows an animated night-sky backdrop (still in performance mode).
+- Settings is split into General, Visuals, Launch, Navigation and Permissions. Each effect has its own intensity slider.
+- Auto-open: VYBE opens when you start or change a song, but not when a song ends and the next one plays on its own.
 - Record Cut: a record that turns at 33 1/3 rpm (speeds up when playback starts, slows when it pauses, keeps its angle across tracks), with the visualizer running around its edge. Typo: song info on the left, large lyrics on the right, bars down both edges.
 - After you leave VYBE for another app it will not open by itself for 10 minutes (Settings: Launch), even if a new song starts.
 - First launch shows a splash and a tour that explains each permission before Android asks for it. It can be replayed from Settings under Permissions and privacy.

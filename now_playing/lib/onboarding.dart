@@ -228,8 +228,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               'reads only the title, artist, album and cover of the current '
               'song, and lets you pause and skip.\n\n'
               'It also checks whether a navigation app is guiding, so VYBE '
-              'never opens over your map. For that it looks only at the type '
-              'of notification, not at any text in it.\n\n'
+              'does not open over your map. In the optional Drive mode it '
+              'reads the text of the navigation notification (the next turn) '
+              'to show it on screen. Nothing else is read.\n\n'
               'VYBE does not read your messages, and nothing it sees leaves '
               'your device.',
         );
@@ -289,19 +290,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           body: 'Newer versions of Android do not let an app open itself '
               'while another app is on screen, unless this is allowed. '
               'It is what lets VYBE open when your music starts.\n\n'
-              'VYBE does not draw anything on top of other apps. If you skip '
-              'this, VYBE can still be opened by hand, and auto-open may not '
-              'work on your unit.',
+              'It is also what lets the optional Drive mode draw album art and '
+              'song info over your map app. VYBE draws nothing over other apps '
+              'unless you start Drive. If you skip this, VYBE can still be '
+              'opened by hand, and auto-open may not work on your unit.',
         );
       case 5:
         return _page(
           icon: Icons.play_circle_outline,
           title: 'Opening by itself',
           tag: 'Optional',
-          body: 'VYBE opens only when a music player starts playing. It stays '
-              'out of the way for video, navigation voice and phone calls, and '
-              'it never opens while navigation is guiding. Skipping tracks and '
-              'short pauses never open it.\n\n'
+          body: 'VYBE opens when you start or change a song in a music player. It '
+              'does not open when a song just ends and the next one plays by '
+              'itself. It stays out of the way for video, navigation voice and '
+              'phone calls, and it does not open while navigation is guiding.\n\n'
               'Some head units have their own auto-start manager, which must '
               'also allow VYBE.',
           extra: Column(
@@ -330,7 +332,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           icon: Icons.check_circle_outline,
           title: 'You are set',
           body: 'You can review every permission and change any choice later '
-              'in Settings under "Permissions and privacy". You can also '
+              'in Settings, on the Permissions tab. You can also '
               'replay this tour from there.',
           extra: Column(
             children: [
@@ -494,35 +496,50 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     final showSkip = (optional && !_granted(_step == 2 ? 'audio' : 'overlay')) ||
         (isRequired && !_granted('notification'));
 
-    return Row(
-      children: [
-        if (_step > 0)
-          TextButton(
-            onPressed: _back,
-            child: const Padding(
-              padding: EdgeInsets.all(8),
-              child: Text('Back', style: TextStyle(fontSize: 18)),
+    // A Wrap instead of a Row, so a long label drops to its own line
+    // instead of running off the edge of the screen.
+    return LayoutBuilder(builder: (context, box) {
+      return Wrap(
+        alignment: WrapAlignment.end,
+        runAlignment: WrapAlignment.end,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 12,
+        runSpacing: 8,
+        children: [
+          if (_step > 0)
+            TextButton(
+              onPressed: _back,
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Text('Back', style: TextStyle(fontSize: 18)),
+              ),
+            ),
+          if (showSkip)
+            TextButton(
+              onPressed: _next,
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Text('Skip for now',
+                    style: TextStyle(fontSize: 18, color: Colors.white60)),
+              ),
+            ),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: box.maxWidth),
+            child: ElevatedButton(
+              onPressed: onPressed,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 19),
+                ),
+              ),
             ),
           ),
-        const Spacer(),
-        if (showSkip)
-          TextButton(
-            onPressed: _next,
-            child: const Padding(
-              padding: EdgeInsets.all(8),
-              child: Text('Skip for now',
-                  style: TextStyle(fontSize: 18, color: Colors.white60)),
-            ),
-          ),
-        const SizedBox(width: 12),
-        ElevatedButton(
-          onPressed: onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            child: Text(label, style: const TextStyle(fontSize: 20)),
-          ),
-        ),
-      ],
-    );
+        ],
+      );
+    });
   }
 }

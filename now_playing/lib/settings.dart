@@ -54,9 +54,17 @@ class AppSettings extends ChangeNotifier {
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
-  double effects = 0.7; // strength of the other effects 0 .. 1
   bool bgEffects = true; // slow drift + beat pulse
   bool particles = false;
+  // Strength of each effect, 0 .. 1. Every effect has its own slider.
+  double kGlow = 0.7;
+  double kSweep = 0.7;
+  double kRays = 0.7;
+  double kRipples = 0.7;
+  double kWater = 0.7;
+  double kBloom = 0.7;
+  double kParticles = 1.0;
+  double kMotion = 1.0; // slow drift and beat pulse
   bool performance = false;
   int night = 1; // 0 off, 1 auto (8pm-6am), 2 always
   bool burnIn = true;
@@ -76,9 +84,10 @@ class AppSettings extends ChangeNotifier {
   String navPkg = ''; // navigation app (empty = find one automatically)
   String navLabel = '';
   bool driveSwap = false; // Drive theme: navigation card on the left
-  double driveCardWidth = 0.5; // Drive theme: card width, 0.35 .. 0.65
-  int graceSec = 60; // pause shorter than this is the same listening session
-  int quietMin = 10; // minutes VYBE stays quiet after the person leaves it
+  double driveCardWidth = 0.5; // Drive: share of the screen left open for the map, 0.35 .. 0.65
+  int graceSec = 15; // a pause shorter than this does not reopen VYBE
+  bool driveControls = true; // Drive overlay: show prev/play/next
+  bool driveAutoClose = true; // Drive overlay: close when guidance ends
   bool allowVideo = false; // let video apps open VYBE
   bool allowNavAudio = false; // let navigation audio open VYBE
   bool avoidNav = true; // never open VYBE while navigation is active
@@ -95,11 +104,20 @@ class AppSettings extends ChangeNotifier {
     final bc = p.getInt('barCount') ?? 96;
     barCount = barCounts.contains(bc) ? bc : 96;
     accent = _int(p, 'accent', 0, 0, accents.length - 1);
-    effects = (p.getDouble('effects') ?? 0.7).clamp(0.0, 1.0).toDouble();
+    final oldFx = p.getDouble('effects') ?? 0.7;
     // Older versions had one slider; start the VHS one at that value.
-    vhsEffects = (p.getDouble('vhsEffects') ?? p.getDouble('effects') ?? 0.7)
-        .clamp(0.0, 1.0)
-        .toDouble();
+    vhsEffects =
+        (p.getDouble('vhsEffects') ?? oldFx).clamp(0.0, 1.0).toDouble();
+    double k(String key, double def) =>
+        (p.getDouble(key) ?? def).clamp(0.0, 1.0).toDouble();
+    kGlow = k('kGlow', oldFx);
+    kSweep = k('kSweep', oldFx);
+    kRays = k('kRays', oldFx);
+    kRipples = k('kRipples', oldFx);
+    kWater = k('kWater', oldFx);
+    kBloom = k('kBloom', oldFx);
+    kParticles = k('kParticles', 1.0);
+    kMotion = k('kMotion', 1.0);
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;
     performance = p.getBool('performance') ?? false;
@@ -122,10 +140,10 @@ class AppSettings extends ChangeNotifier {
     driveSwap = p.getBool('driveSwap') ?? false;
     driveCardWidth =
         (p.getDouble('driveCardWidth') ?? 0.5).clamp(0.35, 0.65).toDouble();
-    final g = p.getInt('graceSec') ?? 60;
-    graceSec = const [30, 60, 300].contains(g) ? g : 60;
-    final q = p.getInt('quietMin') ?? 10;
-    quietMin = const [0, 5, 10, 30].contains(q) ? q : 10;
+    final g = p.getInt('graceSec') ?? 15;
+    graceSec = const [0, 15, 30, 60].contains(g) ? g : 15;
+    driveControls = p.getBool('driveControls') ?? true;
+    driveAutoClose = p.getBool('driveAutoClose') ?? true;
     allowVideo = p.getBool('allowVideo') ?? false;
     allowNavAudio = p.getBool('allowNavAudio') ?? false;
     avoidNav = p.getBool('avoidNav') ?? true;
@@ -145,7 +163,14 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('barCount', barCount);
     await p.setInt('accent', accent);
-    await p.setDouble('effects', effects);
+    await p.setDouble('kGlow', kGlow);
+    await p.setDouble('kSweep', kSweep);
+    await p.setDouble('kRays', kRays);
+    await p.setDouble('kRipples', kRipples);
+    await p.setDouble('kWater', kWater);
+    await p.setDouble('kBloom', kBloom);
+    await p.setDouble('kParticles', kParticles);
+    await p.setDouble('kMotion', kMotion);
     await p.setDouble('vhsEffects', vhsEffects);
     await p.setBool('bgEffects', bgEffects);
     await p.setBool('particles', particles);
@@ -169,7 +194,8 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('driveSwap', driveSwap);
     await p.setDouble('driveCardWidth', driveCardWidth);
     await p.setInt('graceSec', graceSec);
-    await p.setInt('quietMin', quietMin);
+    await p.setBool('driveControls', driveControls);
+    await p.setBool('driveAutoClose', driveAutoClose);
     await p.setBool('allowVideo', allowVideo);
     await p.setBool('allowNavAudio', allowNavAudio);
     await p.setBool('avoidNav', avoidNav);

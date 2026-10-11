@@ -396,3 +396,57 @@ class FullRingPainter extends CustomPainter {
       old.count != count ||
       old.gain != gain;
 }
+
+/// Bars along the left half of a circle, growing outward (to the left).
+/// Bass is at the middle of the arc, treble at the top and bottom ends.
+class HalfRingPainter extends CustomPainter {
+  final SpectrumSim sim;
+  final ArtPalette palette;
+  final double innerRadius;
+  final double maxLen;
+  final int count;
+  final double gain;
+
+  HalfRingPainter({
+    required this.sim,
+    required this.palette,
+    required this.innerRadius,
+    required this.maxLen,
+    required this.count,
+    required this.gain,
+    required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final n = count;
+    final width = math.max(2.0, math.pi * innerRadius / n * 0.55).toDouble();
+    final bar = Paint()
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width;
+    for (int i = 0; i < n; i++) {
+      final f = n > 1 ? i / (n - 1) : 0.5; // 0 = bottom end, 1 = top end
+      final ang = math.pi / 2 + math.pi * f; // bottom, left, top
+      final u = (f - 0.5).abs() * 2; // 0 at the middle, 1 at the ends
+      final idx = (u * (SpectrumSim.bars - 1)).round();
+      final len = width + maxLen * sim.level(idx, gain);
+      final cs = math.cos(ang), sn = math.sin(ang);
+      bar.color = palette.at(1 - u);
+      canvas.drawLine(
+        Offset(c.dx + cs * innerRadius, c.dy + sn * innerRadius),
+        Offset(c.dx + cs * (innerRadius + len), c.dy + sn * (innerRadius + len)),
+        bar,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(HalfRingPainter old) =>
+      old.palette != palette ||
+      old.innerRadius != innerRadius ||
+      old.maxLen != maxLen ||
+      old.count != count ||
+      old.gain != gain;
+}

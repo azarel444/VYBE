@@ -8,92 +8,157 @@ import 'settings.dart';
 const _cyan = Color(0xFF00E5FF);
 
 /// Full-screen settings page with large touch targets for head units.
+/// Split into tabs so each page stays short.
 class SettingsScreen extends StatelessWidget {
   final AppSettings settings;
   final NowPlayingModel model;
 
   const SettingsScreen({super.key, required this.settings, required this.model});
 
+  static const _tabNames = [
+    'General',
+    'Visuals',
+    'Launch',
+    'Navigation',
+    'Permissions',
+  ];
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF05070D),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 12, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Image.asset(
-                          'assets/vybe_logo.png',
-                          height: 34,
-                          errorBuilder: (context, error, stack) =>
-                              const SizedBox.shrink(),
-                        ),
-                        const SizedBox(width: 18),
-                        const Text('Settings',
-                            style: TextStyle(
-                                fontSize: 28, fontWeight: FontWeight.w300)),
-                      ],
+    return DefaultTabController(
+      length: _tabNames.length,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF05070D),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 12, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Image.asset(
+                            'assets/vybe_logo.png',
+                            height: 34,
+                            errorBuilder: (context, error, stack) =>
+                                const SizedBox.shrink(),
+                          ),
+                          const SizedBox(width: 18),
+                          const Flexible(
+                            child: Text('Settings',
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 28, fontWeight: FontWeight.w300)),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    iconSize: 38,
-                    padding: const EdgeInsets.all(12),
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
+                    IconButton(
+                      iconSize: 38,
+                      padding: const EdgeInsets.all(12),
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              child: AnimatedBuilder(
-                animation: Listenable.merge([settings, model]),
-                builder: (context, _) => Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 760),
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
-                      children: _items(context),
-                    ),
+              TabBar(
+                isScrollable: true,
+                indicatorColor: _cyan,
+                labelColor: _cyan,
+                unselectedLabelColor: Colors.white60,
+                labelStyle: const TextStyle(fontSize: 19),
+                tabs: [for (final t in _tabNames) Tab(text: t)],
+              ),
+              Expanded(
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([settings, model]),
+                  builder: (context, _) => TabBarView(
+                    children: [
+                      _page(_general(context)),
+                      _page(_visuals(context)),
+                      _page(_launch(context)),
+                      _page(_navigation(context)),
+                      _page(_permissions(context)),
+                    ],
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  List<Widget> _items(BuildContext context) {
-    final s = settings;
-    return [
-      _section('Access'),
-      ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-        title: const Text('Notification access',
-            style: TextStyle(fontSize: 20)),
-        subtitle: Text(
-          model.accessGranted
-              ? 'Granted'
-              : 'Not granted. Needed to see what is playing.',
-          style: TextStyle(
-              fontSize: 15,
-              color: model.accessGranted ? Colors.white60 : Colors.orangeAccent),
-        ),
-        trailing: ElevatedButton(
-          onPressed: model.openAccessSettings,
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-            child: Text('Open settings', style: TextStyle(fontSize: 16)),
+  Widget _page(List<Widget> children) => Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+            children: children,
           ),
         ),
+      );
+
+  // ------------------------------------------------------------------ pages
+
+  List<Widget> _general(BuildContext context) {
+    final s = settings;
+    return [
+      _section('Online (needs an internet connection)'),
+      _switch('Find missing album art',
+          'Searches online when a player does not send a cover',
+          s.artLookup, (v) => s.update(() => s.artLookup = v)),
+      _switch('Synced lyrics',
+          'Shows the current line as it is sung, when the song has lyrics',
+          s.lyrics, (v) => s.update(() => s.lyrics = v)),
+      _section('Screen care'),
+      _choices(
+        'Night mode',
+        const ['Off', 'Auto (8pm to 6am)', 'Always on'],
+        s.night,
+        (i) => s.update(() => s.night = i),
       ),
+      _switch('Burn-in protection',
+          'Moves the layout a few pixels over time',
+          s.burnIn, (v) => s.update(() => s.burnIn = v)),
+      _section('Welcome'),
+      _action(
+        'Welcome tour',
+        'Replay the explanation of each permission',
+        'Replay',
+        () => Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (ctx) => OnboardingScreen(
+            settings: settings,
+            onDone: () => Navigator.of(ctx).pop(),
+          ),
+        )),
+      ),
+    ];
+  }
+
+  List<Widget> _visuals(BuildContext context) {
+    final s = settings;
+    return [
+      _section('Theme and color'),
+      _choices(
+        'Theme',
+        AppSettings.themeNames,
+        s.theme,
+        (i) => s.update(() => s.theme = i),
+      ),
+      _choices(
+        'Accent colors',
+        AppSettings.accentNames,
+        s.accent,
+        (i) => s.update(() => s.accent = i),
+      ),
+      _switch('VHS uses vaporwave colors',
+          'Pink and cyan instead of colors from the album art',
+          s.vhsVaporwave, (v) => s.update(() => s.vhsVaporwave = v)),
       _section('Visualizer'),
       _switch('Show visualizer', 'Turn the bars and ring off completely',
           s.visualizer, (v) => s.update(() => s.visualizer = v)),
@@ -118,25 +183,9 @@ class SettingsScreen extends StatelessWidget {
         AppSettings.barCounts.indexOf(s.barCount),
         (i) => s.update(() => s.barCount = AppSettings.barCounts[i]),
       ),
-      _section('Look'),
-      _choices(
-        'Accent colors',
-        AppSettings.accentNames,
-        s.accent,
-        (i) => s.update(() => s.accent = i),
-      ),
-      _choices(
-        'Theme',
-        AppSettings.themeNames,
-        s.theme,
-        (i) => s.update(() => s.theme = i),
-      ),
-      _switch('VHS uses vaporwave colors',
-          'Pink and cyan instead of colors from the album art',
-          s.vhsVaporwave, (v) => s.update(() => s.vhsVaporwave = v)),
       _section('Effects'),
       _slider(
-        'VHS effect strength',
+        'VHS look strength',
         '${(s.vhsEffects * 100).round()}%',
         s.vhsEffects,
         0.0,
@@ -144,70 +193,55 @@ class SettingsScreen extends StatelessWidget {
         (v) => s.update(() => s.vhsEffects = v, persist: false),
         s.save,
       ),
-      _slider(
-        'Other effects strength',
-        '${(s.effects * 100).round()}%',
-        s.effects,
-        0.0,
-        1.0,
-        (v) => s.update(() => s.effects = v, persist: false),
-        s.save,
-      ),
-      _switch('Background drift and beat pulse',
+      _fx('Background drift and beat pulse',
           'Slow motion behind the art, and a small pulse on bass hits',
-          s.bgEffects, (v) => s.update(() => s.bgEffects = v)),
-      _switch('Floating particles', 'Glowing embers drifting upward',
-          s.particles, (v) => s.update(() => s.particles = v)),
-      _switch('Breathing glow',
+          s.bgEffects, (v) => s.bgEffects = v, s.kMotion, (v) => s.kMotion = v),
+      _fx('Floating particles', 'Glowing embers drifting upward',
+          s.particles, (v) => s.particles = v, s.kParticles,
+          (v) => s.kParticles = v),
+      _fx('Breathing glow',
           'Soft blobs in the album colors drift and swell behind everything',
-          s.fxGlow, (v) => s.update(() => s.fxGlow = v)),
-      _switch('Aurora sweep',
+          s.fxGlow, (v) => s.fxGlow = v, s.kGlow, (v) => s.kGlow = v),
+      _fx('Aurora sweep',
           'Slow bands of the album colors roll across the screen',
-          s.fxSweep, (v) => s.update(() => s.fxSweep = v)),
-      _switch('Light rays',
+          s.fxSweep, (v) => s.fxSweep = v, s.kSweep, (v) => s.kSweep = v),
+      _fx('Light rays',
           'Beams fan out from behind the cover and brighten on bass',
-          s.fxRays, (v) => s.update(() => s.fxRays = v)),
-      _switch('Beat ripples',
-          'Rings spread out from the cover on each beat',
-          s.fxRipples, (v) => s.update(() => s.fxRipples = v)),
-      _switch('Water shimmer',
+          s.fxRays, (v) => s.fxRays = v, s.kRays, (v) => s.kRays = v),
+      _fx('Beat ripples', 'Rings spread out from the cover on each beat',
+          s.fxRipples, (v) => s.fxRipples = v, s.kRipples,
+          (v) => s.kRipples = v),
+      _fx('Water shimmer',
           'Light glints on the lower part of the screen, like a lake',
-          s.fxWater, (v) => s.update(() => s.fxWater = v)),
-      _switch('Soft bloom on the cover',
-          'A blurred glow around the album art',
-          s.fxBloom, (v) => s.update(() => s.fxBloom = v)),
+          s.fxWater, (v) => s.fxWater = v, s.kWater, (v) => s.kWater = v),
+      _fx('Soft bloom on the cover', 'A blurred glow around the album art',
+          s.fxBloom, (v) => s.fxBloom = v, s.kBloom, (v) => s.kBloom = v),
       _switch('Performance mode',
-          'For slower units: turns off all effects above, plus grain, glitch bands, drift and particles',
+          'For slower units: turns off the effects above, plus grain, glitch bands, drift and the animated idle background',
           s.performance, (v) => s.update(() => s.performance = v)),
-      _section('Online (needs an internet connection)'),
-      _switch('Find missing album art',
-          'Searches online when a player does not send a cover',
-          s.artLookup, (v) => s.update(() => s.artLookup = v)),
-      _switch('Synced lyrics',
-          'Shows the current line as it is sung, when the song has lyrics',
-          s.lyrics, (v) => s.update(() => s.lyrics = v)),
-      _section('Launch'),
+    ];
+  }
+
+  List<Widget> _launch(BuildContext context) {
+    final s = settings;
+    return [
+      _section('When VYBE opens by itself'),
       _switch('Open when the unit starts',
           'Some units have their own auto-start manager that must also allow this app',
           s.bootStart, (v) => s.update(() => s.bootStart = v)),
       _switch('Open when music starts',
-          'Brings the app forward when a player begins playing',
+          'Opens VYBE whenever you start or change a song. It does not open when a song simply ends and the next one plays on its own',
           s.musicStart, (v) => s.update(() => s.musicStart = v)),
       _choices(
-        'A pause of this long starts a new session',
-        const ['30 seconds', '1 minute', '5 minutes'],
-        const [30, 60, 300].indexOf(s.graceSec).clamp(0, 2).toInt(),
-        (i) => s.update(() => s.graceSec = const [30, 60, 300][i]),
-      ),
-      _choices(
-        'After I leave VYBE, do not open it by itself for',
-        const ['Off', '5 minutes', '10 minutes', '30 minutes'],
-        const [0, 5, 10, 30].indexOf(s.quietMin).clamp(0, 3).toInt(),
-        (i) => s.update(() => s.quietMin = const [0, 5, 10, 30][i]),
+        'After music has been paused, play opens VYBE again after',
+        const ['Any pause', '15 seconds', '30 seconds', '1 minute'],
+        const [0, 15, 30, 60].indexOf(s.graceSec).clamp(0, 3).toInt(),
+        (i) => s.update(() => s.graceSec = const [0, 15, 30, 60][i]),
       ),
       _switch("Don't open while navigation is guiding",
-          'Looks for the navigation notification, so VYBE never covers your map',
+          'Looks for the navigation notification, so VYBE never covers your map. Tapping a song yourself still counts, but the map wins while guiding',
           s.avoidNav, (v) => s.update(() => s.avoidNav = v)),
+      _section('Which apps may open VYBE'),
       _switch('Also open for video apps',
           'Off by default: only music players open VYBE',
           s.allowVideo, (v) => s.update(() => s.allowVideo = v)),
@@ -222,7 +256,24 @@ class SettingsScreen extends StatelessWidget {
           builder: (_) => const PlayersScreen(),
         )),
       ),
-      _section('Navigation and Drive theme'),
+    ];
+  }
+
+  List<Widget> _navigation(BuildContext context) {
+    final s = settings;
+    return [
+      _section('Drive: VYBE over your map'),
+      const Padding(
+        padding: EdgeInsets.fromLTRB(8, 4, 8, 4),
+        child: Text(
+          'Drive floats album art, controls, song info and the visualizer over '
+          'your navigation app, with the middle of the screen left open for '
+          'the map. Turn-by-turn text appears under the map when your '
+          'navigation app shares it in a notification. Choose the Drive theme '
+          'and tap Start Drive.',
+          style: TextStyle(fontSize: 15, color: Colors.white60, height: 1.4),
+        ),
+      ),
       _action(
         'Navigation app',
         s.navLabel.isEmpty
@@ -231,11 +282,11 @@ class SettingsScreen extends StatelessWidget {
         'Choose',
         () => _pickNavApp(context),
       ),
-      _switch('Swap sides in the Drive theme',
-          'Navigation card on the left and music on the right',
+      _switch('Swap sides',
+          'Song info on the left and album art on the right',
           s.driveSwap, (v) => s.update(() => s.driveSwap = v)),
       _slider(
-        'Navigation card width',
+        'Map area width',
         '${(s.driveCardWidth * 100).round()}%',
         s.driveCardWidth,
         0.35,
@@ -243,45 +294,95 @@ class SettingsScreen extends StatelessWidget {
         (v) => s.update(() => s.driveCardWidth = v, persist: false),
         s.save,
       ),
-      _section('Screen care'),
-      _choices(
-        'Night mode',
-        const ['Off', 'Auto (8pm to 6am)', 'Always on'],
-        s.night,
-        (i) => s.update(() => s.night = i),
-      ),
-      _switch('Burn-in protection',
-          'Moves the layout a few pixels over time',
-          s.burnIn, (v) => s.update(() => s.burnIn = v)),
-      _section('Permissions and privacy'),
-      const _PermissionsPanel(),
+      _switch('Show prev, play and next',
+          'Buttons under the album art in the overlay',
+          s.driveControls, (v) => s.update(() => s.driveControls = v)),
+      _switch('Close Drive when guidance ends',
+          'Removes the overlay shortly after your navigation app stops guiding',
+          s.driveAutoClose, (v) => s.update(() => s.driveAutoClose = v)),
       _action(
-        'Welcome tour',
-        'Replay the explanation of each permission',
-        'Replay',
-        () => Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (ctx) => OnboardingScreen(
-            settings: settings,
-            onDone: () => Navigator.of(ctx).pop(),
-          ),
-        )),
+        'Stop Drive',
+        'Removes the overlay now. You can also tap the X on it',
+        'Stop',
+        () => Native.stopDrive(),
       ),
     ];
   }
 
+  List<Widget> _permissions(BuildContext context) => [
+        _section('Permissions and privacy'),
+        const _PermissionsPanel(),
+      ];
+
+  /// A toggle with its own strength slider underneath while it is on.
+  Widget _fx(String title, String sub, bool on, void Function(bool) setOn,
+      double k, void Function(double) setK) {
+    final s = settings;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _switch(title, sub, on, (v) => s.update(() => setOn(v))),
+        if (on)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 8, 6),
+            child: Row(
+              children: [
+                const Text('Intensity',
+                    style: TextStyle(fontSize: 16, color: Colors.white60)),
+                Expanded(
+                  child: Slider(
+                    value: k.clamp(0.0, 1.0).toDouble(),
+                    activeColor: _cyan,
+                    onChanged: (v) => s.update(() => setK(v), persist: false),
+                    onChangeEnd: (_) => s.save(),
+                  ),
+                ),
+                SizedBox(
+                  width: 52,
+                  child: Text('${(k * 100).round()}%',
+                      textAlign: TextAlign.end,
+                      style:
+                          const TextStyle(fontSize: 16, color: Colors.white70)),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _action(
           String title, String sub, String button, VoidCallback onPressed) =>
-      ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-        title: Text(title, style: const TextStyle(fontSize: 20)),
-        subtitle: Text(sub,
-            style: const TextStyle(fontSize: 15, color: Colors.white60)),
-        trailing: ElevatedButton(
-          onPressed: onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-            child: Text(button, style: const TextStyle(fontSize: 16)),
-          ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+        child: Wrap(
+          spacing: 16,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          alignment: WrapAlignment.spaceBetween,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 20)),
+                  const SizedBox(height: 2),
+                  Text(sub,
+                      style: const TextStyle(
+                          fontSize: 15, color: Colors.white60)),
+                ],
+              ),
+            ),
+            ElevatedButton(
+              onPressed: onPressed,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                child: Text(button, style: const TextStyle(fontSize: 16)),
+              ),
+            ),
+          ],
         ),
       );
 
@@ -435,26 +536,43 @@ class _PermissionsPanelState extends State<_PermissionsPanel>
 
   Widget _row(String title, String why, bool on, String button,
       Future<void> Function() act) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      leading: Icon(on ? Icons.check_circle : Icons.radio_button_unchecked,
-          color: on ? Colors.greenAccent : Colors.white38),
-      title: Text(title, style: const TextStyle(fontSize: 20)),
-      subtitle: Text(why,
-          style: const TextStyle(fontSize: 15, color: Colors.white60)),
-      trailing: on
-          ? null
-          : ElevatedButton(
-              onPressed: () async {
-                await act();
-                _refresh();
-              },
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                child: Text(button, style: const TextStyle(fontSize: 16)),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(on ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: on ? Colors.greenAccent : Colors.white38),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(title, style: const TextStyle(fontSize: 20)),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(36, 4, 0, 0),
+            child: Text(why,
+                style: const TextStyle(fontSize: 15, color: Colors.white60)),
+          ),
+          if (!on)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(36, 8, 0, 0),
+              child: ElevatedButton(
+                onPressed: () async {
+                  await act();
+                  _refresh();
+                },
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                  child: Text(button, style: const TextStyle(fontSize: 16)),
+                ),
               ),
             ),
+        ],
+      ),
     );
   }
 
@@ -464,8 +582,9 @@ class _PermissionsPanelState extends State<_PermissionsPanel>
       children: [
         _row(
           'Notification access',
-          'Reads the title, artist, album and cover of what is playing, and '
-              'checks whether navigation is guiding. Required.',
+          'Reads the title, artist, album and cover of what is playing. In '
+              'Drive mode it also reads the text of your navigation '
+              'notification to show turn-by-turn directions. Required.',
           _p['notification'] == true,
           'Open settings',
           Native.openAccessSettings,
@@ -482,8 +601,9 @@ class _PermissionsPanelState extends State<_PermissionsPanel>
         ),
         _row(
           'Display over other apps',
-          'Lets Android allow VYBE to open itself when music starts. VYBE '
-              'draws nothing over other apps.',
+          'Lets VYBE open itself when you start music, and draw the Drive '
+              'panels over your map. Nothing is drawn over other apps unless '
+              'you start Drive.',
           _p['overlay'] == true,
           'Open settings',
           Native.openOverlaySettings,
