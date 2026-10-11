@@ -407,6 +407,11 @@ class HalfRingPainter extends CustomPainter {
   final int count;
   final double gain;
 
+  /// The direction the bars face, in radians (pi = left, pi / 2 = down), and
+  /// how far the arc reaches to either side of that direction.
+  final double centerAngle;
+  final double span;
+
   HalfRingPainter({
     required this.sim,
     required this.palette,
@@ -415,20 +420,23 @@ class HalfRingPainter extends CustomPainter {
     required this.count,
     required this.gain,
     required Listenable repaint,
+    this.centerAngle = math.pi,
+    this.span = math.pi / 2,
   }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
     final n = count;
-    final width = math.max(2.0, math.pi * innerRadius / n * 0.55).toDouble();
+    final width =
+        math.max(2.0, 2 * span * innerRadius / n * 0.55).toDouble();
     final bar = Paint()
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke
       ..strokeWidth = width;
     for (int i = 0; i < n; i++) {
       final f = n > 1 ? i / (n - 1) : 0.5; // 0 = bottom end, 1 = top end
-      final ang = math.pi / 2 + math.pi * f; // bottom, left, top
+      final ang = centerAngle + (f - 0.5) * 2 * span;
       final u = (f - 0.5).abs() * 2; // 0 at the middle, 1 at the ends
       final idx = (u * (SpectrumSim.bars - 1)).round();
       final len = width + maxLen * sim.level(idx, gain);
@@ -448,5 +456,7 @@ class HalfRingPainter extends CustomPainter {
       old.innerRadius != innerRadius ||
       old.maxLen != maxLen ||
       old.count != count ||
+      old.centerAngle != centerAngle ||
+      old.span != span ||
       old.gain != gain;
 }

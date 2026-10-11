@@ -85,7 +85,7 @@ class AppSettings extends ChangeNotifier {
   String navLabel = '';
   bool driveSwap = false; // Drive theme: navigation card on the left
   double driveCardWidth = 0.5; // Drive: share of the screen left open for the map, 0.35 .. 0.65
-  int graceSec = 15; // a pause shorter than this does not reopen VYBE
+  int graceSec = 0; // a pause shorter than this does not reopen VYBE (0 = any pause reopens)
   bool driveControls = true; // Drive overlay: show prev/play/next
   bool driveAutoClose = true; // Drive overlay: close when guidance ends
   bool allowVideo = false; // let video apps open VYBE
@@ -140,8 +140,8 @@ class AppSettings extends ChangeNotifier {
     driveSwap = p.getBool('driveSwap') ?? false;
     driveCardWidth =
         (p.getDouble('driveCardWidth') ?? 0.5).clamp(0.35, 0.65).toDouble();
-    final g = p.getInt('graceSec') ?? 15;
-    graceSec = const [0, 15, 30, 60].contains(g) ? g : 15;
+    final g = p.getInt('graceSec') ?? 0;
+    graceSec = const [0, 15, 30, 60].contains(g) ? g : 0;
     driveControls = p.getBool('driveControls') ?? true;
     driveAutoClose = p.getBool('driveAutoClose') ?? true;
     allowVideo = p.getBool('allowVideo') ?? false;

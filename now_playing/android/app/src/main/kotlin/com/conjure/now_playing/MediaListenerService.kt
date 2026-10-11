@@ -328,7 +328,7 @@ class MediaListenerService : NotificationListenerService() {
             val e = endedAt[pkg]
             if (e != null && now - e < 8000L) return
             // A short pause followed by play, such as after a voice prompt.
-            val graceMs = prefs.getInt("graceSec", 15) * 1000L
+            val graceMs = prefs.getInt("graceSec", 0) * 1000L
             val last = pausedAt[pkg]
             if (last != null && now - last < graceMs) return
         }

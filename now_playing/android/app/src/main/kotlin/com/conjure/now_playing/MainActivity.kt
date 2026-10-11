@@ -109,7 +109,7 @@ class MainActivity : FlutterActivity() {
                     getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE).edit()
                         .putBoolean("openOnBoot", call.argument<Boolean>("boot") ?: false)
                         .putBoolean("openOnMusic", call.argument<Boolean>("music") ?: false)
-                        .putInt("graceSec", call.argument<Int>("graceSec") ?: 15)
+                        .putInt("graceSec", call.argument<Int>("graceSec") ?: 0)
                         .putBoolean("allowVideo", call.argument<Boolean>("allowVideo") ?: false)
                         .putBoolean("allowNav", call.argument<Boolean>("allowNav") ?: false)
                         .putBoolean("avoidNav", call.argument<Boolean>("avoidNav") ?: true)

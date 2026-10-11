@@ -648,7 +648,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final barsMode = settings.vizStyle == 1;
     final lyricSlot = settings.lyrics ? h * 0.05 : 0.0;
     final textH = h * 0.115 + lyricSlot; // title + artist (+ lyric slot)
-    final wLimit = portrait ? w * 0.54 : w * 0.34;
+    final wLimit = portrait ? (barsMode ? w * 0.8 : w * 0.54) : w * 0.4;
 
     final double art;
     if (barsMode) {
@@ -745,8 +745,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// with the bottom of the art, and the bar reflection lines up with the
   /// art reflection. Song info and lyrics sit above the bars.
   Widget _sideLayout(double w, double h, {required bool vhs}) {
-    final s = math.min(h * 0.6, w * 0.34);
-    final u = s / 0.6; // text scale: equals h unless the screen is narrow
+    final s = math.min(h * 0.62, w * 0.36);
+    final u = s / 0.62; // text scale: equals h unless the screen is narrow
     final artTop = (h - s) / 2;
     final artBottom = artTop + s;
     final barsMax = s * 0.40; // tallest bar
@@ -832,7 +832,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// the lyrics, another divider, and the song info. The whole group is
   /// centered, and scales down if it would not fit.
   Widget _stackedLayout(double w, double h, {required bool vhs}) {
-    final s = math.min(w * 0.6, h * 0.36);
+    final s = math.min(w * 0.66, h * 0.38);
     final cw = w * 0.84;
     final gap = h * 0.018;
     final showAlbum =
@@ -1218,6 +1218,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ------------------------------------------------------------ record cut
 
+  /// Greyscale copy of the cover for the big disc. Lighter than _grayDark so
+  /// the picture still reads through the blur.
+  static const _grayDisc = ColorFilter.matrix(<double>[
+    0.17, 0.57, 0.06, 0, 0, //
+    0.17, 0.57, 0.06, 0, 0, //
+    0.17, 0.57, 0.06, 0, 0, //
+    0, 0, 0, 1, 0, //
+  ]);
+
   /// The turning part: the cover in black and white as the record surface,
   /// grooves over it, and the cover in color as the label. Built once and
   /// handed to the rotation as a cached child.
@@ -1345,18 +1354,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// Size of the whole record block for a record of diameter [d]: the record,
-  /// the big blurred disc behind it, and room for the bars.
-  double _recBox(double d) => d * 1.62;
+  // Record Cut geometry, all measured from the record's diameter d. The big
+  // disc behind it is larger than the record and off-centre, so only a
+  // half circle shows: its edge runs just outside the record, on the side
+  // facing the song info, and fills the rest of that side of the screen.
 
-  /// The record sits on a larger disc of blurred black and white cover art.
-  /// The visualizer runs along the left half of the disc's edge, facing the
-  /// song info.
-  Widget _recordBlock(double d) {
-    final box = _recBox(d);
-    final big = d * 1.34;
+  /// Radius of the big disc. [room] is the screen size across the disc.
+  double _discR(double d, double room) => math.max(d * 1.04, room * 0.56);
+
+  /// Space between the record's edge and the disc's edge.
+  double _discGap(double d) => d * 0.157;
+
+  /// The big disc: black rim, then blurred greyscale cover. Less blurred
+  /// than the screen background so the picture still shows.
+  Widget _recordDisc(double r, double d) {
     final art = model.art;
-    final Widget disc = ClipOval(
+    final big = r * 2;
+    final rim = math.max(4.0, d * 0.03).toDouble();
+    final Widget inner = ClipOval(
       child: art == null
           ? const DecoratedBox(
               decoration: BoxDecoration(
@@ -1366,10 +1381,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             )
           : ColorFiltered(
-              colorFilter: _grayDark,
+              colorFilter: _grayDisc,
               child: ImageFiltered(
                 imageFilter: ui.ImageFilter.blur(
-                    sigmaX: big * 0.03, sigmaY: big * 0.03, tileMode: TileMode.clamp),
+                    sigmaX: r * 0.014, sigmaY: r * 0.014, tileMode: TileMode.clamp),
                 child: Image.memory(
                   art.bytes,
                   width: big,
@@ -1381,93 +1396,176 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
     );
-    return SizedBox(
-      width: box,
-      height: box,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: big,
-            height: big,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white24, width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withOpacity(0.55),
-                    blurRadius: d * 0.08),
-              ],
-            ),
-            child: RepaintBoundary(child: disc),
+    return RepaintBoundary(
+      child: Container(
+        width: big,
+        height: big,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.black,
+          border: Border.all(color: Colors.black, width: rim),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.75), blurRadius: d * 0.1),
+          ],
+        ),
+        child: inner,
+      ),
+    );
+  }
+
+  /// A black glow just outside the disc's edge, so the bars stand out.
+  Widget _discShade(double r, double fade) {
+    final total = (r + fade) * 2;
+    return IgnorePointer(
+      child: Container(
+        width: total,
+        height: total,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: const [Color(0xCC000000), Color(0xCC000000), Color(0x00000000)],
+            stops: [0.0, r / (r + fade), 1.0],
           ),
-          if (settings.visualizer)
-            Positioned.fill(
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  painter: HalfRingPainter(
-                    sim: sim,
-                    palette: _palette,
-                    innerRadius: big / 2 + d * 0.02,
-                    maxLen: d * 0.14,
-                    count: math.max(24, settings.barCount ~/ 2),
-                    gain: settings.sensitivity,
-                    repaint: _tick,
+        ),
+      ),
+    );
+  }
+
+  /// The disc, its glow and the bars along its edge, centered on (cx, cy).
+  /// The bars face [angle] (pi is left, pi / 2 is down) over [room], the
+  /// screen length across the disc, which decides how much of the arc shows.
+  List<Widget> _discStack(double cx, double cy, double r, double d,
+      double room, double angle) {
+    final maxLen = d * 0.16;
+    final fade = maxLen * 1.8;
+    final half = room / 2;
+    final span = half >= r
+        ? math.pi / 2
+        : math.min(math.pi / 2, math.asin(half / r) + 0.05).toDouble();
+    final reach = r + maxLen + 4;
+    return [
+      if (settings.visualizer)
+        Positioned(
+          left: cx - r - fade,
+          top: cy - r - fade,
+          width: (r + fade) * 2,
+          height: (r + fade) * 2,
+          child: _discShade(r, fade),
+        ),
+      Positioned(
+        left: cx - r,
+        top: cy - r,
+        width: r * 2,
+        height: r * 2,
+        child: _recordDisc(r, d),
+      ),
+      if (settings.visualizer)
+        Positioned(
+          left: cx - reach,
+          top: cy - reach,
+          width: reach * 2,
+          height: reach * 2,
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: HalfRingPainter(
+                sim: sim,
+                palette: _palette,
+                innerRadius: r + 2,
+                maxLen: maxLen,
+                count: math.max(24, settings.barCount ~/ 2),
+                gain: settings.sensitivity,
+                repaint: _tick,
+                centerAngle: angle,
+                span: span,
+              ),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  Widget _recordLayout(double w, double h, bool narrow) {
+    if (narrow) {
+      // Portrait: the record at the top, the disc's lower edge just below it,
+      // and the bars hang down from that edge toward the song info.
+      final d = math.min(w * 0.62, h * 0.30).toDouble();
+      final r = _discR(d, w);
+      final rcy = h * 0.04 + d / 2;
+      final discBottom = rcy + d / 2 + _discGap(d);
+      final cy = discBottom - r;
+      final maxLen = d * 0.16;
+      return Stack(
+        children: [
+          ..._discStack(w / 2, cy, r, d, w, math.pi / 2),
+          Positioned(
+            left: w / 2 - d / 2,
+            top: rcy - d / 2,
+            width: d,
+            height: d,
+            child: GestureDetector(
+              key: _artKey,
+              behavior: HitTestBehavior.opaque,
+              onTap: _openPlayer,
+              child: _vinyl(d),
+            ),
+          ),
+          Positioned(
+            left: w * 0.06,
+            right: w * 0.06,
+            top: discBottom + maxLen + h * 0.02,
+            bottom: h * 0.02,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: SizedBox(
+                  width: w * 0.88,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _title(h * 0.05, Alignment.center, false),
+                      SizedBox(height: h * 0.01),
+                      _artist(h * 0.022, Alignment.center, false),
+                      if (_hasLyrics) ...[
+                        SizedBox(height: h * 0.02),
+                        _lyricBlock(h * 0.75, Alignment.center, vhs: false),
+                      ],
+                    ],
                   ),
                 ),
               ),
             ),
-          GestureDetector(
+          ),
+        ],
+      );
+    }
+    // Landscape: the record sits to the right, the disc's left edge runs
+    // just outside it and the bars come off that curve.
+    final d = math.min(h * 0.72, w * 0.36).toDouble();
+    final r = _discR(d, h);
+    final rcx = w - d * 0.64;
+    final cx = rcx - d / 2 - _discGap(d) + r;
+    final cy = h / 2;
+    final maxLen = d * 0.16;
+    return Stack(
+      children: [
+        ..._discStack(cx, cy, r, d, h, math.pi),
+        Positioned(
+          left: rcx - d / 2,
+          top: cy - d / 2,
+          width: d,
+          height: d,
+          child: GestureDetector(
             key: _artKey,
             behavior: HitTestBehavior.opaque,
             onTap: _openPlayer,
             child: _vinyl(d),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _recordLayout(double w, double h, bool narrow) {
-    if (narrow) {
-      final d = math.min(w * 0.46, h * 0.27).toDouble();
-      return Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: SizedBox(
-            width: w * 0.9,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _recordBlock(d),
-                SizedBox(height: h * 0.02),
-                _title(h * 0.05, Alignment.center, false),
-                SizedBox(height: h * 0.01),
-                _artist(h * 0.022, Alignment.center, false),
-                if (_hasLyrics) ...[
-                  SizedBox(height: h * 0.02),
-                  _lyricBlock(h * 0.75, Alignment.center, vhs: false),
-                ],
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-    final d = math.min(h * 0.6, w * 0.3).toDouble();
-    final box = _recBox(d);
-    return Stack(
-      children: [
-        Positioned(
-          right: w * 0.03,
-          top: (h - box) / 2,
-          width: box,
-          height: box,
-          child: _recordBlock(d),
         ),
         Positioned(
           left: w * 0.06,
-          right: w * 0.05 + box,
+          width: math.max(w * 0.2, cx - r - maxLen - w * 0.08),
           top: 0,
           bottom: 0,
           child: Column(
@@ -1582,7 +1680,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _fanLayout(double w, double h, bool narrow) {
     if (narrow) {
-      final s = math.min(w * 0.46, h * 0.27).toDouble();
+      final s = math.min(w * 0.62, h * 0.36).toDouble();
       return Center(
         child: FittedBox(
           fit: BoxFit.scaleDown,
@@ -1608,11 +1706,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
     }
-    final s = math.min(w * 0.37, h * 0.8).toDouble();
+    // As big as the height allows, so the stack fills the screen top to
+    // bottom; the song info moves right to make room if it has to.
+    final s = math.min(h * 0.72, w * 0.40).toDouble();
     final edge = w * 0.105;
+    final textLeft = math.max(w * 0.58, s * 1.45 + w * 0.03).toDouble();
     return Stack(
       children: [
-        Positioned(left: 0, top: h - s * 1.25, child: _fanCards(s)),
+        Positioned(left: 0, top: (h - s * 1.25) / 2, child: _fanCards(s)),
         if (settings.visualizer)
           Positioned(
             right: 0,
@@ -1622,7 +1723,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: _edgeBars(edge, leftEdge: false),
           ),
         Positioned(
-          left: w * 0.58,
+          left: textLeft,
           right: edge + w * 0.03,
           top: 0,
           bottom: 0,
@@ -2083,21 +2184,60 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return SizedBox(
       height: height,
       width: double.infinity,
-      child: RepaintBoundary(
-        child: CustomPaint(
-          painter: BarsPainter(
-            sim: sim,
-            palette: _palette,
-            count: settings.barCount,
-            gain: settings.sensitivity,
-            blocky: blocky,
-            baseFrac: baseFrac,
-            repaint: _tick,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Soft black oval behind the bars, faded on every side so it never
+          // reads as a rectangle.
+          Positioned(
+            left: -height * 0.9,
+            right: -height * 0.9,
+            top: -height * 0.35,
+            bottom: -height * 0.15,
+            child: IgnorePointer(child: _softShade()),
           ),
-        ),
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: BarsPainter(
+                  sim: sim,
+                  palette: _palette,
+                  count: settings.barCount,
+                  gain: settings.sensitivity,
+                  blocky: blocky,
+                  baseFrac: baseFrac,
+                  repaint: _tick,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  /// A black oval that is darkest in the middle and fades out all round.
+  Widget _softShade() => RepaintBoundary(
+        child: LayoutBuilder(
+          builder: (context, box) {
+            final hh = math.max(1.0, box.maxHeight).toDouble();
+            final sx = math.max(1.0, box.maxWidth) / hh;
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: const [
+                    Color(0xB8000000),
+                    Color(0x73000000),
+                    Color(0x00000000),
+                  ],
+                  stops: const [0.0, 0.55, 1.0],
+                  transform: _EllipseStretch(sx),
+                ),
+              ),
+            );
+          },
+        ),
+      );
 
   // ------------------------------------------------------------------- pieces
 
@@ -2329,7 +2469,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       key: ValueKey<Object>(model.art ?? 'placeholder'),
                       alignment: Alignment.center,
                       transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
-                      child: _artContent(s),
+                      // Same rounded corners and stroke as the cover.
+                      child: Container(
+                        width: s,
+                        height: s,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(s * 0.07),
+                          border: Border.all(
+                              color: _palette.a.withOpacity(0.85), width: 1.5),
+                        ),
+                        child: _artContent(s),
+                      ),
                     ),
                   ),
                 ),
@@ -2602,5 +2752,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _fmt(int ms) {
     final s = ms ~/ 1000;
     return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+  }
+}
+
+/// Stretches a radial gradient sideways so it fills a wide box as an oval.
+class _EllipseStretch extends GradientTransform {
+  final double sx;
+  const _EllipseStretch(this.sx);
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    final c = bounds.center;
+    return Matrix4.translationValues(c.dx, c.dy, 0.0) *
+        Matrix4.diagonal3Values(sx, 1.0, 1.0) *
+        Matrix4.translationValues(-c.dx, -c.dy, 0.0);
   }
 }
