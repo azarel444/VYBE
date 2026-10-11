@@ -266,11 +266,11 @@ class SettingsScreen extends StatelessWidget {
       const Padding(
         padding: EdgeInsets.fromLTRB(8, 4, 8, 4),
         child: Text(
-          'Drive floats album art, controls, song info and the visualizer over '
-          'your navigation app, with the middle of the screen left open for '
-          'the map. Turn-by-turn text appears under the map when your '
-          'navigation app shares it in a notification. Choose the Drive theme '
-          'and tap Start Drive.',
+          'Choosing the Drive theme opens your navigation app and puts the '
+          'fully themed VYBE screen in front of it, with a window in the '
+          'middle where the live map shows. Tap the screen for controls: the '
+          'map button hides VYBE so you can use the map, and the X goes back '
+          'to normal VYBE.',
           style: TextStyle(fontSize: 15, color: Colors.white60, height: 1.4),
         ),
       ),

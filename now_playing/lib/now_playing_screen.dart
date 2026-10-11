@@ -15,7 +15,10 @@ import 'spectrum.dart';
 import 'theme_parts.dart';
 
 class NowPlayingScreen extends StatefulWidget {
-  const NowPlayingScreen({super.key});
+  /// True when this is the see-through Drive window that sits over the map.
+  final bool driveHost;
+
+  const NowPlayingScreen({super.key, this.driveHost = false});
 
   @override
   State<NowPlayingScreen> createState() => _NowPlayingScreenState();
@@ -62,6 +65,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   ArtPalette? _lastArtPalette;
   double _artNullSince = -1;
 
+  // Drive: selecting the Drive theme starts it. These stop the first load
+  // (and a reload after coming back) from counting as a selection.
+  bool _themeReady = false;
+  int _prevTheme = -1;
+  bool _hostReady = false;
+
   bool _showControls = false;
   Timer? _hideTimer;
   Timer? _clockTimer;
@@ -103,7 +112,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (mounted) setState(() => _noise = img);
     });
     _updateClock();
-    settings.load();
+    settings.load().then((_) {
+      if (!mounted) return;
+      if (widget.driveHost) {
+        // The Drive window always shows the Drive theme.
+        settings.update(() => settings.theme = 4, persist: false);
+        _hostReady = true;
+      } else {
+        _prevTheme = settings.theme;
+        _themeReady = true;
+      }
+    });
   }
 
   @override
@@ -122,7 +141,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) model.refresh();
+    if (state == AppLifecycleState.resumed) {
+      model.refresh();
+      // The Drive window may have changed the theme while VYBE was away.
+      if (!widget.driveHost && _themeReady) settings.load();
+    }
   }
 
   void _onModel() {
@@ -150,6 +173,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       navPkg: settings.navPkg,
     );
     _updateClock();
+    if (widget.driveHost) {
+      // Picking any other theme in the Drive window goes back to normal VYBE.
+      if (_hostReady && settings.theme != 4) _exitDrive();
+    } else if (_themeReady) {
+      if (settings.theme == 4 && _prevTheme != 4) _startDrive();
+      _prevTheme = settings.theme;
+    }
     setState(() {});
   }
 
@@ -321,9 +351,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final fx = vhs ? settings.vhsEffects : 0.0;
     final heavy = !settings.performance;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
+    Widget content(bool controlsInside) => GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _toggleControls,
         onHorizontalDragEnd: (d) {
@@ -400,10 +428,46 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             if (_night)
               const IgnorePointer(child: ColoredBox(color: Color(0x80000000))),
             _progressLine(),
-            if (_showControls) _controls(),
+            if (controlsInside && _showControls) _controls(),
           ],
         ),
-      ),
+      );
+
+    if (!widget.driveHost) {
+      return Scaffold(backgroundColor: Colors.black, body: content(true));
+    }
+
+    // Drive host: this window is see-through. Everything is drawn except a
+    // rounded hole, so the map app underneath shows there.
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: LayoutBuilder(builder: (context, box) {
+        final w = box.maxWidth, h = box.maxHeight;
+        final hole = _driveHole(w, h, w < h * 1.3);
+        final radius = h * 0.03;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipPath(
+              clipper: _HoleClipper(hole, radius),
+              child: content(false),
+            ),
+            IgnorePointer(
+              child: CustomPaint(
+                painter: _HoleBorderPainter(hole, radius, _palette.a),
+              ),
+            ),
+            Positioned.fromRect(
+              rect: hole,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggleControls,
+              ),
+            ),
+            if (_showControls) _controls(),
+          ],
+        );
+      }),
     );
   }
 
@@ -873,37 +937,40 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ------------------------------------------------------------------ drive
 
-  /// Starts the Drive overlay: VYBE drawn over the navigation app, with the
-  /// middle of the screen left open for the map. Then opens the map app.
+  /// Starts Drive: opens the map app, then puts VYBE's see-through Drive
+  /// window in front of it so the map shows in the middle.
   Future<void> _startDrive() async {
-    final r = await Native.startDrive(
-      pkg: settings.navPkg,
-      swap: settings.driveSwap,
-      centerFrac: settings.driveCardWidth,
-      controls: settings.driveControls,
-      autoClose: settings.driveAutoClose,
-    );
+    final r = await Native.startDriveScreen(pkg: settings.navPkg);
     if (!mounted) return;
     String? msg;
     if (r == 'permission') {
       msg = 'Allow "Display over other apps" for VYBE first (Settings > Permissions).';
       Native.openOverlaySettings();
-    } else if (r == 'nolistener') {
-      msg = 'Turn on notification access for VYBE first (Settings > Permissions).';
-    } else {
-      final nav = await Native.launchNavigation(settings.navPkg, null);
-      if (!mounted) return;
-      if (nav == 'nopkg') {
-        msg = 'Drive is on. Choose a navigation app in Settings, then open it.';
-      } else if (nav == 'none') {
-        msg = 'Drive is on, but the navigation app could not be opened.';
-      }
+    } else if (r == 'nopkg') {
+      msg = 'Choose a navigation app in Settings > Navigation first.';
+    } else if (r == 'none') {
+      msg = 'The navigation app could not be opened.';
     }
     if (msg != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
       );
     }
+  }
+
+  /// Leaves the Drive window and goes back to normal VYBE.
+  void _exitDrive() => Native.exitDrive();
+
+  /// Hides the Drive window so the map app can be touched.
+  void _hideDrive() => Native.hideDrive();
+
+  /// Where the map shows through in the Drive window.
+  Rect _driveHole(double w, double h, bool narrow) {
+    if (narrow) {
+      return Rect.fromLTRB(w * 0.04, h * 0.3 + w * 0.04, w * 0.96, h - w * 0.04);
+    }
+    final cw = w * settings.driveCardWidth;
+    return Rect.fromLTWH((w - cw) / 2, h * 0.04, cw, h * 0.92);
   }
 
   /// A preview of the Drive layout and the button that starts it. The real
@@ -937,6 +1004,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ),
     );
+    if (widget.driveHost) {
+      // The map shows through here; the border is drawn on top separately.
+      if (narrow) {
+        return Column(
+          children: [
+            SizedBox(height: h * 0.3, child: Center(child: _front(h * 0.24, false))),
+            const Expanded(child: SizedBox()),
+          ],
+        );
+      }
+      return Row(
+        children: [
+          swap ? infoSide : artSide,
+          SizedBox(width: w * frac),
+          swap ? artSide : infoSide,
+        ],
+      );
+    }
     final cut = Container(
       width: w * frac,
       margin: EdgeInsets.symmetric(vertical: h * 0.04),
@@ -2599,7 +2684,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 btn(Icons.view_carousel_outlined, 36, _toggleTheme),
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
-                btn(Icons.navigation_rounded, 36, _startDrive),
+                if (widget.driveHost) ...[
+                  btn(Icons.map_outlined, 36, _hideDrive),
+                  btn(Icons.close_rounded, 36, _exitDrive),
+                ] else
+                  btn(Icons.navigation_rounded, 36, _startDrive),
                 const SizedBox(width: 12),
                 btn(Icons.skip_previous_rounded, 56, model.previous),
                 btn(
@@ -2767,4 +2856,46 @@ class _EllipseStretch extends GradientTransform {
         Matrix4.diagonal3Values(sx, 1.0, 1.0) *
         Matrix4.translationValues(-c.dx, -c.dy, 0.0);
   }
+}
+
+/// Clips away a rounded rectangle so whatever is behind the window shows.
+class _HoleClipper extends CustomClipper<Path> {
+  final Rect hole;
+  final double radius;
+  const _HoleClipper(this.hole, this.radius);
+
+  @override
+  Path getClip(Size size) {
+    return Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Offset.zero & size)
+      ..addRRect(RRect.fromRectAndRadius(hole, Radius.circular(radius)));
+  }
+
+  @override
+  bool shouldReclip(_HoleClipper old) =>
+      old.hole != hole || old.radius != radius;
+}
+
+/// The thin accent border around the map window.
+class _HoleBorderPainter extends CustomPainter {
+  final Rect hole;
+  final double radius;
+  final Color color;
+  const _HoleBorderPainter(this.hole, this.radius, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(hole, Radius.circular(radius)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = color.withOpacity(0.7),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_HoleBorderPainter old) =>
+      old.hole != hole || old.radius != radius || old.color != color;
 }

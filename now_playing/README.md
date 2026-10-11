@@ -12,6 +12,7 @@
    - `android/app/src/main/AndroidManifest.xml`
    - `android/app/src/main/kotlin/com/conjure/now_playing/` (MainActivity.kt, MediaListenerService.kt, PlayerFilter.kt, BootReceiver.kt)
    - `android/app/src/main/res/mipmap-*` (the app icon)
+   - `android/app/src/main/res/values/vybe_drive.xml` (the see-through Drive window theme)
 
 4. If the build complains about minSdk, open `android/app/build.gradle`
    (or `build.gradle.kts`) and set `minSdk` to 21.
@@ -34,7 +35,7 @@
 ## Using it
 - Tap the screen: controls appear for 5 seconds (theme switch, settings, previous, play/pause, next). A small label shows "live audio" or "simulated" so you can tell which visualizer is running.
 - Themes (the first button cycles them): Focused, Side by Side, VHS, Edge to Edge, Drive, Fan, Diagonal, Record Cut, Typo. The grid button next to it opens a list of all themes.
-- Drive: VYBE floats over your navigation app. Album art and prev/play/next sit on one side, song info and a visualizer on the other, and the middle stays open for the map. Turn-by-turn text from the nav app's notification shows under the map when available. It needs "Display over other apps" and notification access. Choose Drive, tap Start Drive, and the nav app opens. Tap the X on the overlay to close it; it also closes by itself after guidance ends (Settings > Navigation).
+- Drive: choosing the Drive theme opens your map app and then puts VYBE's fully themed screen in front of it, with a rounded see-through window in the middle where the live map shows. You can look at the map there but not touch it; tap the screen for controls, use the map button to hide VYBE and use the map, and the X to go back to normal VYBE. Picking any other theme in the Drive screen also goes back. Needs "Display over other apps". Turn-by-turn text is the map app's own, shown in the window.
 - Fan has drop shadows and more blur on each cover further back. Visualizers that come off screen edges have a black shadow that fades inward. Record Cut has a large blurred black and white disc behind the record, with the visualizer on its left half.
 - With no album art, VYBE shows an animated night-sky backdrop (still in performance mode).
 - Settings is split into General, Visuals, Launch, Navigation and Permissions. Each effect has its own intensity slider.

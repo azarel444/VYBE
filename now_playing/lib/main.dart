@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,11 +10,15 @@ import 'onboarding.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  runApp(const NowPlayingApp());
+  // The see-through Drive window starts the same app on the '/drive' route.
+  final driveHost = ui.PlatformDispatcher.instance.defaultRouteName == '/drive';
+  runApp(NowPlayingApp(driveHost: driveHost));
 }
 
 class NowPlayingApp extends StatelessWidget {
-  const NowPlayingApp({super.key});
+  final bool driveHost;
+
+  const NowPlayingApp({super.key, this.driveHost = false});
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +30,8 @@ class NowPlayingApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.black,
         useMaterial3: false,
       ),
-      home: const _Root(),
+      initialRoute: '/',
+      home: driveHost ? const NowPlayingScreen(driveHost: true) : const _Root(),
     );
   }
 }

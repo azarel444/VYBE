@@ -17,6 +17,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterActivityLaunchConfigs
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -31,7 +32,7 @@ import kotlin.math.hypot
 import kotlin.math.log10
 import kotlin.math.pow
 
-class MainActivity : FlutterActivity() {
+open class MainActivity : FlutterActivity() {
 
     private var sink: EventChannel.EventSink? = null
     private var manager: MediaSessionManager? = null
@@ -132,6 +133,48 @@ class MainActivity : FlutterActivity() {
                         else -> { svc.startDrive(); result.success("ok") }
                     }
                 }
+                "startDriveScreen" -> {
+                    if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+                        result.success("permission")
+                    } else {
+                        val pkg = call.argument<String>("navPkg") ?: ""
+                        getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE).edit()
+                            .putString("navPkg", pkg).apply()
+                        val nav = launchNavigation(pkg, null)
+                        if (nav == "nopkg" || nav == "none") {
+                            result.success(nav)
+                        } else {
+                            // Give the map app a moment to come up, then put the
+                            // see-through Drive window in front of it.
+                            val app = applicationContext
+                            mainHandler.postDelayed({
+                                try {
+                                    val i = FlutterActivity
+                                        .NewEngineIntentBuilder(DriveActivity::class.java)
+                                        .initialRoute("/drive")
+                                        .backgroundMode(
+                                            FlutterActivityLaunchConfigs.BackgroundMode.transparent)
+                                        .build(app)
+                                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    app.startActivity(i)
+                                } catch (_: Exception) {
+                                }
+                            }, 1200L)
+                            result.success("ok")
+                        }
+                    }
+                }
+                "exitDrive" -> {
+                    try {
+                        startActivity(
+                            Intent(this, MainActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        )
+                    } catch (_: Exception) {}
+                    if (this is DriveActivity) finish()
+                    result.success(null)
+                }
+                "hideDrive" -> { moveTaskToBack(true); result.success(null) }
                 "stopDrive" -> { MediaListenerService.instance?.stopDrive(); result.success(null) }
                 "driveRunning" -> result.success(MediaListenerService.instance?.driveRunning() == true)
                 "getPlayers" -> result.success(getPlayers())
@@ -535,13 +578,16 @@ class MainActivity : FlutterActivity() {
     // VYBE can be paused (another window has focus) but still visible.
     override fun onStart() {
         super.onStart()
+        started++
         visible = true
         MediaListenerService.instance?.vybeVisible(true)
     }
 
     override fun onStop() {
-        visible = false
-        MediaListenerService.instance?.vybeVisible(false)
+        // Either VYBE screen counts: the normal one or the Drive window.
+        started = maxOf(0, started - 1)
+        visible = started > 0
+        MediaListenerService.instance?.vybeVisible(visible)
         stopVisualizer()
         super.onStop()
     }
@@ -549,6 +595,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         @Volatile
         var visible = false
+        private var started = 0
 
         private const val BANDS = 96
         private const val REQ_AUDIO = 4711
@@ -561,3 +608,6 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 }
+
+/** The see-through Drive window. It runs the same app on the '/drive' route. */
+class DriveActivity : MainActivity()

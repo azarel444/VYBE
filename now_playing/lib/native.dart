@@ -43,6 +43,23 @@ class Native {
     }
   }
 
+  /// Opens the map app, then puts VYBE's see-through Drive window in front of
+  /// it. Returns 'ok', 'permission', 'nopkg' or 'none'.
+  static Future<String> startDriveScreen({required String pkg}) async {
+    try {
+      return (await _c.invokeMethod<String>('startDriveScreen', {'navPkg': pkg})) ??
+          'none';
+    } catch (_) {
+      return 'none';
+    }
+  }
+
+  /// Closes the Drive window and goes back to normal VYBE.
+  static Future<void> exitDrive() => _fire('exitDrive');
+
+  /// Sends the Drive window to the back so the map app can be touched.
+  static Future<void> hideDrive() => _fire('hideDrive');
+
   static Future<void> stopDrive() => _fire('stopDrive');
 
   static Future<bool> driveRunning() async {

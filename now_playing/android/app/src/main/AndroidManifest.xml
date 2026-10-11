@@ -36,6 +36,24 @@
             </intent-filter>
         </activity>
 
+        <!-- The see-through Drive window. Its own task, so the map app is the
+             window right behind it. -->
+        <activity
+            android:name=".DriveActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.conjure.now_playing.drive"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:theme="@style/DriveTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/DriveTheme" />
+        </activity>
+
         <service
             android:name=".MediaListenerService"
             android:label="VYBE"
