@@ -110,6 +110,9 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
+    // The Drive overlay uses a separate Flutter engine with its own cache.
+    // Refresh from Android storage before reading changes made by that engine.
+    await p.reload();
     theme = _int(p, 'theme', 0, 0, themeNames.length - 1);
     visualizer = p.getBool('visualizer') ?? true;
     sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
@@ -178,6 +181,11 @@ class AppSettings extends ChangeNotifier {
   int _int(SharedPreferences p, String key, int def, int lo, int hi) {
     final v = p.getInt(key) ?? def;
     return (v < lo || v > hi) ? def : v;
+  }
+
+  Future<void> saveTheme() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('theme', theme);
   }
 
   Future<void> save() async {

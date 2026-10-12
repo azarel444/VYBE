@@ -48,7 +48,9 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     // Notify the UI immediately, but do not start an unawaited settings save.
     // The Drive activity and the normal activity use separate Flutter engines.
     widget.settings.update(() => widget.settings.theme = id, persist: false);
-    await widget.settings.save();
+    // Persist only the changed theme: writing every setting from the Drive
+    // engine could overwrite newer values from the normal player engine.
+    await widget.settings.saveTheme();
     if (!mounted) return;
     Navigator.of(context).pop(id);
   }
