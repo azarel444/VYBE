@@ -177,6 +177,15 @@ class SettingsScreen extends StatelessWidget {
         s.vizStyle,
         (i) => s.update(() => s.vizStyle = i),
       ),
+      _slider(
+        'Background contrast',
+        '${(s.bgContrast * 100).round()}%',
+        s.bgContrast,
+        1.0,
+        2.0,
+        (v) => s.update(() => s.bgContrast = v, persist: false),
+        s.save,
+      ),
       _choices(
         'Number of bars',
         AppSettings.barCounts.map((e) => '$e').toList(),
@@ -310,6 +319,18 @@ class SettingsScreen extends StatelessWidget {
         (v) => s.update(() => s.driveCardWidth = v, persist: false),
         s.save,
       ),
+      _slider(
+        'Visualizer height',
+        '${(s.driveBarsH * 100).round()}%',
+        s.driveBarsH,
+        0.08,
+        0.26,
+        (v) => s.update(() => s.driveBarsH = v, persist: false),
+        s.save,
+      ),
+      _switch('Return to VYBE button',
+          'A small floating button over the map app while VYBE is hidden. Tap it to bring VYBE back; drag it to move it. Uses the display-over-other-apps permission',
+          s.driveBubble, (v) => s.update(() => s.driveBubble = v)),
       _switch('Show prev, play and next',
           'Buttons under the album art in the overlay',
           s.driveControls, (v) => s.update(() => s.driveControls = v)),
@@ -618,8 +639,8 @@ class _PermissionsPanelState extends State<_PermissionsPanel>
         _row(
           'Display over other apps',
           'Lets VYBE open itself when you start music, and draw the Drive '
-              'panels over your map. Nothing is drawn over other apps unless '
-              'you start Drive.',
+              'panels and the small "return to VYBE" button over your map. '
+              'Nothing is drawn over other apps unless you start Drive.',
           _p['overlay'] == true,
           'Open settings',
           Native.openOverlaySettings,

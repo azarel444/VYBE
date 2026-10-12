@@ -58,7 +58,20 @@ class Native {
   static Future<void> exitDrive() => _fire('exitDrive');
 
   /// Sends the Drive window to the back so the map app can be touched.
-  static Future<void> hideDrive() => _fire('hideDrive');
+  static Future<void> hideDrive({bool bubble = false}) async {
+    try {
+      await _c.invokeMethod('hideDrive', {'bubble': bubble});
+    } catch (_) {}
+  }
+
+  /// True while the navigation app is showing turn-by-turn guidance.
+  static Future<bool> navActive() async {
+    try {
+      return (await _c.invokeMethod<bool>('navActive')) == true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static Future<void> stopDrive() => _fire('stopDrive');
 

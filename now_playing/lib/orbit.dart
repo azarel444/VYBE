@@ -28,28 +28,34 @@ class OrbitRaysPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final t = clock.t;
     final reach = size.longestSide * 1.2;
-    final path = Path();
-    for (int i = 0; i < _n; i++) {
-      final base = i * 2 * math.pi / _n + t * 0.012;
-      final half =
-          (i.isEven ? 0.13 : 0.075) + 0.02 * math.sin(t * 0.2 + i.toDouble());
-      path.moveTo(center.dx, center.dy);
-      path.lineTo(center.dx + math.cos(base - half) * reach,
-          center.dy + math.sin(base - half) * reach);
-      path.lineTo(center.dx + math.cos(base + half) * reach,
-          center.dy + math.sin(base + half) * reach);
-      path.close();
-    }
     final a = _c01(0.20 + 0.14 * clock.bass);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          center,
-          reach * 0.6,
-          [palette.a.withOpacity(a), palette.a.withOpacity(0)],
-        ),
+    // Each wedge is drawn as several narrower copies stacked on each other,
+    // so the light is strongest down the middle and fades to nothing at the
+    // sides. No wedge has a hard straight edge.
+    const layers = 8;
+    final shader = ui.Gradient.radial(
+      center,
+      reach * 0.6,
+      [palette.a.withOpacity(a * 0.9 / layers * 1.4), palette.a.withOpacity(0)],
     );
+    final paint = Paint()..shader = shader;
+    for (int k = 0; k < layers; k++) {
+      final f = 1.0 - k / layers;
+      final path = Path();
+      for (int i = 0; i < _n; i++) {
+        final base = i * 2 * math.pi / _n + t * 0.012;
+        final half = ((i.isEven ? 0.13 : 0.075) +
+                0.02 * math.sin(t * 0.2 + i.toDouble())) *
+            f;
+        path.moveTo(center.dx, center.dy);
+        path.lineTo(center.dx + math.cos(base - half) * reach,
+            center.dy + math.sin(base - half) * reach);
+        path.lineTo(center.dx + math.cos(base + half) * reach,
+            center.dy + math.sin(base + half) * reach);
+        path.close();
+      }
+      canvas.drawPath(path, paint);
+    }
   }
 
   @override
@@ -138,18 +144,37 @@ class OrbitRingsPainter extends CustomPainter {
       final pos = Offset(center.dx + math.cos(ang) * rad,
           center.dy + math.sin(ang) * rad);
       final r = artR * _orbSize[i] * (1 + 0.25 * bass);
+      // Each orb takes one of the three album colors, lightened.
+      final oc = palette.colors[i % 3];
+      final ol = Color.lerp(oc, Colors.white, 0.55)!;
       p.style = PaintingStyle.fill;
-      p.color = main.withOpacity(0.10);
+      p.color = oc.withOpacity(0.10);
       canvas.drawCircle(pos, r * 3.2, p);
-      p.color = main.withOpacity(0.22);
+      p.color = oc.withOpacity(0.22);
       canvas.drawCircle(pos, r * 1.9, p);
-      p.color = light.withOpacity(0.95);
+      p.color = ol.withOpacity(0.95);
       canvas.drawCircle(pos, r, p);
       p
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.0
-        ..color = light.withOpacity(0.5);
+        ..color = ol.withOpacity(0.5);
       canvas.drawCircle(pos, r * 2.2, p);
+      if (!lite) {
+        // A light that runs around the halo ring.
+        final sp = (i.isEven ? 1.0 : -1.0) * (0.5 + 0.12 * i);
+        final a0 = t * sp + i * 1.3;
+        final rect = Rect.fromCircle(center: pos, radius: r * 2.2);
+        p
+          ..strokeWidth = 2.2
+          ..strokeCap = StrokeCap.round
+          ..color = ol.withOpacity(0.35);
+        canvas.drawArc(rect, a0, 2.2, false, p);
+        p
+          ..strokeWidth = 1.8
+          ..color = Colors.white.withOpacity(0.9);
+        canvas.drawArc(rect, a0 + 1.0, 1.0, false, p);
+        p.strokeCap = StrokeCap.butt;
+      }
     }
 
     if (lite) return;
@@ -204,4 +229,81 @@ class OrbitRingsPainter extends CustomPainter {
       old.artR != artR ||
       old.lite != lite ||
       old.streaks != streaks;
+}
+
+/// A glowing ring: a soft steady glow all the way round, plus a brighter arc
+/// with a white head. It is drawn once into a cached layer and the layer is
+/// turned from outside, so there is no blur work while it moves.
+class GlowRingPainter extends CustomPainter {
+  final double radius;
+  final double stroke;
+  final Color color;
+
+  /// Strength of the steady glow all the way round, 0 .. 1.
+  final double base;
+
+  /// Strength of the traveling arc, 0 .. 1.
+  final double arc;
+
+  const GlowRingPainter({
+    required this.radius,
+    required this.stroke,
+    required this.color,
+    this.base = 0.35,
+    this.arc = 1.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    if (base > 0) {
+      canvas.drawCircle(
+        c,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke * 2.0
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, stroke * 1.6)
+          ..color = color.withOpacity(_c01(base)),
+      );
+    }
+    if (arc <= 0) return;
+    final rect = Rect.fromCircle(center: c, radius: radius);
+    final shader = SweepGradient(
+      colors: [
+        color.withOpacity(0),
+        color.withOpacity(0),
+        color.withOpacity(_c01(0.85 * arc)),
+        Colors.white.withOpacity(_c01(arc)),
+        color.withOpacity(0),
+      ],
+      stops: const [0.0, 0.58, 0.9, 0.975, 1.0],
+    ).createShader(rect);
+    // Wide and blurred for the glow, then thin and sharp for the bright core.
+    canvas.drawCircle(
+      c,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke * 2.4
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, stroke * 1.4)
+        ..shader = shader,
+    );
+    canvas.drawCircle(
+      c,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke * 0.8
+        ..shader = shader,
+    );
+  }
+
+  @override
+  bool shouldRepaint(GlowRingPainter old) =>
+      old.radius != radius ||
+      old.stroke != stroke ||
+      old.color != color ||
+      old.base != base ||
+      old.arc != arc;
 }

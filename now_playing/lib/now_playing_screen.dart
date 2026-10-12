@@ -72,6 +72,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   int _prevTheme = -1;
   bool _hostReady = false;
 
+  // Drive: true while the map app is showing turn-by-turn directions. The
+  // bottom visualizer shrinks to make room for them.
+  bool _dirActive = false;
+  Timer? _dirTimer;
+
   bool _showControls = false;
   Timer? _hideTimer;
   Timer? _clockTimer;
@@ -109,6 +114,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     settings.addListener(_onSettings);
     model.start();
     _ticker = createTicker(_onTick)..start();
+    if (widget.driveHost) {
+      _dirTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+        final a = await Native.navActive();
+        if (mounted && a != _dirActive) setState(() => _dirActive = a);
+      });
+    }
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(_updateClock);
     });
@@ -137,6 +148,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _ticker.dispose();
     _hideTimer?.cancel();
     _clockTimer?.cancel();
+    _dirTimer?.cancel();
     _noise?.dispose();
     _recAngle.dispose();
     model.dispose();
@@ -260,9 +272,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     fxClock.bass = bass;
     ripples.update(_time, bass, settings.fxRipples && model.playing);
 
-    // Record Cut only: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
+    // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.
-    if (settings.theme == AppSettings.tRecord) {
+    if (settings.theme == AppSettings.tRecord || settings.theme == 4) {
       const full = 1 / 1.8;
       final target = model.playing ? full : 0.0;
       if (_recSpeed < target) {
@@ -464,13 +476,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 painter: _HoleBorderPainter(hole, radius, _palette.a),
               ),
             ),
+            // A tap in the map window sends VYBE to the back so the map app
+            // can be used. Taps anywhere else show or hide the controls.
             Positioned.fromRect(
               rect: hole,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: _toggleControls,
+                onTap: _hideDrive,
               ),
             ),
+            if (w >= h * 1.3) _driveBottomBars(w, h, hole),
             if (_showControls) _controls(),
           ],
         );
@@ -500,13 +515,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       );
     } else {
       Widget blurred = RepaintBoundary(
-        child: ImageFiltered(
-          imageFilter:
-              ui.ImageFilter.blur(sigmaX: 6, sigmaY: 6, tileMode: TileMode.clamp),
-          child: RawImage(
-            image: art.tiny,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.high,
+        child: ColorFiltered(
+          colorFilter: _contrastFilter(settings.bgContrast),
+          child: ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(
+                sigmaX: 6, sigmaY: 6, tileMode: TileMode.clamp),
+            child: RawImage(
+              image: art.tiny,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+            ),
           ),
         ),
       );
@@ -580,6 +598,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             artKey: _artKey,
             palette: p,
             k: settings.kRays,
+            topOrigin: settings.theme == AppSettings.tTypo,
             repaint: _tick)),
       if (settings.fxRipples)
         layer(RipplesPainter(
@@ -872,7 +891,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       if (model.album.isNotEmpty &&
                           model.album != model.title) ...[
                         SizedBox(height: u * 0.012),
-                        _fit(_albumText(u * 0.028), Alignment.centerLeft),
+                        _shaded(_fit(_albumText(u * 0.028), Alignment.centerLeft)),
                       ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(u)),
@@ -922,50 +941,52 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// Narrow screens: album art on top, then the visualizer, a divider,
-  /// the lyrics, another divider, and the song info. The whole group is
-  /// centered, and scales down if it would not fit.
+  /// Narrow screens: the visualizer hangs down from the top edge of the
+  /// screen, the album art sits under it, then the song info and the lyrics.
+  /// The group is centered below the bars, and scales down if it would not
+  /// fit.
   Widget _stackedLayout(double w, double h, {required bool vhs}) {
-    final s = math.min(w * 0.66, h * 0.38);
+    final barsH = settings.visualizer ? h * 0.1 : 0.0;
+    final s = math.min(w * 0.62, h * 0.34);
     final cw = w * 0.84;
     final gap = h * 0.018;
     final showAlbum =
         !vhs && model.album.isNotEmpty && model.album != model.title;
-    final art = SizedBox(
-      width: cw,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _artWithReflection(s, vhs: vhs),
-          SizedBox(height: gap * 1.5),
-          _bars(h * 0.09, blocky: vhs),
-        ],
-      ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (settings.visualizer) _topBars(barsH),
+        Positioned.fill(
+          top: barsH,
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: cw,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _artWithReflection(s, vhs: vhs),
+                    SizedBox(height: gap * 2),
+                    _title(h * 0.05, Alignment.center, vhs),
+                    SizedBox(height: h * 0.01),
+                    _artist(h * 0.022, Alignment.center, vhs),
+                    if (showAlbum) ...[
+                      SizedBox(height: h * 0.008),
+                      _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
+                    ],
+                    if (_hasLyrics) ...[
+                      SizedBox(height: _lyricGap(h)),
+                      _lyricBlock(h * 0.75, Alignment.center, vhs: vhs),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
-    final info = SizedBox(
-      width: cw,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _divider(cw, vhs: vhs),
-          SizedBox(height: gap),
-          if (_hasLyrics) ...[
-            _lyricBlock(h * 0.75, Alignment.center, vhs: vhs),
-            SizedBox(height: gap),
-            _divider(cw, vhs: vhs),
-            SizedBox(height: gap),
-          ],
-          _title(h * 0.05, Alignment.center, vhs),
-          SizedBox(height: h * 0.01),
-          _artist(h * 0.022, Alignment.center, vhs),
-          if (showAlbum) ...[
-            SizedBox(height: h * 0.008),
-            _fit(_albumText(h * 0.02), Alignment.center),
-          ],
-        ],
-      ),
-    );
-    return _portraitStack(h, art, info);
   }
 
   // ------------------------------------------------------------------ drive
@@ -995,7 +1016,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void _exitDrive() => Native.exitDrive();
 
   /// Hides the Drive window so the map app can be touched.
-  void _hideDrive() => Native.hideDrive();
+  void _hideDrive() => Native.hideDrive(bubble: settings.driveBubble);
 
   /// Where the map shows through in the Drive window.
   Rect _driveHole(double w, double h, bool narrow) {
@@ -1009,131 +1030,70 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return Rect.fromLTWH(settings.driveSwap ? m : w - m - cw, m, cw, h * 0.92);
   }
 
-  /// A preview of the Drive layout and the button that starts it. The real
-  /// layout is drawn by the overlay on top of the map app.
+  /// The Drive theme. In the Drive window the map shows through the hole; in
+  /// the normal VYBE window (after leaving Drive) the same screen is drawn
+  /// with a framed box where the map would be, and tapping it starts Drive.
   Widget _driveLayout(double w, double h, bool narrow) {
-    final frac = settings.driveCardWidth;
     final swap = settings.driveSwap;
-    final p = _palette;
-    final sideW = w * (1 - frac) / 2;
-    final art = math.min(sideW * 0.8, h * 0.5);
-    Widget artSide = SizedBox(
-      width: sideW,
-      child: Center(child: _front(art, false)),
-    );
-    Widget infoSide = SizedBox(
-      width: sideW,
-      child: Padding(
-        padding: EdgeInsets.all(h * 0.03),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _title(h * 0.05, Alignment.centerLeft, false),
-            SizedBox(height: h * 0.01),
-            _artist(h * 0.025, Alignment.centerLeft, false),
-            if (settings.visualizer) ...[
-              SizedBox(height: h * 0.03),
-              _bars(h * 0.12),
-            ],
-          ],
-        ),
-      ),
-    );
-    if (widget.driveHost) {
-      // The map shows through here; the border is drawn on top separately.
-      if (narrow) {
-        return Column(
-          children: [
-            SizedBox(height: h * 0.3, child: Center(child: _front(h * 0.24, false))),
-            const Expanded(child: SizedBox()),
-          ],
-        );
+    final hole = _driveHole(w, h, narrow);
+    final host = widget.driveHost;
+
+    if (narrow) {
+      final top = SizedBox(
+          height: h * 0.3, child: Center(child: _front(h * 0.24, false)));
+      if (host) {
+        return Column(children: [top, const Expanded(child: SizedBox())]);
       }
-      // Map window against the right side. Its visualizer comes off the
-      // window's left edge. Large cover and song info sit under each other
-      // on the left.
-      final m = h * 0.04;
-      final cw = w * frac;
-      final barsW = settings.visualizer ? w * 0.07 : 0.0;
-      final panelW = math.max(1.0, w - cw - m - barsW).toDouble();
-      final side = math.min(panelW - w * 0.05, h * 0.55).toDouble();
-      final panel = SizedBox(
-        width: panelW,
-        child: Center(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: SizedBox(
-              width: side,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _front(side, false),
-                  SizedBox(height: h * 0.03),
-                  _title(h * 0.05, Alignment.centerLeft, false),
-                  SizedBox(height: h * 0.008),
-                  _artist(h * 0.026, Alignment.centerLeft, false),
-                ],
-              ),
+      return Column(
+        children: [
+          top,
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.all(w * 0.04),
+              child: _driveFrame(h),
             ),
           ),
-        ),
-      );
-      final bars = settings.visualizer
-          ? SizedBox(
-              width: barsW,
-              height: h * 0.92,
-              child: _edgeBars(barsW, leftEdge: swap),
-            )
-          : const SizedBox.shrink();
-      final hole = SizedBox(width: cw);
-      return Row(
-        children: swap
-            ? [SizedBox(width: m), hole, bars, panel]
-            : [panel, bars, hole, SizedBox(width: m)],
+        ],
       );
     }
-    final cut = Container(
-      width: w * frac,
-      margin: EdgeInsets.symmetric(vertical: h * 0.04),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(h * 0.03),
-        border: Border.all(color: p.a.withOpacity(0.7), width: 1.5),
-        color: const Color(0x33000000),
-      ),
+
+    // Song info, then the record, then the lyrics, centered in the space
+    // beside the map window.
+    final m = h * 0.04;
+    final panelW = math.max(1.0, w - hole.width - m * 2).toDouble();
+    final infoW = panelW * 0.92;
+    final d = math.min(infoW * 0.9, h * 0.42).toDouble();
+    final reserve = settings.visualizer ? h * settings.driveBarsH * 0.75 : h * 0.03;
+    final panel = Positioned(
+      left: swap ? hole.right + m : 0,
+      width: panelW,
+      top: h * 0.02,
+      bottom: reserve,
       child: Center(
-        child: Padding(
-          padding: EdgeInsets.all(w * 0.02),
-          child: SingleChildScrollView(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            width: infoW,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.navigation_rounded,
-                    size: (h * 0.12).clamp(32.0, 96.0).toDouble(), color: p.a),
-                SizedBox(height: h * 0.02),
-                Text('Drive',
-                    style: TextStyle(
-                        fontSize: (h * 0.05).clamp(20.0, 36.0).toDouble(),
-                        fontWeight: FontWeight.w300)),
-                SizedBox(height: h * 0.01),
-                Text(
-                  'VYBE floats over your map. The middle stays open for navigation.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: (h * 0.028).clamp(13.0, 18.0).toDouble(),
-                      color: Colors.white60),
+                _title(h * 0.05, Alignment.center, false),
+                SizedBox(height: h * 0.008),
+                _artist(h * 0.026, Alignment.center, false),
+                if (model.album.isNotEmpty && model.album != model.title) ...[
+                  SizedBox(height: h * 0.008),
+                  _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
+                ],
+                SizedBox(height: h * 0.035),
+                GestureDetector(
+                  key: _artKey,
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _openPlayer,
+                  child: _vinyl(d),
                 ),
-                SizedBox(height: h * 0.025),
-                FilledButton.icon(
-                  onPressed: _startDrive,
-                  icon: const Icon(Icons.navigation_rounded),
-                  label: const Text('Start Drive'),
-                ),
-                if (settings.navLabel.isNotEmpty) ...[
-                  SizedBox(height: h * 0.01),
-                  Text('Map app: ${settings.navLabel}',
-                      style: const TextStyle(color: Colors.white38, fontSize: 13)),
+                if (_hasLyrics) ...[
+                  SizedBox(height: _lyricGap(h)),
+                  _lyricBlock(h * 0.85, Alignment.center, vhs: false),
                 ],
               ],
             ),
@@ -1141,20 +1101,73 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ),
     );
-    if (narrow) {
-      return Column(
-        children: [
-          SizedBox(height: h * 0.3, child: Center(child: _front(h * 0.24, false))),
-          Expanded(child: Padding(padding: EdgeInsets.all(w * 0.04), child: cut)),
-        ],
-      );
-    }
-    return Row(
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        swap ? infoSide : artSide,
-        cut,
-        swap ? artSide : infoSide,
+        panel,
+        if (!host) ...[
+          Positioned.fromRect(rect: hole, child: _driveFrame(h)),
+          _driveBottomBars(w, h, hole),
+        ],
       ],
+    );
+  }
+
+  /// The visualizer along the bottom of the screen, in front of everything.
+  /// With no directions showing it runs the whole width. While the map app
+  /// shows turn-by-turn directions it shrinks to the space beside the map
+  /// window, so it does not sit on top of them.
+  Widget _driveBottomBars(double w, double h, Rect hole) {
+    if (!settings.visualizer) return const SizedBox.shrink();
+    final bh = h * settings.driveBarsH;
+    var left = 0.0;
+    var right = 0.0;
+    if (_dirActive) {
+      if (settings.driveSwap) {
+        left = hole.right;
+      } else {
+        right = w - hole.left;
+      }
+    }
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeInOut,
+      left: left,
+      right: right,
+      bottom: 0,
+      height: bh,
+      child: IgnorePointer(child: _bars(bh)),
+    );
+  }
+
+  /// The framed box where the map shows in the Drive window. In normal VYBE
+  /// it is a button that starts Drive.
+  Widget _driveFrame(double h) {
+    final p = _palette;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _startDrive,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(h * 0.03),
+          border: Border.all(color: p.a.withOpacity(0.7), width: 1.5),
+          color: const Color(0x33000000),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.navigation_rounded,
+                  size: (h * 0.1).clamp(32.0, 84.0).toDouble(), color: p.a),
+              SizedBox(height: h * 0.012),
+              Text('Tap to start Drive',
+                  style: TextStyle(
+                      fontSize: (h * 0.03).clamp(14.0, 22.0).toDouble(),
+                      color: Colors.white70)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1218,7 +1231,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _title(h * 0.08, Alignment.centerRight, false),
                 if (model.album.isNotEmpty && model.album != model.title) ...[
                   SizedBox(height: h * 0.012),
-                  _fit(_albumText(h * 0.026), Alignment.centerRight),
+                  _shaded(_fit(_albumText(h * 0.026), Alignment.centerRight)),
                 ],
                 if (_hasLyrics) ...[
                   SizedBox(height: _lyricGap(h)),
@@ -1293,6 +1306,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     0.117, 0.393, 0.040, 0, 0, //
     0, 0, 0, 1, 0, //
   ]);
+
+  /// Bars that hang down from the top edge of the screen, on a black shadow
+  /// that is darkest at the edge and fades as it goes down.
+  Widget _topBars(double barsH) => Positioned(
+        left: 0,
+        right: 0,
+        top: 0,
+        height: barsH,
+        child: _downShade(
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: DownBarsPainter(
+                sim: sim,
+                palette: _palette,
+                count: settings.barCount,
+                gain: settings.sensitivity,
+                repaint: _tick,
+              ),
+            ),
+          ),
+          barsH,
+        ),
+      );
 
   Widget _vBars() => RepaintBoundary(
         child: CustomPaint(
@@ -1734,7 +1770,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _fit(_albumText(h * 0.028), Alignment.centerLeft),
+                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -1837,35 +1873,45 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _fanLayout(double w, double h, bool narrow) {
     if (narrow) {
-      final s = math.min(w * 0.62, h * 0.36).toDouble();
-      return _portraitStack(
-        h,
-        SizedBox(
-          width: w * 0.9,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _fanCards(s),
-              SizedBox(height: h * 0.03),
-              _bars(h * 0.09),
-            ],
+      // Portrait: the visualizer hangs from the top edge, then the song
+      // info, the fanned covers and the lyrics.
+      final s = math.min(w * 0.62, h * 0.30).toDouble();
+      final barsH = settings.visualizer ? h * 0.1 : 0.0;
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (settings.visualizer) _topBars(barsH),
+          Positioned.fill(
+            top: barsH,
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: SizedBox(
+                  width: w * 0.9,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _title(h * 0.05, Alignment.center, false),
+                      SizedBox(height: h * 0.01),
+                      _artist(h * 0.022, Alignment.center, false),
+                      if (model.album.isNotEmpty &&
+                          model.album != model.title) ...[
+                        SizedBox(height: h * 0.008),
+                        _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
+                      ],
+                      SizedBox(height: h * 0.035),
+                      _fanCards(s),
+                      if (_hasLyrics) ...[
+                        SizedBox(height: _lyricGap(h)),
+                        _lyricBlock(h * 0.75, Alignment.center, vhs: false),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
-        SizedBox(
-          width: w * 0.9,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _title(h * 0.05, Alignment.center, false),
-              SizedBox(height: h * 0.01),
-              _artist(h * 0.022, Alignment.center, false),
-              if (_hasLyrics) ...[
-                SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h * 0.75, Alignment.center, vhs: false),
-              ],
-            ],
-          ),
-        ),
+        ],
       );
     }
     // As big as the height allows, so the stack fills the screen top to
@@ -1898,7 +1944,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _fit(_albumText(h * 0.028), Alignment.centerLeft),
+                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -2072,7 +2118,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _fit(_albumText(h * 0.028), Alignment.centerLeft),
+                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -2099,7 +2145,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         height: d,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.white.withOpacity(0.9), width: bw),
+          border: Border.all(color: Colors.white.withOpacity(0.6), width: bw),
           boxShadow: [
             BoxShadow(
                 color: p.a.withOpacity(0.55),
@@ -2138,6 +2184,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   /// The cover again, big and lightly blurred, fading out toward the circle.
+  /// It fills the whole screen and only fades through a soft gradient, so it
+  /// has no edge of its own anywhere.
   Widget _orbitGhost(double w, double h, bool narrow) {
     final art = model.art;
     if (art == null || art.flat) return const SizedBox.shrink();
@@ -2146,8 +2194,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       shaderCallback: (rect) => LinearGradient(
         begin: narrow ? Alignment.topCenter : Alignment.centerLeft,
         end: narrow ? Alignment.bottomCenter : Alignment.centerRight,
-        colors: const [Color(0x00FFFFFF), Color(0xFFFFFFFF)],
-        stops: const [0.0, 0.55],
+        colors: const [
+          Color(0x00FFFFFF),
+          Color(0x00FFFFFF),
+          Color(0xFFFFFFFF),
+          Color(0xFFFFFFFF),
+        ],
+        stops: narrow
+            ? const [0.0, 0.45, 0.85, 1.0]
+            : const [0.0, 0.38, 0.74, 1.0],
       ).createShader(rect),
       child: Opacity(
         opacity: narrow ? 0.35 : 0.42,
@@ -2156,6 +2211,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4, tileMode: TileMode.clamp),
           child: Image.memory(
             art.bytes,
+            width: w,
+            height: h,
             fit: BoxFit.cover,
             gaplessPlayback: true,
             filterQuality: FilterQuality.low,
@@ -2163,13 +2220,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ),
     );
-    return Positioned(
-      right: 0,
-      bottom: 0,
-      top: narrow ? null : 0.0,
-      left: narrow ? 0.0 : null,
-      width: narrow ? null : w * 0.62,
-      height: narrow ? h * 0.55 : null,
+    return Positioned.fill(
       child: IgnorePointer(child: RepaintBoundary(child: picture)),
     );
   }
@@ -2202,15 +2253,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   /// Round cover with a circular visualizer, orbit rings with glowing orbs
-  /// and light rays around it. The song info, a small progress line and the
-  /// lyrics sit to the right (under the cover in portrait).
+  /// and light rays around it. Landscape: the song info, a small progress
+  /// line and the lyrics sit to the right. Portrait: the whole circle group
+  /// is centered, with the song info above it, the lyrics under it and the
+  /// progress line below the lyrics.
   Widget _orbitLayout(double w, double h, bool narrow) {
     final p = _palette;
     final double artR;
     final Offset c;
     if (narrow) {
-      artR = math.min(w * 0.27, h * 0.16).toDouble();
-      c = Offset(w / 2, h * 0.03 + artR * 1.62);
+      artR = math.min(w * 0.27, h * 0.15).toDouble();
+      c = Offset(w / 2, h / 2);
     } else {
       artR = math.min(h * 0.29, w * 0.17).toDouble();
       c = Offset(w * 0.275, h / 2);
@@ -2219,9 +2272,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final barsMax = artR * 0.40;
     final reach = barsInner + barsMax + 6;
     final shadeFade = artR * 0.75;
+    final glowA = Color.lerp(p.a, Colors.white, 0.55)!;
+    final glowB = Color.lerp(p.b, Colors.white, 0.5)!;
+    final glowC = Color.lerp(p.c, Colors.white, 0.5)!;
 
     final layers = <Widget>[
       _orbitGhost(w, h, narrow),
+      // Darker overall, and black at the left edge fading to nothing by the
+      // middle of the circle (portrait: black at the top fading downward).
+      const Positioned.fill(
+        child: IgnorePointer(child: ColoredBox(color: Color(0x66000000))),
+      ),
+      Positioned.fill(
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: narrow ? Alignment.topCenter : Alignment.centerLeft,
+                end: narrow ? Alignment.bottomCenter : Alignment.centerRight,
+                colors: const [Color(0xFF000000), Color(0x00000000)],
+                stops: [
+                  0.0,
+                  narrow
+                      ? (c.dy / h).clamp(0.2, 0.9).toDouble()
+                      : (c.dx / w).clamp(0.2, 0.9).toDouble(),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
       if (!settings.performance)
         IgnorePointer(
           child: RepaintBoundary(
@@ -2269,6 +2349,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
       ),
+      // The thin orbit rings glow, with a light that runs round each one.
+      _glowRing(c, artR * 1.46, artR * 0.016, glowA,
+          turnsPerSec: 0.05, base: 0.22, arc: 0.9),
+      _glowRing(c, artR * 1.62, artR * 0.013, glowB,
+          turnsPerSec: -0.038, base: 0.14, arc: 0.8),
+      _glowRing(c, artR * 1.9, artR * 0.01, glowC,
+          turnsPerSec: 0.026, base: 0.0, arc: 0.55),
       if (settings.visualizer)
         Positioned(
           left: c.dx - reach,
@@ -2291,6 +2378,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
           ),
         ),
+      // The ring around the cover: a soft glow with a bright arc traveling
+      // round it.
+      _glowRing(c, artR * 1.012, artR * 0.03, Color.lerp(p.a, Colors.white, 0.7)!,
+          turnsPerSec: 0.12, base: 0.5, arc: 1.0),
       Positioned(
         left: c.dx - artR,
         top: c.dy - artR,
@@ -2306,13 +2397,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ];
 
     if (narrow) {
+      final ringEdge = artR * 1.72;
       layers.add(
         Positioned(
           left: w * 0.06,
           right: w * 0.06,
-          top: c.dy + artR * 1.62 + h * 0.02,
-          bottom: h * 0.03,
-          child: Center(
+          top: h * 0.03,
+          height: math.max(1.0, c.dy - ringEdge - h * 0.03).toDouble(),
+          child: Align(
+            alignment: Alignment.bottomCenter,
             child: FittedBox(
               fit: BoxFit.scaleDown,
               child: SizedBox(
@@ -2325,14 +2418,35 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     _title(h * 0.05, Alignment.center, false),
                     if (model.album.isNotEmpty && model.album != model.title) ...[
                       SizedBox(height: h * 0.008),
-                      _fit(_albumText(h * 0.02), Alignment.center),
+                      _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
                     ],
-                    SizedBox(height: h * 0.025),
-                    _miniProgress(w * 0.3),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      layers.add(
+        Positioned(
+          left: w * 0.06,
+          right: w * 0.06,
+          top: c.dy + ringEdge,
+          bottom: h * 0.03,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: w * 0.88,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     if (_hasLyrics) ...[
-                      SizedBox(height: _lyricGap(h)),
                       _lyricBlock(h * 0.75, Alignment.center, vhs: false),
+                      SizedBox(height: h * 0.02),
                     ],
+                    _miniProgress(w * 0.3),
                   ],
                 ),
               ),
@@ -2356,7 +2470,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.06, Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.014),
-                _fit(_albumText(h * 0.022), Alignment.centerLeft),
+                _shaded(_fit(_albumText(h * 0.022), Alignment.centerLeft)),
               ],
               SizedBox(height: h * 0.035),
               _miniProgress(w * 0.12),
@@ -2374,7 +2488,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ------------------------------------------------------------------ typo
 
-  Widget _typoInfo(double h, {required bool center}) {
+  Widget _typoInfo(double h, {required bool center}) => _shaded(_typoInfoRaw(h, center: center));
+
+  Widget _typoInfoRaw(double h, {required bool center}) {
     final ta = center ? TextAlign.center : TextAlign.right;
     final cross = center ? CrossAxisAlignment.center : CrossAxisAlignment.end;
     final artistSize = center ? h * 0.022 : h * 0.034;
@@ -2426,7 +2542,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   /// Lyrics set large: the line before, the current line, the line after.
-  Widget _typoLyrics(double h, {required bool center}) {
+  Widget _typoLyrics(double h, {required bool center}) =>
+      _shaded(_typoLyricsRaw(h, center: center));
+
+  Widget _typoLyricsRaw(double h, {required bool center}) {
     final ta = center ? TextAlign.center : TextAlign.left;
     final cross = center ? CrossAxisAlignment.center : CrossAxisAlignment.start;
     if (!_hasLyrics) {
@@ -2493,6 +2612,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  /// The lyrics, or a large cover with its shadow and reflection when there
+  /// are no lyrics to show.
+  Widget _typoRight(double h, {required bool center, required double side}) {
+    final lyrics = _hasLyrics;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 400),
+      child: KeyedSubtree(
+        key: ValueKey<bool>(lyrics),
+        child: lyrics
+            ? _typoLyrics(h, center: center)
+            : SizedBox(
+                width: side,
+                child: Center(child: _artWithReflection(side)),
+              ),
+      ),
+    );
+  }
+
   /// A text-focused theme: no cover in front, only the blurred cover behind.
   /// Bars run down both edges, and a divider that fades out at both ends
   /// separates the song info (left) from the lyrics (right).
@@ -2547,7 +2684,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         ),
                       ),
                       SizedBox(height: h * 0.03),
-                      _typoLyrics(h, center: true),
+                      _typoRight(h, center: true, side: math.min(cw * 0.9, h * 0.3).toDouble()),
                     ],
                   ),
                 ),
@@ -2592,9 +2729,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 ),
               ),
               Expanded(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: _typoLyrics(h, center: false),
+                child: LayoutBuilder(
+                  builder: (context, box) {
+                    final side = math
+                        .min(box.maxWidth * 0.96, box.maxHeight * 0.92 / 1.28)
+                        .toDouble();
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: _typoRight(h, center: false, side: side),
+                    );
+                  },
                 ),
               ),
             ],
@@ -2622,7 +2766,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Current line only (used by the Focused theme).
   Widget _lyricLine(double size, Alignment a) {
-    return AnimatedBuilder(
+    return _shaded(AnimatedBuilder(
       animation: _slow,
       builder: (context, _) => _fit(
         Text(
@@ -2636,7 +2780,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         a,
       ),
-    );
+    ));
   }
 
   /// Current line large, next line small. Fixed height so nothing jumps.
@@ -2646,7 +2790,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : (a == Alignment.centerRight
             ? CrossAxisAlignment.end
             : CrossAxisAlignment.start);
-    return SizedBox(
+    return _shaded(SizedBox(
       height: h * 0.12,
       child: AnimatedBuilder(
         animation: _slow,
@@ -2696,7 +2840,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           );
         },
       ),
-    );
+    ));
   }
 
   Widget _bars(double height, {bool blocky = false, double baseFrac = 0.72}) {
@@ -2759,6 +2903,95 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
+  /// A soft black glow behind a block of text, faded all the way round so it
+  /// has no visible edge. The text is laid out exactly as it would be alone.
+  Widget _shaded(Widget child) {
+    return Stack(
+      clipBehavior: Clip.none,
+      fit: StackFit.passthrough,
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Transform.scale(scale: 1.7, child: _textShade()),
+          ),
+        ),
+        child,
+      ],
+    );
+  }
+
+  /// A black oval, darkest in the middle and gone at its edge.
+  Widget _textShade() => RepaintBoundary(
+        child: LayoutBuilder(
+          builder: (context, box) {
+            final bw = math.max(1.0, box.maxWidth).toDouble();
+            final bh = math.max(1.0, box.maxHeight).toDouble();
+            final short = math.min(bw, bh).toDouble();
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: const [
+                    Color(0x99000000),
+                    Color(0x59000000),
+                    Color(0x00000000),
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                  transform: _EllipseFit(bw / short, bh / short),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+
+  /// More contrast for the blurred background. 1.0 leaves it as it is.
+  ColorFilter _contrastFilter(double c) {
+    final t = 128.0 * (1 - c);
+    return ColorFilter.matrix(<double>[
+      c, 0, 0, 0, t, //
+      0, c, 0, 0, t, //
+      0, 0, c, 0, t, //
+      0, 0, 0, 1, 0, //
+    ]);
+  }
+
+  /// A glowing ring with a bright arc that travels round it. The glow is
+  /// painted once into a cached layer and the layer is turned, so nothing
+  /// is blurred while it moves. Performance mode keeps it still.
+  Widget _glowRing(Offset c, double radius, double stroke, Color color,
+      {required double turnsPerSec, double base = 0.35, double arc = 1.0}) {
+    final box = (radius + stroke * 8) * 2;
+    final ring = RepaintBoundary(
+      child: CustomPaint(
+        size: Size(box, box),
+        painter: GlowRingPainter(
+          radius: radius,
+          stroke: stroke,
+          color: color,
+          base: base,
+          arc: arc,
+        ),
+      ),
+    );
+    final Widget moving = settings.performance
+        ? Transform.rotate(angle: 0.9, child: ring)
+        : AnimatedBuilder(
+            animation: _tick,
+            child: ring,
+            builder: (context, child) => Transform.rotate(
+              angle: _time * turnsPerSec * 2 * math.pi,
+              child: child,
+            ),
+          );
+    return Positioned(
+      left: c.dx - box / 2,
+      top: c.dy - box / 2,
+      width: box,
+      height: box,
+      child: IgnorePointer(child: moving),
+    );
+  }
+
   // ------------------------------------------------------------------- pieces
 
   String get _titleStr => model.active && model.title.isNotEmpty
@@ -2802,17 +3035,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
-  Widget _title(double size, Alignment a, bool vhs) => _fit(
+  Widget _title(double size, Alignment a, bool vhs) => _shaded(_fit(
         (vhs || _vhsOn) ? _split((c) => _titleText(size, color: c)) : _titleText(size),
         a,
-      );
+      ));
 
-  Widget _artist(double size, Alignment a, bool vhs) => _fit(
+  Widget _artist(double size, Alignment a, bool vhs) => _shaded(_fit(
         (vhs || _vhsOn)
             ? _split((c) => _artistText(size, color: c), main: Colors.white70)
             : _artistText(size),
         a,
-      );
+      ));
 
   /// RGB split: a pink and a cyan ghost behind the sharp text.
   Widget _split(Widget Function(Color) build, {Color main = Colors.white}) {
@@ -3284,6 +3517,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 }
 
 /// Stretches a radial gradient sideways so it fills a wide box as an oval.
+/// Stretches a round gradient into an ellipse that fits its box.
+class _EllipseFit extends GradientTransform {
+  final double sx;
+  final double sy;
+  const _EllipseFit(this.sx, this.sy);
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    final c = bounds.center;
+    return Matrix4.translationValues(c.dx, c.dy, 0.0) *
+        Matrix4.diagonal3Values(sx, sy, 1.0) *
+        Matrix4.translationValues(-c.dx, -c.dy, 0.0);
+  }
+}
+
 class _EllipseStretch extends GradientTransform {
   final double sx;
   const _EllipseStretch(this.sx);

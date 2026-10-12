@@ -291,7 +291,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               'while another app is on screen, unless this is allowed. '
               'It is what lets VYBE open when your music starts.\n\n'
               'It is also what lets the optional Drive mode draw album art and '
-              'song info over your map app. VYBE draws nothing over other apps '
+              'song info over your map app, and a small "return to VYBE" button '
+              'while VYBE is hidden so you can get back to it (it can be '
+              'turned off in settings). VYBE draws nothing over other apps '
               'unless you start Drive. If you skip this, VYBE can still be '
               'opened by hand, and auto-open may not work on your unit.',
         );

@@ -174,7 +174,15 @@ open class MainActivity : FlutterActivity() {
                     if (this is DriveActivity) finish()
                     result.success(null)
                 }
-                "hideDrive" -> { moveTaskToBack(true); result.success(null) }
+                "hideDrive" -> {
+                    val bubble = call.argument<Boolean>("bubble") ?: false
+                    moveTaskToBack(true)
+                    if (bubble && this is DriveActivity) {
+                        MediaListenerService.instance?.showBubble()
+                    }
+                    result.success(null)
+                }
+                "navActive" -> result.success(MediaListenerService.instance?.navActiveNow() == true)
                 "stopDrive" -> { MediaListenerService.instance?.stopDrive(); result.success(null) }
                 "driveRunning" -> result.success(MediaListenerService.instance?.driveRunning() == true)
                 "getPlayers" -> result.success(getPlayers())
@@ -580,6 +588,7 @@ open class MainActivity : FlutterActivity() {
         super.onStart()
         started++
         visible = true
+        MediaListenerService.instance?.hideBubble()
         MediaListenerService.instance?.vybeVisible(true)
     }
 
@@ -610,4 +619,21 @@ open class MainActivity : FlutterActivity() {
 }
 
 /** The see-through Drive window. It runs the same app on the '/drive' route. */
-class DriveActivity : MainActivity()
+class DriveActivity : MainActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        alive = true
+    }
+
+    override fun onDestroy() {
+        alive = false
+        MediaListenerService.instance?.hideBubble()
+        super.onDestroy()
+    }
+
+    companion object {
+        /** True while the Drive window exists (shown or hidden behind the map). */
+        @Volatile
+        var alive = false
+    }
+}

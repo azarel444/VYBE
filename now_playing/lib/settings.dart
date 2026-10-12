@@ -101,6 +101,9 @@ class AppSettings extends ChangeNotifier {
   bool allowVideo = false; // let video apps open VYBE
   bool allowNavAudio = false; // let navigation audio open VYBE
   bool avoidNav = true; // never open VYBE while navigation is active
+  bool driveBubble = true; // floating "return to VYBE" button while VYBE is hidden
+  double driveBarsH = 0.14; // Drive: visualizer height along the bottom, share of screen height
+  double bgContrast = 1.4; // blurred background contrast, 1.0 (normal) .. 2.0
 
   ArtPalette? get accentPalette =>
       (accent > 0 && accent < accents.length) ? accents[accent] : null;
@@ -165,6 +168,9 @@ class AppSettings extends ChangeNotifier {
     allowVideo = p.getBool('allowVideo') ?? false;
     allowNavAudio = p.getBool('allowNavAudio') ?? false;
     avoidNav = p.getBool('avoidNav') ?? true;
+    driveBubble = p.getBool('driveBubble') ?? true;
+    driveBarsH = (p.getDouble('driveBarsH') ?? 0.14).clamp(0.08, 0.26).toDouble();
+    bgContrast = (p.getDouble('bgContrast') ?? 1.4).clamp(1.0, 2.0).toDouble();
     notifyListeners();
     if (migrated) save();
   }
@@ -219,6 +225,9 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('allowVideo', allowVideo);
     await p.setBool('allowNavAudio', allowNavAudio);
     await p.setBool('avoidNav', avoidNav);
+    await p.setBool('driveBubble', driveBubble);
+    await p.setDouble('driveBarsH', driveBarsH);
+    await p.setDouble('bgContrast', bgContrast);
   }
 
   /// Apply a change, tell listeners, and (by default) save it.

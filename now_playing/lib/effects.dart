@@ -420,17 +420,22 @@ class RaysPainter extends CustomPainter {
   final ArtPalette palette;
   final double k;
 
+  /// Fans the beams down from the top center of the screen instead of from
+  /// behind the cover (used by the Typo theme).
+  final bool topOrigin;
+
   RaysPainter({
     required this.clock,
     required this.artKey,
     required this.palette,
     required this.k,
+    this.topOrigin = false,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final c = _artCenter(artKey, size);
+    final c = topOrigin ? Offset(size.width / 2, 0) : _artCenter(artKey, size);
     final reach = math.sqrt(size.width * size.width + size.height * size.height);
     final intensity = _a((0.12 + 0.35 * clock.bass) * k);
     final cols = palette.colors;
@@ -446,7 +451,12 @@ class RaysPainter extends CustomPainter {
     final rot = clock.t * 0.05;
     const n = 9;
     for (int i = 0; i < n; i++) {
-      final ang = rot + i * 2 * math.pi / n;
+      // From the top center the beams only fan downward, and sway gently.
+      final ang = topOrigin
+          ? math.pi / 2 +
+              (i - (n - 1) / 2) * (math.pi * 0.86 / (n - 1)) +
+              0.12 * math.sin(clock.t * 0.15 + i * 0.7)
+          : rot + i * 2 * math.pi / n;
       final half = 0.075 + 0.03 * math.sin(clock.t * 0.4 + i);
       final path = Path()
         ..moveTo(c.dx, c.dy)
@@ -460,7 +470,8 @@ class RaysPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(RaysPainter old) => old.palette != palette || old.k != k;
+  bool shouldRepaint(RaysPainter old) =>
+      old.palette != palette || old.k != k || old.topOrigin != topOrigin;
 }
 
 /// Starts of the ripple rings. A ring is born on each detected beat.

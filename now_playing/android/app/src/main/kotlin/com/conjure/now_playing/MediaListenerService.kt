@@ -100,6 +100,8 @@ class MediaListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         instance = null
         main.removeCallbacks(autoClose)
+        bubble?.hide()
+        bubble = null
         drive?.stop()
         drive = null
         for (w in watches) {
@@ -380,6 +382,24 @@ class MediaListenerService : NotificationListenerService() {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /** True while the navigation app shows its guidance notification. */
+    fun navActiveNow(): Boolean = navigationNotificationActive()
+
+    private var bubble: ReturnBubble? = null
+
+    /** Shows the small "return to VYBE" button, if the Drive window exists. */
+    fun showBubble() {
+        main.post {
+            if (!DriveActivity.alive) return@post
+            if (bubble == null) bubble = ReturnBubble(this)
+            bubble?.show()
+        }
+    }
+
+    fun hideBubble() {
+        main.post { bubble?.hide() }
     }
 
     private fun navigationNotificationActive(): Boolean {
