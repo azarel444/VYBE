@@ -16,3 +16,4 @@ flutter:
   assets:
     - assets/vybe_icon.png
     - assets/vybe_logo.png
+    - assets/theme_previews/
