@@ -14,6 +14,7 @@ import 'settings.dart';
 import 'settings_screen.dart';
 import 'spectrum.dart';
 import 'theme_parts.dart';
+import 'theme_library.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   /// True when this is the see-through Drive window that sits over the map.
@@ -304,38 +305,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// Lists every theme so one can be chosen directly.
+  /// Visual theme library with lightweight live audio/artwork previews.
   Future<void> _pickTheme() async {
-    final choice = await showDialog<int>(
+    await showDialog<int>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Theme'),
-        children: [
-          for (final i in AppSettings.pickable)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, i),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    Icon(
-                      i == settings.theme
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_unchecked,
-                      color: i == settings.theme ? _palette.a : Colors.white38,
-                    ),
-                    const SizedBox(width: 14),
-                    Text(AppSettings.themeNames[i],
-                        style: const TextStyle(fontSize: 22)),
-                  ],
-                ),
-              ),
-            ),
-        ],
+      builder: (_) => ThemeLibrary(
+        model: model,
+        settings: settings,
+        palette: _palette,
       ),
     );
-    if (choice != null) settings.update(() => settings.theme = choice);
-    _poke();
+    if (mounted) _poke();
   }
 
   void _toggleTheme() {
