@@ -476,7 +476,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _background() {
     final art = model.art;
     final Widget child;
-    if (art == null) {
+    // A flat placeholder picture (a logo on one color) counts as no cover.
+    if (art == null || art.flat) {
       child = SizedBox.expand(
         key: const ValueKey('empty'),
         child: RepaintBoundary(
@@ -969,8 +970,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (narrow) {
       return Rect.fromLTRB(w * 0.04, h * 0.3 + w * 0.04, w * 0.96, h - w * 0.04);
     }
+    // The map window sits against the right side (the left with "swap"), so
+    // the car and the route are centered in it.
     final cw = w * settings.driveCardWidth;
-    return Rect.fromLTWH((w - cw) / 2, h * 0.04, cw, h * 0.92);
+    final m = h * 0.04;
+    return Rect.fromLTWH(settings.driveSwap ? m : w - m - cw, m, cw, h * 0.92);
   }
 
   /// A preview of the Drive layout and the button that starts it. The real
@@ -1014,12 +1018,48 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ],
         );
       }
+      // Map window against the right side. Its visualizer comes off the
+      // window's left edge. Large cover and song info sit under each other
+      // on the left.
+      final m = h * 0.04;
+      final cw = w * frac;
+      final barsW = settings.visualizer ? w * 0.07 : 0.0;
+      final panelW = math.max(1.0, w - cw - m - barsW).toDouble();
+      final side = math.min(panelW - w * 0.05, h * 0.55).toDouble();
+      final panel = SizedBox(
+        width: panelW,
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(
+              width: side,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _front(side, false),
+                  SizedBox(height: h * 0.03),
+                  _title(h * 0.05, Alignment.centerLeft, false),
+                  SizedBox(height: h * 0.008),
+                  _artist(h * 0.026, Alignment.centerLeft, false),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final bars = settings.visualizer
+          ? SizedBox(
+              width: barsW,
+              height: h * 0.92,
+              child: _edgeBars(barsW, leftEdge: swap),
+            )
+          : const SizedBox.shrink();
+      final hole = SizedBox(width: cw);
       return Row(
-        children: [
-          swap ? infoSide : artSide,
-          SizedBox(width: w * frac),
-          swap ? artSide : infoSide,
-        ],
+        children: swap
+            ? [SizedBox(width: m), hole, bars, panel]
+            : [panel, bars, hole, SizedBox(width: m)],
       );
     }
     final cut = Container(
@@ -2571,14 +2611,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
           ),
+          // Rounded to match the cover: it starts where the cover's straight
+          // bottom edge starts, so no square corners poke out.
           Positioned(
             top: 0,
-            left: 0,
-            right: 0,
+            left: s * 0.07,
+            right: s * 0.07,
             height: s * 0.06,
-            child: const DecoratedBox(
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
+                borderRadius:
+                    BorderRadius.vertical(bottom: Radius.circular(s * 0.05)),
+                gradient: const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [Color(0xA6000000), Color(0x00000000)],

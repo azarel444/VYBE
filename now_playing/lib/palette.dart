@@ -42,7 +42,10 @@ class ArtAssets {
   final Uint8List bytes;
   final ui.Image tiny;
   final ArtPalette palette;
-  ArtAssets(this.bytes, this.tiny, this.palette);
+  /// True when the picture is almost one flat color, which is what players
+  /// send when a song has no real cover (a logo on a plain background).
+  final bool flat;
+  ArtAssets(this.bytes, this.tiny, this.palette, {this.flat = false});
 
   static Future<ArtAssets?> load(Uint8List bytes) async {
     try {
@@ -53,10 +56,28 @@ class ArtAssets {
       final palette = data == null
           ? ArtPalette.fallback
           : _extract(data, img.width, img.height);
-      return ArtAssets(bytes, img, palette);
+      final flat = data != null && _isFlat(data, img.width * img.height);
+      return ArtAssets(bytes, img, palette, flat: flat);
     } catch (_) {
       return null;
     }
+  }
+
+  /// Looks at the tiny copy: if one color (4 bits per channel) covers most
+  /// of the picture, it is a placeholder rather than a real cover.
+  static bool _isFlat(ByteData d, int n) {
+    if (n <= 0) return false;
+    final counts = <int, int>{};
+    var best = 0;
+    for (int i = 0; i < n; i++) {
+      final key = ((d.getUint8(i * 4) >> 4) << 8) |
+          ((d.getUint8(i * 4 + 1) >> 4) << 4) |
+          (d.getUint8(i * 4 + 2) >> 4);
+      final c = (counts[key] ?? 0) + 1;
+      counts[key] = c;
+      if (c > best) best = c;
+    }
+    return best > n * 0.85;
   }
 
   /// Colors come only from the art itself: pixels are grouped into 12 hue

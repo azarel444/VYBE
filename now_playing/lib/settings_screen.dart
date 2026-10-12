@@ -216,6 +216,28 @@ class SettingsScreen extends StatelessWidget {
           s.fxWater, (v) => s.fxWater = v, s.kWater, (v) => s.kWater = v),
       _fx('Soft bloom on the cover', 'A blurred glow around the album art',
           s.fxBloom, (v) => s.fxBloom = v, s.kBloom, (v) => s.kBloom = v),
+      _switch('All effects',
+          'Turns every effect above on at once, and performance mode off. The opposite of performance mode',
+          s.performance == false &&
+              s.bgEffects &&
+              s.particles &&
+              s.fxGlow &&
+              s.fxSweep &&
+              s.fxRays &&
+              s.fxRipples &&
+              s.fxWater &&
+              s.fxBloom,
+          (v) => s.update(() {
+                s.bgEffects = v;
+                s.particles = v;
+                s.fxGlow = v;
+                s.fxSweep = v;
+                s.fxRays = v;
+                s.fxRipples = v;
+                s.fxWater = v;
+                s.fxBloom = v;
+                if (v) s.performance = false;
+              })),
       _switch('Performance mode',
           'For slower units: turns off the effects above, plus grain, glitch bands, drift and the animated idle background',
           s.performance, (v) => s.update(() => s.performance = v)),
