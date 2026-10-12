@@ -1,10 +1,7 @@
-# VYBE FX + Clock + Return Tab test build
+# VYBE 1.8.9 — expanded color palette test build
 
-Based on the verified working 1.8.1 Drive theme cache fix.
-
-- Added nebula haze, perspective grid, and twinkling stars to the existing FX engine. All effects overlay the original blurred album artwork. Each has an individual toggle and strength slider.
-- Added small 12/24-hour digital clock with toggle, separate positioning logic for theme and orientation.
-- Replaced Android map return bubble with a labeled Return to VYBE edge tab; drag vertically or between screen edges. Existing return action unchanged.
-- Preserved nine theme screenshots, Focused/Orbit correction, and Drive transition cache fix.
-
-NOTE: Flutter/Android SDKs are not installed in this environment; project is source-reviewed and ZIP integrity-tested but not compiled or device-tested. Clock positions should be checked visually on each theme and screen orientation.
+- No-album-art animated background now uses the active VYBE color palette instead of a hardcoded fallback palette. This includes flat/placeholder art.
+- Added 11 selectable accent palettes: Cosmic, Ember, Aurora, Rose Gold, Electric Lime, Midnight, Ice, Ruby, Golden Hour, Ultraviolet, Monochrome.
+- Existing palettes, settings persistence, visual effects, Drive transition fix, theme library, clock, and map return tab retained.
+- In Auto (from art), missing album art still uses the default fallback colors; choose a named color palette to set fallback animation colors.
+- Requires Android/Flutter build and device testing; not compiled in this environment.

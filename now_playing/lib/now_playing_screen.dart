@@ -408,7 +408,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fit: StackFit.expand,
                     children: [
                       layout,
-                      if (settings.showClock) _themeClock(w, h, narrow),
+                      if (settings.showClock && !widget.driveHost) _themeClock(w, h, narrow),
                       if (vhs && settings.theme != 4) _osd(h, compact: narrow),
                     ],
                   ),
@@ -485,7 +485,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: CustomPaint(
             painter: IdleBackdropPainter(
               clock: fxClock,
-              palette: ArtPalette.fallback,
+              palette: _palette,
               animate: !settings.performance,
               repaint: _tick,
             ),
@@ -556,39 +556,50 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// Clock is independently anchored for each theme, never centered over art.
-  /// Compact top/bottom corner placement keeps it out of playback and lyrics.
+  /// Each layout gets an independent clock anchor in portrait and landscape.
+  /// Keep the clock over negative space, not album artwork or song information.
   Widget _themeClock(double w, double h, bool portrait) {
     final now = DateTime.now();
-    final hour = settings.clock24h ? now.hour : (now.hour % 12 == 0 ? 12 : now.hour % 12);
+    final hour = settings.clock24h
+        ? now.hour
+        : (now.hour % 12 == 0 ? 12 : now.hour % 12);
     final value = '${hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}${settings.clock24h ? '' : (now.hour < 12 ? ' AM' : ' PM')}';
-    // Layout-specific corner choices. Keep clear of Drive's map and
-    // the central song/art regions; scale offsets for head units.
-    final onRight = settings.theme == 4
-        ? !settings.driveSwap
-        : !const [1, 3, 5, 6, 8].contains(settings.theme);
-    final atBottom = const [7, 8].contains(settings.theme);
-    final inset = portrait ? 14.0 : 20.0;
+
+    // Anchor choices for all nine layouts. The Diagonal landscape layout
+    // deliberately uses the empty upper-right area, opposite the album art.
+    // Drive follows its map/panel swap setting.
+    final int theme = settings.theme;
+    final bool onRight;
+    final bool atBottom;
+    if (theme == 4) {
+      onRight = !settings.driveSwap;
+      atBottom = false;
+    } else if (portrait) {
+      onRight = const [0, 2, 5, 6, 7, 9].contains(theme);
+      atBottom = const [7, 8].contains(theme);
+    } else {
+      onRight = const [0, 2, 6, 7, 9].contains(theme);
+      atBottom = const [7, 8].contains(theme);
+    }
+    final inset = portrait ? 16.0 : 24.0;
     return Positioned(
       left: onRight ? null : inset,
       right: onRight ? inset : null,
-      top: atBottom ? null : (portrait ? 16.0 : 14.0),
-      bottom: atBottom ? 26.0 : null,
-      child: IgnorePointer(child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: const Color(0x990A0F18),
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(color: Colors.white24, width: 0.6),
-        ),
+      top: atBottom ? null : (portrait ? 18.0 : 16.0),
+      bottom: atBottom ? 30.0 : null,
+      child: IgnorePointer(
         child: Text(value, style: TextStyle(
-          color: Colors.white.withOpacity(0.86),
-          fontSize: portrait ? 11 : 12,
+          color: Colors.white.withOpacity(0.93),
+          fontSize: portrait ? 12 : 14,
           fontWeight: FontWeight.w500,
           letterSpacing: 0.5,
           fontFeatures: const [ui.FontFeature.tabularFigures()],
+          shadows: const [
+            Shadow(color: Color(0xDD000000), blurRadius: 7, offset: Offset(0, 2)),
+            Shadow(color: Color(0x99000000), blurRadius: 14, offset: Offset(0, 3)),
+          ],
         )),
-      )),
+      ),
     );
   }
 

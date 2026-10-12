@@ -38,6 +38,17 @@ class AppSettings extends ChangeNotifier {
     'Ocean',
     'Forest',
     'White',
+    'Cosmic',
+    'Ember',
+    'Aurora',
+    'Rose Gold',
+    'Electric Lime',
+    'Midnight',
+    'Ice',
+    'Ruby',
+    'Golden Hour',
+    'Ultraviolet',
+    'Monochrome',
   ];
 
   /// Index 0 (Auto) is null: the colors come from the album art.
@@ -48,6 +59,17 @@ class AppSettings extends ChangeNotifier {
     ArtPalette(Color(0xFF00E5FF), Color(0xFF3D8BFF), Color(0xFF7C5CFF)),
     ArtPalette(Color(0xFF7CFF8A), Color(0xFF00E5B0), Color(0xFFE5FF5C)),
     ArtPalette(Color(0xFFFFFFFF), Color(0xFFD0D8E8), Color(0xFF9AA8C0)),
+    ArtPalette(Color(0xFF9B5CFF), Color(0xFFFF4CD8), Color(0xFF417DFF)), // Cosmic
+    ArtPalette(Color(0xFFFF552E), Color(0xFFFFA332), Color(0xFFFFD16B)), // Ember
+    ArtPalette(Color(0xFF39FFB1), Color(0xFF23C9FF), Color(0xFF9B79FF)), // Aurora
+    ArtPalette(Color(0xFFFFC7A8), Color(0xFFE890A8), Color(0xFFB97885)), // Rose Gold
+    ArtPalette(Color(0xFFB8FF24), Color(0xFF49FF68), Color(0xFF00DDBB)), // Electric Lime
+    ArtPalette(Color(0xFF3450A3), Color(0xFF617AC9), Color(0xFF93B0ED)), // Midnight
+    ArtPalette(Color(0xFFB9F5FF), Color(0xFF6DDCFF), Color(0xFF8EABFF)), // Ice
+    ArtPalette(Color(0xFFFF365C), Color(0xFFCE164B), Color(0xFFFF8699)), // Ruby
+    ArtPalette(Color(0xFFFFD05C), Color(0xFFFF9A39), Color(0xFFFF6250)), // Golden Hour
+    ArtPalette(Color(0xFFC46BFF), Color(0xFF8153F5), Color(0xFFEA76E9)), // Ultraviolet
+    ArtPalette(Color(0xFFF0F0F0), Color(0xFFB6B6B6), Color(0xFF737373)), // Monochrome
   ];
 
   /// Used by the VHS effect when the accent is left on Auto.

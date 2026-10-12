@@ -1,3 +1,4 @@
+# VYBE 1.8.9 — expanded palette and reactive no-art background
 # VYBE: build steps
 
 1. Install Flutter and the Android SDK (or skip this and use Codemagic, see below).

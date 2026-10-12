@@ -37,7 +37,7 @@ class ReturnBubble(private val ctx: Context) {
     private fun screen(): Pair<Int, Int> {
         val m = DisplayMetrics()
         @Suppress("DEPRECATION")
-        wm.defaultDisplay.getRealMetrics(m)
+        wm.defaultDisplay.getMetrics(m)
         return Pair(m.widthPixels, m.heightPixels)
     }
 
@@ -46,11 +46,12 @@ class ReturnBubble(private val ctx: Context) {
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(ctx)) return
         try {
             val prefs = ctx.getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
-            val tabWidth = dp(150f)
+            val tabWidth = dp(172f)
             val tabHeight = dp(46f)
             val (sw, sh) = screen()
-            val storedX = prefs.getInt("bubbleX", sw - tabWidth)
-            val x = if (storedX + tabWidth / 2 < sw / 2) 0 else maxOf(0, sw - tabWidth)
+            val onLeft = prefs.getBoolean("bubbleOnLeft",
+                prefs.getInt("bubbleX", sw - tabWidth) < sw / 2)
+            val edgeInset = dp(8f)
             val y = prefs.getInt("bubbleY", sh / 2 - tabHeight / 2).coerceIn(0, maxOf(0, sh - tabHeight))
 
             val v = TextView(ctx)
@@ -74,12 +75,11 @@ class ReturnBubble(private val ctx: Context) {
             val p = WindowManager.LayoutParams(
                 tabWidth, tabHeight, type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT,
             )
-            p.gravity = Gravity.TOP or Gravity.START
-            p.x = x
+            p.gravity = Gravity.TOP or (if (onLeft) Gravity.START else Gravity.END)
+            p.x = edgeInset
             p.y = y
 
             val slop = dp(10f)
@@ -93,7 +93,8 @@ class ReturnBubble(private val ctx: Context) {
                     MotionEvent.ACTION_DOWN -> {
                         downX = e.rawX
                         downY = e.rawY
-                        startX = p.x
+                        startX = if ((p.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.END)
+                            sw - tabWidth - edgeInset else edgeInset
                         startY = p.y
                         moved = false
                         true
@@ -105,7 +106,9 @@ class ReturnBubble(private val ctx: Context) {
                         if (moved) {
                             val (w2, h2) = screen()
                             val desiredX = startX + dx.toInt()
-                            p.x = if (desiredX + tabWidth / 2 < w2 / 2) 0 else maxOf(0, w2 - tabWidth)
+                            val left = desiredX + tabWidth / 2 < w2 / 2
+                            p.gravity = Gravity.TOP or (if (left) Gravity.START else Gravity.END)
+                            p.x = edgeInset
                             p.y = (startY + dy.toInt()).coerceIn(0, maxOf(0, h2 - tabHeight))
                             try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
                         }
@@ -113,7 +116,10 @@ class ReturnBubble(private val ctx: Context) {
                     }
                     MotionEvent.ACTION_UP -> {
                         if (moved) {
-                            prefs.edit().putInt("bubbleX", p.x).putInt("bubbleY", p.y).apply()
+                            val left = (p.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) != Gravity.END
+                            prefs.edit().putBoolean("bubbleOnLeft", left)
+                                .putInt("bubbleX", if (left) edgeInset else screen().first - tabWidth - edgeInset)
+                                .putInt("bubbleY", p.y).apply()
                         } else {
                             openVybe()
                         }
