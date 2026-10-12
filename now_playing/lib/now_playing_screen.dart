@@ -408,6 +408,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fit: StackFit.expand,
                     children: [
                       layout,
+                      if (settings.showClock) _themeClock(w, h, narrow),
                       if (vhs && settings.theme != 4) _osd(h, compact: narrow),
                     ],
                   ),
@@ -463,6 +464,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
             if (w >= h * 1.3) _driveBottomBars(w, h, hole),
+            if (settings.showClock) _themeClock(w, h, w < h * 1.3),
             if (_showControls) _controls(),
           ],
         );
@@ -554,6 +556,42 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  /// Clock is independently anchored for each theme, never centered over art.
+  /// Compact top/bottom corner placement keeps it out of playback and lyrics.
+  Widget _themeClock(double w, double h, bool portrait) {
+    final now = DateTime.now();
+    final hour = settings.clock24h ? now.hour : (now.hour % 12 == 0 ? 12 : now.hour % 12);
+    final value = '${hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}${settings.clock24h ? '' : (now.hour < 12 ? ' AM' : ' PM')}';
+    // Layout-specific corner choices. Keep clear of Drive's map and
+    // the central song/art regions; scale offsets for head units.
+    final onRight = settings.theme == 4
+        ? !settings.driveSwap
+        : !const [1, 3, 5, 6, 8].contains(settings.theme);
+    final atBottom = const [7, 8].contains(settings.theme);
+    final inset = portrait ? 14.0 : 20.0;
+    return Positioned(
+      left: onRight ? null : inset,
+      right: onRight ? inset : null,
+      top: atBottom ? null : (portrait ? 16.0 : 14.0),
+      bottom: atBottom ? 26.0 : null,
+      child: IgnorePointer(child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0x990A0F18),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: Colors.white24, width: 0.6),
+        ),
+        child: Text(value, style: TextStyle(
+          color: Colors.white.withOpacity(0.86),
+          fontSize: portrait ? 11 : 12,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.5,
+          fontFeatures: const [ui.FontFeature.tabularFigures()],
+        )),
+      )),
+    );
+  }
+
   // -------------------------------------------------------------- VHS layers
 
   /// The optional effects, each switched on or off in settings.
@@ -563,6 +601,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: RepaintBoundary(child: CustomPaint(painter: painter)),
         );
     return [
+      if (settings.fxNebula)
+        layer(AtmospherePainter(mode: 0, clock: fxClock, palette: p,
+            k: settings.kNebula, repaint: _tick)),
+      if (settings.fxGrid)
+        layer(AtmospherePainter(mode: 1, clock: fxClock, palette: p,
+            k: settings.kGrid, repaint: _tick)),
+      if (settings.fxStars)
+        layer(AtmospherePainter(mode: 2, clock: fxClock, palette: p,
+            k: settings.kStars, repaint: _tick)),
       if (settings.fxGlow)
         layer(GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow, repaint: _tick)),

@@ -674,3 +674,59 @@ class IdleBackdropPainter extends CustomPainter {
   bool shouldRepaint(IdleBackdropPainter old) =>
       old.palette != palette || old.animate != animate;
 }
+
+
+/// Three lightweight, album-palette-aware background layers. These draw on
+/// transparent canvases ABOVE the blurred art, never replace it.
+class AtmospherePainter extends CustomPainter {
+  final int mode; // 0 clouds, 1 perspective grid, 2 star field
+  final FxClock clock;
+  final ArtPalette palette;
+  final double k;
+  AtmospherePainter({required this.mode, required this.clock,
+      required this.palette, required this.k, required Listenable repaint})
+      : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (k <= 0) return;
+    final w = size.width, h = size.height, t = clock.t;
+    final paint = Paint()..style = PaintingStyle.fill;
+    if (mode == 0) {
+      for (var i = 0; i < 4; i++) {
+        final x = w * (0.12 + i * 0.26 + 0.045 * math.sin(t * 0.17 + i));
+        final y = h * (0.22 + 0.17 * (i % 3) + 0.045 * math.cos(t * 0.13 + i));
+        final radius = math.max(w, h) * (0.25 + 0.035 * math.sin(t * 0.3 + i));
+        paint.shader = ui.Gradient.radial(Offset(x, y), radius,
+          [palette.at(i / 4).withOpacity(0.14 * k), Colors.transparent]);
+        canvas.drawCircle(Offset(x, y), radius, paint);
+      }
+      paint.shader = null;
+    } else if (mode == 1) {
+      final horizon = h * 0.68;
+      paint..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8
+        ..color = palette.a.withOpacity(0.18 * k);
+      final center = Offset(w / 2, horizon);
+      for (var i = -10; i <= 10; i++) {
+        canvas.drawLine(center, Offset(w / 2 + i * w / 9, h), paint);
+      }
+      for (var i = 1; i <= 10; i++) {
+        final frac = math.pow(i / 10, 1.7).toDouble();
+        final yy = horizon + (h - horizon) * frac;
+        canvas.drawLine(Offset(0, yy), Offset(w, yy), paint);
+      }
+    } else {
+      for (var i = 0; i < 65; i++) {
+        final x = ((i * 0.6180339887 + 0.13) % 1.0) * w;
+        final y = ((i * 0.4142135623 + 0.37) % 1.0) * h;
+        final twinkle = 0.5 + 0.5 * math.sin(t * (0.5 + i % 4 * 0.2) + i);
+        paint.color = palette.at((i % 9) / 9).withOpacity((0.10 + 0.38 * twinkle) * k);
+        canvas.drawCircle(Offset(x, y), 0.7 + (i % 3) * 0.45, paint);
+      }
+    }
+  }
+  @override
+  bool shouldRepaint(AtmospherePainter old) =>
+      old.mode != mode || old.palette != palette || old.k != k;
+}

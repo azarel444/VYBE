@@ -16,7 +16,7 @@ import android.view.WindowManager
 import android.widget.TextView
 
 /**
- * A small round "back to VYBE" button drawn over the map app while the Drive
+ * A labeled edge-mounted "Return to VYBE" tab drawn over the map app while the Drive
  * window is hidden. Drag it to move it (the spot is remembered). Tap it to
  * bring the Drive window back to the front.
  *
@@ -46,19 +46,23 @@ class ReturnBubble(private val ctx: Context) {
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(ctx)) return
         try {
             val prefs = ctx.getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
-            val size = dp(64f)
+            val tabWidth = dp(150f)
+            val tabHeight = dp(46f)
             val (sw, sh) = screen()
-            val x = prefs.getInt("bubbleX", sw - size - dp(24f)).coerceIn(0, maxOf(0, sw - size))
-            val y = prefs.getInt("bubbleY", sh / 2 - size / 2).coerceIn(0, maxOf(0, sh - size))
+            val storedX = prefs.getInt("bubbleX", sw - tabWidth)
+            val x = if (storedX + tabWidth / 2 < sw / 2) 0 else maxOf(0, sw - tabWidth)
+            val y = prefs.getInt("bubbleY", sh / 2 - tabHeight / 2).coerceIn(0, maxOf(0, sh - tabHeight))
 
             val v = TextView(ctx)
-            v.text = "V"
+            v.text = "‹  Return to VYBE"
             v.setTextColor(Color.WHITE)
-            v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+            v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             v.gravity = Gravity.CENTER
-            v.alpha = 0.92f
+            v.alpha = 0.94f
+            v.setPadding(dp(10f), 0, dp(10f), 0)
             val bg = GradientDrawable()
-            bg.shape = GradientDrawable.OVAL
+            bg.shape = GradientDrawable.RECTANGLE
+            bg.cornerRadius = dp(12f).toFloat()
             bg.setColor(Color.argb(220, 12, 14, 24))
             bg.setStroke(dp(2f), Color.argb(230, 5, 217, 255))
             v.background = bg
@@ -68,7 +72,7 @@ class ReturnBubble(private val ctx: Context) {
             else
                 @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
             val p = WindowManager.LayoutParams(
-                size, size, type,
+                tabWidth, tabHeight, type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -100,8 +104,9 @@ class ReturnBubble(private val ctx: Context) {
                         if (!moved && (Math.abs(dx) > slop || Math.abs(dy) > slop)) moved = true
                         if (moved) {
                             val (w2, h2) = screen()
-                            p.x = (startX + dx.toInt()).coerceIn(0, maxOf(0, w2 - size))
-                            p.y = (startY + dy.toInt()).coerceIn(0, maxOf(0, h2 - size))
+                            val desiredX = startX + dx.toInt()
+                            p.x = if (desiredX + tabWidth / 2 < w2 / 2) 0 else maxOf(0, w2 - tabWidth)
+                            p.y = (startY + dy.toInt()).coerceIn(0, maxOf(0, h2 - tabHeight))
                             try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
                         }
                         true

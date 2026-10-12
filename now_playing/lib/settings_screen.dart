@@ -192,6 +192,11 @@ class SettingsScreen extends StatelessWidget {
         AppSettings.barCounts.indexOf(s.barCount),
         (i) => s.update(() => s.barCount = AppSettings.barCounts[i]),
       ),
+      _section('Clock'),
+      _switch('Show clock', 'Small clock placed separately for each theme and orientation',
+          s.showClock, (v) => s.update(() => s.showClock = v)),
+      _switch('24-hour time', 'Off uses 12-hour time with AM/PM',
+          s.clock24h, (v) => s.update(() => s.clock24h = v)),
       _section('Effects'),
       _fx('VHS effect',
           'Scanlines, grain, glitch bands and color-split text over any theme',
@@ -202,6 +207,12 @@ class SettingsScreen extends StatelessWidget {
       _fx('Floating particles', 'Glowing embers drifting upward',
           s.particles, (v) => s.particles = v, s.kParticles,
           (v) => s.kParticles = v),
+      _fx('Nebula haze', 'Soft drifting album-color clouds behind the layout',
+          s.fxNebula, (v) => s.fxNebula = v, s.kNebula, (v) => s.kNebula = v),
+      _fx('Perspective grid', 'Faint animated perspective lines at the bottom',
+          s.fxGrid, (v) => s.fxGrid = v, s.kGrid, (v) => s.kGrid = v),
+      _fx('Twinkling stars', 'Subtle points of light behind the artwork',
+          s.fxStars, (v) => s.fxStars = v, s.kStars, (v) => s.kStars = v),
       _fx('Breathing glow',
           'Soft blobs in the album colors drift and swell behind everything',
           s.fxGlow, (v) => s.fxGlow = v, s.kGlow, (v) => s.kGlow = v),
@@ -229,7 +240,7 @@ class SettingsScreen extends StatelessWidget {
               s.fxRays &&
               s.fxRipples &&
               s.fxWater &&
-              s.fxBloom,
+              s.fxBloom && s.fxNebula && s.fxGrid && s.fxStars,
           (v) => s.update(() {
                 s.bgEffects = v;
                 s.particles = v;
@@ -239,6 +250,9 @@ class SettingsScreen extends StatelessWidget {
                 s.fxRipples = v;
                 s.fxWater = v;
                 s.fxBloom = v;
+                s.fxNebula = v;
+                s.fxGrid = v;
+                s.fxStars = v;
                 if (v) s.performance = false;
               })),
       _switch('Performance mode',
@@ -329,7 +343,7 @@ class SettingsScreen extends StatelessWidget {
         s.save,
       ),
       _switch('Return to VYBE button',
-          'A small floating button over the map app while VYBE is hidden. Tap it to bring VYBE back; drag it to move it. Uses the display-over-other-apps permission',
+          'A labeled Return to VYBE edge tab over the map while VYBE is hidden. Tap to return; drag to move. Requires display-over-other-apps permission',
           s.driveBubble, (v) => s.update(() => s.driveBubble = v)),
       _switch('Show prev, play and next',
           'Buttons under the album art in the overlay',

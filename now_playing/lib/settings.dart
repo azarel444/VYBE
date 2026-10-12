@@ -65,6 +65,14 @@ class AppSettings extends ChangeNotifier {
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
   bool bgEffects = true; // slow drift + beat pulse
   bool particles = false;
+  bool fxNebula = false;
+  bool fxGrid = false;
+  bool fxStars = false;
+  double kNebula = 0.65;
+  double kGrid = 0.5;
+  double kStars = 0.6;
+  bool showClock = true;
+  bool clock24h = false;
   // Strength of each effect, 0 .. 1. Every effect has its own slider.
   double kGlow = 0.7;
   double kSweep = 0.7;
@@ -136,6 +144,14 @@ class AppSettings extends ChangeNotifier {
     kMotion = k('kMotion', 1.0);
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;
+    fxNebula = p.getBool('fxNebula') ?? false;
+    fxGrid = p.getBool('fxGrid') ?? false;
+    fxStars = p.getBool('fxStars') ?? false;
+    kNebula = k('kNebula', 0.65);
+    kGrid = k('kGrid', 0.5);
+    kStars = k('kStars', 0.6);
+    showClock = p.getBool('showClock') ?? true;
+    clock24h = p.getBool('clock24h') ?? false;
     performance = p.getBool('performance') ?? false;
     night = _int(p, 'night', 1, 0, 2);
     burnIn = p.getBool('burnIn') ?? true;
@@ -207,6 +223,14 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('vhsEffects', vhsEffects);
     await p.setBool('bgEffects', bgEffects);
     await p.setBool('particles', particles);
+    await p.setBool('fxNebula', fxNebula);
+    await p.setBool('fxGrid', fxGrid);
+    await p.setBool('fxStars', fxStars);
+    await p.setDouble('kNebula', kNebula);
+    await p.setDouble('kGrid', kGrid);
+    await p.setDouble('kStars', kStars);
+    await p.setBool('showClock', showClock);
+    await p.setBool('clock24h', clock24h);
     await p.setBool('performance', performance);
     await p.setInt('night', night);
     await p.setBool('burnIn', burnIn);
