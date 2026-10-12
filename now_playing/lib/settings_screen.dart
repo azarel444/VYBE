@@ -4,6 +4,7 @@ import 'native.dart';
 import 'now_playing_model.dart';
 import 'onboarding.dart';
 import 'settings.dart';
+import 'fx_library.dart';
 
 const _cyan = Color(0xFF00E5FF);
 
@@ -197,64 +198,15 @@ class SettingsScreen extends StatelessWidget {
           s.showClock, (v) => s.update(() => s.showClock = v)),
       _switch('24-hour time', 'Off uses 12-hour time with AM/PM',
           s.clock24h, (v) => s.update(() => s.clock24h = v)),
-      _section('Effects'),
-      _fx('VHS effect',
-          'Scanlines, grain, glitch bands and color-split text over any theme',
-          s.fxVhs, (v) => s.fxVhs = v, s.vhsEffects, (v) => s.vhsEffects = v),
-      _fx('Background drift and beat pulse',
-          'Slow motion behind the art, and a small pulse on bass hits',
-          s.bgEffects, (v) => s.bgEffects = v, s.kMotion, (v) => s.kMotion = v),
-      _fx('Floating particles', 'Glowing embers drifting upward',
-          s.particles, (v) => s.particles = v, s.kParticles,
-          (v) => s.kParticles = v),
-      _fx('Nebula haze', 'Soft drifting album-color clouds behind the layout',
-          s.fxNebula, (v) => s.fxNebula = v, s.kNebula, (v) => s.kNebula = v),
-      _fx('Perspective grid', 'Faint animated perspective lines at the bottom',
-          s.fxGrid, (v) => s.fxGrid = v, s.kGrid, (v) => s.kGrid = v),
-      _fx('Twinkling stars', 'Subtle points of light behind the artwork',
-          s.fxStars, (v) => s.fxStars = v, s.kStars, (v) => s.kStars = v),
-      _fx('Breathing glow',
-          'Soft blobs in the album colors drift and swell behind everything',
-          s.fxGlow, (v) => s.fxGlow = v, s.kGlow, (v) => s.kGlow = v),
-      _fx('Aurora sweep',
-          'Slow bands of the album colors roll across the screen',
-          s.fxSweep, (v) => s.fxSweep = v, s.kSweep, (v) => s.kSweep = v),
-      _fx('Light rays',
-          'Beams fan out from behind the cover and brighten on bass',
-          s.fxRays, (v) => s.fxRays = v, s.kRays, (v) => s.kRays = v),
-      _fx('Beat ripples', 'Rings spread out from the cover on each beat',
-          s.fxRipples, (v) => s.fxRipples = v, s.kRipples,
-          (v) => s.kRipples = v),
-      _fx('Water shimmer',
-          'Light glints on the lower part of the screen, like a lake',
-          s.fxWater, (v) => s.fxWater = v, s.kWater, (v) => s.kWater = v),
-      _fx('Soft bloom on the cover', 'A blurred glow around the album art',
-          s.fxBloom, (v) => s.fxBloom = v, s.kBloom, (v) => s.kBloom = v),
-      _switch('All effects',
-          'Turns every effect above on at once, and performance mode off. The opposite of performance mode',
-          s.performance == false &&
-              s.bgEffects &&
-              s.particles &&
-              s.fxGlow &&
-              s.fxSweep &&
-              s.fxRays &&
-              s.fxRipples &&
-              s.fxWater &&
-              s.fxBloom && s.fxNebula && s.fxGrid && s.fxStars,
-          (v) => s.update(() {
-                s.bgEffects = v;
-                s.particles = v;
-                s.fxGlow = v;
-                s.fxSweep = v;
-                s.fxRays = v;
-                s.fxRipples = v;
-                s.fxWater = v;
-                s.fxBloom = v;
-                s.fxNebula = v;
-                s.fxGrid = v;
-                s.fxStars = v;
-                if (v) s.performance = false;
-              })),
+      _section('Background effects'),
+      _action(
+        'Background FX Library',
+        'Visual previews, individual effects, intensity and quick presets',
+        'Open library',
+        () => Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => FxLibraryScreen(settings: settings),
+        )),
+      ),
       _switch('Performance mode',
           'For slower units: turns off the effects above, plus grain, glitch bands, drift and the animated idle background',
           s.performance, (v) => s.update(() => s.performance = v)),

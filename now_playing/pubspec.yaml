@@ -1,7 +1,7 @@
 name: now_playing
 description: VYBE, a now playing screen for Android car head units.
 publish_to: 'none'
-version: 1.8.9+17
+version: 1.9.0+18
 
 environment:
   sdk: '>=2.19.0 <4.0.0'
