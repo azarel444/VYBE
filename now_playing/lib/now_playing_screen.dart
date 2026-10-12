@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 import 'effects.dart';
 import 'native.dart';
 import 'now_playing_model.dart';
+import 'orbit.dart';
 import 'palette.dart';
 import 'settings.dart';
 import 'settings_screen.dart';
@@ -75,10 +76,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Timer? _hideTimer;
   Timer? _clockTimer;
 
+  /// The VHS look is an effect now: it can sit over any theme.
+  bool get _vhsOn => settings.fxVhs;
+
   ArtPalette get _palette {
     final custom = settings.accentPalette;
     if (custom != null) return custom;
-    if (settings.theme == 2 && settings.vhsVaporwave) {
+    if (_vhsOn && settings.vhsVaporwave) {
       return AppSettings.vaporwave;
     }
     final fromArt = model.art?.palette;
@@ -208,7 +212,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _lastTrack = key;
     if (hadTrack &&
         key.isNotEmpty &&
-        settings.theme == 2 &&
+        _vhsOn &&
         !settings.performance) {
       _startGlitch(0.8, 4);
     }
@@ -223,7 +227,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _stepGlitch() {
-    if (settings.theme != 2 || settings.performance) {
+    if (!_vhsOn || settings.performance) {
       glitch.active = 0;
       return;
     }
@@ -295,7 +299,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       builder: (ctx) => SimpleDialog(
         title: const Text('Theme'),
         children: [
-          for (int i = 0; i < AppSettings.themeNames.length; i++)
+          for (final i in AppSettings.pickable)
             SimpleDialogOption(
               onPressed: () => Navigator.pop(ctx, i),
               child: Padding(
@@ -323,7 +327,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _toggleTheme() {
-    settings.update(() => settings.theme = (settings.theme + 1) % AppSettings.themeNames.length);
+    final order = AppSettings.pickable;
+    final at = order.indexOf(settings.theme);
+    settings.update(() => settings.theme = order[(at + 1) % order.length]);
     _poke();
   }
 
@@ -347,7 +353,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   @override
   Widget build(BuildContext context) {
-    final vhs = settings.theme == 2;
+    final vhs = _vhsOn;
     final fx = vhs ? settings.vhsEffects : 0.0;
     final heavy = !settings.performance;
 
@@ -394,14 +400,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   layout = _diagonalLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tTypo) {
                   layout = _typoLayout(w, h, narrow);
+                } else if (settings.theme == AppSettings.tOrbit) {
+                  layout = _orbitLayout(w, h, narrow);
                 } else if (settings.theme == 4) {
                   layout = _driveLayout(w, h, narrow);
                 } else if (settings.theme == 3) {
                   layout = narrow ? _edgeNarrow(w, h) : _edgeLayout(w, h);
-                } else if (vhs) {
-                  layout = narrow
-                      ? _stackedLayout(w, h, vhs: true)
-                      : _sideLayout(w, h, vhs: true);
                 } else if (settings.theme == 1) {
                   layout = narrow
                       ? _stackedLayout(w, h, vhs: false)
@@ -413,7 +417,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   offset: settings.theme >= 3 ? Offset.zero : _shift,
                   child: Stack(
                     fit: StackFit.expand,
-                    children: [layout, if (vhs) _osd(h, compact: narrow)],
+                    children: [
+                      layout,
+                      if (vhs && settings.theme != 4) _osd(h, compact: narrow),
+                    ],
                   ),
                 );
               }),
@@ -706,13 +713,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ------------------------------------------------------------------- themes
 
+  /// Portrait layouts: the art sits near the top, and the song info and
+  /// lyrics are centered in the space under it, so the lower part of the
+  /// screen is used instead of being left empty.
+  Widget _portraitStack(double h, Widget art, Widget info) {
+    return Column(
+      children: [
+        SizedBox(height: h * 0.04),
+        Center(child: FittedBox(fit: BoxFit.scaleDown, child: art)),
+        Expanded(
+          child: Center(
+            child: FittedBox(fit: BoxFit.scaleDown, child: info),
+          ),
+        ),
+        SizedBox(height: h * 0.05),
+      ],
+    );
+  }
+
   /// Ring (or bars) with the art, then song info and the lyric line, all
   /// stacked as one group that is centered on the screen.
   Widget _focused(double w, double h) {
     final portrait = h > w * 1.1;
     final barsMode = settings.vizStyle == 1;
     final lyricSlot = settings.lyrics ? h * 0.05 : 0.0;
-    final textH = h * 0.115 + lyricSlot; // title + artist (+ lyric slot)
+    final lyricGap = settings.lyrics ? _lyricGap(h) : 0.0;
+    final textH = h * 0.115 + lyricSlot + lyricGap; // title + artist (+ lyrics)
     final wLimit = portrait ? (barsMode ? w * 0.8 : w * 0.54) : w * 0.4;
 
     final double art;
@@ -780,6 +806,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           _title(h * 0.062, Alignment.center, false),
           SizedBox(height: h * 0.012),
           _artist(h * 0.026, Alignment.center, false),
+          if (settings.lyrics) SizedBox(height: lyricGap),
           if (settings.lyrics)
             SizedBox(
               height: lyricSlot,
@@ -790,6 +817,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ],
       ),
     );
+
+    if (portrait) return _portraitStack(h, top, text);
 
     return Center(
       child: FittedBox(
@@ -846,7 +875,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         _fit(_albumText(u * 0.028), Alignment.centerLeft),
                       ],
                       if (_hasLyrics) ...[
-                        SizedBox(height: u * 0.03),
+                        SizedBox(height: _lyricGap(u)),
                         _lyricBlock(u, Alignment.centerLeft, vhs: vhs),
                       ],
                     ],
@@ -902,38 +931,41 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final gap = h * 0.018;
     final showAlbum =
         !vhs && model.album.isNotEmpty && model.album != model.title;
-    return Center(
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: SizedBox(
-          width: cw,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _artWithReflection(s, vhs: vhs),
-              SizedBox(height: gap * 1.5),
-              _bars(h * 0.09, blocky: vhs),
-              SizedBox(height: gap),
-              _divider(cw, vhs: vhs),
-              SizedBox(height: gap),
-              if (_hasLyrics) ...[
-                _lyricBlock(h * 0.75, Alignment.center, vhs: vhs),
-                SizedBox(height: gap),
-                _divider(cw, vhs: vhs),
-                SizedBox(height: gap),
-              ],
-              _title(h * 0.05, Alignment.center, vhs),
-              SizedBox(height: h * 0.01),
-              _artist(h * 0.022, Alignment.center, vhs),
-              if (showAlbum) ...[
-                SizedBox(height: h * 0.008),
-                _fit(_albumText(h * 0.02), Alignment.center),
-              ],
-            ],
-          ),
-        ),
+    final art = SizedBox(
+      width: cw,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _artWithReflection(s, vhs: vhs),
+          SizedBox(height: gap * 1.5),
+          _bars(h * 0.09, blocky: vhs),
+        ],
       ),
     );
+    final info = SizedBox(
+      width: cw,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _divider(cw, vhs: vhs),
+          SizedBox(height: gap),
+          if (_hasLyrics) ...[
+            _lyricBlock(h * 0.75, Alignment.center, vhs: vhs),
+            SizedBox(height: gap),
+            _divider(cw, vhs: vhs),
+            SizedBox(height: gap),
+          ],
+          _title(h * 0.05, Alignment.center, vhs),
+          SizedBox(height: h * 0.01),
+          _artist(h * 0.022, Alignment.center, vhs),
+          if (showAlbum) ...[
+            SizedBox(height: h * 0.008),
+            _fit(_albumText(h * 0.02), Alignment.center),
+          ],
+        ],
+      ),
+    );
+    return _portraitStack(h, art, info);
   }
 
   // ------------------------------------------------------------------ drive
@@ -1189,7 +1221,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   _fit(_albumText(h * 0.026), Alignment.centerRight),
                 ],
                 if (_hasLyrics) ...[
-                  SizedBox(height: h * 0.04),
+                  SizedBox(height: _lyricGap(h)),
                   _lyricBlock(h, Alignment.centerRight, vhs: false),
                 ],
               ],
@@ -1239,7 +1271,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     SizedBox(height: h * 0.01),
                     _artist(h * 0.022, Alignment.center, false),
                     if (_hasLyrics) ...[
-                      SizedBox(height: h * 0.02),
+                      SizedBox(height: _lyricGap(h)),
                       _lyricBlock(h * 0.75, Alignment.center, vhs: false),
                     ],
                   ],
@@ -1641,7 +1673,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             top: discBottom + maxLen + h * 0.02,
             bottom: h * 0.02,
             child: Align(
-              alignment: Alignment.topCenter,
+              alignment: Alignment.center,
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: SizedBox(
@@ -1653,7 +1685,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       SizedBox(height: h * 0.01),
                       _artist(h * 0.022, Alignment.center, false),
                       if (_hasLyrics) ...[
-                        SizedBox(height: h * 0.02),
+                        SizedBox(height: _lyricGap(h)),
                         _lyricBlock(h * 0.75, Alignment.center, vhs: false),
                       ],
                     ],
@@ -1705,7 +1737,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _fit(_albumText(h * 0.028), Alignment.centerLeft),
               ],
               if (_hasLyrics) ...[
-                SizedBox(height: h * 0.05),
+                SizedBox(height: _lyricGap(h)),
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),
               ],
             ],
@@ -1806,27 +1838,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _fanLayout(double w, double h, bool narrow) {
     if (narrow) {
       final s = math.min(w * 0.62, h * 0.36).toDouble();
-      return Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: SizedBox(
-            width: w * 0.9,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _fanCards(s),
-                SizedBox(height: h * 0.03),
-                _bars(h * 0.09),
-                SizedBox(height: h * 0.02),
-                _title(h * 0.05, Alignment.center, false),
-                SizedBox(height: h * 0.01),
-                _artist(h * 0.022, Alignment.center, false),
-                if (_hasLyrics) ...[
-                  SizedBox(height: h * 0.02),
-                  _lyricBlock(h * 0.75, Alignment.center, vhs: false),
-                ],
+      return _portraitStack(
+        h,
+        SizedBox(
+          width: w * 0.9,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _fanCards(s),
+              SizedBox(height: h * 0.03),
+              _bars(h * 0.09),
+            ],
+          ),
+        ),
+        SizedBox(
+          width: w * 0.9,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _title(h * 0.05, Alignment.center, false),
+              SizedBox(height: h * 0.01),
+              _artist(h * 0.022, Alignment.center, false),
+              if (_hasLyrics) ...[
+                SizedBox(height: _lyricGap(h)),
+                _lyricBlock(h * 0.75, Alignment.center, vhs: false),
               ],
-            ),
+            ],
           ),
         ),
       );
@@ -1864,7 +1901,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _fit(_albumText(h * 0.028), Alignment.centerLeft),
               ],
               if (_hasLyrics) ...[
-                SizedBox(height: h * 0.05),
+                SizedBox(height: _lyricGap(h)),
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),
               ],
             ],
@@ -1878,19 +1915,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// A black and white copy of the cover fills one side of a diagonal cut
   /// with a glowing white edge. The sharp cover floats on it, and the song
-  /// info sits on the blurred side.
+  /// info sits on the blurred side. The visualizer's bars grow off the white
+  /// line, on the blurred side, and sit behind the cover.
   Widget _diagonalLayout(double w, double h, bool narrow) {
     final List<Offset> poly;
+    final List<Offset> other; // the blurred side of the line
     final Offset a;
     final Offset b;
     if (narrow) {
       a = Offset(0, h * 0.55);
       b = Offset(w, h * 0.30);
       poly = [Offset.zero, Offset(w, 0), b, a];
+      other = [a, b, Offset(w, h), Offset(0, h)];
     } else {
       a = Offset(w * 0.703, 0);
       b = Offset(0, h);
       poly = [Offset.zero, a, b];
+      other = [a, Offset(w, 0), Offset(w, h), b];
     }
     final art = model.art;
     final gray = ClipPath(
@@ -1913,48 +1954,114 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: CustomPaint(painter: CutLinePainter(a: a, b: b)),
     );
 
+    // Unit vector along the line, and the one pointing off it to the blurred
+    // side (down and right in landscape, straight down in portrait).
+    final dist = (b - a).distance;
+    final dir = (b - a) / dist;
+    final normal = narrow ? Offset(-dir.dy, dir.dx) : Offset(dir.dy, -dir.dx);
+    final barMax = narrow ? h * 0.07 : h * 0.13;
+
+    // The shadow and the bars, clipped to the blurred side so nothing leaks
+    // over the grey part.
+    final bars = settings.visualizer
+        ? ClipPath(
+            clipper: PolyClipper(other),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                IgnorePointer(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: CutShadePainter(
+                          a: a, b: b, normal: normal, reach: barMax * 1.9),
+                    ),
+                  ),
+                ),
+                IgnorePointer(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: LineBarsPainter(
+                        sim: sim,
+                        palette: _palette,
+                        a: a,
+                        b: b,
+                        normal: normal,
+                        maxLen: barMax,
+                        count: settings.barCount,
+                        gain: settings.sensitivity,
+                        mirror: narrow,
+                        repaint: _tick,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        : const SizedBox.shrink();
+
     if (narrow) {
-      final s = math.min(w * 0.56, h * 0.30).toDouble();
+      // The cover is big and sits on the line, centered between the grey
+      // area above and the area below. The song info fills the lower part.
+      final s = math.min(w * 0.76, h * 0.36).toDouble();
+      final mid = (a + b) / 2;
       return Stack(
         fit: StackFit.expand,
         children: [
           gray,
+          bars,
           line,
-          Positioned(left: (w - s) / 2, top: h * 0.04, child: _front(s, false)),
+          Positioned(
+              left: mid.dx - s / 2, top: mid.dy - s / 2, child: _front(s, false)),
           Positioned(
             left: w * 0.08,
             right: w * 0.08,
-            top: h * 0.58,
-            bottom: h * 0.04,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _title(h * 0.05, Alignment.center, false),
-                SizedBox(height: h * 0.01),
-                _artist(h * 0.022, Alignment.center, false),
-                if (_hasLyrics) ...[
-                  SizedBox(height: h * 0.02),
-                  _lyricBlock(h * 0.75, Alignment.center, vhs: false),
-                ],
-                SizedBox(height: h * 0.02),
-                _bars(h * 0.08),
-              ],
+            top: h * 0.64,
+            bottom: h * 0.03,
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: SizedBox(
+                  width: w * 0.84,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _title(h * 0.05, Alignment.center, false),
+                      SizedBox(height: h * 0.01),
+                      _artist(h * 0.022, Alignment.center, false),
+                      if (_hasLyrics) ...[
+                        SizedBox(height: _lyricGap(h)),
+                        _lyricBlock(h * 0.75, Alignment.center, vhs: false),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ],
       );
     }
+
     final s = math.min(w * 0.37, h * 0.8).toDouble();
+    // The info starts to the right of the tallest bars, so they never touch.
+    final infoTop = h * 0.36;
+    final root = math.max(0.0, infoTop - normal.dy * barMax).toDouble();
+    final lineX = a.dx + (b.dx - a.dx) * (root - a.dy) / (b.dy - a.dy);
+    final infoLeft = math.max(w * 0.47,
+            lineX + (settings.visualizer ? normal.dx * barMax : 0.0) + w * 0.035)
+        .toDouble();
     return Stack(
       fit: StackFit.expand,
       children: [
         gray,
+        bars,
         line,
         Positioned(left: w * 0.046, top: (h - s) / 2, child: _front(s, false)),
         Positioned(
-          left: w * 0.47,
+          left: infoLeft,
           right: w * 0.05,
-          top: h * 0.36,
+          top: infoTop,
           bottom: h * 0.07,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1968,16 +2075,301 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _fit(_albumText(h * 0.028), Alignment.centerLeft),
               ],
               if (_hasLyrics) ...[
-                SizedBox(height: h * 0.03),
+                SizedBox(height: _lyricGap(h)),
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),
               ],
-              SizedBox(height: h * 0.03),
-              _bars(h * 0.16),
             ],
           ),
         ),
       ],
     );
+  }
+
+  // ----------------------------------------------------------------- orbit
+
+  /// The round cover with a glowing white ring around it.
+  Widget _orbitArt(double d) {
+    final art = model.art;
+    final p = _palette;
+    final bw = math.max(2.0, d * 0.006).toDouble();
+    final inner = d - 2 * bw;
+    return RepaintBoundary(
+      child: Container(
+        width: d,
+        height: d,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white.withOpacity(0.9), width: bw),
+          boxShadow: [
+            BoxShadow(
+                color: p.a.withOpacity(0.55),
+                blurRadius: d * 0.06,
+                spreadRadius: d * 0.004),
+            BoxShadow(
+                color: p.a.withOpacity(0.25),
+                blurRadius: d * 0.18,
+                spreadRadius: d * 0.02),
+          ],
+        ),
+        child: ClipOval(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 500),
+            child: art == null
+                ? Container(
+                    key: const ValueKey<Object>('placeholder'),
+                    width: inner,
+                    height: inner,
+                    color: const Color(0xFF111827),
+                    child: Center(child: _brandIcon(inner * 0.55)),
+                  )
+                : Image.memory(
+                    art.bytes,
+                    key: ValueKey<Object>(art),
+                    width: inner,
+                    height: inner,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    filterQuality: FilterQuality.high,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The cover again, big and lightly blurred, fading out toward the circle.
+  Widget _orbitGhost(double w, double h, bool narrow) {
+    final art = model.art;
+    if (art == null || art.flat) return const SizedBox.shrink();
+    final Widget picture = ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (rect) => LinearGradient(
+        begin: narrow ? Alignment.topCenter : Alignment.centerLeft,
+        end: narrow ? Alignment.bottomCenter : Alignment.centerRight,
+        colors: const [Color(0x00FFFFFF), Color(0xFFFFFFFF)],
+        stops: const [0.0, 0.55],
+      ).createShader(rect),
+      child: Opacity(
+        opacity: narrow ? 0.35 : 0.42,
+        child: ImageFiltered(
+          imageFilter:
+              ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4, tileMode: TileMode.clamp),
+          child: Image.memory(
+            art.bytes,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.low,
+          ),
+        ),
+      ),
+    );
+    return Positioned(
+      right: 0,
+      bottom: 0,
+      top: narrow ? null : 0.0,
+      left: narrow ? 0.0 : null,
+      width: narrow ? null : w * 0.62,
+      height: narrow ? h * 0.55 : null,
+      child: IgnorePointer(child: RepaintBoundary(child: picture)),
+    );
+  }
+
+  /// A thin progress line, as long as [width].
+  Widget _miniProgress(double width) {
+    return SizedBox(
+      width: width,
+      height: 3,
+      child: AnimatedBuilder(
+        animation: _tick,
+        builder: (context, _) {
+          final d = model.durationMs;
+          final f = d > 0 ? (model.positionMs / d).clamp(0.0, 1.0).toDouble() : 0.0;
+          return Stack(
+            children: [
+              const Positioned.fill(child: ColoredBox(color: Color(0x40FFFFFF))),
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: width * f,
+                child: ColoredBox(color: _palette.a),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Round cover with a circular visualizer, orbit rings with glowing orbs
+  /// and light rays around it. The song info, a small progress line and the
+  /// lyrics sit to the right (under the cover in portrait).
+  Widget _orbitLayout(double w, double h, bool narrow) {
+    final p = _palette;
+    final double artR;
+    final Offset c;
+    if (narrow) {
+      artR = math.min(w * 0.27, h * 0.16).toDouble();
+      c = Offset(w / 2, h * 0.03 + artR * 1.62);
+    } else {
+      artR = math.min(h * 0.29, w * 0.17).toDouble();
+      c = Offset(w * 0.275, h / 2);
+    }
+    final barsInner = artR * 1.08;
+    final barsMax = artR * 0.40;
+    final reach = barsInner + barsMax + 6;
+    final shadeFade = artR * 0.75;
+
+    final layers = <Widget>[
+      _orbitGhost(w, h, narrow),
+      if (!settings.performance)
+        IgnorePointer(
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: OrbitRaysPainter(
+                  clock: fxClock, palette: p, center: c, repaint: _slow),
+            ),
+          ),
+        ),
+      // A soft black glow behind the bars so they stand out.
+      if (settings.visualizer)
+        Positioned(
+          left: c.dx - artR - shadeFade,
+          top: c.dy - artR - shadeFade,
+          width: (artR + shadeFade) * 2,
+          height: (artR + shadeFade) * 2,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: const [
+                    Color(0x99000000),
+                    Color(0x99000000),
+                    Color(0x00000000),
+                  ],
+                  stops: [0.0, artR / (artR + shadeFade), 1.0],
+                ),
+              ),
+            ),
+          ),
+        ),
+      IgnorePointer(
+        child: RepaintBoundary(
+          child: CustomPaint(
+            painter: OrbitRingsPainter(
+              clock: fxClock,
+              palette: p,
+              center: c,
+              artR: artR,
+              lite: settings.performance,
+              streaks: !narrow,
+              repaint: _tick,
+            ),
+          ),
+        ),
+      ),
+      if (settings.visualizer)
+        Positioned(
+          left: c.dx - reach,
+          top: c.dy - reach,
+          width: reach * 2,
+          height: reach * 2,
+          child: IgnorePointer(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: FullRingPainter(
+                  sim: sim,
+                  palette: p,
+                  innerRadius: barsInner,
+                  maxLen: barsMax,
+                  count: settings.barCount,
+                  gain: settings.sensitivity,
+                  repaint: _tick,
+                ),
+              ),
+            ),
+          ),
+        ),
+      Positioned(
+        left: c.dx - artR,
+        top: c.dy - artR,
+        width: artR * 2,
+        height: artR * 2,
+        child: GestureDetector(
+          key: _artKey,
+          behavior: HitTestBehavior.opaque,
+          onTap: _openPlayer,
+          child: _pulse(_orbitArt(artR * 2)),
+        ),
+      ),
+    ];
+
+    if (narrow) {
+      layers.add(
+        Positioned(
+          left: w * 0.06,
+          right: w * 0.06,
+          top: c.dy + artR * 1.62 + h * 0.02,
+          bottom: h * 0.03,
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: w * 0.88,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _artist(h * 0.022, Alignment.center, false),
+                    SizedBox(height: h * 0.01),
+                    _title(h * 0.05, Alignment.center, false),
+                    if (model.album.isNotEmpty && model.album != model.title) ...[
+                      SizedBox(height: h * 0.008),
+                      _fit(_albumText(h * 0.02), Alignment.center),
+                    ],
+                    SizedBox(height: h * 0.025),
+                    _miniProgress(w * 0.3),
+                    if (_hasLyrics) ...[
+                      SizedBox(height: _lyricGap(h)),
+                      _lyricBlock(h * 0.75, Alignment.center, vhs: false),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      layers.add(
+        Positioned(
+          left: c.dx + artR * 1.68 + w * 0.025,
+          right: w * 0.05,
+          top: 0,
+          bottom: 0,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _artist(h * 0.024, Alignment.centerLeft, false),
+              SizedBox(height: h * 0.014),
+              _title(h * 0.06, Alignment.centerLeft, false),
+              if (model.album.isNotEmpty && model.album != model.title) ...[
+                SizedBox(height: h * 0.014),
+                _fit(_albumText(h * 0.022), Alignment.centerLeft),
+              ],
+              SizedBox(height: h * 0.035),
+              _miniProgress(w * 0.12),
+              if (_hasLyrics) ...[
+                SizedBox(height: _lyricGap(h) * 1.2),
+                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return Stack(fit: StackFit.expand, children: layers);
   }
 
   // ------------------------------------------------------------------ typo
@@ -2214,6 +2606,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ------------------------------------------------------------------ lyrics
 
+  /// The space between the song info and the lyrics, the same on every theme.
+  double _lyricGap(double h) => h * 0.045;
+
   bool get _hasLyrics =>
       settings.lyrics && (model.lyrics?.isNotEmpty ?? false);
 
@@ -2272,7 +2667,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       fontSize: h * 0.04,
                       fontWeight: FontWeight.w400,
                       color: Colors.white,
-                      shadows: vhs
+                      shadows: (vhs || _vhsOn)
                           ? const [
                               Shadow(
                                   color: Color(0x99FF2E93), offset: Offset(-1.5, 0)),
@@ -2329,7 +2724,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   palette: _palette,
                   count: settings.barCount,
                   gain: settings.sensitivity,
-                  blocky: blocky,
+                  blocky: blocky || _vhsOn,
                   baseFrac: baseFrac,
                   repaint: _tick,
                 ),
@@ -2408,12 +2803,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       );
 
   Widget _title(double size, Alignment a, bool vhs) => _fit(
-        vhs ? _split((c) => _titleText(size, color: c)) : _titleText(size),
+        (vhs || _vhsOn) ? _split((c) => _titleText(size, color: c)) : _titleText(size),
         a,
       );
 
   Widget _artist(double size, Alignment a, bool vhs) => _fit(
-        vhs
+        (vhs || _vhsOn)
             ? _split((c) => _artistText(size, color: c), main: Colors.white70)
             : _artistText(size),
         a,
@@ -2545,7 +2940,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             clipBehavior: Clip.none,
             children: [
               if (settings.fxBloom && !settings.performance) _bloom(s),
-              vhs ? _splitArt(s) : _artCard(s),
+              (vhs || _vhsOn) ? _splitArt(s) : _artCard(s),
             ],
           ),
         ),

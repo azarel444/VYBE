@@ -171,3 +171,39 @@ class CutLinePainter extends CustomPainter {
   @override
   bool shouldRepaint(CutLinePainter old) => old.a != a || old.b != b;
 }
+
+/// A soft black shadow along the cut line, on the side the bars grow toward.
+/// It is darkest at the line and fades out. Drawn once and cached.
+class CutShadePainter extends CustomPainter {
+  final Offset a;
+  final Offset b;
+  final Offset normal;
+  final double reach;
+  const CutShadePainter({
+    required this.a,
+    required this.b,
+    required this.normal,
+    required this.reach,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final dir = (b - a) / (b - a).distance;
+    // Run a little past both ends so the shadow does not fade at the edges.
+    final start = a - dir * reach + normal * (reach * 0.45);
+    final end = b + dir * reach + normal * (reach * 0.45);
+    canvas.drawLine(
+      start,
+      end,
+      Paint()
+        ..color = const Color(0xB3000000)
+        ..strokeWidth = reach * 0.9
+        ..strokeCap = StrokeCap.butt
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, reach * 0.35),
+    );
+  }
+
+  @override
+  bool shouldRepaint(CutShadePainter old) =>
+      old.a != a || old.b != b || old.normal != normal || old.reach != reach;
+}

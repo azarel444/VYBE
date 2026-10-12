@@ -15,6 +15,7 @@ class AppSettings extends ChangeNotifier {
     'Diagonal',
     'Record Cut',
     'Typo',
+    'Orbit',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
@@ -22,6 +23,14 @@ class AppSettings extends ChangeNotifier {
   static const int tDiagonal = 6;
   static const int tRecord = 7;
   static const int tTypo = 8;
+  static const int tOrbit = 9;
+
+  /// Number 2 was the VHS theme. It is now an effect, so it is no longer
+  /// offered as a theme; the other numbers stay as they were.
+  static const int tRemovedVhs = 2;
+
+  /// The themes that can be picked, in order.
+  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9];
   static const accentNames = [
     'Auto (from art)',
     'Vaporwave',
@@ -41,7 +50,7 @@ class AppSettings extends ChangeNotifier {
     ArtPalette(Color(0xFFFFFFFF), Color(0xFFD0D8E8), Color(0xFF9AA8C0)),
   ];
 
-  /// Used by the VHS theme when the accent is left on Auto.
+  /// Used by the VHS effect when the accent is left on Auto.
   static const vaporwave =
       ArtPalette(Color(0xFF01CDFE), Color(0xFFFF71CE), Color(0xFFB967FF));
 
@@ -79,6 +88,7 @@ class AppSettings extends ChangeNotifier {
   bool fxRipples = false;
   bool fxWater = false;
   bool fxBloom = false;
+  bool fxVhs = false; // VHS look over any theme (strength: vhsEffects)
 
   bool onboarded = false; // the first-launch tour has been shown
   String navPkg = ''; // navigation app (empty = find one automatically)
@@ -134,6 +144,14 @@ class AppSettings extends ChangeNotifier {
     fxRipples = p.getBool('fxRipples') ?? false;
     fxWater = p.getBool('fxWater') ?? false;
     fxBloom = p.getBool('fxBloom') ?? false;
+    fxVhs = p.getBool('fxVhs') ?? false;
+    var migrated = false;
+    if (theme == tRemovedVhs) {
+      // VHS used to be a theme. Keep the look as an effect on Focused.
+      theme = 0;
+      fxVhs = true;
+      migrated = true;
+    }
     onboarded = p.getBool('onboarded') ?? false;
     navPkg = p.getString('navPkg') ?? '';
     navLabel = p.getString('navLabel') ?? '';
@@ -148,6 +166,7 @@ class AppSettings extends ChangeNotifier {
     allowNavAudio = p.getBool('allowNavAudio') ?? false;
     avoidNav = p.getBool('avoidNav') ?? true;
     notifyListeners();
+    if (migrated) save();
   }
 
   int _int(SharedPreferences p, String key, int def, int lo, int hi) {
@@ -188,6 +207,7 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('fxRipples', fxRipples);
     await p.setBool('fxWater', fxWater);
     await p.setBool('fxBloom', fxBloom);
+    await p.setBool('fxVhs', fxVhs);
     await p.setBool('onboarded', onboarded);
     await p.setString('navPkg', navPkg);
     await p.setString('navLabel', navLabel);

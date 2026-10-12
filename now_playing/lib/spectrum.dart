@@ -460,3 +460,66 @@ class HalfRingPainter extends CustomPainter {
       old.span != span ||
       old.gain != gain;
 }
+
+/// Bars standing on a straight line from [a] to [b], growing off it in the
+/// direction [normal] (a unit vector). Used by the Diagonal theme.
+/// Bass is at [a]. With [mirror], bass is at both ends and treble in the
+/// middle, so the middle can hide behind the cover.
+class LineBarsPainter extends CustomPainter {
+  final SpectrumSim sim;
+  final ArtPalette palette;
+  final Offset a;
+  final Offset b;
+  final Offset normal;
+  final double maxLen;
+  final int count;
+  final double gain;
+  final bool mirror;
+
+  LineBarsPainter({
+    required this.sim,
+    required this.palette,
+    required this.a,
+    required this.b,
+    required this.normal,
+    required this.maxLen,
+    required this.count,
+    required this.gain,
+    required this.mirror,
+    required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final n = count;
+    final d = b - a;
+    final len = d.distance;
+    final dir = d / len;
+    final step = len / n;
+    final width = math.max(2.0, step * 0.55).toDouble();
+    final bar = Paint()
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width;
+    for (int i = 0; i < n; i++) {
+      final f = n > 1 ? i / (n - 1) : 0.0;
+      final u = mirror ? (1 - (f - 0.5).abs() * 2) : f; // 0 = bass
+      final idx = (u * (SpectrumSim.bars - 1)).round();
+      final l = width + maxLen * sim.level(idx, gain);
+      final root = a + dir * (step * (i + 0.5));
+      bar.color = palette.at(1 - u);
+      canvas.drawLine(root, root + normal * l, bar);
+    }
+  }
+
+  @override
+  bool shouldRepaint(LineBarsPainter old) =>
+      old.palette != palette ||
+      old.a != a ||
+      old.b != b ||
+      old.normal != normal ||
+      old.maxLen != maxLen ||
+      old.count != count ||
+      old.gain != gain ||
+      old.mirror != mirror;
+}
