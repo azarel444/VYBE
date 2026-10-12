@@ -318,13 +318,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (mounted) _poke();
   }
 
-  void _toggleTheme() {
-    final order = AppSettings.pickable;
-    final at = order.indexOf(settings.theme);
-    settings.update(() => settings.theme = order[(at + 1) % order.length]);
-    _poke();
-  }
-
   void _openSettings() {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => SettingsScreen(settings: settings, model: model),
@@ -3333,7 +3326,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                btn(Icons.view_carousel_outlined, 36, _toggleTheme),
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
                 if (widget.driveHost) ...[

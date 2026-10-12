@@ -26,7 +26,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
   int? _preview;
 
   static const Map<int, String> _assetNames = {
-    0: 'focused',
+    0: 'orbit',
     1: 'side_by_side',
     3: 'edge_to_edge',
     4: 'drive',
@@ -34,7 +34,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     6: 'diagonal',
     7: 'record_cut',
     8: 'typo',
-    9: 'orbit',
+    9: 'focused',
   };
 
   String _imagePath(int id, bool portrait) =>
