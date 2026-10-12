@@ -85,12 +85,12 @@ class MediaCache {
     try {
       final dir = await _directory();
       final files = await dir.list().where((e) => e is File).cast<File>().toList();
-      final entries = <({File file, DateTime modified, int size})>[];
+      final entries = <_CacheEntry>[];
       var total = 0;
       for (final file in files) {
         final stat = await file.stat();
         total += stat.size;
-        entries.add((file: file, modified: stat.modified, size: stat.size));
+        entries.add(_CacheEntry(file, stat.modified, stat.size));
       }
       if (total <= 80 * 1024 * 1024 && entries.length <= 350) return;
       entries.sort((a,b) => a.modified.compareTo(b.modified));
@@ -103,4 +103,12 @@ class MediaCache {
       }
     } catch (_) {}
   }
+}
+
+class _CacheEntry {
+  final File file;
+  final DateTime modified;
+  final int size;
+
+  const _CacheEntry(this.file, this.modified, this.size);
 }
