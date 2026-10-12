@@ -5,6 +5,7 @@ import 'now_playing_model.dart';
 import 'onboarding.dart';
 import 'settings.dart';
 import 'fx_library.dart';
+import 'media_cache.dart';
 
 const _cyan = Color(0xFF00E5FF);
 
@@ -116,6 +117,10 @@ class SettingsScreen extends StatelessWidget {
       _switch('Synced lyrics',
           'Shows the current line as it is sung, when the song has lyrics',
           s.lyrics, (v) => s.update(() => s.lyrics = v)),
+      _section('Offline media cache'),
+      _action('Clear cached artwork and lyrics',
+          'Delete downloaded artwork and synced lyrics stored on this device',
+          'Clear Cache', () async { await MediaCache.clear(); }),
       _section('Screen care'),
       _choices(
         'Night mode',

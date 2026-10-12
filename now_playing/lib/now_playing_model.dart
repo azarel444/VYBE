@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'lyrics.dart';
 import 'net.dart';
+import 'media_cache.dart';
 import 'palette.dart';
 
 /// Talks to the Kotlin side (MainActivity) which listens to the active
@@ -200,9 +201,13 @@ class NowPlayingModel extends ChangeNotifier {
     final token = _artToken;
     final k = '${artist.toLowerCase()}|${title.toLowerCase()}';
     var bytes = _artCache[k];
+    bytes ??= await MediaCache.getArt(k);
     bytes ??= await fetchArtwork(title, artist);
     if (bytes == null || token != _artToken) return;
+    final decoded = await ArtAssets.load(bytes);
+    if (decoded == null || decoded.flat) return; // never cache placeholders
     _artCache[k] = bytes;
+    MediaCache.putArt(k, bytes);
     if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
     await _setArt(bytes);
   }
@@ -214,8 +219,12 @@ class NowPlayingModel extends ChangeNotifier {
     if (_lyricsCache.containsKey(k)) {
       found = _lyricsCache[k];
     } else {
-      found = await fetchSyncedLyrics(title, artist, durationMs);
-      _lyricsCache[k] = found;
+      found = await MediaCache.getLyrics(k);
+      found ??= await fetchSyncedLyrics(title, artist, durationMs);
+      if (found != null) {
+        _lyricsCache[k] = found;
+        MediaCache.putLyrics(k, found);
+      }
       if (_lyricsCache.length > 12) _lyricsCache.remove(_lyricsCache.keys.first);
     }
     if (token != _lyricsToken) return;
@@ -260,7 +269,13 @@ class NowPlayingModel extends ChangeNotifier {
     final token = ++_artToken;
     final loaded = await ArtAssets.load(bytes);
     if (token != _artToken) return;
-    art = loaded;
+    // Generic music-player placeholders are not usable album artwork.
+    art = (loaded != null && !loaded.flat) ? loaded : null;
+    if (art == null && artLookupEnabled && title.isNotEmpty) {
+      // Avoid blocking the media-session event while lookup runs.
+      _netTimer?.cancel();
+      _netTimer = Timer(const Duration(milliseconds: 700), _runNetwork);
+    }
     _needsArt = false;
     _artClearTimer?.cancel();
     notifyListeners();

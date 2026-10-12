@@ -482,9 +482,12 @@ class RippleState {
 
   void update(double now, double bass, bool enabled) {
     starts.removeWhere((s) => now - s > 2.8);
-    _avg = _avg * 0.95 + bass * 0.05;
+    final previous = _avg;
+    _avg = _avg * 0.93 + bass * 0.07;
     if (!enabled) return;
-    if (bass > 0.25 && bass > _avg * 1.35 + 0.08 && now - _lastBeat > 0.45) {
+    // Adaptive transient gate: reacts to bass peaks across quiet and loud
+    // sources without a fixed 0.25 floor that misses most head-unit audio.
+    if (bass > 0.09 && bass > previous * 1.17 + 0.025 && now - _lastBeat > 0.27) {
       _lastBeat = now;
       starts.add(now);
       if (starts.length > 5) starts.removeAt(0);
@@ -521,7 +524,7 @@ class RipplesPainter extends CustomPainter {
       final f = (clock.t - s) / 2.6;
       if (f < 0 || f > 1) continue;
       p.strokeWidth = 1.0 + 3.0 * (1 - f);
-      p.color = palette.at(f).withOpacity(_a((1 - f) * 0.35 * k));
+      p.color = palette.at(f).withOpacity(_a((1 - f) * 0.70 * k));
       canvas.drawCircle(c, baseR + f * maxR, p);
     }
   }
@@ -698,7 +701,7 @@ class AtmospherePainter extends CustomPainter {
         final y = h * (0.22 + 0.17 * (i % 3) + 0.045 * math.cos(t * 0.13 + i));
         final radius = math.max(w, h) * (0.25 + 0.035 * math.sin(t * 0.3 + i));
         paint.shader = ui.Gradient.radial(Offset(x, y), radius,
-          [palette.at(i / 4).withOpacity(0.14 * k), Colors.transparent]);
+          [palette.at(i / 4).withOpacity(0.44 * k), Colors.transparent]);
         canvas.drawCircle(Offset(x, y), radius, paint);
       }
       paint.shader = null;
@@ -717,16 +720,171 @@ class AtmospherePainter extends CustomPainter {
         canvas.drawLine(Offset(0, yy), Offset(w, yy), paint);
       }
     } else {
-      for (var i = 0; i < 65; i++) {
+      for (var i = 0; i < 130; i++) {
         final x = ((i * 0.6180339887 + 0.13) % 1.0) * w;
         final y = ((i * 0.4142135623 + 0.37) % 1.0) * h;
         final twinkle = 0.5 + 0.5 * math.sin(t * (0.5 + i % 4 * 0.2) + i);
-        paint.color = palette.at((i % 9) / 9).withOpacity((0.10 + 0.38 * twinkle) * k);
-        canvas.drawCircle(Offset(x, y), 0.7 + (i % 3) * 0.45, paint);
+        paint.color = palette.at((i % 9) / 9).withOpacity((0.22 + 0.70 * twinkle) * k);
+        canvas.drawCircle(Offset(x, y), 1.0 + (i % 4) * 0.75, paint);
       }
     }
   }
   @override
   bool shouldRepaint(AtmospherePainter old) =>
       old.mode != mode || old.palette != palette || old.k != k;
+}
+
+
+/// Lightweight GPU-canvas effects. Every mode draws visible animation over
+/// the blurred artwork; modes are deliberately distinct for solo testing.
+class ExpandedFxPainter extends CustomPainter {
+  final int mode;
+  final FxClock clock;
+  final ArtPalette palette;
+  final double k;
+  ExpandedFxPainter({required this.mode, required this.clock,
+    required this.palette, required this.k, required Listenable repaint})
+    : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (k <= 0) return;
+    final w = size.width, h = size.height, t = clock.t;
+    final center = Offset(w * .5, h * .5);
+    final bright = palette.a.withOpacity((.72 * k).clamp(0.0, 1.0));
+    final second = palette.b.withOpacity((.68 * k).clamp(0.0, 1.0));
+    final stroke = Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5..color = bright;
+    switch (mode) {
+      case 0: // Liquid refraction: translucent flowing contours
+        for (var i = 0; i < 12; i++) {
+          final path = Path();
+          for (var j = 0; j <= 60; j++) {
+            final x = w * j / 60;
+            final y = h * (i + 1) / 13 + h * .055 *
+              math.sin(x / w * 9 + t * .85 + i * .65);
+            if (j == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
+          }
+          canvas.drawPath(path, stroke..color = (i.isEven ? bright : second)..strokeWidth = 1.5 + 2 * k);
+        }
+        break;
+      case 1: // Bass shockwave: energy-responsive expanding rings
+        final phase = (t * (0.55 + clock.bass * 2)) % 1.0;
+        for (var i = 0; i < 3; i++) {
+          final f = (phase + i / 3) % 1.0;
+          canvas.drawCircle(center, (0.08 + f * .7) * w,
+            stroke..strokeWidth = 2 + 7 * clock.bass * k
+              ..color = palette.at(i / 3).withOpacity((1 - f) * .7 * k));
+        }
+        break;
+      case 2: // Aurora curtains: tall undulating ribbons
+        for (var i = 0; i < 7; i++) {
+          final path = Path();
+          for (var j = 0; j <= 55; j++) {
+            final y = h * j / 55;
+            final x = w * (.12 + i * .13) + w * .11 *
+              math.sin(y / h * 5 + t * .6 + i * .5);
+            if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
+          }
+          canvas.drawPath(path, stroke..strokeWidth = 10 + i * 2.0
+            ..color = palette.at(i / 7).withOpacity(.22 * k));
+        }
+        break;
+      case 3: // Vortex tunnel
+        for (var i = 0; i < 7; i++) {
+          final path = Path();
+          for (var j = 0; j < 150; j++) {
+            final a = j / 150 * math.pi * 5 + t * .55 + i * math.pi / 3.5;
+            final r = (j / 150) * w * .53;
+            final pt = center + Offset(math.cos(a) * r, math.sin(a) * r * h / w);
+            if (j == 0) {path.moveTo(pt.dx,pt.dy);} else {path.lineTo(pt.dx,pt.dy);}
+          }
+          canvas.drawPath(path, stroke..strokeWidth = 1.5 + k * 2
+            ..color = palette.at(i / 7).withOpacity(.65 * k));
+        }
+        break;
+      case 4: // Electric arcs: deterministic branching flicker
+        for (var i = 0; i < 7; i++) {
+          final path = Path();
+          final seed = (t * 6).floor() + i * 19;
+          for (var j = 0; j < 17; j++) {
+            final x = w * j / 16;
+            final y = h * (.13 + i * .12) + math.sin(j * 9.3 + seed * 3.7) * h * .045;
+            if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
+          }
+          canvas.drawPath(path, stroke..strokeWidth = i.isEven ? 2.5 : 1.3
+            ..color = palette.at(i / 7).withOpacity(.6 * k));
+        }
+        break;
+      case 5: // Prism shards
+        for (var i = 0; i < 13; i++) {
+          final x = w * ((i * .618 + t * .015) % 1);
+          final y = h * ((i * .37 + t * .009) % 1);
+          final r = 20 + (i % 4) * 22.0;
+          final a = t * .13 + i;
+          final path = Path()..moveTo(x + math.cos(a)*r,y + math.sin(a)*r)
+            ..lineTo(x + math.cos(a+2.1)*r,y + math.sin(a+2.1)*r)
+            ..lineTo(x + math.cos(a+4.2)*r,y + math.sin(a+4.2)*r)..close();
+          canvas.drawPath(path, Paint()..color=palette.at(i/13).withOpacity(.24*k));
+          canvas.drawPath(path, stroke..strokeWidth=1.5..color=bright);
+        }
+        break;
+      case 6: // Light trails
+        for (var i = 0; i < 12; i++) {
+          final path = Path();
+          for (var j = 0; j < 32; j++) {
+            final x = w * j / 31;
+            final y = h * (.12 + i * .07) + h * .09 * math.sin(j * .13 + t * (1 + i*.04) + i);
+            if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
+          }
+          canvas.drawPath(path, stroke..strokeWidth=1.8+i%3*1.0
+            ..color=palette.at(i/12).withOpacity(.7*k));
+        }
+        break;
+      case 7: // Morphing wireframe
+        for (var i = 0; i <= 15; i++) {
+          final path = Path();
+          for (var j = 0; j <= 35; j++) {
+            final x = w * j / 35;
+            final y = h * (.15 + i * .05) + h * .055 * math.sin(j*.25 + t + i*.5);
+            if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
+          }
+          canvas.drawPath(path, stroke..strokeWidth=1.2..color=bright);
+        }
+        for (var j=0;j<=25;j++) {
+          final x=w*j/25;
+          final path=Path();
+          for(var i=0;i<=15;i++) {
+            final y=h*(.15+i*.05)+h*.055*math.sin(j/25*35*.25+t+i*.5);
+            if(i==0){path.moveTo(x,y);}else{path.lineTo(x,y);}
+          }
+          canvas.drawPath(path,stroke..strokeWidth=.9..color=second);
+        }
+        break;
+      case 8: // Particle currents
+        for (var i=0;i<220;i++) {
+          final f=(i*.6180339+t*.04*(1+i%4))%1;
+          final a=i*.47+t*.45;
+          final r=(.08+f*.47)*w;
+          final pt=center+Offset(math.cos(a+f*8)*r,math.sin(a+f*8)*r*h/w);
+          canvas.drawCircle(pt,1.0+(i%4)*.65,Paint()..color=palette.at(i/220).withOpacity(.65*k));
+        }
+        break;
+      case 9: // Holographic interference
+        for (var i=0;i<45;i++) {
+          final y=h*((i/45+t*.12)%1);
+          final path=Path();
+          for(var j=0;j<=35;j++) {
+            final x=w*j/35;
+            final yy=y+h*.025*math.sin(j*.35+t*1.3+i*.3);
+            if(j==0){path.moveTo(x,yy);}else{path.lineTo(x,yy);}
+          }
+          canvas.drawPath(path,stroke..strokeWidth=1.0+i%5*.3
+            ..color=palette.at(i/45).withOpacity(.36*k));
+        }
+        break;
+    }
+  }
+  @override
+  bool shouldRepaint(ExpandedFxPainter old) =>
+    old.mode != mode || old.k != k || old.palette != palette;
 }

@@ -546,8 +546,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       builder: (context, c) {
         final size = MediaQuery.of(context).size;
         final m = settings.kMotion;
-        final dx = math.sin(_time * 0.08) * size.width * 0.03 * m;
-        final dy = math.cos(_time * 0.06) * size.height * 0.03 * m;
+        final dx = math.sin(_time * 0.08) * size.width * 0.065 * m;
+        final dy = math.cos(_time * 0.06) * size.height * 0.055 * m;
         return Transform.translate(
           offset: Offset(dx, dy),
           child: Transform.scale(scale: 1.18, child: c),
@@ -572,13 +572,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final bool onRight;
     final bool atBottom;
     if (theme == 4) {
-      onRight = !settings.driveSwap;
+      onRight = settings.driveSwap;
       atBottom = false;
     } else if (portrait) {
       onRight = const [0, 2, 5, 6, 7, 9].contains(theme);
       atBottom = const [7, 8].contains(theme);
     } else {
-      onRight = const [0, 2, 6, 7, 9].contains(theme);
+      onRight = const [0, 1, 2, 3, 5, 6, 7, 9].contains(theme);
       atBottom = const [7, 8].contains(theme);
     }
     final inset = portrait ? 16.0 : 24.0;
@@ -612,6 +612,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: RepaintBoundary(child: CustomPaint(painter: painter)),
         );
     return [
+      for (var i = 0; i < AppSettings.extraFxNames.length; i++)
+        if (settings.extraFx[AppSettings.extraFxNames[i]] ?? false)
+          layer(ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
+            k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick)),
       if (settings.fxNebula)
         layer(AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),

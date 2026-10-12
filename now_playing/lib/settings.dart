@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'palette.dart';
@@ -118,6 +119,13 @@ class AppSettings extends ChangeNotifier {
   bool fxRipples = false;
   bool fxWater = false;
   bool fxBloom = false;
+  static const extraFxNames = [
+    'Liquid Refraction', 'Bass Shockwave', 'Aurora Curtains', 'Vortex Tunnel',
+    'Electric Arcs', 'Prism Shards', 'Light Trails', 'Morphing Wireframe',
+    'Particle Currents', 'Holographic Interference',
+  ];
+  final Map<String, bool> extraFx = {for (final n in extraFxNames) n: false};
+  final Map<String, double> extraStrength = {for (final n in extraFxNames) n: 0.8};
   bool fxVhs = false; // VHS look over any theme (strength: vhsEffects)
 
   bool onboarded = false; // the first-launch tour has been shown
@@ -189,6 +197,10 @@ class AppSettings extends ChangeNotifier {
     fxWater = p.getBool('fxWater') ?? false;
     fxBloom = p.getBool('fxBloom') ?? false;
     fxVhs = p.getBool('fxVhs') ?? false;
+    for (final n in extraFxNames) {
+      extraFx[n] = p.getBool('extraFx:$n') ?? false;
+      extraStrength[n] = k('extraStrength:$n', 0.8);
+    }
     var migrated = false;
     if (theme == tRemovedVhs) {
       // VHS used to be a theme. Keep the look as an effect on Focused.
@@ -268,6 +280,10 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('fxWater', fxWater);
     await p.setBool('fxBloom', fxBloom);
     await p.setBool('fxVhs', fxVhs);
+    for (final n in extraFxNames) {
+      await p.setBool('extraFx:$n', extraFx[n] ?? false);
+      await p.setDouble('extraStrength:$n', extraStrength[n] ?? 0.8);
+    }
     await p.setBool('onboarded', onboarded);
     await p.setString('navPkg', navPkg);
     await p.setString('navLabel', navLabel);

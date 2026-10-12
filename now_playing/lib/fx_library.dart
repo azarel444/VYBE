@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'settings.dart';
+import 'effects.dart';
+import 'palette.dart';
 
 const _cyan = Color(0xFF00E5FF);
 
@@ -29,6 +31,16 @@ final _effects = <_FxSpec>[
   _FxSpec('Beat Ripples', 'Expanding concentric rings', (s)=>s.fxRipples,(s,v)=>s.fxRipples=v,(s)=>s.kRipples,(s,v)=>s.kRipples=v),
   _FxSpec('Water Shimmer', 'Reflective water highlights', (s)=>s.fxWater,(s,v)=>s.fxWater=v,(s)=>s.kWater,(s,v)=>s.kWater=v),
   _FxSpec('Cover Bloom', 'Soft glow around the cover', (s)=>s.fxBloom,(s,v)=>s.fxBloom=v,(s)=>s.kBloom,(s,v)=>s.kBloom=v),
+  _FxSpec('Liquid Refraction', 'Animated liquid refraction', (s)=>s.extraFx['Liquid Refraction'] ?? false, (s,v)=>s.extraFx['Liquid Refraction']=v, (s)=>s.extraStrength['Liquid Refraction'] ?? 0.8, (s,v)=>s.extraStrength['Liquid Refraction']=v),
+  _FxSpec('Bass Shockwave', 'Animated bass shockwave', (s)=>s.extraFx['Bass Shockwave'] ?? false, (s,v)=>s.extraFx['Bass Shockwave']=v, (s)=>s.extraStrength['Bass Shockwave'] ?? 0.8, (s,v)=>s.extraStrength['Bass Shockwave']=v),
+  _FxSpec('Aurora Curtains', 'Animated aurora curtains', (s)=>s.extraFx['Aurora Curtains'] ?? false, (s,v)=>s.extraFx['Aurora Curtains']=v, (s)=>s.extraStrength['Aurora Curtains'] ?? 0.8, (s,v)=>s.extraStrength['Aurora Curtains']=v),
+  _FxSpec('Vortex Tunnel', 'Animated vortex tunnel', (s)=>s.extraFx['Vortex Tunnel'] ?? false, (s,v)=>s.extraFx['Vortex Tunnel']=v, (s)=>s.extraStrength['Vortex Tunnel'] ?? 0.8, (s,v)=>s.extraStrength['Vortex Tunnel']=v),
+  _FxSpec('Electric Arcs', 'Animated electric arcs', (s)=>s.extraFx['Electric Arcs'] ?? false, (s,v)=>s.extraFx['Electric Arcs']=v, (s)=>s.extraStrength['Electric Arcs'] ?? 0.8, (s,v)=>s.extraStrength['Electric Arcs']=v),
+  _FxSpec('Prism Shards', 'Animated prism shards', (s)=>s.extraFx['Prism Shards'] ?? false, (s,v)=>s.extraFx['Prism Shards']=v, (s)=>s.extraStrength['Prism Shards'] ?? 0.8, (s,v)=>s.extraStrength['Prism Shards']=v),
+  _FxSpec('Light Trails', 'Animated light trails', (s)=>s.extraFx['Light Trails'] ?? false, (s,v)=>s.extraFx['Light Trails']=v, (s)=>s.extraStrength['Light Trails'] ?? 0.8, (s,v)=>s.extraStrength['Light Trails']=v),
+  _FxSpec('Morphing Wireframe', 'Animated morphing wireframe', (s)=>s.extraFx['Morphing Wireframe'] ?? false, (s,v)=>s.extraFx['Morphing Wireframe']=v, (s)=>s.extraStrength['Morphing Wireframe'] ?? 0.8, (s,v)=>s.extraStrength['Morphing Wireframe']=v),
+  _FxSpec('Particle Currents', 'Animated particle currents', (s)=>s.extraFx['Particle Currents'] ?? false, (s,v)=>s.extraFx['Particle Currents']=v, (s)=>s.extraStrength['Particle Currents'] ?? 0.8, (s,v)=>s.extraStrength['Particle Currents']=v),
+  _FxSpec('Holographic Interference', 'Animated holographic interference', (s)=>s.extraFx['Holographic Interference'] ?? false, (s,v)=>s.extraFx['Holographic Interference']=v, (s)=>s.extraStrength['Holographic Interference'] ?? 0.8, (s,v)=>s.extraStrength['Holographic Interference']=v),
 ];
 
 /// Selection library backed by the actual effect flags used by the player.
@@ -41,7 +53,7 @@ class FxLibraryScreen extends StatefulWidget {
 }
 
 class _FxLibraryScreenState extends State<FxLibraryScreen> {
-  static const _snapshotKey = 'fxLibraryLastCustomV1';
+  static const _snapshotKey = 'fxLibraryLastCustomV2';
   List<bool>? _lastCustom;
   @override
   void initState() {
@@ -201,6 +213,13 @@ class _FxPainter extends CustomPainter {
     final cyan=const Color(0xFF4CCFF5);
     final pink=const Color(0xFFD57CF2);
     Paint line(Color color,double stroke) => Paint()..color=color..style=PaintingStyle.stroke..strokeWidth=stroke;
+    if (effect >= 12) {
+      final clock = FxClock()..t = 3.0..bass = 0.7;
+      ExpandedFxPainter(mode: effect - 12, clock: clock,
+        palette: const ArtPalette(Color(0xFF4CCFF5), Color(0xFFD57CF2), Color(0xFF63F3C8)),
+        k: 1, repaint: const AlwaysStoppedAnimation<int>(0)).paint(canvas, size);
+      return;
+    }
     switch(effect) {
       case 0: // VHS
         for(var y=2.0;y<size.height;y+=6) { canvas.drawLine(Offset(0,y),Offset(size.width,y),line(Colors.white24,.5)); }
