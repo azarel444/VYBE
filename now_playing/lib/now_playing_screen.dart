@@ -191,8 +191,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
     _updateClock();
     if (widget.driveHost) {
-      // Picking any other theme in the Drive window goes back to normal VYBE.
-      if (_hostReady && settings.theme != 4) _exitDrive();
+      // Leaving Drive is coordinated by _pickTheme, after its awaited save.
+      // Exiting here races SharedPreferences writes across Flutter engines.
     } else if (_themeReady) {
       if (settings.theme == 4 && _prevTheme != 4) _startDrive();
       _prevTheme = settings.theme;
@@ -307,7 +307,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Visual theme library with lightweight live audio/artwork previews.
   Future<void> _pickTheme() async {
-    await showDialog<int>(
+    final selected = await showDialog<int>(
       context: context,
       builder: (_) => ThemeLibrary(
         model: model,
@@ -315,6 +315,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         palette: _palette,
       ),
     );
+    if (!mounted) return;
+    if (widget.driveHost && selected != null && selected != 4) {
+      await Native.exitDrive();
+    }
     if (mounted) _poke();
   }
 

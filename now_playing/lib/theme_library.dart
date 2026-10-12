@@ -40,8 +40,16 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
   String _imagePath(int id, bool portrait) =>
       'assets/theme_previews/${_assetNames[id]}_${portrait ? 'portrait' : 'landscape'}.jpg';
 
-  void _apply(int id) {
-    widget.settings.update(() => widget.settings.theme = id);
+  bool _applying = false;
+
+  Future<void> _apply(int id) async {
+    if (_applying) return;
+    _applying = true;
+    // Notify the UI immediately, but do not start an unawaited settings save.
+    // The Drive activity and the normal activity use separate Flutter engines.
+    widget.settings.update(() => widget.settings.theme = id, persist: false);
+    await widget.settings.save();
+    if (!mounted) return;
     Navigator.of(context).pop(id);
   }
 
