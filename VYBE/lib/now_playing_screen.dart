@@ -6,6 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'effects.dart';
+import 'refraction_shader.dart';
+import 'fx_adaptive.dart';
+import 'fx_profile.dart';
 import 'native.dart';
 import 'now_playing_model.dart';
 import 'orbit.dart';
@@ -55,6 +58,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double? _drag; // seek bar position while the finger is on it
 
   final fxClock = FxClock();
+  final _fxGovernor = FxAdaptiveGovernor();
+  final _fxProfiler = FxFrameProfiler();
+  int _fxTier = 2;
   final ripples = RippleState();
   final _artKey = GlobalKey(); // lets rings and rays find the cover
   // Record Cut: the spin is kept apart from the layout so only a cached
@@ -111,6 +117,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _fxGovernor.onTierChanged = (tier) {
+      if (mounted) setState(() => _fxTier = tier);
+    };
+    _fxGovernor.start();
+    FxProfileStore.load();
+    _fxProfiler.signature = () {
+      if (!mounted) return null;
+      final size = MediaQuery.maybeSizeOf(context);
+      if (size == null) return null;
+      return FxProfileStore.signature(settings, size.width, size.height);
+    };
+    _fxProfiler.start();
     model.addListener(_onModel);
     settings.addListener(_onSettings);
     model.start();
@@ -144,6 +162,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _fxGovernor.stop();
+    _fxProfiler.stop();
     model.removeListener(_onModel);
     settings.removeListener(_onSettings);
     _ticker.dispose();
@@ -158,7 +178,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _fxGovernor.enabled = false;
     if (state == AppLifecycleState.resumed) {
+      _fxGovernor.enabled = settings.autoFxQuality && settings.fxPerformanceMode != 2 && !settings.performance;
       model.refresh();
       // The Drive window may have changed the theme while VYBE was away.
       if (!widget.driveHost && _themeReady) settings.load();
@@ -176,6 +198,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (model.visualizerEnabled != settings.visualizer) {
       model.setVisualizer(settings.visualizer);
     }
+    _fxGovernor.enabled = settings.autoFxQuality && settings.fxPerformanceMode != 2 && !settings.performance;
+    if (!_fxGovernor.enabled) _fxTier = 2;
     model.setArtLookup(settings.artLookup);
     if (model.lyricsEnabled != settings.lyrics) {
       model.setLyricsEnabled(settings.lyrics);
@@ -358,6 +382,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
+            if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) ..._vhsBackdrop(fx),
             if (settings.bgEffects && settings.particles && heavy)
@@ -565,56 +590,62 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : (now.hour % 12 == 0 ? 12 : now.hour % 12);
     final value = '${hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}${settings.clock24h ? '' : (now.hour < 12 ? ' AM' : ' PM')}';
 
-    // Per-theme placement chosen from the actual layout composition.
-    // The clock belongs in negative space, never over the artwork or map.
+    // Portrait positions are art-directed per theme (October 2026 review).
+    // Landscape clocks follow the music-information side, not the artwork.
     final theme = settings.theme;
-    bool onRight;
-    bool atBottom = false;
-    double topInset = portrait ? 20.0 : 18.0;
-    double bottomInset = portrait ? 30.0 : 26.0;
-    if (theme == 4) {
-      // The map occupies the opposite side from the music panel.
-      onRight = settings.driveSwap;
-      if (portrait) {
-        // The portrait map occupies the lower portion of the screen.
-        onRight = true;
-        topInset = 16;
-      }
-    } else if (portrait) {
+    final centered = portrait;
+    bool onRight = true;
+    double topInset = portrait ? h * 0.055 : 18.0;
+    double? bottomInset;
+    if (portrait) {
       switch (theme) {
-        case 0: onRight = true; break;  // Focused: avoid centered artwork
-        case 1: onRight = true; break;  // Side by Side: away from cover
-        case 3: onRight = true; break;  // Edge to Edge: away from cover
-        case 5: onRight = true; break;  // Fan: outside stacked covers
-        case 6: onRight = true; break;  // Diagonal: opposite cover
-        case 7: onRight = false; break; // Record Cut: avoid vinyl
-        case 8: onRight = true; break;  // Typo: away from headline
-        case 9: onRight = true; break;  // Orbit: avoid centered artwork
-        default: onRight = true;
+        case 1: // Side by Side: centered along the bottom.
+        case 3: // Edge to Edge: centered along the bottom.
+          bottomInset = math.max(22.0, h * 0.022);
+          break;
+        case 4: // Drive: above the album, not over the map.
+          topInset = math.max(h * 0.042, 48.0);
+          break;
+        case 5: // Fan: between the top spectrum and song information.
+          topInset = h * 0.135;
+          break;
+        case 7: // Record Cut: above the lowered record.
+          topInset = h * 0.025;
+          break;
+        case 8: // Typo: between visualizer area and artwork.
+          topInset = h * 0.13;
+          break;
+        case 9: // Orbit: directly above the artist/title group.
+          topInset = h * 0.075;
+          break;
+        case 0: // Focused: above the ring/art assembly.
+          topInset = h * 0.025;
+          break;
+        default: // Other portrait compositions: above song information.
+          topInset = h * 0.08;
       }
     } else {
-      switch (theme) {
-        case 0: onRight = true; break;  // Focused
-        case 1: onRight = true; break;  // Side by Side
-        case 3: onRight = true; break;  // Edge to Edge
-        case 5: onRight = false; break; // Fan: right-edge visualizer
-        case 6: onRight = true; break;  // Diagonal
-        case 7: onRight = false; break; // Record Cut: vinyl on right
-        case 8: onRight = true; break;  // Typo: large text left
-        case 9: onRight = true; break;  // Orbit
-        default: onRight = true;
-      }
+      // Mirrored Drive places its music panel on the opposite side.
+      if (theme == 4) onRight = settings.driveSwap;
+      // Fan and Record Cut landscape have the artwork on the left/right.
+      if (theme == 5 || theme == 7) onRight = false;
     }
-    // Keep labels clear of visualizer rails and physical display edges.
-    final inset = portrait ? 18.0 :
-        (theme == 5 && !onRight ? 28.0 : 30.0);
+    // Android's status bar can be hidden in immersive mode while the physical
+    // hole-punch camera remains. Reserve a minimum camera-safe band as well as
+    // any real system inset supplied by the device.
+    final cameraSafeTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
+    if (portrait && bottomInset == null) {
+      topInset = math.max(topInset, cameraSafeTop + 14.0);
+    }
+    final inset = portrait ? 18.0 : 30.0;
     return Positioned(
-      left: onRight ? null : inset,
-      right: onRight ? inset : null,
-      top: atBottom ? null : topInset,
-      bottom: atBottom ? bottomInset : null,
+      left: centered ? 0 : (onRight ? null : inset),
+      right: centered ? 0 : (onRight ? inset : null),
+      top: bottomInset == null ? topInset : null,
+      bottom: bottomInset,
       child: IgnorePointer(
-        child: Text(value, style: TextStyle(
+        child: Center(widthFactor: centered ? null : 1, heightFactor: 1,
+          child: Text(value, style: TextStyle(
           color: Colors.white.withOpacity(0.93),
           fontSize: portrait ? 12 : 14,
           fontWeight: FontWeight.w500,
@@ -625,11 +656,46 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             Shadow(color: Color(0x99000000), blurRadius: 14, offset: Offset(0, 3)),
           ],
         )),
+        ),
       ),
     );
   }
 
   // -------------------------------------------------------------- VHS layers
+
+  /// GPU backdrop displacement occurs after blurred art, before visualizers,
+  /// artwork and labels. On Skia the legacy canvas treatment remains available.
+  Widget _shaderFxLayer() {
+    int mode = -1;
+    String name = '';
+    for (final candidate in const <String>[
+      'Liquid Refraction', 'Vortex Tunnel', 'Prism Shards',
+      'Holographic Interference',
+    ]) {
+      if (settings.extraFx[candidate] ?? false) {
+        name = candidate;
+        mode = candidate == 'Liquid Refraction' ? 0
+          : candidate == 'Vortex Tunnel' ? 1
+          : candidate == 'Prism Shards' ? 2 : 3;
+        break;
+      }
+    }
+    if (mode < 0 || !ui.ImageFilter.isShaderFilterSupported) {
+      return const SizedBox.shrink();
+    }
+    final tier = settings.fxPerformanceMode == 2 ? 2 : settings.fxPerformanceMode == 1 ? 0 : (settings.autoFxQuality ? _fxTier : 2);
+    if (tier == 0) return const SizedBox.shrink();
+    final intensity = (settings.extraStrength[name] ?? 0.8) *
+      (tier == 1 ? 0.45 : 1.0);
+    return IgnorePointer(child: AnimatedBuilder(
+      animation: _tick,
+      builder: (context, _) => RefractionShaderLayer(
+        time: fxClock.t, bass: fxClock.bass,
+        strength: intensity, mode: mode,
+        child: const SizedBox.expand(),
+      ),
+    ));
+  }
 
   /// The optional effects, each switched on or off in settings.
   List<Widget> _extraFx() {
@@ -639,7 +705,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         );
     return [
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
-        if (settings.extraFx[AppSettings.extraFxNames[i]] ?? false)
+        if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
+            !(i == 0 && ui.ImageFilter.isShaderFilterSupported &&
+              (!settings.autoFxQuality || _fxTier > 0)))
           layer(ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick)),
       if (settings.fxNebula)
@@ -902,7 +970,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
 
-    if (portrait) return _portraitStack(h, top, text);
+    if (portrait) return Padding(
+      padding: EdgeInsets.only(top: h * 0.075),
+      child: _portraitStack(h * 0.925, top, text),
+    );
 
     return Center(
       child: FittedBox(
@@ -1086,7 +1157,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// Where the map shows through in the Drive window.
   Rect _driveHole(double w, double h, bool narrow) {
     if (narrow) {
-      return Rect.fromLTRB(w * 0.04, h * 0.3 + w * 0.04, w * 0.96, h - w * 0.04);
+      return Rect.fromLTRB(w * 0.04, h * 0.445, w * 0.96, h - w * 0.04);
     }
     // The map window sits against the right side (the left with "swap"), so
     // the car and the route are centered in it.
@@ -1104,8 +1175,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final host = widget.driveHost;
 
     if (narrow) {
+      // Clock occupies the first row; artwork and metadata sit above the
+      // shorter, still-interactive navigation window.
+      final cameraTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
+      // The clock is rendered by _themeClock as a separate overlay. Reserve
+      // a full row for it so neither real artwork nor the idle placeholder
+      // can appear underneath the time.
+      final artworkTop = math.max(h * 0.105, cameraTop + 64.0);
+      final artSide = math.min(w * 0.48, h * 0.225).toDouble();
       final top = SizedBox(
-          height: h * 0.3, child: Center(child: _front(h * 0.24, false)));
+        height: h * 0.425,
+        child: Column(children: [
+          SizedBox(height: artworkTop),
+          GestureDetector(onTap: _openPlayer, child: _front(artSide, false)),
+          SizedBox(height: h * 0.012),
+          _title(h * 0.031, Alignment.center, false),
+          SizedBox(height: h * 0.004),
+          _artist(h * 0.017, Alignment.center, false),
+        ]),
+      );
       if (host) {
         return Column(children: [top, const Expanded(child: SizedBox())]);
       }
@@ -1745,14 +1833,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _recordLayout(double w, double h, bool narrow) {
     if (narrow) {
-      // Portrait: the record at the top, the disc's lower edge just below it,
-      // and the bars hang down from that edge toward the song info.
+      // Portrait: position the vinyl independently from the grayscale outer
+      // disc. The outer disc's LOWER circular edge crosses the vinyl at its
+      // vertical midpoint, behind the vinyl, rather than moving with it.
       final d = math.min(w * 0.62, h * 0.30).toDouble();
       final r = _discR(d, w);
-      final rcy = h * 0.04 + d / 2;
-      final discBottom = rcy + d / 2 + _discGap(d);
-      final cy = discBottom - r;
+      final cameraSafeTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
+      final vinylTop = math.max(cameraSafeTop + 88.0, h * 0.095);
+      final rcy = vinylTop + d / 2;
+      final cy = rcy - r;
       final maxLen = d * 0.16;
+      // Metadata must remain below the actual record, not the disc boundary.
+      final metadataTop = vinylTop + d + h * 0.065;
       return Stack(
         children: [
           ..._discStack(w / 2, cy, r, d, w, math.pi / 2),
@@ -1771,7 +1863,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           Positioned(
             left: w * 0.06,
             right: w * 0.06,
-            top: discBottom + maxLen + h * 0.02,
+            top: metadataTop,
             bottom: h * 0.02,
             child: Align(
               alignment: Alignment.center,
@@ -2371,15 +2463,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
       ),
-      if (!settings.performance)
-        IgnorePointer(
-          child: RepaintBoundary(
-            child: CustomPaint(
-              painter: OrbitRaysPainter(
-                  clock: fxClock, palette: p, center: c, repaint: _slow),
-            ),
-          ),
-        ),
+      // Light Rays are an optional FX-library effect, not an intrinsic
+      // Orbit theme layer. The shared _extraFx() pipeline draws them only
+      // when settings.fxRays is enabled. Orbit keeps its signature rings.
+
       // A soft black glow behind the bars so they stand out.
       if (settings.visualizer)
         Positioned(

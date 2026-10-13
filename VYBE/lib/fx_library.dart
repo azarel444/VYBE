@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'settings.dart';
+import 'fx_profile.dart';
 import 'effects.dart';
 import 'palette.dart';
 
@@ -59,6 +60,7 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
   void initState() {
     super.initState();
     _load();
+    FxProfileStore.load().then((_) { if (mounted) setState(() {}); });
   }
 
   List<bool> get _current => [for (final fx in _effects) fx.enabled(widget.settings)];
@@ -155,8 +157,44 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
         return Column(children: [
           Padding(padding: const EdgeInsets.fromLTRB(16,12,16,8), child: Column(crossAxisAlignment: CrossAxisAlignment.start,children: [
             const Text('Layer effects over your album-art background', style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 8),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Auto-optimize FX performance'),
+              subtitle: const Text('Monitors real Now Playing frames, learns per-theme and per-combination performance, and adapts shader quality. Individual effects are not automatically certified yet.',
+                style: TextStyle(fontSize: 11, color: Colors.white60)),
+              value: widget.settings.autoFxQuality,
+              onChanged: (v) => widget.settings.update(() => widget.settings.autoFxQuality = v),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              value: widget.settings.fxPerformanceMode,
+              decoration: const InputDecoration(labelText: 'FX performance mode', isDense: true),
+              items: const [
+                DropdownMenuItem(value: 0, child: Text('Auto — adaptive quality')),
+                DropdownMenuItem(value: 1, child: Text('Performance — canvas-first')),
+                DropdownMenuItem(value: 2, child: Text('Maximum visuals — no auto downgrade')),
+              ],
+              onChanged: (v) { if (v != null) widget.settings.update(() => widget.settings.fxPerformanceMode = v); },
+            ),
+            const SizedBox(height: 6),
+            Builder(builder: (context) {
+              final size = MediaQuery.sizeOf(context);
+              final id = FxProfileStore.signature(widget.settings, size.width, size.height);
+              final result = FxProfileStore.result(id);
+              final windows = (result?['windows'] as num?)?.toInt() ?? 0;
+              final ratio = (result?['slowRatio'] as num?)?.toDouble() ?? 0;
+              final label = windows < 2 ? 'Not measured yet' : ratio > .18 ? 'High frame pressure' : ratio > .06 ? 'Some dropped-frame risk' : 'Smooth in observed playback';
+              return Text('This theme + FX combination: $label. Profiles are learned while Now Playing runs; different orientations are measured separately.',
+                style: const TextStyle(fontSize: 11, color: Colors.white70));
+            }),
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 8, children: [
+              OutlinedButton(onPressed: () async {
+                await FxProfileStore.clear();
+                if (mounted) setState(() {});
+              }, child: const Text('Reset learned profiles')),
               OutlinedButton(onPressed: ()=>_override(true), child: const Text('All On')),
               OutlinedButton(onPressed: ()=>_override(false), child: const Text('All Off')),
               FilledButton.tonal(onPressed: _lastCustom==null?null:_restore, child: const Text('Restore My FX')),

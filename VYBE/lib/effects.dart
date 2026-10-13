@@ -755,38 +755,63 @@ class ExpandedFxPainter extends CustomPainter {
     final second = palette.b.withOpacity((.68 * k).clamp(0.0, 1.0));
     final stroke = Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5..color = bright;
     switch (mode) {
-      case 0: // Liquid refraction: translucent flowing contours
-        for (var i = 0; i < 12; i++) {
+      case 0: // Liquid refraction: flowing caustic bands and specular highlights.
+        // This is a canvas approximation; it does not displace source pixels.
+        for (var i = 0; i < 14; i++) {
           final path = Path();
-          for (var j = 0; j <= 60; j++) {
-            final x = w * j / 60;
-            final y = h * (i + 1) / 13 + h * .055 *
-              math.sin(x / w * 9 + t * .85 + i * .65);
+          for (var j = 0; j <= 80; j++) {
+            final x = w * j / 80;
+            final u = x / w;
+            final y = h * (i + .6) / 14 + h * (.037 + .012 * clock.bass) *
+                math.sin(u * 10.5 + t * .72 + i * .58) +
+                h * .022 * math.sin(u * 18.0 - t * .48 + i * 1.7);
             if (j == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
           }
-          canvas.drawPath(path, stroke..color = (i.isEven ? bright : second)..strokeWidth = 1.5 + 2 * k);
+          final color = palette.at(i / 14);
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 13 * k..color = color.withOpacity(.075 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2 + 1.8 * k
+            ..color = Color.lerp(color, Colors.white, .52)!.withOpacity(.50 * k));
         }
         break;
       case 1: // Bass shockwave: energy-responsive expanding rings
         final phase = (t * (0.55 + clock.bass * 2)) % 1.0;
         for (var i = 0; i < 3; i++) {
           final f = (phase + i / 3) % 1.0;
-          canvas.drawCircle(center, (0.08 + f * .7) * w,
-            stroke..strokeWidth = 2 + 7 * clock.bass * k
-              ..color = palette.at(i / 3).withOpacity((1 - f) * .7 * k));
+          final radius = (0.08 + f * .7) * math.min(w, h);
+          final color = palette.at(i / 3);
+          canvas.drawCircle(center, radius, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 15 + 18 * clock.bass
+            ..color = color.withOpacity((1 - f) * .22 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 13));
+          canvas.drawCircle(center, radius, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 2 + 7 * clock.bass * k
+            ..color = color.withOpacity((1 - f) * .82 * k));
         }
         break;
-      case 2: // Aurora curtains: tall undulating ribbons
+      case 2: // Aurora curtains: luminous, moving translucent ribbons.
         for (var i = 0; i < 7; i++) {
           final path = Path();
-          for (var j = 0; j <= 55; j++) {
-            final y = h * j / 55;
-            final x = w * (.12 + i * .13) + w * .11 *
-              math.sin(y / h * 5 + t * .6 + i * .5);
+          for (var j = 0; j <= 64; j++) {
+            final y = h * j / 64;
+            final x = w * (.10 + i * .135) + w * .12 *
+              math.sin(y / h * 4.4 + t * .40 + i * .6);
             if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
           }
-          canvas.drawPath(path, stroke..strokeWidth = 10 + i * 2.0
-            ..color = palette.at(i / 7).withOpacity(.22 * k));
+          final color = palette.at(i / 7);
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = w * (.11 + .025 * clock.bass)
+            ..color = color.withOpacity(.13 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = w * .027
+            ..color = color.withOpacity((.26 + .12 * clock.bass) * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5
+            ..color = Color.lerp(color, Colors.white, .55)!.withOpacity(.5 * k));
         }
         break;
       case 3: // Vortex tunnel
@@ -798,21 +823,34 @@ class ExpandedFxPainter extends CustomPainter {
             final pt = center + Offset(math.cos(a) * r, math.sin(a) * r * h / w);
             if (j == 0) {path.moveTo(pt.dx,pt.dy);} else {path.lineTo(pt.dx,pt.dy);}
           }
-          canvas.drawPath(path, stroke..strokeWidth = 1.5 + k * 2
-            ..color = palette.at(i / 7).withOpacity(.65 * k));
+          final color = palette.at(i / 7);
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 11..color = color.withOpacity(.15 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5 + k * 2
+            ..color = color.withOpacity(.72 * k));
         }
         break;
-      case 4: // Electric arcs: deterministic branching flicker
+      case 4: // Electric arcs: jagged filaments with a luminous corona.
         for (var i = 0; i < 7; i++) {
           final path = Path();
-          final seed = (t * 6).floor() + i * 19;
-          for (var j = 0; j < 17; j++) {
-            final x = w * j / 16;
-            final y = h * (.13 + i * .12) + math.sin(j * 9.3 + seed * 3.7) * h * .045;
+          final seed = (t * 8).floor() + i * 19;
+          for (var j = 0; j < 28; j++) {
+            final x = w * j / 27;
+            final y = h * (.13 + i * .12) +
+                math.sin(j * 9.3 + seed * 3.7) * h * .038 +
+                math.cos(j * 4.1 + seed * 1.3) * h * .018;
             if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
           }
-          canvas.drawPath(path, stroke..strokeWidth = i.isEven ? 2.5 : 1.3
-            ..color = palette.at(i / 7).withOpacity(.6 * k));
+          final c = palette.at(i / 7);
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 12..color = c.withOpacity(.26 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 2.0..color = c.withOpacity(.83 * k));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = .65..color = Colors.white.withOpacity(.7 * k));
         }
         break;
       case 5: // Prism shards
@@ -824,20 +862,41 @@ class ExpandedFxPainter extends CustomPainter {
           final path = Path()..moveTo(x + math.cos(a)*r,y + math.sin(a)*r)
             ..lineTo(x + math.cos(a+2.1)*r,y + math.sin(a+2.1)*r)
             ..lineTo(x + math.cos(a+4.2)*r,y + math.sin(a+4.2)*r)..close();
-          canvas.drawPath(path, Paint()..color=palette.at(i/13).withOpacity(.24*k));
-          canvas.drawPath(path, stroke..strokeWidth=1.5..color=bright);
+          final color = palette.at(i / 13);
+          canvas.drawPath(path, Paint()..color = color.withOpacity(.18 * k));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 9..color = color.withOpacity(.2 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5..color = color.withOpacity(.8 * k));
         }
         break;
-      case 6: // Light trails
+      case 6: // Light trails: streaks with bloom and a bright moving head.
         for (var i = 0; i < 12; i++) {
           final path = Path();
-          for (var j = 0; j < 32; j++) {
-            final x = w * j / 31;
-            final y = h * (.12 + i * .07) + h * .09 * math.sin(j * .13 + t * (1 + i*.04) + i);
+          for (var j = 0; j <= 45; j++) {
+            final x = w * j / 45;
+            final y = h * (.12 + i * .07) +
+              h * (.06 + .035 * clock.bass) *
+              math.sin(j * .12 + t * (.75 + i * .04) + i);
             if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
           }
-          canvas.drawPath(path, stroke..strokeWidth=1.8+i%3*1.0
-            ..color=palette.at(i/12).withOpacity(.7*k));
+          final c = palette.at(i / 12);
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 9..color = c.withOpacity(.19 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 1.4 + (i % 3) * .5
+            ..color = c.withOpacity(.78 * k));
+          final head = (t * (.13 + i * .003) + i * .19) % 1.0;
+          final y = h * (.12 + i * .07) +
+            h * (.06 + .035 * clock.bass) *
+            math.sin(head * 45 * .12 + t * (.75 + i * .04) + i);
+          final pt = Offset(w * head, y);
+          canvas.drawCircle(pt, 4 + 4 * clock.bass,
+            Paint()..color = c.withOpacity(.72 * k)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
+          canvas.drawCircle(pt, 1.8, Paint()..color = Colors.white.withOpacity(.85 * k));
         }
         break;
       case 7: // Morphing wireframe
@@ -866,20 +925,37 @@ class ExpandedFxPainter extends CustomPainter {
           final a=i*.47+t*.45;
           final r=(.08+f*.47)*w;
           final pt=center+Offset(math.cos(a+f*8)*r,math.sin(a+f*8)*r*h/w);
-          canvas.drawCircle(pt,1.0+(i%4)*.65,Paint()..color=palette.at(i/220).withOpacity(.65*k));
+          final c = palette.at(i / 220);
+          if (i % 6 == 0) {
+            canvas.drawCircle(pt, 5.5, Paint()..color = c.withOpacity(.24 * k)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
+          }
+          canvas.drawCircle(pt, 1.0 + (i % 4) * .65,
+            Paint()..color = c.withOpacity(.78 * k));
         }
         break;
-      case 9: // Holographic interference
-        for (var i=0;i<45;i++) {
-          final y=h*((i/45+t*.12)%1);
-          final path=Path();
-          for(var j=0;j<=35;j++) {
-            final x=w*j/35;
-            final yy=y+h*.025*math.sin(j*.35+t*1.3+i*.3);
-            if(j==0){path.moveTo(x,yy);}else{path.lineTo(x,yy);}
+      case 9: // Holographic interference: interference lines + RGB fringes.
+        for (var i = 0; i < 55; i++) {
+          final y = h * ((i / 55 + t * .075) % 1);
+          final path = Path();
+          for (var j = 0; j <= 45; j++) {
+            final x = w * j / 45;
+            final yy = y + h * .014 * math.sin(j * .3 + t * 1.2 + i * .33);
+            if (j == 0) {path.moveTo(x,yy);} else {path.lineTo(x,yy);}
           }
-          canvas.drawPath(path,stroke..strokeWidth=1.0+i%5*.3
-            ..color=palette.at(i/45).withOpacity(.36*k));
+          final c = palette.at(i / 55);
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 1.1..color = c.withOpacity(.45 * k));
+          if (i % 5 == 0) {
+            canvas.save();
+            canvas.translate(0, 2.5);
+            canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+              ..strokeWidth = 1.5..color = const Color(0xFF00DBFF).withOpacity(.35 * k));
+            canvas.translate(0, -5);
+            canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+              ..strokeWidth = 1.5..color = const Color(0xFFFF42B7).withOpacity(.35 * k));
+            canvas.restore();
+          }
         }
         break;
     }
