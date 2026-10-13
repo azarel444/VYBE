@@ -6,6 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'effects.dart';
+import 'refraction_shader.dart';
+import 'fx_adaptive.dart';
+import 'fx_profile.dart';
 import 'native.dart';
 import 'now_playing_model.dart';
 import 'orbit.dart';
@@ -55,6 +58,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double? _drag; // seek bar position while the finger is on it
 
   final fxClock = FxClock();
+  final _fxGovernor = FxAdaptiveGovernor();
+  final _fxProfiler = FxFrameProfiler();
+  int _fxTier = 2;
   final ripples = RippleState();
   final _artKey = GlobalKey(); // lets rings and rays find the cover
   // Record Cut: the spin is kept apart from the layout so only a cached
@@ -111,6 +117,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _fxGovernor.onTierChanged = (tier) {
+      if (mounted) setState(() => _fxTier = tier);
+    };
+    _fxGovernor.start();
+    FxProfileStore.load();
+    _fxProfiler.signature = () {
+      if (!mounted) return null;
+      final size = MediaQuery.maybeSizeOf(context);
+      if (size == null) return null;
+      return FxProfileStore.signature(settings, size.width, size.height);
+    };
+    _fxProfiler.start();
     model.addListener(_onModel);
     settings.addListener(_onSettings);
     model.start();
@@ -144,6 +162,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _fxGovernor.stop();
+    _fxProfiler.stop();
     model.removeListener(_onModel);
     settings.removeListener(_onSettings);
     _ticker.dispose();
@@ -158,7 +178,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _fxGovernor.enabled = false;
     if (state == AppLifecycleState.resumed) {
+      _fxGovernor.enabled = settings.autoFxQuality && settings.fxPerformanceMode != 2 && !settings.performance;
       model.refresh();
       // The Drive window may have changed the theme while VYBE was away.
       if (!widget.driveHost && _themeReady) settings.load();
@@ -176,6 +198,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (model.visualizerEnabled != settings.visualizer) {
       model.setVisualizer(settings.visualizer);
     }
+    _fxGovernor.enabled = settings.autoFxQuality && settings.fxPerformanceMode != 2 && !settings.performance;
+    if (!_fxGovernor.enabled) _fxTier = 2;
     model.setArtLookup(settings.artLookup);
     if (model.lyricsEnabled != settings.lyrics) {
       model.setLyricsEnabled(settings.lyrics);
@@ -358,6 +382,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
+            if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) ..._vhsBackdrop(fx),
             if (settings.bgEffects && settings.particles && heavy)
@@ -579,7 +604,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottomInset = math.max(22.0, h * 0.022);
           break;
         case 4: // Drive: above the album, not over the map.
-          topInset = h * 0.015;
+          topInset = math.max(h * 0.042, 48.0);
           break;
         case 5: // Fan: between the top spectrum and song information.
           topInset = h * 0.135;
@@ -638,6 +663,40 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // -------------------------------------------------------------- VHS layers
 
+  /// GPU backdrop displacement occurs after blurred art, before visualizers,
+  /// artwork and labels. On Skia the legacy canvas treatment remains available.
+  Widget _shaderFxLayer() {
+    int mode = -1;
+    String name = '';
+    for (final candidate in const <String>[
+      'Liquid Refraction', 'Vortex Tunnel', 'Prism Shards',
+      'Holographic Interference',
+    ]) {
+      if (settings.extraFx[candidate] ?? false) {
+        name = candidate;
+        mode = candidate == 'Liquid Refraction' ? 0
+          : candidate == 'Vortex Tunnel' ? 1
+          : candidate == 'Prism Shards' ? 2 : 3;
+        break;
+      }
+    }
+    if (mode < 0 || !ui.ImageFilter.isShaderFilterSupported) {
+      return const SizedBox.shrink();
+    }
+    final tier = settings.fxPerformanceMode == 2 ? 2 : settings.fxPerformanceMode == 1 ? 0 : (settings.autoFxQuality ? _fxTier : 2);
+    if (tier == 0) return const SizedBox.shrink();
+    final intensity = (settings.extraStrength[name] ?? 0.8) *
+      (tier == 1 ? 0.45 : 1.0);
+    return IgnorePointer(child: AnimatedBuilder(
+      animation: _tick,
+      builder: (context, _) => RefractionShaderLayer(
+        time: fxClock.t, bass: fxClock.bass,
+        strength: intensity, mode: mode,
+        child: const SizedBox.expand(),
+      ),
+    ));
+  }
+
   /// The optional effects, each switched on or off in settings.
   List<Widget> _extraFx() {
     final p = _palette;
@@ -646,7 +705,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         );
     return [
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
-        if (settings.extraFx[AppSettings.extraFxNames[i]] ?? false)
+        if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
+            !(i == 0 && ui.ImageFilter.isShaderFilterSupported &&
+              (!settings.autoFxQuality || _fxTier > 0)))
           layer(ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick)),
       if (settings.fxNebula)
@@ -1116,11 +1177,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (narrow) {
       // Clock occupies the first row; artwork and metadata sit above the
       // shorter, still-interactive navigation window.
-      final artSide = math.min(w * 0.50, h * 0.25).toDouble();
+      final cameraTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
+      // The clock is rendered by _themeClock as a separate overlay. Reserve
+      // a full row for it so neither real artwork nor the idle placeholder
+      // can appear underneath the time.
+      final artworkTop = math.max(h * 0.105, cameraTop + 64.0);
+      final artSide = math.min(w * 0.48, h * 0.225).toDouble();
       final top = SizedBox(
         height: h * 0.425,
         child: Column(children: [
-          SizedBox(height: h * 0.055),
+          SizedBox(height: artworkTop),
           GestureDetector(onTap: _openPlayer, child: _front(artSide, false)),
           SizedBox(height: h * 0.012),
           _title(h * 0.031, Alignment.center, false),
@@ -2397,15 +2463,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
       ),
-      if (!settings.performance)
-        IgnorePointer(
-          child: RepaintBoundary(
-            child: CustomPaint(
-              painter: OrbitRaysPainter(
-                  clock: fxClock, palette: p, center: c, repaint: _slow),
-            ),
-          ),
-        ),
+      // Light Rays are an optional FX-library effect, not an intrinsic
+      // Orbit theme layer. The shared _extraFx() pipeline draws them only
+      // when settings.fxRays is enabled. Orbit keeps its signature rings.
+
       // A soft black glow behind the bars so they stand out.
       if (settings.visualizer)
         Positioned(

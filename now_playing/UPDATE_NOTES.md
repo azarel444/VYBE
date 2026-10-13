@@ -47,3 +47,18 @@
 - Focused portrait: lowered the artwork/visualizer group to give the centered clock breathing room.
 - Refined FX: bass shockwave scales to the shorter display dimension; aurora brightness and light trails respond to mid-frequency energy. Existing FX selections and blurred artwork layering preserved.
 - These are source edits; Android compilation and visual verification are still required.
+
+## 1.9.4.3 — Drive clock separation + FX visual polish
+- Portrait Drive reserves a dedicated top row for the clock. Album art (including the idle VYBE placeholder) starts below that row; title and artist remain above the map cutout.
+- Enhanced ten optional FX with differentiated glows, highlights, and audio-linked movement: liquid caustic contours (not source-image pixel displacement), bass shockwave bloom, layered aurora ribbons, vortex glow, electric corona, prism glints, illuminated moving light trails, wireframe (existing), particle glows, and holographic RGB fringes.
+- The effects continue to overlay the blurred album-art background; they do not replace it.
+- These are Flutter Canvas visual effects, not GPU fragment shaders or true refractive distortion. Build and visual verification on Android are still required.
+
+
+## v1.9.5 — GPU refraction + adaptive FX quality
+- Added shaders/vybe_refraction.frag: real backdrop pixel displacement, chromatic fringe, animated fluid flow and audio-responsive modulation.
+- Added Impeller-only shader layer with guarded fallback on Skia (notably older Android head units). Existing canvas FX continue working without shaders.
+- Shader modes currently available for Liquid Refraction, Vortex Tunnel, Prism Shards and Holographic Interference; when several are enabled, one backdrop shader is selected to avoid multiple expensive full-screen passes, while other canvas FX still render.
+- Added frame-timing governor to dynamically reduce shader intensity or disable the shader when actual frame performance drops; gradual recovery when sustained smooth frames return.
+- Added Auto-optimize FX performance toggle to the FX Library. This is live adaptive tuning, **not** a full per-effect hardware benchmark or permanent per-FX lockout.
+- Requires testing on Android 9/Skia and Android 16/Impeller. No local Flutter SDK is available for compilation.
