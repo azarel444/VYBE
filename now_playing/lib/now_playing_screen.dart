@@ -1600,12 +1600,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ------------------------------------------------------------ record cut
 
-  /// Greyscale copy of the cover for the big disc. Lighter than _grayDark so
-  /// the picture still reads through the blur.
+  /// Recessed grayscale artwork, roughly 30% darker than before.
+  /// The vinyl itself uses a separate filter and remains unchanged.
   static const _grayDisc = ColorFilter.matrix(<double>[
-    0.17, 0.57, 0.06, 0, 0, //
-    0.17, 0.57, 0.06, 0, 0, //
-    0.17, 0.57, 0.06, 0, 0, //
+    0.119, 0.399, 0.042, 0, 0, //
+    0.119, 0.399, 0.042, 0, 0, //
+    0.119, 0.399, 0.042, 0, 0, //
     0, 0, 0, 1, 0, //
   ]);
 
@@ -1841,6 +1841,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         width: r * 2,
         height: r * 2,
         child: _recordDisc(r, d),
+      ),
+      // A localized recessed shadow cast inward from the exposed curved
+      // boundary near the vinyl. Never shade the disc's entire perimeter.
+      Positioned(
+        left: cx - r,
+        top: cy - r,
+        width: r * 2,
+        height: r * 2,
+        child: IgnorePointer(
+          child: CustomPaint(
+            painter: _RecordCurveShadowPainter(
+              centerAngle: angle,
+              span: span,
+              depth: d * 0.15,
+            ),
+          ),
+        ),
       ),
       if (settings.visualizer)
         Positioned(
@@ -3776,4 +3793,51 @@ class _HoleBorderPainter extends CustomPainter {
   @override
   bool shouldRepaint(_HoleBorderPainter old) =>
       old.hole != hole || old.radius != radius || old.color != color;
+}
+
+/// Shadow that falls inward from only the curved, vinyl-facing portion of
+/// Record Cut's grayscale disc. The remainder of its perimeter stays clean.
+class _RecordCurveShadowPainter extends CustomPainter {
+  final double centerAngle;
+  final double span;
+  final double depth;
+
+  const _RecordCurveShadowPainter({
+    required this.centerAngle,
+    required this.span,
+    required this.depth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+    final shadowDepth = math.min(depth, radius * 0.28);
+    final steps = math.max(12, (shadowDepth / 2).ceil());
+    for (var i = 0; i < steps; i++) {
+      final t = i / steps;
+      final opacity = 0.36 * math.pow(1 - t, 2).toDouble();
+      final rr = radius - t * shadowDepth - 0.75;
+      final rect = Rect.fromCircle(center: center, radius: rr);
+      // Flutter's drawArc angles start at the right and run clockwise.
+      // Narrowing the arc at greater depths keeps the shadow localized.
+      final arcSpan = span * (1 - 0.18 * t);
+      canvas.drawArc(
+        rect,
+        centerAngle - arcSpan,
+        arcSpan * 2,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = shadowDepth / steps + 1.5
+          ..color = Colors.black.withOpacity(opacity),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RecordCurveShadowPainter oldDelegate) =>
+      oldDelegate.centerAngle != centerAngle ||
+      oldDelegate.span != span ||
+      oldDelegate.depth != depth;
 }
