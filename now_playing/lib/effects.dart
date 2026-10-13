@@ -359,10 +359,10 @@ class GlowPainter extends CustomPainter {
     final big = math.max(size.width, size.height);
     for (int i = 0; i < 3; i++) {
       final c = Offset(
-        size.width * (0.5 + 0.38 * math.sin(t * 0.11 + i * 2.1)),
-        size.height * (0.5 + 0.34 * math.cos(t * 0.09 + i * 1.7)),
+        size.width * (0.5 + 0.46 * math.sin(t * 0.23 + i * 2.1)),
+        size.height * (0.5 + 0.43 * math.cos(t * 0.19 + i * 1.7)),
       );
-      final r = big * (0.38 + 0.08 * math.sin(t * 0.35 + i));
+      final r = big * (0.40 + 0.14 * math.sin(t * 0.56 + i));
       final a = _a((0.16 + 0.10 * math.sin(t * 0.5 + i * 1.3) + 0.12 * clock.bass) * k);
       final p = Paint()
         ..shader = ui.Gradient.radial(
@@ -394,7 +394,7 @@ class SweepPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final v = Offset(size.width * 0.9, size.height * 0.6);
-    final p = (clock.t * 0.03) % 1.0;
+    final p = (clock.t * 0.085) % 1.0;
     // Moving the start by exactly one period along v loops without a jump.
     final begin = Offset(v.dx * p, v.dy * p);
     final end = begin + v;
@@ -446,14 +446,14 @@ class RaysPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final c = topOrigin ? Offset(size.width / 2, 0) : _artCenter(artKey, size, layerKey: layerKey);
     final reach = math.sqrt(size.width * size.width + size.height * size.height);
-    final intensity = _a((0.12 + 0.35 * clock.bass) * k);
+    final intensity = _a((0.46 + 0.36 * clock.bass) * k);
     final cols = palette.colors;
     final rot = clock.t * 0.05;
     const n = 9;
     // Feather each beam across its angular width. Multiple translucent wedges
     // make the edges fade naturally without the hard triangular silhouette.
     // The radial shader also fades each ray toward its distant end.
-    const bands = 12;
+    const bands = 8;
     for (int i = 0; i < n; i++) {
       final ang = topOrigin
           ? math.pi / 2 +
@@ -466,11 +466,11 @@ class RaysPainter extends CustomPainter {
         final inner = half * j / bands;
         final outer = half * (j + 1) / bands;
         // Gaussian-ish falloff: bright center, transparent at beam edges.
-        final falloff = math.pow(1.0 - (j + 0.5) / bands, 2.1).toDouble();
+        final falloff = math.pow(1.0 - (j + 0.5) / bands, 1.25).toDouble();
         final paint = Paint()
           ..shader = ui.Gradient.radial(c, reach * 0.9, [
-            color.withOpacity((intensity * falloff * 0.18).clamp(0.0, 1.0)),
-            color.withOpacity((intensity * falloff * 0.08).clamp(0.0, 1.0)),
+            color.withOpacity((intensity * falloff * 0.58).clamp(0.0, 1.0)),
+            color.withOpacity((intensity * falloff * 0.32).clamp(0.0, 1.0)),
             color.withOpacity(0),
           ], const [0.0, 0.48, 1.0]);
         for (final side in [-1.0, 1.0]) {
@@ -717,9 +717,9 @@ class AtmospherePainter extends CustomPainter {
     final paint = Paint()..style = PaintingStyle.fill;
     if (mode == 0) {
       for (var i = 0; i < 4; i++) {
-        final x = w * (0.12 + i * 0.26 + 0.045 * math.sin(t * 0.17 + i));
-        final y = h * (0.22 + 0.17 * (i % 3) + 0.045 * math.cos(t * 0.13 + i));
-        final radius = math.max(w, h) * (0.25 + 0.035 * math.sin(t * 0.3 + i));
+        final x = w * (0.12 + i * 0.26 + 0.115 * math.sin(t * 0.31 + i));
+        final y = h * (0.22 + 0.17 * (i % 3) + 0.11 * math.cos(t * 0.27 + i));
+        final radius = math.max(w, h) * (0.28 + 0.09 * math.sin(t * 0.47 + i));
         paint.shader = ui.Gradient.radial(Offset(x, y), radius,
           [palette.at(i / 4).withOpacity(0.44 * k), Colors.transparent]);
         canvas.drawCircle(Offset(x, y), radius, paint);
@@ -762,8 +762,10 @@ class ExpandedFxPainter extends CustomPainter {
   final FxClock clock;
   final ArtPalette palette;
   final double k;
+  final GlobalKey? artKey;
+  final GlobalKey? layerKey;
   ExpandedFxPainter({required this.mode, required this.clock,
-    required this.palette, required this.k, required Listenable repaint})
+    required this.palette, required this.k, this.artKey, this.layerKey, required Listenable repaint})
     : super(repaint: repaint);
 
   @override
@@ -797,16 +799,17 @@ class ExpandedFxPainter extends CustomPainter {
         }
         break;
       case 1: // Bass shockwave: energy-responsive expanding rings
+        final shockCenter = artKey == null ? center : _artCenter(artKey!, size, layerKey: layerKey);
         final phase = (t * (0.55 + clock.bass * 2)) % 1.0;
         for (var i = 0; i < 3; i++) {
           final f = (phase + i / 3) % 1.0;
           final radius = (0.08 + f * .7) * math.min(w, h);
           final color = palette.at(i / 3);
-          canvas.drawCircle(center, radius, Paint()..style = PaintingStyle.stroke
+          canvas.drawCircle(shockCenter, radius, Paint()..style = PaintingStyle.stroke
             ..strokeWidth = 15 + 18 * clock.bass
             ..color = color.withOpacity((1 - f) * .22 * k)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 13));
-          canvas.drawCircle(center, radius, Paint()..style = PaintingStyle.stroke
+          canvas.drawCircle(shockCenter, radius, Paint()..style = PaintingStyle.stroke
             ..strokeWidth = 2 + 7 * clock.bass * k
             ..color = color.withOpacity((1 - f) * .82 * k));
         }
@@ -875,10 +878,10 @@ class ExpandedFxPainter extends CustomPainter {
         break;
       case 5: // Prism shards
         for (var i = 0; i < 13; i++) {
-          final x = w * ((i * .618 + t * .015) % 1);
-          final y = h * ((i * .37 + t * .009) % 1);
+          final x = w * ((i * .618 + t * (.035 + (i % 3) * .011)) % 1);
+          final y = h * ((i * .37 + t * (.022 + (i % 4) * .007)) % 1);
           final r = 20 + (i % 4) * 22.0;
-          final a = t * .13 + i;
+          final a = t * (.26 + (i % 4) * .08) + i;
           final path = Path()..moveTo(x + math.cos(a)*r,y + math.sin(a)*r)
             ..lineTo(x + math.cos(a+2.1)*r,y + math.sin(a+2.1)*r)
             ..lineTo(x + math.cos(a+4.2)*r,y + math.sin(a+4.2)*r)..close();
@@ -888,7 +891,7 @@ class ExpandedFxPainter extends CustomPainter {
             ..strokeWidth = 9..color = color.withOpacity(.2 * k)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
           canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5..color = color.withOpacity(.8 * k));
+            ..strokeWidth = 0.85..color = Colors.white.withOpacity(.62 * k));
         }
         break;
       case 6: // Light trails: streaks with bloom and a bright moving head.
@@ -924,7 +927,7 @@ class ExpandedFxPainter extends CustomPainter {
           final path = Path();
           for (var j = 0; j <= 35; j++) {
             final x = w * j / 35;
-            final y = h * (.15 + i * .05) + h * .055 * math.sin(j*.25 + t + i*.5);
+            final y = h * (-.20 + i * .095) + h * .085 * math.sin(j*.25 + t + i*.5);
             if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
           }
           canvas.drawPath(path, stroke..strokeWidth=1.2..color=bright);
@@ -933,7 +936,7 @@ class ExpandedFxPainter extends CustomPainter {
           final x=w*j/25;
           final path=Path();
           for(var i=0;i<=15;i++) {
-            final y=h*(.15+i*.05)+h*.055*math.sin(j/25*35*.25+t+i*.5);
+            final y=h*(-.20+i*.095)+h*.085*math.sin(j/25*35*.25+t+i*.5);
             if(i==0){path.moveTo(x,y);}else{path.lineTo(x,y);}
           }
           canvas.drawPath(path,stroke..strokeWidth=.9..color=second);

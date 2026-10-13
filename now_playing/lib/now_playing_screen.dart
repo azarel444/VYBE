@@ -65,6 +65,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final _artKey = GlobalKey(); // lets rings and rays find the cover
   final _raysLayerKey = GlobalKey();
   final _ripplesLayerKey = GlobalKey();
+  final _shockLayerKey = GlobalKey();
   // Record Cut: the spin is kept apart from the layout so only a cached
   // layer is turned each frame.
   final _recAngle = ValueNotifier<double>(0); // turns, 0..1
@@ -722,7 +723,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             !(ui.ImageFilter.isShaderFilterSupported &&
               (i == 0 || i == 3 || i == 5 || i == 9)))
           layer(ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
-            k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick)),
+            artKey: i == 1 ? _artKey : null,
+            layerKey: i == 1 ? _shockLayerKey : null,
+            k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
+            layerKey: i == 1 ? _shockLayerKey : null),
       if (settings.fxNebula)
         layer(AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),
@@ -2473,30 +2477,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     final layers = <Widget>[
       _orbitGhost(w, h, narrow),
-      // Darker overall, and black at the left edge fading to nothing by the
-      // middle of the circle (portrait: black at the top fading downward).
-      const Positioned.fill(
-        child: IgnorePointer(child: ColoredBox(color: Color(0x66000000))),
-      ),
-      Positioned.fill(
-        child: IgnorePointer(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: narrow ? Alignment.topCenter : Alignment.centerLeft,
-                end: narrow ? Alignment.bottomCenter : Alignment.centerRight,
-                colors: const [Color(0xFF000000), Color(0x00000000)],
-                stops: [
-                  0.0,
-                  narrow
-                      ? (c.dy / h).clamp(0.2, 0.9).toDouble()
-                      : (c.dx / w).clamp(0.2, 0.9).toDouble(),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.
@@ -2698,7 +2678,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             fontSize: center ? h * 0.06 : h * 0.115,
             fontWeight: FontWeight.w300,
             height: 1.05,
-            color: Colors.white,
+            color: _readableText(1),
             shadows: _cleanTextShadows,
           ),
         ),
@@ -2711,7 +2691,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           style: TextStyle(
             fontSize: artistSize,
             letterSpacing: artistSize * 0.3,
-            color: Colors.white70,
+            color: _readableText(.82),
             shadows: _cleanTextShadows,
           ),
         ),
@@ -2725,7 +2705,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             style: TextStyle(
               fontSize: albumSize,
               letterSpacing: albumSize * 0.3,
-              color: Colors.white38,
+              color: _readableText(.66),
               shadows: _cleanTextShadows,
             ),
           ),
@@ -3102,8 +3082,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// Keep this wrapper for existing theme call sites; it draws no backdrop.
   Widget _shaded(Widget child) => child;
 
-  static const List<Shadow> _cleanTextShadows = [
-    Shadow(color: Color(0x88000000), offset: Offset(0, 1.5), blurRadius: 3.5),
+  // Switch only for largely near-white, low-saturation art, not bright colors.
+  // Evaluated from the already decoded 96px artwork, never per frame.
+  bool get _nearWhiteText => (model.art?.nearWhiteTextCoverage ?? 0) >= 0.46;
+  Color _readableText(double opacity) =>
+      (_nearWhiteText ? Colors.black : Colors.white).withOpacity(opacity);
+  List<Shadow> get _cleanTextShadows => [
+    Shadow(color: _nearWhiteText ? const Color(0x88FFFFFF) : const Color(0x55000000),
+        offset: const Offset(0, 1), blurRadius: 2.5),
   ];
 
   /// Compositional fade (not a text backdrop), placed beneath foreground art.
@@ -3189,7 +3175,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         style: TextStyle(
           fontSize: size,
           fontWeight: FontWeight.w300,
-          color: color ?? Colors.white,
+          color: color ?? _readableText(1),
           shadows: _cleanTextShadows,
           height: 1.1,
         ),
@@ -3202,7 +3188,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fontSize: size,
           fontWeight: FontWeight.w400,
           letterSpacing: model.active ? size * 0.38 : size * 0.12,
-          color: color ?? Colors.white.withOpacity(0.62),
+          color: color ?? _readableText(_nearWhiteText ? .82 : .62),
           shadows: _cleanTextShadows,
         ),
       );
@@ -3214,7 +3200,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fontSize: size,
           fontWeight: FontWeight.w400,
           letterSpacing: size * 0.38,
-          color: Colors.white.withOpacity(0.45),
+          color: _readableText(_nearWhiteText ? .70 : .45),
           shadows: _cleanTextShadows,
         ),
       );
