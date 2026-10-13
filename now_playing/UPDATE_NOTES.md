@@ -26,3 +26,11 @@
 - Explicitly assign clock anchors for all nine selectable themes and both orientations, placing Side by Side on the opposite side from artwork and keeping Drive away from its map panel.
 - Retain Fan/Diagonal fades, Fan rear-cover blur changes, FX library and caching from 1.9.2.
 - This is a source-only patch; verify on actual devices. Dark, minimalist legitimate covers should be tested against the conservative placeholder heuristic.
+
+## 1.9.4 — Portrait composition and FX refinement
+- Applied the October portrait clock placements per theme: centered above/between visual groups or centered at the bottom for Side by Side and Edge to Edge.
+- Drive portrait: reduced the live map window height and reserved a top panel for the centered clock, album art, title, and artist. The transparent map interaction window is retained.
+- Record Cut portrait: lowered the vinyl so it overlaps the lower part of the outer circular boundary, with the clock centered above.
+- Focused portrait: lowered the artwork/visualizer group to give the centered clock breathing room.
+- Refined FX: bass shockwave scales to the shorter display dimension; aurora brightness and light trails respond to mid-frequency energy. Existing FX selections and blurred artwork layering preserved.
+- These are source edits; Android compilation and visual verification are still required.

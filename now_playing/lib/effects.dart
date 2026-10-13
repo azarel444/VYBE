@@ -771,7 +771,7 @@ class ExpandedFxPainter extends CustomPainter {
         final phase = (t * (0.55 + clock.bass * 2)) % 1.0;
         for (var i = 0; i < 3; i++) {
           final f = (phase + i / 3) % 1.0;
-          canvas.drawCircle(center, (0.08 + f * .7) * w,
+          canvas.drawCircle(center, (0.08 + f * .7) * math.min(w, h),
             stroke..strokeWidth = 2 + 7 * clock.bass * k
               ..color = palette.at(i / 3).withOpacity((1 - f) * .7 * k));
         }
@@ -786,7 +786,7 @@ class ExpandedFxPainter extends CustomPainter {
             if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
           }
           canvas.drawPath(path, stroke..strokeWidth = 10 + i * 2.0
-            ..color = palette.at(i / 7).withOpacity(.22 * k));
+            ..color = palette.at(i / 7).withOpacity((.25 + .16 * clock.mid) * k));
         }
         break;
       case 3: // Vortex tunnel
@@ -833,7 +833,7 @@ class ExpandedFxPainter extends CustomPainter {
           final path = Path();
           for (var j = 0; j < 32; j++) {
             final x = w * j / 31;
-            final y = h * (.12 + i * .07) + h * .09 * math.sin(j * .13 + t * (1 + i*.04) + i);
+            final y = h * (.12 + i * .07) + h * (.07 + .045 * clock.mid) * math.sin(j * .13 + t * (1 + i*.04) + i);
             if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
           }
           canvas.drawPath(path, stroke..strokeWidth=1.8+i%3*1.0
