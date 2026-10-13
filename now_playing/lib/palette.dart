@@ -56,7 +56,8 @@ class ArtAssets {
       final palette = data == null
           ? ArtPalette.fallback
           : _extract(data, img.width, img.height);
-      final flat = data != null && _isFlat(data, img.width * img.height);
+      final flat = data != null && (_isFlat(data, img.width * img.height) ||
+          _isGenericPlaceholder(data, img.width, img.height));
       return ArtAssets(bytes, img, palette, flat: flat);
     } catch (_) {
       return null;
@@ -78,6 +79,58 @@ class ArtAssets {
       if (c > best) best = c;
     }
     return best > n * 0.85;
+  }
+
+  /// Detect generic player icons on an almost uniform dark-gray canvas.
+  /// Unlike the single-color check above, this catches placeholders with a
+  /// central logo and label (such as the Musicolett default cover). Require
+  /// uniform neutral corners AND a dominant neutral background to avoid
+  /// rejecting legitimate dark photographic album artwork.
+  static bool _isGenericPlaceholder(ByteData data, int w, int h) {
+    if (w < 24 || h < 24) return false;
+    final cornerSize = math.max(2, math.min(w, h) ~/ 9);
+    final samples = <List<int>>[];
+    for (final y0 in [0, h - cornerSize]) {
+      for (final x0 in [0, w - cornerSize]) {
+        var r = 0, g = 0, b = 0, count = 0;
+        for (var y = y0; y < y0 + cornerSize; y += 2) {
+          for (var x = x0; x < x0 + cornerSize; x += 2) {
+            final i = (y * w + x) * 4;
+            r += data.getUint8(i);
+            g += data.getUint8(i + 1);
+            b += data.getUint8(i + 2);
+            count++;
+          }
+        }
+        samples.add([r ~/ count, g ~/ count, b ~/ count]);
+      }
+    }
+    final base = samples.first;
+    // Generic dark placeholders have the same neutral canvas in every corner.
+    if (base.reduce(math.max) - base.reduce(math.min) > 18 ||
+        base.reduce(math.max) > 95) return false;
+    for (final c in samples.skip(1)) {
+      for (var j = 0; j < 3; j++) {
+        if ((c[j] - base[j]).abs() > 13) return false;
+      }
+    }
+    var background = 0, total = 0, centerDetail = 0;
+    for (var y = 0; y < h; y += 2) {
+      for (var x = 0; x < w; x += 2) {
+        final i = (y * w + x) * 4;
+        final r = data.getUint8(i), g = data.getUint8(i + 1),
+            b = data.getUint8(i + 2);
+        if ((r - base[0]).abs() <= 19 &&
+            (g - base[1]).abs() <= 19 &&
+            (b - base[2]).abs() <= 19) background++;
+        if (x > w * 0.25 && x < w * 0.75 &&
+            y > h * 0.2 && y < h * 0.8 &&
+            (r - base[0]).abs() + (g - base[1]).abs() +
+                (b - base[2]).abs() > 80) centerDetail++;
+        total++;
+      }
+    }
+    return background > total * 0.58 && centerDetail > total * 0.012;
   }
 
   /// Colors come only from the art itself: pixels are grouped into 12 hue
