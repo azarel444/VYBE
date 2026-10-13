@@ -133,6 +133,20 @@ class SettingsScreen extends StatelessWidget {
           s.burnIn, (v) => s.update(() => s.burnIn = v)),
       _section('Welcome'),
       _action(
+        'Floating toolbar guide',
+        'See what each Standard and Drive control does',
+        'View Guide',
+        () => Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (ctx) => Scaffold(
+            appBar: AppBar(title: const Text('VYBE Controls')),
+            body: SafeArea(child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: const ToolbarGuide(),
+            )),
+          ),
+        )),
+      ),
+      _action(
         'Welcome tour',
         'Replay the explanation of each permission',
         'Replay',

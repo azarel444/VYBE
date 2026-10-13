@@ -45,7 +45,8 @@ class _Root extends StatefulWidget {
 }
 
 class _RootState extends State<_Root> {
-  bool? _onboarded; // null while the splash is showing
+  bool? _onboarded; // null while checking persistent setup state
+  bool _firstLaunchSplash = false;
 
   @override
   void initState() {
@@ -59,10 +60,16 @@ class _RootState extends State<_Root> {
       final p = await SharedPreferences.getInstance();
       done = p.getBool('onboarded') ?? false;
     } catch (_) {}
-    // Keep the splash up for a moment so the logo can be seen.
+    if (!mounted) return;
+    if (done) {
+      // Returning users go straight to their saved Now Playing theme.
+      setState(() => _onboarded = true);
+      return;
+    }
+    setState(() => _firstLaunchSplash = true);
     await Future<void>.delayed(const Duration(milliseconds: 1800));
     if (!mounted) return;
-    setState(() => _onboarded = done);
+    setState(() { _firstLaunchSplash = false; _onboarded = false; });
   }
 
   Future<void> _finish() async {
@@ -77,7 +84,11 @@ class _RootState extends State<_Root> {
   @override
   Widget build(BuildContext context) {
     final o = _onboarded;
-    if (o == null) return const SplashScreen();
+    if (o == null) {
+      return _firstLaunchSplash
+          ? const SplashScreen()
+          : const Scaffold(backgroundColor: Colors.black);
+    }
     if (!o) return OnboardingScreen(onDone: _finish);
     return const NowPlayingScreen();
   }
