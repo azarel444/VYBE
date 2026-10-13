@@ -56,7 +56,7 @@ class FxProfileStore {
 }
 
 class FxFrameProfiler {
-  String Function()? signature;
+  String? Function()? signature;
   String? _active;
   int _frames=0, _slow=0;
   double _totalMs=0;
