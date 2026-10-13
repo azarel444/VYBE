@@ -12,3 +12,17 @@
 - New FX are Canvas-based approximations intended for visual testing. Liquid Refraction does not yet refract the underlying pixels; Bass Shockwave is continuously modulated by bass energy rather than triggering from discrete detected onsets. Further shader/audio refinement may be required.
 - Full per-theme clock layout verification and generic-player placeholder recognition require device testing.
 - Cache currently stores only downloaded artwork and downloaded synced lyrics, not every artwork image sent by a player.
+
+## Visual polish — Fan, Diagonal and text
+- Removed only the radial black backing panels behind text. Retained visualizer shading and other atmospheric shadows.
+- Added a small glyph drop shadow to the common song title, artist, album and lyric text styles, and Typo's primary labels.
+- Added a bottom-to-top black compositional fade behind the foreground artwork on Fan and Diagonal in portrait and landscape.
+- Reduced the Fan's middle cover blur to 0.003 × cover size and rear cover blur to 0.008 × cover size; reduced their darkening and restored opacity so both remain recognizable.
+- Based on VYBE 1.9.1 cache compile fix. Android compilation and visual device tests have not been run here.
+
+## 1.9.3 — Missing-art and clock corrections
+- Detect uniform neutral-dark player placeholder images with central logos, including Musicolett-style defaults, in addition to flat-color placeholders. Reject them before use as artwork or background.
+- Reuse the animated, palette-reactive fallback whenever art is absent or rejected. Preserve existing idle VYBE logo presentation.
+- Explicitly assign clock anchors for all nine selectable themes and both orientations, placing Side by Side on the opposite side from artwork and keeping Drive away from its map panel.
+- Retain Fan/Diagonal fades, Fan rear-cover blur changes, FX library and caching from 1.9.2.
+- This is a source-only patch; verify on actual devices. Dark, minimalist legitimate covers should be tested against the conservative placeholder heuristic.

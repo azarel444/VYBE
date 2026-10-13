@@ -565,28 +565,54 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : (now.hour % 12 == 0 ? 12 : now.hour % 12);
     final value = '${hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}${settings.clock24h ? '' : (now.hour < 12 ? ' AM' : ' PM')}';
 
-    // Anchor choices for all nine layouts. The Diagonal landscape layout
-    // deliberately uses the empty upper-right area, opposite the album art.
-    // Drive follows its map/panel swap setting.
-    final int theme = settings.theme;
-    final bool onRight;
-    final bool atBottom;
+    // Per-theme placement chosen from the actual layout composition.
+    // The clock belongs in negative space, never over the artwork or map.
+    final theme = settings.theme;
+    bool onRight;
+    bool atBottom = false;
+    double topInset = portrait ? 20.0 : 18.0;
+    double bottomInset = portrait ? 30.0 : 26.0;
     if (theme == 4) {
+      // The map occupies the opposite side from the music panel.
       onRight = settings.driveSwap;
-      atBottom = false;
+      if (portrait) {
+        // The portrait map occupies the lower portion of the screen.
+        onRight = true;
+        topInset = 16;
+      }
     } else if (portrait) {
-      onRight = const [0, 2, 5, 6, 7, 9].contains(theme);
-      atBottom = const [7, 8].contains(theme);
+      switch (theme) {
+        case 0: onRight = true; break;  // Focused: avoid centered artwork
+        case 1: onRight = true; break;  // Side by Side: away from cover
+        case 3: onRight = true; break;  // Edge to Edge: away from cover
+        case 5: onRight = true; break;  // Fan: outside stacked covers
+        case 6: onRight = true; break;  // Diagonal: opposite cover
+        case 7: onRight = false; break; // Record Cut: avoid vinyl
+        case 8: onRight = true; break;  // Typo: away from headline
+        case 9: onRight = true; break;  // Orbit: avoid centered artwork
+        default: onRight = true;
+      }
     } else {
-      onRight = const [0, 1, 2, 3, 5, 6, 7, 9].contains(theme);
-      atBottom = const [7, 8].contains(theme);
+      switch (theme) {
+        case 0: onRight = true; break;  // Focused
+        case 1: onRight = true; break;  // Side by Side
+        case 3: onRight = true; break;  // Edge to Edge
+        case 5: onRight = false; break; // Fan: right-edge visualizer
+        case 6: onRight = true; break;  // Diagonal
+        case 7: onRight = false; break; // Record Cut: vinyl on right
+        case 8: onRight = true; break;  // Typo: large text left
+        case 9: onRight = true; break;  // Orbit
+        default: onRight = true;
+      }
     }
-    final inset = portrait ? 16.0 : 24.0;
+    // Keep labels clear of visualizer rails and physical display edges.
+    final inset = portrait ? 18.0 :
+        (theme == 5 && !onRight ? 28.0 : 30.0);
     return Positioned(
       left: onRight ? null : inset,
       right: onRight ? inset : null,
-      top: atBottom ? null : (portrait ? 18.0 : 16.0),
-      bottom: atBottom ? 30.0 : null,
+      top: atBottom ? null : topInset,
+      bottom: atBottom ? bottomInset : null,
       child: IgnorePointer(
         child: Text(value, style: TextStyle(
           color: Colors.white.withOpacity(0.93),
@@ -1831,7 +1857,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // sigma 0 = sharp. Each cover further back is blurred more.
     Widget back(double left, double top, double deg, double alpha, double sigma) {
       Widget card = ColorFiltered(
-        colorFilter: const ColorFilter.mode(Color(0x59000000), BlendMode.srcATop),
+        colorFilter: const ColorFilter.mode(Color(0x26000000), BlendMode.srcATop),
         child: _artContent(s),
       );
       card = ImageFiltered(
@@ -1879,8 +1905,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          back(s * 0.5, yf - s * 0.246, 21, 0.75, s * 0.028),
-          back(s * 0.237, yf - s * 0.175, 11, 0.9, s * 0.011),
+          back(s * 0.5, yf - s * 0.246, 21, 0.90, s * 0.008),
+          back(s * 0.237, yf - s * 0.175, 11, 0.97, s * 0.003),
           Positioned(
             left: 0,
             top: yf,
@@ -1919,6 +1945,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       return Stack(
         fit: StackFit.expand,
         children: [
+          Positioned.fill(child: _bottomArtworkFade()),
           if (settings.visualizer) _topBars(barsH),
           Positioned.fill(
             top: barsH,
@@ -1960,6 +1987,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final textLeft = math.max(w * 0.58, s * 1.45 + w * 0.03).toDouble();
     return Stack(
       children: [
+        Positioned.fill(child: _bottomArtworkFade()),
         Positioned(left: 0, top: (h - s * 1.25) / 2, child: _fanCards(s)),
         if (settings.visualizer)
           Positioned(
@@ -2094,6 +2122,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         fit: StackFit.expand,
         children: [
           gray,
+          Positioned.fill(child: _bottomArtworkFade()),
           bars,
           line,
           Positioned(
@@ -2140,6 +2169,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       fit: StackFit.expand,
       children: [
         gray,
+        Positioned.fill(child: _bottomArtworkFade()),
         bars,
         line,
         Positioned(left: w * 0.046, top: (h - s) / 2, child: _front(s, false)),
@@ -2548,6 +2578,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             fontWeight: FontWeight.w300,
             height: 1.05,
             color: Colors.white,
+            shadows: _cleanTextShadows,
           ),
         ),
         SizedBox(height: h * 0.025),
@@ -2560,6 +2591,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             fontSize: artistSize,
             letterSpacing: artistSize * 0.3,
             color: Colors.white70,
+            shadows: _cleanTextShadows,
           ),
         ),
         if (model.album.isNotEmpty && model.album != model.title) ...[
@@ -2573,6 +2605,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               fontSize: albumSize,
               letterSpacing: albumSize * 0.3,
               color: Colors.white38,
+              shadows: _cleanTextShadows,
             ),
           ),
         ],
@@ -2815,6 +2848,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             fontSize: size,
             fontWeight: FontWeight.w400,
             color: Colors.white.withOpacity(0.85),
+            shadows: _cleanTextShadows,
           ),
         ),
         a,
@@ -2857,7 +2891,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               Shadow(
                                   color: Color(0x9905D9FF), offset: Offset(1.5, 0)),
                             ]
-                          : null,
+                          : _cleanTextShadows,
                     ),
                   ),
                   a,
@@ -2870,6 +2904,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     style: TextStyle(
                       fontSize: h * 0.026,
                       color: Colors.white38,
+                      shadows: _cleanTextShadows,
                     ),
                   ),
                   a,
@@ -2942,44 +2977,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
-  /// A soft black glow behind a block of text, faded all the way round so it
-  /// has no visible edge. The text is laid out exactly as it would be alone.
-  Widget _shaded(Widget child) {
-    return Stack(
-      clipBehavior: Clip.none,
-      fit: StackFit.passthrough,
-      children: [
-        Positioned.fill(
-          child: IgnorePointer(
-            child: Transform.scale(scale: 1.7, child: _textShade()),
-          ),
-        ),
-        child,
-      ],
-    );
-  }
+  /// Text readability comes from a small glyph shadow, not a black panel.
+  /// Keep this wrapper for existing theme call sites; it draws no backdrop.
+  Widget _shaded(Widget child) => child;
 
-  /// A black oval, darkest in the middle and gone at its edge.
-  Widget _textShade() => RepaintBoundary(
-        child: LayoutBuilder(
-          builder: (context, box) {
-            final bw = math.max(1.0, box.maxWidth).toDouble();
-            final bh = math.max(1.0, box.maxHeight).toDouble();
-            final short = math.min(bw, bh).toDouble();
-            return DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  colors: const [
-                    Color(0x99000000),
-                    Color(0x59000000),
-                    Color(0x00000000),
-                  ],
-                  stops: const [0.0, 0.5, 1.0],
-                  transform: _EllipseFit(bw / short, bh / short),
-                ),
-              ),
-            );
-          },
+  static const List<Shadow> _cleanTextShadows = [
+    Shadow(color: Color(0x88000000), offset: Offset(0, 1.5), blurRadius: 3.5),
+  ];
+
+  /// Compositional fade (not a text backdrop), placed beneath foreground art.
+  Widget _bottomArtworkFade() => const IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0.0, 0.38, 0.68, 1.0],
+              colors: [
+                Color(0x00000000),
+                Color(0x00000000),
+                Color(0x7A000000),
+                Color(0xF5000000),
+              ],
+            ),
+          ),
         ),
       );
 
@@ -3048,6 +3069,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fontSize: size,
           fontWeight: FontWeight.w300,
           color: color ?? Colors.white,
+          shadows: _cleanTextShadows,
           height: 1.1,
         ),
       );
@@ -3060,6 +3082,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fontWeight: FontWeight.w400,
           letterSpacing: size * 0.38,
           color: color ?? Colors.white.withOpacity(0.62),
+          shadows: _cleanTextShadows,
         ),
       );
 
@@ -3071,6 +3094,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fontWeight: FontWeight.w400,
           letterSpacing: size * 0.38,
           color: Colors.white.withOpacity(0.45),
+          shadows: _cleanTextShadows,
         ),
       );
 
