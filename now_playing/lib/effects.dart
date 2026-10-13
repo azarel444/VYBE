@@ -439,33 +439,42 @@ class RaysPainter extends CustomPainter {
     final reach = math.sqrt(size.width * size.width + size.height * size.height);
     final intensity = _a((0.12 + 0.35 * clock.bass) * k);
     final cols = palette.colors;
-    final paints = List<Paint>.generate(
-      3,
-      (i) => Paint()
-        ..shader = ui.Gradient.radial(
-          c,
-          reach * 0.7,
-          [cols[i].withOpacity(intensity), cols[i].withOpacity(0)],
-        ),
-    );
     final rot = clock.t * 0.05;
     const n = 9;
+    // Feather each beam across its angular width. Multiple translucent wedges
+    // make the edges fade naturally without the hard triangular silhouette.
+    // The radial shader also fades each ray toward its distant end.
+    const bands = 12;
     for (int i = 0; i < n; i++) {
-      // From the top center the beams only fan downward, and sway gently.
       final ang = topOrigin
           ? math.pi / 2 +
               (i - (n - 1) / 2) * (math.pi * 0.86 / (n - 1)) +
               0.12 * math.sin(clock.t * 0.15 + i * 0.7)
           : rot + i * 2 * math.pi / n;
       final half = 0.075 + 0.03 * math.sin(clock.t * 0.4 + i);
-      final path = Path()
-        ..moveTo(c.dx, c.dy)
-        ..lineTo(c.dx + reach * math.cos(ang - half),
-            c.dy + reach * math.sin(ang - half))
-        ..lineTo(c.dx + reach * math.cos(ang + half),
-            c.dy + reach * math.sin(ang + half))
-        ..close();
-      canvas.drawPath(path, paints[i % 3]);
+      final color = cols[i % 3];
+      for (int j = 0; j < bands; j++) {
+        final inner = half * j / bands;
+        final outer = half * (j + 1) / bands;
+        // Gaussian-ish falloff: bright center, transparent at beam edges.
+        final falloff = math.pow(1.0 - (j + 0.5) / bands, 2.1).toDouble();
+        final paint = Paint()
+          ..shader = ui.Gradient.radial(c, reach * 0.9, [
+            color.withOpacity((intensity * falloff * 0.18).clamp(0.0, 1.0)),
+            color.withOpacity((intensity * falloff * 0.08).clamp(0.0, 1.0)),
+            color.withOpacity(0),
+          ], const [0.0, 0.48, 1.0]);
+        for (final side in [-1.0, 1.0]) {
+          final a0 = ang + side * inner;
+          final a1 = ang + side * outer;
+          final path = Path()
+            ..moveTo(c.dx, c.dy)
+            ..lineTo(c.dx + reach * math.cos(a0), c.dy + reach * math.sin(a0))
+            ..lineTo(c.dx + reach * math.cos(a1), c.dy + reach * math.sin(a1))
+            ..close();
+          canvas.drawPath(path, paint);
+        }
+      }
     }
   }
 

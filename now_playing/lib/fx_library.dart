@@ -154,8 +154,8 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
         leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: ()=>Navigator.pop(context))),
       body: AnimatedBuilder(animation: widget.settings, builder: (context, _) {
         final count = _current.where((v)=>v).length;
-        return Column(children: [
-          Padding(padding: const EdgeInsets.fromLTRB(16,12,16,8), child: Column(crossAxisAlignment: CrossAxisAlignment.start,children: [
+        return CustomScrollView(slivers: [
+          SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(16,12,16,8), child: Column(crossAxisAlignment: CrossAxisAlignment.start,children: [
             const Text('Layer effects over your album-art background', style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 8),
             SwitchListTile.adaptive(
@@ -202,9 +202,8 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
             const SizedBox(height: 8),
             Text('$count of ${_effects.length} selected  •  Tap check to toggle; tap preview for intensity',
               style: const TextStyle(fontSize: 12,color: Colors.white54)),
-          ])),
-          Expanded(child: GridView.builder(
-            padding: const EdgeInsets.fromLTRB(12,4,12,24),
+          ]))),
+          SliverPadding(padding: const EdgeInsets.fromLTRB(12,4,12,24), sliver: SliverGrid.builder(
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: columns,
               childAspectRatio: width > 510 ? 1.45 : 1.20, crossAxisSpacing: 10, mainAxisSpacing: 10),
             itemCount: _effects.length,

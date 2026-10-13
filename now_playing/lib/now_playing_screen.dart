@@ -433,7 +433,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fit: StackFit.expand,
                     children: [
                       layout,
-                      if (settings.showClock && !widget.driveHost) _themeClock(w, h, narrow),
+                      if (settings.showClock && !widget.driveHost && !(settings.theme == 4 && narrow)) _themeClock(w, h, narrow),
                       if (vhs && settings.theme != 4) _osd(h, compact: narrow),
                     ],
                   ),
@@ -583,6 +583,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Each layout gets an independent clock anchor in portrait and landscape.
   /// Keep the clock over negative space, not album artwork or song information.
+  String _clockLabel() {
+    final now = DateTime.now();
+    final hour = settings.clock24h ? now.hour : (now.hour % 12 == 0 ? 12 : now.hour % 12);
+    return '${hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}${settings.clock24h ? '' : (now.hour < 12 ? ' AM' : ' PM')}';
+  }
+
   Widget _themeClock(double w, double h, bool portrait) {
     final now = DateTime.now();
     final hour = settings.clock24h
@@ -628,7 +634,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Mirrored Drive places its music panel on the opposite side.
       if (theme == 4) onRight = settings.driveSwap;
       // Fan and Record Cut landscape have the artwork on the left/right.
-      if (theme == 5 || theme == 7) onRight = false;
+      if (theme == 7) onRight = false; // Fan clock stays with right-side metadata.
     }
     // Android's status bar can be hidden in immersive mode while the physical
     // hole-punch camera remains. Reserve a minimum camera-safe band as well as
@@ -701,13 +707,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   List<Widget> _extraFx() {
     final p = _palette;
     Widget layer(CustomPainter painter) => IgnorePointer(
-          child: RepaintBoundary(child: CustomPaint(painter: painter)),
+          child: Transform.scale(scale: 1.18, child: RepaintBoundary(child: CustomPaint(painter: painter))),
         );
     return [
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
         if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
-            !(i == 0 && ui.ImageFilter.isShaderFilterSupported &&
-              (!settings.autoFxQuality || _fxTier > 0)))
+            // Distortion-only FX are rendered by the GPU backdrop shader.
+            // Never draw their old decorative strokes or polygon outlines.
+            !(ui.ImageFilter.isShaderFilterSupported &&
+              (i == 0 || i == 3 || i == 5 || i == 9)))
           layer(ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick)),
       if (settings.fxNebula)
@@ -1175,13 +1183,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final host = widget.driveHost;
 
     if (narrow) {
-      // Clock occupies the first row; artwork and metadata sit above the
-      // shorter, still-interactive navigation window.
+      // Clock belongs to the song-information group, not the artwork.
+      // Moving the map boundary now moves the clock with the metadata.
       final cameraTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
-      // The clock is rendered by _themeClock as a separate overlay. Reserve
-      // a full row for it so neither real artwork nor the idle placeholder
-      // can appear underneath the time.
-      final artworkTop = math.max(h * 0.105, cameraTop + 64.0);
+      final artworkTop = math.max(h * 0.075, cameraTop + 20.0);
       final artSide = math.min(w * 0.48, h * 0.225).toDouble();
       final top = SizedBox(
         height: h * 0.425,
@@ -1189,6 +1194,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           SizedBox(height: artworkTop),
           GestureDetector(onTap: _openPlayer, child: _front(artSide, false)),
           SizedBox(height: h * 0.012),
+          if (settings.showClock) Padding(
+            padding: EdgeInsets.only(bottom: h * 0.008),
+            child: Text(_clockLabel(), style: const TextStyle(color: Colors.white,
+              fontSize: 14, fontWeight: FontWeight.w500,
+              shadows: [Shadow(color: Colors.black, blurRadius: 8)]))),
           _title(h * 0.031, Alignment.center, false),
           SizedBox(height: h * 0.004),
           _artist(h * 0.017, Alignment.center, false),
@@ -2076,11 +2086,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // bottom; the song info moves right to make room if it has to.
     final s = math.min(h * 0.72, w * 0.40).toDouble();
     final edge = w * 0.105;
-    final textLeft = math.max(w * 0.58, s * 1.45 + w * 0.03).toDouble();
+    // Match the bottom breathing room on the lead cover at the left edge.
+    final fanLeftInset = h * 0.04;
+    final textLeft = math.max(w * 0.58, fanLeftInset + s * 1.45 + w * 0.03).toDouble();
     return Stack(
       children: [
         Positioned.fill(child: _bottomArtworkFade()),
-        Positioned(left: 0, top: (h - s * 1.25) / 2, child: _fanCards(s)),
+        Positioned(left: fanLeftInset, top: (h - s * 1.25) / 2, child: _fanCards(s)),
         if (settings.visualizer)
           Positioned(
             right: 0,
