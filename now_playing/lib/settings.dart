@@ -143,6 +143,9 @@ class AppSettings extends ChangeNotifier {
   bool avoidNav = true; // never open VYBE while navigation is active
   bool driveBubble = true; // floating "return to VYBE" button while VYBE is hidden
   double driveBarsH = 0.14; // Drive: visualizer height along the bottom, share of screen height
+  double bgOverlay = 1.0; // 0 clear, 1 original shading, 2 darker
+  final Map<String, int> fxBlendMode = {for (final n in extraFxNames) n: 0};
+  final Map<String, double> fxBlendOpacity = {for (final n in extraFxNames) n: 0.45};
   double bgContrast = 1.4; // blurred background contrast, 1.0 (normal) .. 2.0
 
   ArtPalette? get accentPalette =>
@@ -227,6 +230,11 @@ class AppSettings extends ChangeNotifier {
     avoidNav = p.getBool('avoidNav') ?? true;
     driveBubble = p.getBool('driveBubble') ?? true;
     driveBarsH = (p.getDouble('driveBarsH') ?? 0.14).clamp(0.08, 0.26).toDouble();
+    bgOverlay = (p.getDouble('bgOverlay') ?? 1.0).clamp(0.0, 2.0).toDouble();
+    for (final n in extraFxNames) {
+      fxBlendMode[n] = (p.getInt('fxBlendMode:$n') ?? 0).clamp(0, 7);
+      fxBlendOpacity[n] = (p.getDouble('fxBlendOpacity:$n') ?? 0.45).clamp(0.0, 1.0).toDouble();
+    }
     bgContrast = (p.getDouble('bgContrast') ?? 1.4).clamp(1.0, 2.0).toDouble();
     notifyListeners();
     if (migrated) save();
@@ -303,6 +311,11 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('avoidNav', avoidNav);
     await p.setBool('driveBubble', driveBubble);
     await p.setDouble('driveBarsH', driveBarsH);
+    await p.setDouble('bgOverlay', bgOverlay);
+    for (final n in extraFxNames) {
+      await p.setInt('fxBlendMode:$n', fxBlendMode[n] ?? 0);
+      await p.setDouble('fxBlendOpacity:$n', fxBlendOpacity[n] ?? 0.45);
+    }
     await p.setDouble('bgContrast', bgContrast);
   }
 

@@ -541,15 +541,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             blurred,
-            const DecoratedBox(
+            DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Color(0x8C000000),
-                    Color(0x59000000),
-                    Color(0xB3000000),
+                    Color.fromARGB((140 * settings.bgOverlay).round().clamp(0, 255).toInt(), 0, 0, 0),
+                    Color.fromARGB((89 * settings.bgOverlay).round().clamp(0, 255).toInt(), 0, 0, 0),
+                    Color.fromARGB((179 * settings.bgOverlay).round().clamp(0, 255).toInt(), 0, 0, 0),
                   ],
                 ),
               ),
@@ -698,6 +698,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       builder: (context, _) => RefractionShaderLayer(
         time: fxClock.t, bass: fxClock.bass,
         strength: intensity, mode: mode,
+        blendMode: settings.fxBlendMode[name] ?? 0,
+        blendOpacity: settings.fxBlendOpacity[name] ?? 0.45,
         child: const SizedBox.expand(),
       ),
     ));
@@ -3734,8 +3736,21 @@ class _HoleBorderPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final rim = RRect.fromRectAndRadius(hole, Radius.circular(radius));
+    // Clip the shadow to the map opening: darkening only the inner edge,
+    // while keeping the navigation app fully visible and interactive.
+    canvas.save();
+    canvas.clipRRect(rim);
     canvas.drawRRect(
-      RRect.fromRectAndRadius(hole, Radius.circular(radius)),
+      rim.inflate(7),
+      Paint()..color = const Color(0xA0000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 14
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
+    );
+    canvas.restore();
+    canvas.drawRRect(
+      rim,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5

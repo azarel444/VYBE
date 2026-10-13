@@ -135,6 +135,22 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
               Slider(value: fx.intensity(widget.settings).clamp(0.0,1.0).toDouble(), activeColor: _cyan,
                 onChanged: (v)=>widget.settings.update(()=>fx.setIntensity(widget.settings,v),persist:false),
                 onChangeEnd: (_)=>widget.settings.save()),
+              if (AppSettings.extraFxNames.contains(fx.name) &&
+                  const ['Liquid Refraction', 'Vortex Tunnel', 'Prism Shards', 'Holographic Interference'].contains(fx.name)) ...[
+                const SizedBox(height: 8),
+                const Text('Image blend mode'),
+                DropdownButton<int>(
+                  isExpanded: true,
+                  value: widget.settings.fxBlendMode[fx.name] ?? 0,
+                  items: const ['Normal', 'Screen', 'Multiply', 'Overlay', 'Soft Light', 'Color Dodge', 'Difference', 'Hue Shift']
+                      .asMap().entries.map((e) => DropdownMenuItem<int>(value: e.key, child: Text(e.value))).toList(),
+                  onChanged: (v) { if (v != null) widget.settings.update(() => widget.settings.fxBlendMode[fx.name] = v); },
+                ),
+                Text('Blend opacity ${((widget.settings.fxBlendOpacity[fx.name] ?? 0.45) * 100).round()}%'),
+                Slider(value: widget.settings.fxBlendOpacity[fx.name] ?? 0.45,
+                  onChanged: (v) => widget.settings.update(() => widget.settings.fxBlendOpacity[fx.name] = v, persist: false),
+                  onChangeEnd: (_) => widget.settings.save()),
+              ],
               const Text('Preview illustrates the effect shape; actual motion and color appear in Now Playing.',
                 style: TextStyle(fontSize: 12,color: Colors.white54)),
             ]),

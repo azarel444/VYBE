@@ -204,6 +204,8 @@ class SettingsScreen extends StatelessWidget {
       _switch('24-hour time', 'Off uses 12-hour time with AM/PM',
           s.clock24h, (v) => s.update(() => s.clock24h = v)),
       _section('Background effects'),
+      _slider('Background darkness', '${(s.bgOverlay * 100).round()}%', s.bgOverlay, 0.0, 2.0,
+          (v) => s.update(() => s.bgOverlay = v, persist: false), () => s.save()),
       _action(
         'Background FX Library',
         'Visual previews, individual effects, intensity and quick presets',
