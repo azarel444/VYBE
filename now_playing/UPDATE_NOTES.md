@@ -1,3 +1,9 @@
+## v1.9.4.1 — Flutter compilation fix
+
+- Replaced two invalid `FxClock.mid` references in `lib/effects.dart` (Aurora curtains and Light Trails) with the existing `FxClock.bass` audio-response value. No new fields or media pipeline changes.
+- Preserves all v1.9.4 layout and FX work.
+- Archive validated; Flutter SDK unavailable here, so APK compilation is not verified.
+
 # VYBE 1.9.1 — expanded FX and offline cache (test build)
 
 - Ten additional selectable visual FX, with animated painters rendered over existing album-art backgrounds and intensity sliders in the FX Library.
