@@ -122,9 +122,11 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
       builder: (context) => AnimatedBuilder(
         animation: widget.settings,
         builder: (context, _) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.88),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [Expanded(child: Text(fx.name, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w600))),
                 Switch(activeColor: _cyan, value: fx.enabled(widget.settings), onChanged: (v)=>_setOne(index,v))]),
               Text(fx.description, style: const TextStyle(color: Colors.white60)),
@@ -153,7 +155,8 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
               ],
               const Text('Preview illustrates the effect shape; actual motion and color appear in Now Playing.',
                 style: TextStyle(fontSize: 12,color: Colors.white54)),
-            ]),
+              ]),
+            ),
           ),
         ),
       ),

@@ -63,6 +63,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   int _fxTier = 2;
   final ripples = RippleState();
   final _artKey = GlobalKey(); // lets rings and rays find the cover
+  final _raysLayerKey = GlobalKey();
+  final _ripplesLayerKey = GlobalKey();
   // Record Cut: the spin is kept apart from the layout so only a cached
   // layer is turned each frame.
   final _recAngle = ValueNotifier<double>(0); // turns, 0..1
@@ -633,7 +635,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Mirrored Drive places its music panel on the opposite side.
       if (theme == 4) onRight = settings.driveSwap;
       // Fan and Record Cut landscape have the artwork on the left/right.
-      if (theme == 7) onRight = false; // Fan clock stays with right-side metadata.
+      if (theme == 7 || theme == AppSettings.tTypo) onRight = false;
+      // Typo: upper-left leaves the conditional artwork/lyrics region clear.
     }
     // Android's status bar can be hidden in immersive mode while the physical
     // hole-punch camera remains. Reserve a minimum camera-safe band as well as
@@ -707,8 +710,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The optional effects, each switched on or off in settings.
   List<Widget> _extraFx() {
     final p = _palette;
-    Widget layer(CustomPainter painter) => IgnorePointer(
-          child: Transform.scale(scale: 1.18, child: RepaintBoundary(child: CustomPaint(painter: painter))),
+    Widget layer(CustomPainter painter, {GlobalKey? layerKey}) => IgnorePointer(
+          child: Transform.scale(scale: 1.18,
+            child: RepaintBoundary(child: CustomPaint(key: layerKey, painter: painter))),
         );
     return [
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
@@ -738,18 +742,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         layer(RaysPainter(
             clock: fxClock,
             artKey: _artKey,
+            layerKey: _raysLayerKey,
             palette: p,
             k: settings.kRays,
             topOrigin: settings.theme == AppSettings.tTypo,
-            repaint: _tick)),
+            repaint: _tick), layerKey: _raysLayerKey),
       if (settings.fxRipples)
         layer(RipplesPainter(
             state: ripples,
             clock: fxClock,
             artKey: _artKey,
+            layerKey: _ripplesLayerKey,
             palette: p,
             k: settings.kRipples,
-            repaint: _tick)),
+            repaint: _tick), layerKey: _ripplesLayerKey),
       if (settings.fxWater)
         layer(WaterPainter(
             clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),

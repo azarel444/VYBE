@@ -325,10 +325,17 @@ RenderBox? _artBox(GlobalKey key) {
   return null;
 }
 
-Offset _artCenter(GlobalKey key, Size size) {
+Offset _artCenter(GlobalKey key, Size size, {GlobalKey? layerKey}) {
   final box = _artBox(key);
   if (box == null) return Offset(size.width * 0.25, size.height / 2);
-  return box.localToGlobal(box.size.center(Offset.zero));
+  final globalCenter = box.localToGlobal(box.size.center(Offset.zero));
+  // The FX canvas is overscanned/scaled independently of the artwork.
+  // Convert from screen space into the actual painter's local coordinates.
+  final layer = layerKey?.currentContext?.findRenderObject();
+  if (layer is RenderBox && layer.attached && layer.hasSize) {
+    return layer.globalToLocal(globalCenter);
+  }
+  return globalCenter;
 }
 
 /// Breathing glow: three soft blobs in the art colors drift around and
@@ -417,6 +424,7 @@ class SweepPainter extends CustomPainter {
 class RaysPainter extends CustomPainter {
   final FxClock clock;
   final GlobalKey artKey;
+  final GlobalKey? layerKey;
   final ArtPalette palette;
   final double k;
 
@@ -427,6 +435,7 @@ class RaysPainter extends CustomPainter {
   RaysPainter({
     required this.clock,
     required this.artKey,
+    this.layerKey,
     required this.palette,
     required this.k,
     this.topOrigin = false,
@@ -435,7 +444,7 @@ class RaysPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final c = topOrigin ? Offset(size.width / 2, 0) : _artCenter(artKey, size);
+    final c = topOrigin ? Offset(size.width / 2, 0) : _artCenter(artKey, size, layerKey: layerKey);
     final reach = math.sqrt(size.width * size.width + size.height * size.height);
     final intensity = _a((0.12 + 0.35 * clock.bass) * k);
     final cols = palette.colors;
@@ -509,6 +518,7 @@ class RipplesPainter extends CustomPainter {
   final RippleState state;
   final FxClock clock;
   final GlobalKey artKey;
+  final GlobalKey? layerKey;
   final ArtPalette palette;
   final double k;
 
@@ -516,6 +526,7 @@ class RipplesPainter extends CustomPainter {
     required this.state,
     required this.clock,
     required this.artKey,
+    this.layerKey,
     required this.palette,
     required this.k,
     required Listenable repaint,
@@ -524,7 +535,7 @@ class RipplesPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (state.starts.isEmpty) return;
-    final c = _artCenter(artKey, size);
+    final c = _artCenter(artKey, size, layerKey: layerKey);
     final box = _artBox(artKey);
     final baseR = box != null ? box.size.shortestSide / 2 : size.shortestSide * 0.2;
     final maxR = math.sqrt(size.width * size.width + size.height * size.height) * 0.55;
