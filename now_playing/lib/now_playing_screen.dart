@@ -605,6 +605,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Fan and Record Cut landscape have the artwork on the left/right.
       if (theme == 5 || theme == 7) onRight = false;
     }
+    // Android's status bar can be hidden in immersive mode while the physical
+    // hole-punch camera remains. Reserve a minimum camera-safe band as well as
+    // any real system inset supplied by the device.
+    final cameraSafeTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
+    if (portrait && bottomInset == null) {
+      topInset = math.max(topInset, cameraSafeTop + 14.0);
+    }
     final inset = portrait ? 18.0 : 30.0;
     return Positioned(
       left: centered ? 0 : (onRight ? null : inset),
@@ -1760,14 +1767,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _recordLayout(double w, double h, bool narrow) {
     if (narrow) {
-      // Portrait: the record at the top, the disc's lower edge just below it,
-      // and the bars hang down from that edge toward the song info.
+      // Portrait: position the vinyl independently from the grayscale outer
+      // disc. The outer disc's LOWER circular edge crosses the vinyl at its
+      // vertical midpoint, behind the vinyl, rather than moving with it.
       final d = math.min(w * 0.62, h * 0.30).toDouble();
       final r = _discR(d, w);
-      final rcy = h * 0.14 + d / 2;
-      final discBottom = rcy + d / 2 + _discGap(d);
-      final cy = discBottom - r;
+      final cameraSafeTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
+      final vinylTop = math.max(cameraSafeTop + 88.0, h * 0.095);
+      final rcy = vinylTop + d / 2;
+      final cy = rcy - r;
       final maxLen = d * 0.16;
+      // Metadata must remain below the actual record, not the disc boundary.
+      final metadataTop = vinylTop + d + h * 0.065;
       return Stack(
         children: [
           ..._discStack(w / 2, cy, r, d, w, math.pi / 2),
@@ -1786,7 +1797,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           Positioned(
             left: w * 0.06,
             right: w * 0.06,
-            top: discBottom + maxLen + h * 0.02,
+            top: metadataTop,
             bottom: h * 0.02,
             child: Align(
               alignment: Alignment.center,

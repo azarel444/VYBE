@@ -1,3 +1,10 @@
+## v1.9.4.2 — Record Cut overlap and camera-safe clocks
+
+- Record Cut portrait: independently position the grayscale outer circle and vinyl so the lower curve of the outer circle crosses behind the vinyl at its vertical midpoint. Move the vinyl upward from the overly low previous position; keep metadata below the vinyl.
+- Portrait clocks placed near the top: enforce Android `MediaQuery.viewPadding.top` plus clearance, with a 48 logical-pixel minimum for immersive devices where the camera cutout remains exposed despite hidden status bars. Bottom-centered clocks are unchanged.
+- Based on v1.9.4.1 including its two `FxClock.mid` compilation fixes. No FX changes.
+- Source archive checked; no Flutter SDK available to compile an APK here.
+
 ## v1.9.4.1 — Flutter compilation fix
 
 - Replaced two invalid `FxClock.mid` references in `lib/effects.dart` (Aurora curtains and Light Trails) with the existing `FxClock.bass` audio-response value. No new fields or media pipeline changes.
