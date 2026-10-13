@@ -433,7 +433,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fit: StackFit.expand,
                     children: [
                       layout,
-                      if (settings.showClock && !widget.driveHost && !(settings.theme == 4 && narrow)) _themeClock(w, h, narrow),
+                      if (settings.showClock && !widget.driveHost && settings.theme != 4) _themeClock(w, h, narrow),
                       if (vhs && settings.theme != 4) _osd(h, compact: narrow),
                     ],
                   ),
@@ -489,7 +489,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
             if (w >= h * 1.3) _driveBottomBars(w, h, hole),
-            if (settings.showClock) _themeClock(w, h, w < h * 1.3),
             if (_showControls) _controls(),
           ],
         );
@@ -1187,20 +1186,28 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (narrow) {
       // Clock belongs to the song-information group, not the artwork.
       // Moving the map boundary now moves the clock with the metadata.
+      // One clock only, in the same responsive column as the artwork and
+      // metadata. It stays above the art as the map opening changes height.
       final cameraTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
-      final artworkTop = math.max(h * 0.075, cameraTop + 20.0);
-      final artSide = math.min(w * 0.48, h * 0.225).toDouble();
+      final availableTop = h * 0.425;
+      final topSpace = math.max(cameraTop + 12.0, h * 0.065);
+      final reservedText = h * 0.065 + (settings.showClock ? 36.0 : 0.0);
+      final artSide = math.max(48.0,
+        math.min(math.min(w * 0.48, h * 0.225),
+          availableTop - topSpace - reservedText)).toDouble();
       final top = SizedBox(
-        height: h * 0.425,
+        height: availableTop,
         child: Column(children: [
-          SizedBox(height: artworkTop),
+          SizedBox(height: topSpace),
+          if (settings.showClock) ...[
+            Text(_clockLabel(), textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 14,
+                fontWeight: FontWeight.w500,
+                shadows: [Shadow(color: Colors.black, blurRadius: 8)])),
+            SizedBox(height: 10),
+          ],
           GestureDetector(onTap: _openPlayer, child: _front(artSide, false)),
           SizedBox(height: h * 0.012),
-          if (settings.showClock) Padding(
-            padding: EdgeInsets.only(bottom: h * 0.008),
-            child: Text(_clockLabel(), style: const TextStyle(color: Colors.white,
-              fontSize: 14, fontWeight: FontWeight.w500,
-              shadows: [Shadow(color: Colors.black, blurRadius: 8)]))),
           _title(h * 0.031, Alignment.center, false),
           SizedBox(height: h * 0.004),
           _artist(h * 0.017, Alignment.center, false),
@@ -1242,6 +1249,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (settings.showClock) ...[
+                  Text(_clockLabel(), textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 8)])),
+                  SizedBox(height: h * 0.018),
+                ],
                 _title(h * 0.05, Alignment.center, false),
                 SizedBox(height: h * 0.008),
                 _artist(h * 0.026, Alignment.center, false),
@@ -3181,7 +3195,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         style: TextStyle(
           fontSize: size,
           fontWeight: FontWeight.w400,
-          letterSpacing: size * 0.38,
+          letterSpacing: model.active ? size * 0.38 : size * 0.12,
           color: color ?? Colors.white.withOpacity(0.62),
           shadows: _cleanTextShadows,
         ),
@@ -3225,11 +3239,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  Widget _fit(Widget child, Alignment align) => FittedBox(
+  Widget _fit(Widget child, Alignment align) {
+    final size = MediaQuery.sizeOf(context);
+    final portrait = size.width < size.height * 1.3;
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: portrait ? math.max(1.0, size.width - 48.0) : double.infinity,
+      ),
+      child: FittedBox(
         fit: BoxFit.scaleDown,
         alignment: align,
         child: child,
-      );
+      ),
+    );
+  }
 
   /// The clipped album image (or a placeholder), keyed so it can crossfade.
   Widget _artContent(double s) {
