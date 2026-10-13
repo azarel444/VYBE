@@ -35,13 +35,32 @@ void main() {
       * sin(t * 0.40 + r * 13.0);
     displacement += vec2(-d.y, d.x) * angle;
   } else if (mode > 1.5 && mode < 2.5) {
-    displacement += vec2(sin(uv.y * 13.0 + t * 0.53), cos(uv.x * 17.0 - t * 0.39))
-      * 0.008 * strength;
+    // Faceted, moving triangular prisms: adjacent regions refract in
+    // different directions instead of merely wobbling the whole image.
+    vec2 facet = floor((p + vec2(t * 0.045, -t * 0.032)) * 8.0);
+    float seed = fract(sin(dot(facet, vec2(127.1, 311.7))) * 43758.5453);
+    vec2 local = fract((p + vec2(t * 0.045, -t * 0.032)) * 8.0);
+    float triangle = step(local.x + local.y, 1.0);
+    float angle = (seed * 6.2831853) + triangle * 2.0944;
+    vec2 normal = vec2(cos(angle), sin(angle));
+    // Geometry exists only in the displacement field, never as painted shapes.
+    // Piecewise-constant offsets form optically fractured regions.
+    displacement += normal * (0.021 + 0.023 * bass) * strength;
   } else if (mode > 2.5) {
     displacement += vec2(sin(uv.y * 70.0 + t * 1.1), 0.0) * 0.0025 * strength;
   }
   vec2 sampleUv = clamp(uv + displacement, vec2(0.002), vec2(0.998));
-  float fringe = (0.0013 + 0.0025 * bass) * strength;
+  // Dispersion is strongest around the refractive facet seams, rather than
+  // tinting the interiors of entire polygons.
+  float seam = 1.0;
+  if (mode > 1.5 && mode < 2.5) {
+    vec2 cell = fract((p + vec2(t * 0.045, -t * 0.032)) * 8.0);
+    float boundary = min(min(cell.x, cell.y), min(1.0 - cell.x, 1.0 - cell.y));
+    boundary = min(boundary, abs(1.0 - cell.x - cell.y) * 0.7071);
+    seam = 1.0 - smoothstep(0.0, 0.11, boundary);
+  }
+  float fringe = (mode > 1.5 && mode < 2.5 ? 0.009 * seam : 0.0013)
+      * strength + 0.001 * bass * strength;
   vec2 shift = normalize(displacement + vec2(0.0001)) * fringe;
   vec4 base = texture(u_texture, sampleUv);
   float red = texture(u_texture, clamp(sampleUv + shift, vec2(0.002), vec2(0.998))).r;
@@ -49,6 +68,10 @@ void main() {
   vec3 rgb = vec3(red, base.g, blue);
   // Highlights respond to gradients in the displacement field, not a static overlay.
   float crest = pow(max(0.0, 1.0 - abs(a - b)), 12.0);
-  rgb += vec3(0.055, 0.10, 0.14) * crest * strength * (0.55 + bass * 0.65) * base.a;
+  // Caustics belong to fluid refraction only; other distortion modes should
+  // alter the sampled image without imposing an additional color treatment.
+  if (mode < 0.5) {
+    rgb += vec3(0.055, 0.10, 0.14) * crest * strength * (0.55 + bass * 0.65) * base.a;
+  }
   fragColor = vec4(clamp(rgb, vec3(0.0), vec3(base.a)), base.a);
 }
