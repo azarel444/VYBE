@@ -1235,7 +1235,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 shadows: [Shadow(color: Colors.black, blurRadius: 8)])),
             SizedBox(height: 10),
           ],
-          GestureDetector(onTap: _openPlayer, child: _front(artSide, false)),
+          GestureDetector(onTap: _openPlayer, child: _driveArtwork(artSide)),
           SizedBox(height: h * 0.012),
           _title(h * 0.031, Alignment.center, false),
           SizedBox(height: h * 0.004),
@@ -1297,7 +1297,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   key: _artKey,
                   behavior: HitTestBehavior.opaque,
                   onTap: _openPlayer,
-                  child: _vinyl(d),
+                  child: _driveArtwork(d),
                 ),
                 if (_hasLyrics) ...[
                   SizedBox(height: _lyricGap(h)),
@@ -1320,6 +1320,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ],
     );
   }
+
+  /// Drive art selection is shared by portrait and landscape.
+  Widget _driveArtwork(double size) => settings.driveAlbumCover
+      ? SizedBox(width: size, height: size, child: _front(size, false))
+      : _vinyl(size);
 
   /// The visualizer along the bottom of the screen, in front of everything.
   /// With no directions showing it runs the whole width. While the map app
@@ -3806,11 +3811,11 @@ class _HoleBorderPainter extends CustomPainter {
     canvas.save();
     canvas.clipRRect(rim);
     canvas.drawRRect(
-      rim.inflate(7),
-      Paint()..color = const Color(0xA0000000)
+      rim.inflate(11),
+      Paint()..color = const Color(0xB8000000)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 14
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
+        ..strokeWidth = 23
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
     );
     canvas.restore();
     canvas.drawRRect(

@@ -133,6 +133,7 @@ class AppSettings extends ChangeNotifier {
   bool onboarded = false; // the first-launch tour has been shown
   String navPkg = ''; // navigation app (empty = find one automatically)
   String navLabel = '';
+  bool driveAlbumCover = false; // Drive: square cover instead of spinning vinyl
   bool driveSwap = false; // Drive theme: navigation card on the left
   double driveCardWidth = 0.5; // Drive: share of the screen left open for the map, 0.35 .. 0.65
   int graceSec = 0; // a pause shorter than this does not reopen VYBE (0 = any pause reopens)
@@ -218,6 +219,7 @@ class AppSettings extends ChangeNotifier {
     onboarded = p.getBool('onboarded') ?? false;
     navPkg = p.getString('navPkg') ?? '';
     navLabel = p.getString('navLabel') ?? '';
+    driveAlbumCover = p.getBool('driveAlbumCover') ?? false;
     driveSwap = p.getBool('driveSwap') ?? false;
     driveCardWidth =
         (p.getDouble('driveCardWidth') ?? 0.5).clamp(0.35, 0.65).toDouble();
@@ -301,6 +303,7 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('onboarded', onboarded);
     await p.setString('navPkg', navPkg);
     await p.setString('navLabel', navLabel);
+    await p.setBool('driveAlbumCover', driveAlbumCover);
     await p.setBool('driveSwap', driveSwap);
     await p.setDouble('driveCardWidth', driveCardWidth);
     await p.setInt('graceSec', graceSec);
