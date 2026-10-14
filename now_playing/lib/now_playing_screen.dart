@@ -1320,13 +1320,46 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Drive artwork is a display surface, not a shortcut to the music app.
   // In particular, avoid _front's nested tap handler and pulse/bloom layers:
   // those can obscure the square cover and cause unexpected app switches.
-  Widget _driveArtwork(double size) => SizedBox(
+  Widget _driveArtwork(double size) {
+    if (!settings.driveAlbumCover) return SizedBox(
+      width: size, height: size, child: _vinyl(size));
+
+    // Keep Drive's cover independent of the shared AnimatedSwitcher.
+    // Rebuilding the screen-wide controls after a background tap must not
+    // restart an image crossfade or temporarily replace the album cover.
+    final art = model.art;
+    final radius = BorderRadius.circular(size * 0.07);
+    return RepaintBoundary(
+      child: Container(
         width: size,
         height: size,
-        child: settings.driveAlbumCover
-            ? _artCard(size)
-            : _vinyl(size),
-      );
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          color: const Color(0xFF111827),
+          border: Border.all(color: _palette.a.withOpacity(0.85), width: 1.5),
+          boxShadow: [BoxShadow(
+            color: _palette.a.withOpacity(0.28),
+            blurRadius: size * 0.10,
+          )],
+        ),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: art == null || art.flat
+              ? Center(child: _brandIcon(size * 0.48))
+              : Image.memory(
+                  art.bytes,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (context, error, stackTrace) =>
+                      Center(child: _brandIcon(size * 0.48)),
+                ),
+        ),
+      ),
+    );
+  }
 
   /// The visualizer along the bottom of the screen, in front of everything.
   /// With no directions showing it runs the whole width. While the map app
