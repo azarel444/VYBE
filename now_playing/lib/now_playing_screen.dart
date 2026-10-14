@@ -87,6 +87,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   bool _dirActive = false;
   Timer? _dirTimer;
 
+  // A track change requires an intentional horizontal gesture with sufficient
+  // distance; a quick vertical/diagonal movement must never skip music.
+  double _horizontalSwipeDistance = 0;
   bool _showControls = false;
   Timer? _hideTimer;
   Timer? _clockTimer;
@@ -376,10 +379,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     Widget content(bool controlsInside) => GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _toggleControls,
+        onHorizontalDragStart: (_) => _horizontalSwipeDistance = 0,
+        onHorizontalDragUpdate: (d) =>
+            _horizontalSwipeDistance += d.delta.dx,
+        onHorizontalDragCancel: () => _horizontalSwipeDistance = 0,
         onHorizontalDragEnd: (d) {
-          final v = d.primaryVelocity ?? 0;
-          if (v < -300) model.next();
-          if (v > 300) model.previous();
+          final distance = _horizontalSwipeDistance;
+          _horizontalSwipeDistance = 0;
+          // Flutter's horizontal drag recognizer rejects vertical gestures;
+          // the extra distance threshold also rejects incidental diagonals.
+          if (distance.abs() < 72) return;
+          final velocity = d.primaryVelocity ?? 0;
+          if (velocity.abs() < 180) return;
+          if (distance < 0 && velocity < 0) model.next();
+          if (distance > 0 && velocity > 0) model.previous();
         },
         child: Stack(
           fit: StackFit.expand,
@@ -601,7 +614,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Portrait positions are art-directed per theme (October 2026 review).
     // Landscape clocks follow the music-information side, not the artwork.
     final theme = settings.theme;
-    final centered = portrait;
+    // Typo: lyrics use the upper center; album-art mode keeps the clock
+    // upper-left, clear of the artwork. Other landscape themes retain sides.
+    final typoLyricsCentered = !portrait &&
+        theme == AppSettings.tTypo && _hasLyrics;
+    final centered = portrait || typoLyricsCentered;
     bool onRight = true;
     double topInset = portrait ? h * 0.055 : 18.0;
     double? bottomInset;
@@ -637,7 +654,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (theme == 4) onRight = settings.driveSwap;
       // Fan and Record Cut landscape have the artwork on the left/right.
       if (theme == 7 || theme == AppSettings.tTypo) onRight = false;
-      // Typo: upper-left leaves the conditional artwork/lyrics region clear.
+      // Typo uses upper-center when lyrics actually display, upper-left
+      // when the right pane contains artwork (including disabled lyrics).
     }
     // Android's status bar can be hidden in immersive mode while the physical
     // hole-punch camera remains. Reserve a minimum camera-safe band as well as
@@ -646,6 +664,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (portrait && bottomInset == null) {
       topInset = math.max(topInset, cameraSafeTop + 14.0);
     }
+    if (typoLyricsCentered) topInset = 22.0;
     final inset = portrait ? 18.0 : 30.0;
     return Positioned(
       left: centered ? 0 : (onRight ? null : inset),
