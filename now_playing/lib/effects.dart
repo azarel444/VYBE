@@ -359,8 +359,8 @@ class GlowPainter extends CustomPainter {
     final big = math.max(size.width, size.height);
     for (int i = 0; i < 3; i++) {
       final c = Offset(
-        size.width * (0.5 + 0.46 * math.sin(t * 0.23 + i * 2.1)),
-        size.height * (0.5 + 0.43 * math.cos(t * 0.19 + i * 1.7)),
+        size.width * (0.5 + 0.57 * math.sin(t * 0.31 + i * 2.1)),
+        size.height * (0.5 + 0.54 * math.cos(t * 0.27 + i * 1.7)),
       );
       final r = big * (0.40 + 0.14 * math.sin(t * 0.56 + i));
       final a = _a((0.16 + 0.10 * math.sin(t * 0.5 + i * 1.3) + 0.12 * clock.bass) * k);
@@ -393,8 +393,8 @@ class SweepPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final v = Offset(size.width * 0.9, size.height * 0.6);
-    final p = (clock.t * 0.085) % 1.0;
+    final v = Offset(size.width * 1.25, size.height * 0.85);
+    final p = (clock.t * 0.13) % 1.0;
     // Moving the start by exactly one period along v loops without a jump.
     final begin = Offset(v.dx * p, v.dy * p);
     final end = begin + v;
@@ -460,7 +460,7 @@ class RaysPainter extends CustomPainter {
               (i - (n - 1) / 2) * (math.pi * 0.86 / (n - 1)) +
               0.12 * math.sin(clock.t * 0.15 + i * 0.7)
           : rot + i * 2 * math.pi / n;
-      final half = 0.075 + 0.03 * math.sin(clock.t * 0.4 + i);
+      final half = 0.145 + 0.045 * math.sin(clock.t * 0.4 + i);
       final color = cols[i % 3];
       for (int j = 0; j < bands; j++) {
         final inner = half * j / bands;
@@ -876,22 +876,31 @@ class ExpandedFxPainter extends CustomPainter {
             ..strokeWidth = .65..color = Colors.white.withOpacity(.7 * k));
         }
         break;
-      case 5: // Prism shards
-        for (var i = 0; i < 13; i++) {
-          final x = w * ((i * .618 + t * (.035 + (i % 3) * .011)) % 1);
-          final y = h * ((i * .37 + t * (.022 + (i % 4) * .007)) % 1);
-          final r = 20 + (i % 4) * 22.0;
-          final a = t * (.26 + (i % 4) * .08) + i;
-          final path = Path()..moveTo(x + math.cos(a)*r,y + math.sin(a)*r)
-            ..lineTo(x + math.cos(a+2.1)*r,y + math.sin(a+2.1)*r)
-            ..lineTo(x + math.cos(a+4.2)*r,y + math.sin(a+4.2)*r)..close();
-          final color = palette.at(i / 13);
-          canvas.drawPath(path, Paint()..color = color.withOpacity(.18 * k));
-          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 9..color = color.withOpacity(.2 * k)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
-          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 0.85..color = Colors.white.withOpacity(.62 * k));
+      case 5: // Prism shards: sparse glass facets, no full wireframe outlines.
+        for (var i = 0; i < 12; i++) {
+          final x = w * ((i * .61803398875 + .12 + t * (.055 + (i % 3) * .017)) % 1);
+          final y = h * ((i * .41421356237 + .23 + t * (.034 + (i % 4) * .013)) % 1);
+          final r = 23 + (i % 4) * 21.0;
+          final a = t * (.34 + (i % 4) * .12) + i * 1.73;
+          final p0 = Offset(x + math.cos(a)*r, y + math.sin(a)*r);
+          final p1 = Offset(x + math.cos(a+2.1)*r, y + math.sin(a+2.1)*r);
+          final p2 = Offset(x + math.cos(a+4.2)*r, y + math.sin(a+4.2)*r);
+          final path = Path()..moveTo(p0.dx,p0.dy)..lineTo(p1.dx,p1.dy)
+            ..lineTo(p2.dx,p2.dy)..close();
+          final color = palette.at(i / 12);
+          canvas.drawPath(path, Paint()..color = color.withOpacity(.12 * k));
+          // Highlight only a single lit facet edge, never the entire perimeter.
+          final edge = Path()..moveTo(p0.dx,p0.dy)..lineTo(p1.dx,p1.dy);
+          canvas.drawPath(edge, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 6..color = Colors.white.withOpacity(.20 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
+          canvas.drawPath(edge, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 1.1..color = Colors.white.withOpacity(.68 * k));
+          if (i % 3 == 0) {
+            final glint = p0 + (p1-p0) * ((math.sin(t * .8 + i)+1)*.5);
+            canvas.drawCircle(glint, 2.5, Paint()..color = Colors.white.withOpacity(.65*k)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3));
+          }
         }
         break;
       case 6: // Light trails: streaks with bloom and a bright moving head.

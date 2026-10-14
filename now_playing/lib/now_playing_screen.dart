@@ -2512,6 +2512,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final glowC = Color.lerp(p.c, Colors.white, 0.5)!;
 
     final layers = <Widget>[
+      // Confine the atmospheric fade to the artwork side of landscape Orbit.
+      // It ends before the text panel and does not darken the whole backdrop.
+      if (!narrow)
+        Positioned(
+          left: 0, top: 0, bottom: 0,
+          width: math.min(w * 0.57, c.dx + artR * 1.94),
+          child: IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.centerLeft, end: Alignment.centerRight,
+              colors: const [Color(0x99000000), Color(0x66000000), Color(0x00000000)],
+              stops: const [0.0, 0.48, 1.0],
+            )),
+          )),
+        ),
       _orbitGhost(w, h, narrow),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
@@ -2652,7 +2666,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       _lyricBlock(h * 0.75, Alignment.center, vhs: false),
                       SizedBox(height: h * 0.02),
                     ],
-                    _miniProgress(w * 0.3),
+                    // Orbit deliberately has no playback progress bar.
                   ],
                 ),
               ),
@@ -2663,7 +2677,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     } else {
       layers.add(
         Positioned(
-          left: c.dx + artR * 1.68 + w * 0.025,
+          left: math.min(w * 0.77, c.dx + artR * 1.90 + w * 0.035),
           right: w * 0.05,
           top: 0,
           bottom: 0,
@@ -2679,7 +2693,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _shaded(_fit(_albumText(h * 0.022), Alignment.centerLeft)),
               ],
               SizedBox(height: h * 0.035),
-              _miniProgress(w * 0.12),
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h) * 1.2),
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),

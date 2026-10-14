@@ -30,6 +30,7 @@ void main() {
   float b = wave(p.yx * 1.21 + vec2(1.7, 0.8), t * 0.83);
   vec2 displacement = vec2(a, b) * (0.006 + bass * 0.009) * strength;
   float mode = floor(u_mode + 0.5);
+  float glassHighlight = 0.0;
   if (mode > 0.5 && mode < 1.5) {
     vec2 d = uv - vec2(0.5);
     float r = length(d);
@@ -47,9 +48,9 @@ void main() {
       float seed2 = fract(sin(fi * 39.83 + 18.3) * 22578.1453);
       float depth = 0.3 + 0.7 * fract(sin(fi * 13.17 + 7.0) * 19453.3);
       vec2 center = vec2(fract(seed * 5.73 + 0.14), fract(seed2 * 8.91 + 0.27));
-      center += vec2(sin(t * (0.035 + depth * 0.055) + fi), cos(t * (0.027 + depth * 0.04) + fi * 1.7)) * 0.055;
+      center += vec2(sin(t * (0.065 + depth * 0.085) + fi), cos(t * (0.055 + depth * 0.07) + fi * 1.7)) * 0.12;
       vec2 local = uv - center;
-      float angle = seed2 * 6.283185 + sin(t * 0.08 + fi) * 0.18;
+      float angle = seed2 * 6.283185 + sin(t * 0.15 + fi) * 0.36;
       local = mat2(cos(angle), -sin(angle), sin(angle), cos(angle)) * local;
       float width = mix(0.055, 0.17, seed) * (0.6 + depth * 0.6);
       float height = mix(0.055, 0.22, seed2) * (0.6 + depth * 0.6);
@@ -59,6 +60,11 @@ void main() {
       float mask = smoothstep(-0.008, 0.009, edge) * (0.4 + depth * 0.6);
       if (mask > 0.01 && depth > bestDepth) {
         bestDepth = depth;
+        // Thin specular highlight on the lit facet, with occasional glints.
+        // Never outline all three edges.
+        float litEdge = 1.0 - smoothstep(0.0, 0.018, abs(local.y + height * 0.48));
+        float sparkle = pow(max(0.0, sin(t * 1.15 + fi * 2.7)), 16.0);
+        glassHighlight = (litEdge * 0.18 + litEdge * sparkle * 0.22) * mask;
         shardShift = vec2(cos(angle + fi * 0.91), sin(angle + fi * 0.91)) *
           (0.012 + depth * 0.032 + bass * 0.012) * mask;
       }
@@ -76,6 +82,9 @@ void main() {
   float red = texture(u_texture, clamp(sampleUv + shift, vec2(0.002), vec2(0.998))).r;
   float blue = texture(u_texture, clamp(sampleUv - shift, vec2(0.002), vec2(0.998))).b;
   vec3 rgb = vec3(red, base.g, blue);
+  if (mode > 1.5 && mode < 2.5) {
+    rgb += vec3(glassHighlight * strength * base.a);
+  }
   // Highlights respond to gradients in the displacement field, not a static overlay.
   float crest = pow(max(0.0, 1.0 - abs(a - b)), 12.0);
   // Caustics belong to fluid refraction only; other distortion modes should
