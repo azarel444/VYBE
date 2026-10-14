@@ -1235,7 +1235,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 shadows: [Shadow(color: Colors.black, blurRadius: 8)])),
             SizedBox(height: 10),
           ],
-          GestureDetector(onTap: _openPlayer, child: _driveArtwork(artSide)),
+          _driveArtwork(artSide),
           SizedBox(height: h * 0.012),
           _title(h * 0.031, Alignment.center, false),
           SizedBox(height: h * 0.004),
@@ -1293,12 +1293,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
                 ],
                 SizedBox(height: h * 0.035),
-                GestureDetector(
-                  key: _artKey,
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _openPlayer,
-                  child: _driveArtwork(d),
-                ),
+                _driveArtwork(d),
                 if (_hasLyrics) ...[
                   SizedBox(height: _lyricGap(h)),
                   _lyricBlock(h * 0.85, Alignment.center, vhs: false),
@@ -1322,9 +1317,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   /// Drive art selection is shared by portrait and landscape.
-  Widget _driveArtwork(double size) => settings.driveAlbumCover
-      ? SizedBox(width: size, height: size, child: _front(size, false))
-      : _vinyl(size);
+  // Drive artwork is a display surface, not a shortcut to the music app.
+  // In particular, avoid _front's nested tap handler and pulse/bloom layers:
+  // those can obscure the square cover and cause unexpected app switches.
+  Widget _driveArtwork(double size) => SizedBox(
+        width: size,
+        height: size,
+        child: settings.driveAlbumCover
+            ? _artCard(size)
+            : _vinyl(size),
+      );
 
   /// The visualizer along the bottom of the screen, in front of everything.
   /// With no directions showing it runs the whole width. While the map app
