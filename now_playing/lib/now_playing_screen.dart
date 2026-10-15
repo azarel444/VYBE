@@ -19,6 +19,7 @@ import 'spectrum.dart';
 import 'theme_parts.dart';
 import 'theme_library.dart';
 import 'template_background.dart';
+import 'club_background.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   /// True when this is the see-through Drive window that sits over the map.
@@ -516,7 +517,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // ---------------------------------------------------------------- background
 
   Widget _background() {
-    if (settings.animatedTemplateBackground) {
+    if (settings.backgroundSource == 2) {
+      return RepaintBoundary(child: AnimatedBuilder(
+        animation: _slow,
+        builder: (context, _) => CustomPaint(
+          painter: ClubBackgroundPainter(
+            palette: _palette, time: _time,
+            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+            darkness: settings.bgOverlay,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ));
+    }
+    if (settings.backgroundSource == 1) {
       return RepaintBoundary(child: AnimatedBuilder(
         animation: _slow,
         builder: (context, _) => CustomPaint(

@@ -86,6 +86,7 @@ class AppSettings extends ChangeNotifier {
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
+  int backgroundSource = 0; // 0 artwork, 1 palette scene, 2 club show
   bool animatedTemplateBackground = false; // alternative to blurred album art
   double templateBackgroundMotion = 0.65; // 0 = still, 1 = full motion
   bool bgEffects = true; // slow drift + beat pulse
@@ -181,6 +182,7 @@ class AppSettings extends ChangeNotifier {
     kParticles = k('kParticles', 1.0);
     kMotion = k('kMotion', 1.0);
     animatedTemplateBackground = p.getBool('animatedTemplateBackground') ?? false;
+    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 2).toInt();
     templateBackgroundMotion = (p.getDouble('templateBackgroundMotion') ?? 0.65).clamp(0.0, 1.0).toDouble();
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;
@@ -273,7 +275,8 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('kParticles', kParticles);
     await p.setDouble('kMotion', kMotion);
     await p.setDouble('vhsEffects', vhsEffects);
-    await p.setBool('animatedTemplateBackground', animatedTemplateBackground);
+    await p.setBool('animatedTemplateBackground', backgroundSource == 1);
+    await p.setInt('backgroundSource', backgroundSource);
     await p.setDouble('templateBackgroundMotion', templateBackgroundMotion);
     await p.setBool('bgEffects', bgEffects);
     await p.setBool('particles', particles);

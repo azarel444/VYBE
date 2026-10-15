@@ -177,10 +177,10 @@ class SettingsScreen extends StatelessWidget {
         (i) => s.update(() => s.accent = i),
       ),
       _section('Background source'),
-      _choices('Background', const ['Blurred album art', 'Animated color template'],
-        s.animatedTemplateBackground ? 1 : 0,
-        (i) => s.update(() => s.animatedTemplateBackground = i == 1)),
-      if (s.animatedTemplateBackground)
+      _choices('Background', const ['Blurred album art', 'Animated color template', 'Club Light Show'],
+        s.backgroundSource,
+        (i) => s.update(() { s.backgroundSource = i; s.animatedTemplateBackground = i == 1; })),
+      if (s.backgroundSource != 0)
         _slider('Background animation',
           '${(s.templateBackgroundMotion * 100).round()}%',
           s.templateBackgroundMotion, 0.0, 1.0,
