@@ -686,8 +686,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 7: // Record Cut: above the lowered record.
           topInset = h * 0.025;
           break;
-        case 8: // Typo: between visualizer area and artwork.
-          topInset = h * 0.13;
+        case 8: // Typo: clock gets its own camera-safe header above the title.
+          topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
@@ -2977,7 +2977,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           Positioned(
             left: edge + w * 0.04,
             right: edge + w * 0.04,
-            top: 0,
+            // Reserve a dedicated top band for the portrait Typo clock.
+            // Center/scale metadata and artwork only in the remaining area.
+            top: settings.showClock
+                ? math.max(48.0, MediaQuery.of(context).viewPadding.top) + 62.0
+                : 0,
             bottom: 0,
             child: Center(
               child: FittedBox(

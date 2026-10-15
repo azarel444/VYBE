@@ -55,22 +55,28 @@ class ClubBackgroundPainter extends CustomPainter {
         colors[i % 3], .055);
     }
 
-    // Stage LED wall: staggered cells with traveling diagonal sequences.
-    final cols = w > h ? 24 : 14;
-    const rows = 15;
-    final left = w * .1, top = h * .17, wallW = w * .8, wallH = h * .58;
-    final dx = wallW / cols, dy = wallH / rows;
-    for (var row = 0; row < rows; row++) {
-      for (var col = 0; col < cols; col++) {
-        final phase = t * .82 - col * .35 - row * .24;
-        final pulse = math.pow(math.max(0.0, math.sin(phase)), 5).toDouble();
-        final sweep = math.pow(math.max(0.0, math.cos(t * .32 + row * .4 - col * .22)), 9).toDouble();
-        final brightness = .013 + pulse * .085 + sweep * .07;
-        final cell = Rect.fromLTWH(left + col * dx + dx * .12,
-          top + row * dy + dy * .12, dx * .76, dy * .76);
-        canvas.drawRRect(RRect.fromRectAndRadius(cell, const Radius.circular(1.5)),
-          Paint()..color = tint(colors[(col ~/ 5 + row ~/ 5) % 3], brightness));
-      }
+    // Subtle drifting stage smoke replaces the rigid LED/grid wall.
+    // Long translucent wisps overlap without image filters or texture assets.
+    for (var i = 0; i < 13; i++) {
+      final phase = t * (.045 + (i % 3) * .012) + i * 2.13;
+      final x = w * (.10 + .8 * hash(i, 21)) + math.sin(phase) * w * .13;
+      final y = h * (.24 + .57 * hash(i, 22)) -
+          (t * (2.0 + hash(i, 23) * 2.0) + i * 13) % (h * .22);
+      final smokeColor = Color.lerp(colors[i % 3], Colors.white, .45)!;
+      final centerSmoke = Offset(x, y);
+      final rx = w * (.17 + hash(i, 24) * .18);
+      final ry = h * (.055 + hash(i, 25) * .08);
+      canvas.save();
+      canvas.translate(centerSmoke.dx, centerSmoke.dy);
+      canvas.rotate(math.sin(phase * .65) * .28);
+      final smokeRect = Rect.fromCenter(center: Offset.zero,
+          width: rx * 2, height: ry * 2);
+      canvas.drawOval(smokeRect, Paint()..shader = RadialGradient(
+        colors: [tint(smokeColor, .037), tint(smokeColor, .014),
+          tint(smokeColor, 0)],
+        stops: const [0, .5, 1],
+      ).createShader(smokeRect));
+      canvas.restore();
     }
 
     // Motorized moving-head beams. Multiple wide translucent layers simulate
@@ -84,22 +90,57 @@ class ClubBackgroundPainter extends CustomPainter {
       final spread = .105 + .035 * (.5 + .5 * math.sin(t * .43 + i));
       final length = math.max(w, h) * 1.65;
       final color = colors[i % 3];
-      for (var layer = 0; layer < 3; layer++) {
-        final factor = 1.0 + layer * .65;
-        final a = origin + Offset(math.cos(angle - spread * factor), math.sin(angle - spread * factor)) * length;
-        final b = origin + Offset(math.cos(angle + spread * factor), math.sin(angle + spread * factor)) * length;
-        final path = Path()..moveTo(origin.dx, origin.dy)..lineTo(a.dx, a.dy)
-          ..lineTo(b.dx, b.dy)..close();
-        canvas.drawPath(path, Paint()..shader = LinearGradient(
+      // Alternate fixtures simulate near-field defocused stage lights.
+      // Larger, softer washes cross behind crisp distant beams.
+      final foreground = i.isOdd;
+      if (foreground) {
+        final nearSpread = spread * 3.0;
+        final farA = origin + Offset(
+          math.cos(angle - nearSpread), math.sin(angle - nearSpread)) * length;
+        final farB = origin + Offset(
+          math.cos(angle + nearSpread), math.sin(angle + nearSpread)) * length;
+        final beamPath = Path()..moveTo(origin.dx, origin.dy)
+          ..lineTo(farA.dx, farA.dy)..lineTo(farB.dx, farB.dy)..close();
+        // Multiple translucent overlapping cones soften the edges.
+        for (var layer = 5; layer >= 0; layer--) {
+          final feather = 1.0 + layer * .21;
+          final a = origin + Offset(
+            math.cos(angle - nearSpread * feather),
+            math.sin(angle - nearSpread * feather)) * length;
+          final b = origin + Offset(
+            math.cos(angle + nearSpread * feather),
+            math.sin(angle + nearSpread * feather)) * length;
+          final cone = Path()..moveTo(origin.dx, origin.dy)
+            ..lineTo(a.dx, a.dy)..lineTo(b.dx, b.dy)..close();
+          canvas.drawPath(cone, Paint()..shader = LinearGradient(
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [tint(color, .023), tint(color, .012), tint(color, 0)],
+            stops: const [0, .45, 1],
+          ).createShader(rect));
+        }
+        canvas.drawPath(beamPath, Paint()..shader = LinearGradient(
           begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          colors: [tint(color, .14 / (layer + 1)), tint(color, .027 / (layer + 1)), tint(color, 0)],
-          stops: const [0, .48, 1],
+          colors: [tint(color, .085), tint(color, .018), tint(color, 0)],
+          stops: const [0, .5, 1],
         ).createShader(rect));
+        halo(origin + (aim - origin) * .38, w * .24, color, .035);
+      } else {
+        for (var layer = 0; layer < 3; layer++) {
+          final factor = 1.0 + layer * .65;
+          final a = origin + Offset(math.cos(angle - spread * factor), math.sin(angle - spread * factor)) * length;
+          final b = origin + Offset(math.cos(angle + spread * factor), math.sin(angle + spread * factor)) * length;
+          final path = Path()..moveTo(origin.dx, origin.dy)..lineTo(a.dx, a.dy)
+            ..lineTo(b.dx, b.dy)..close();
+          canvas.drawPath(path, Paint()..shader = LinearGradient(
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [tint(color, .14 / (layer + 1)), tint(color, .027 / (layer + 1)), tint(color, 0)],
+            stops: const [0, .48, 1],
+          ).createShader(rect));
+        }
+        stroke(origin, aim, color, .055, 11);
+        stroke(origin, aim, color, .085, 5);
+        stroke(origin, aim, color, .21, 1.25);
       }
-      // Soft feathered beam core and bloom without image-filter blurs.
-      stroke(origin, aim, color, .055, 11);
-      stroke(origin, aim, color, .085, 5);
-      stroke(origin, aim, color, .21, 1.25);
       halo(origin, w * .035, color, .23);
       canvas.drawCircle(origin, 2.5, Paint()..color = tint(Colors.white, .5));
     }
