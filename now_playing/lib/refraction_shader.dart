@@ -10,10 +10,11 @@ class RefractionShaderLayer extends StatefulWidget {
   final int mode;
   final int blendMode;
   final double blendOpacity;
+  final double effectSize;
   final Widget child;
   const RefractionShaderLayer({super.key, required this.time, required this.bass,
     required this.strength, required this.mode,
-    required this.blendMode, required this.blendOpacity, required this.child});
+    required this.blendMode, required this.blendOpacity, required this.effectSize, required this.child});
 
   @override
   State<RefractionShaderLayer> createState() => _RefractionShaderLayerState();
@@ -50,6 +51,7 @@ class _RefractionShaderLayerState extends State<RefractionShaderLayer> {
     shader.setFloat(5, widget.mode.toDouble());
     shader.setFloat(6, widget.blendMode.toDouble());
     shader.setFloat(7, widget.blendOpacity);
+    shader.setFloat(8, widget.effectSize);
     return ClipRect(child: BackdropFilter(
       filter: ui.ImageFilter.shader(shader),
       child: widget.child,

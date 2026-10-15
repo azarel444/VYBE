@@ -10,6 +10,7 @@ uniform float u_strength;
 uniform float u_mode; // 0 liquid, 1 vortex, 2 prism, 3 holographic
 uniform float u_blendMode; // 0 normal, 1 screen, 2 multiply, 3 overlay, 4 soft light, 5 dodge, 6 difference, 7 hue shift
 uniform float u_blendOpacity;
+uniform float u_effectSize;
 out vec4 fragColor;
 
 float wave(vec2 p, float t) {
@@ -25,7 +26,7 @@ void main() {
   float strength = clamp(u_strength, 0.0, 1.0);
   float bass = clamp(u_bass, 0.0, 1.0);
   float t = u_time;
-  vec2 p = uv * vec2(u_size.x / max(u_size.y, 1.0), 1.0);
+  vec2 p = uv * vec2(u_size.x / max(u_size.y, 1.0), 1.0) / max(0.5, u_effectSize);
   float a = wave(p, t);
   float b = wave(p.yx * 1.21 + vec2(1.7, 0.8), t * 0.83);
   vec2 displacement = vec2(a, b) * (0.006 + bass * 0.009) * strength;
@@ -49,7 +50,7 @@ void main() {
       float depth = 0.3 + 0.7 * fract(sin(fi * 13.17 + 7.0) * 19453.3);
       vec2 center = vec2(fract(seed * 5.73 + 0.14), fract(seed2 * 8.91 + 0.27));
       center += vec2(sin(t * (0.065 + depth * 0.085) + fi), cos(t * (0.055 + depth * 0.07) + fi * 1.7)) * 0.12;
-      vec2 local = uv - center;
+      vec2 local = (uv - center) / max(0.5, u_effectSize);
       float angle = seed2 * 6.283185 + sin(t * 0.15 + fi) * 0.36;
       local = mat2(cos(angle), -sin(angle), sin(angle), cos(angle)) * local;
       float width = mix(0.055, 0.17, seed) * (0.6 + depth * 0.6);

@@ -20,6 +20,7 @@ import 'theme_parts.dart';
 import 'theme_library.dart';
 import 'template_background.dart';
 import 'club_background.dart';
+import 'fx_composite.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   /// True when this is the see-through Drive window that sits over the map.
@@ -402,7 +403,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             _background(),
             if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
-            if (vhs) ..._vhsBackdrop(fx),
+            if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
+              opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
+              child: Transform.scale(scale: settings.fxSize['VHS'] ?? 1.0,
+                child: Stack(fit: StackFit.expand, children: _vhsBackdrop(fx)))),
             if (settings.bgEffects && settings.particles && heavy)
               IgnorePointer(
                 child: Transform.scale(
@@ -464,9 +468,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // These sit on top of everything, so they must not catch touches.
             if (vhs)
               IgnorePointer(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: _vhsOverlay(fx, heavy),
+                child: FxComposite(
+                  mode: settings.fxBlendMode['VHS'] ?? 0,
+                  opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
+                  child: Transform.scale(
+                    scale: settings.fxSize['VHS'] ?? 1.0,
+                    child: Stack(fit: StackFit.expand,
+                      children: _vhsOverlay(fx, heavy)),
+                  ),
                 ),
               ),
             if (_night)
@@ -609,7 +618,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
       if (settings.bgEffects && !settings.performance) {
-        blurred = _drift(blurred);
+        blurred = FxComposite(
+          mode: settings.fxBlendMode['Background Motion'] ?? 0,
+          opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
+          child: _drift(blurred));
       }
       child = SizedBox.expand(
         key: ValueKey(art),
@@ -647,11 +659,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       builder: (context, c) {
         final size = MediaQuery.of(context).size;
         final m = settings.kMotion;
-        final dx = math.sin(_time * 0.08) * size.width * 0.065 * m;
-        final dy = math.cos(_time * 0.06) * size.height * 0.055 * m;
+        final motionSize = settings.fxSize['Background Motion'] ?? 1.0;
+        final dx = math.sin(_time * 0.08) * size.width * 0.065 * m * motionSize;
+        final dy = math.cos(_time * 0.06) * size.height * 0.055 * m * motionSize;
         return Transform.translate(
           offset: Offset(dx, dy),
-          child: Transform.scale(scale: 1.18, child: c),
+          child: Transform.scale(scale: 1.0 + 0.18 * motionSize, child: c),
         );
       },
     );
@@ -783,6 +796,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         strength: intensity, mode: mode,
         blendMode: const [0, 1, 1, 2, 3, 4, 3, 1, 2, 5, 5, 6, 6, 7, 7, 7, 7, 0, 0, 0, 0, 0, 2, 0][(settings.fxBlendMode[name] ?? 0).clamp(0, 23)],
         blendOpacity: settings.fxBlendOpacity[name] ?? 1.0,
+        effectSize: settings.fxSize[name] ?? 1.0,
         child: const SizedBox.expand(),
       ),
     ));
@@ -3520,7 +3534,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           Stack(
             clipBehavior: Clip.none,
             children: [
-              if (settings.fxBloom && !settings.performance) _bloom(s),
+              if (settings.fxBloom && !settings.performance)
+                FxComposite(mode: settings.fxBlendMode['Cover Bloom'] ?? 0,
+                  opacity: settings.fxBlendOpacity['Cover Bloom'] ?? 1.0,
+                  child: _bloom(s)),
               (vhs || _vhsOn) ? _splitArt(s) : _artCard(s),
             ],
           ),
@@ -3530,9 +3547,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// Soft glow: a blurred, slightly larger copy of the cover behind it.
   Widget _bloom(double s) => RepaintBoundary(
         child: Transform.scale(
-          scale: 1.06,
+          scale: 1.0 + 0.06 * (settings.fxSize['Cover Bloom'] ?? 1.0),
           child: ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(sigmaX: s * 0.04, sigmaY: s * 0.04),
+            imageFilter: ui.ImageFilter.blur(sigmaX: s * 0.04 * (settings.fxSize['Cover Bloom'] ?? 1.0), sigmaY: s * 0.04 * (settings.fxSize['Cover Bloom'] ?? 1.0)),
             child: Opacity(
                 opacity: (0.75 * settings.kBloom).clamp(0.0, 1.0).toDouble(),
                 child: _artContent(s)),
