@@ -1317,10 +1317,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   /// Drive art selection is shared by portrait and landscape.
-  // Drive artwork is a display surface, not a shortcut to the music app.
-  // In particular, avoid _front's nested tap handler and pulse/bloom layers:
-  // those can obscure the square cover and cause unexpected app switches.
+  // Drive artwork is a direct music-player shortcut, independent of the
+  // background control toggle. Avoid _front's pulse/bloom and crossfade layers.
   Widget _driveArtwork(double size) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _openPlayer,
+      child: _driveArtworkVisual(size),
+    );
+  }
+
+  Widget _driveArtworkVisual(double size) {
     if (!settings.driveAlbumCover) return SizedBox(
       width: size, height: size, child: _vinyl(size));
 
