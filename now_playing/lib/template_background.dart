@@ -94,7 +94,9 @@ class TemplateBackgroundPainter extends CustomPainter {
             final x = w * k / 40;
             path.lineTo(x, y + math.sin(k * .25 + i + t * .065) * h * .025);
           }
-          path.lineTo(w, h)..lineTo(0, h)..close();
+          path.lineTo(w, h);
+          path.lineTo(0, h);
+          path.close();
           canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.025 + i * .007));
         }
         break;
