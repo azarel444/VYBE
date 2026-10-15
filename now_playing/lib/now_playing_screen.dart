@@ -18,6 +18,7 @@ import 'settings_screen.dart';
 import 'spectrum.dart';
 import 'theme_parts.dart';
 import 'theme_library.dart';
+import 'template_background.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   /// True when this is the see-through Drive window that sits over the map.
@@ -515,6 +516,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // ---------------------------------------------------------------- background
 
   Widget _background() {
+    if (settings.animatedTemplateBackground) {
+      return RepaintBoundary(child: AnimatedBuilder(
+        animation: _slow,
+        builder: (context, _) => CustomPaint(
+          painter: TemplateBackgroundPainter(
+            palette: _palette,
+            preset: settings.accent,
+            time: _time,
+            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+            darkness: settings.bgOverlay,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ));
+    }
     final art = model.art;
     final Widget child;
     // A flat placeholder picture (a logo on one color) counts as no cover.

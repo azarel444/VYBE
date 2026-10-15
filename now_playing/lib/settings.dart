@@ -86,6 +86,8 @@ class AppSettings extends ChangeNotifier {
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
+  bool animatedTemplateBackground = false; // alternative to blurred album art
+  double templateBackgroundMotion = 0.65; // 0 = still, 1 = full motion
   bool bgEffects = true; // slow drift + beat pulse
   bool particles = false;
   bool fxNebula = false;
@@ -178,6 +180,8 @@ class AppSettings extends ChangeNotifier {
     kBloom = k('kBloom', oldFx);
     kParticles = k('kParticles', 1.0);
     kMotion = k('kMotion', 1.0);
+    animatedTemplateBackground = p.getBool('animatedTemplateBackground') ?? false;
+    templateBackgroundMotion = (p.getDouble('templateBackgroundMotion') ?? 0.65).clamp(0.0, 1.0).toDouble();
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;
     fxNebula = p.getBool('fxNebula') ?? false;
@@ -269,6 +273,8 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('kParticles', kParticles);
     await p.setDouble('kMotion', kMotion);
     await p.setDouble('vhsEffects', vhsEffects);
+    await p.setBool('animatedTemplateBackground', animatedTemplateBackground);
+    await p.setDouble('templateBackgroundMotion', templateBackgroundMotion);
     await p.setBool('bgEffects', bgEffects);
     await p.setBool('particles', particles);
     await p.setBool('fxNebula', fxNebula);
