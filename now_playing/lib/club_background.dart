@@ -9,8 +9,10 @@ import 'palette.dart';
 class ClubBackgroundPainter extends CustomPainter {
   final ArtPalette palette;
   final double time, motion, darkness;
+  final BlendMode lightingBlend;
   const ClubBackgroundPainter({required this.palette, required this.time,
-    required this.motion, required this.darkness});
+    required this.motion, required this.darkness,
+    this.lightingBlend = BlendMode.srcOver});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -24,6 +26,9 @@ class ClubBackgroundPainter extends CustomPainter {
       begin: Alignment.topCenter, end: Alignment.bottomCenter,
       colors: [Color(0xFF04030C), Color(0xFF100B24), Color(0xFF030510)],
     ).createShader(rect));
+
+    // Composite the lighting independently from the dark stage backdrop.
+    canvas.saveLayer(rect, Paint()..blendMode = lightingBlend);
 
     double hash(int i, int salt) {
       final x = math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
@@ -91,7 +96,10 @@ class ClubBackgroundPainter extends CustomPainter {
           stops: const [0, .48, 1],
         ).createShader(rect));
       }
-      stroke(origin, aim, color, .16, 1.1);
+      // Soft feathered beam core and bloom without image-filter blurs.
+      stroke(origin, aim, color, .055, 11);
+      stroke(origin, aim, color, .085, 5);
+      stroke(origin, aim, color, .21, 1.25);
       halo(origin, w * .035, color, .23);
       canvas.drawCircle(origin, 2.5, Paint()..color = tint(Colors.white, .5));
     }
@@ -106,36 +114,81 @@ class ClubBackgroundPainter extends CustomPainter {
         final endpoint = source + Offset(direction * w * 1.1,
           math.tan(a) * h * 1.05);
         final c = colors[(beam ~/ 4 + side) % 3];
-        stroke(source, endpoint, c, .12 + .08 * (.5 + .5 * math.sin(t * .6 + beam)), .8);
+        final power = .5 + .5 * math.sin(t * .6 + beam);
+        stroke(source, endpoint, c, .027 + .02 * power, 7);
+        stroke(source, endpoint, c, .07 + .04 * power, 3);
+        stroke(source, endpoint, c, .19 + .1 * power, .85);
       }
       halo(source, w * .07, colors[side], .14);
     }
 
-    // Rotating mirrorball: glints travel on ellipses rather than appearing as
-    // a static particle field.
+    // Mirrorball: rotating tiled sphere with a moving specular highlight.
+    // The curved facets change apparent size at the silhouette; reflected
+    // light spots sweep across the stage in synchrony with its rotation.
     final ball = Offset(w * .5, h * .115);
-    final radius = math.min(w, h) * .043;
-    halo(ball, radius * 3, colors[1], .12);
-    canvas.drawCircle(ball, radius, Paint()..color = const Color(0xFF242638));
-    for (var i = 0; i < 19; i++) {
-      final yy = (i - 9) / 10;
-      final half = math.sqrt(math.max(0.0, 1 - yy * yy));
-      stroke(ball + Offset(-radius * half, yy * radius),
-        ball + Offset(radius * half, yy * radius), Colors.white, .15, .6);
+    final radius = math.min(w, h) * .053;
+    final spin = t * .52;
+    halo(ball, radius * 3.5, colors[1], .18);
+    canvas.drawCircle(ball, radius, Paint()..shader = RadialGradient(
+      center: const Alignment(-.45, -.5), radius: 1.1,
+      colors: [const Color(0xFFADB9CD), const Color(0xFF353B54), const Color(0xFF090C19)],
+    ).createShader(Rect.fromCircle(center: ball, radius: radius)));
+    canvas.save();
+    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: ball, radius: radius)));
+    const tileRows = 12;
+    for (var row = 0; row < tileRows; row++) {
+      final ny = (row + .5) / tileRows * 2 - 1;
+      final half = math.sqrt(math.max(0.0, 1 - ny * ny));
+      final latitude = math.asin(ny);
+      final bands = math.max(8, (26 * math.cos(latitude)).round());
+      for (var col = 0; col < bands; col++) {
+        final longitude = (col / bands * math.pi * 2 + spin + row * .13) % (math.pi * 2);
+        final depth = math.cos(longitude);
+        if (depth < -.12) continue;
+        final nx = math.sin(longitude) * half;
+        final px = ball.dx + nx * radius;
+        final py = ball.dy + ny * radius;
+        final facetW = math.max(1.0, radius * .21 * math.max(.22, depth));
+        final facetH = radius * .145;
+        final glint = math.pow(math.max(0.0,
+          1 - (nx + .38).abs() * 1.65 - (ny + .38).abs() * 1.3), 4).toDouble();
+        final shimmer = math.pow(math.max(0.0,
+          math.sin(longitude * 7 + row * 1.9 + t * 1.7)), 12).toDouble();
+        final brightness = (.12 + .36 * math.max(0.0, depth) +
+          .45 * glint + .36 * shimmer).clamp(0.0, 1.0);
+        final facet = Rect.fromCenter(center: Offset(px, py),
+          width: facetW, height: facetH);
+        canvas.drawRRect(RRect.fromRectAndRadius(facet, const Radius.circular(.7)),
+          Paint()..color = Color.lerp(const Color(0xFF182032),
+            Colors.white, brightness)!);
+        if (glint > .27 && shimmer > .45) halo(Offset(px, py), radius * .24,
+          Colors.white, glint * shimmer * .55);
+      }
     }
-    for (var i = 0; i < 68; i++) {
-      final angle = hash(i, 11) * math.pi * 2 + t * .11;
-      final orbit = .16 + hash(i, 12) * .53;
-      final x = center.dx + math.cos(angle) * w * orbit;
-      final y = center.dy + math.sin(angle * .83 + i * .2) * h * (.15 + orbit * .65);
-      final twinkle = math.pow(math.max(0.0, math.sin(t * .7 + i * 2.7)), 4).toDouble();
+    canvas.restore();
+    halo(ball + Offset(-radius * .32, -radius * .36), radius * .55,
+      Colors.white, .22 + .1 * math.sin(t * 1.1));
+    // Rotating scatter: reflected spots, each with a soft halo and bright core.
+    // Deterministic distribution avoids frame-to-frame flicker.
+    for (var i = 0; i < 110; i++) {
+      final phase = hash(i, 11) * math.pi * 2 + spin * (i.isEven ? 1 : -1);
+      final orbit = .12 + hash(i, 12) * .69;
+      final x = center.dx + math.sin(phase) * w * orbit;
+      final y = center.dy + math.cos(phase * .77 + i * .35) * h * (.13 + orbit * .7);
+      final visible = .24 + .76 * math.pow(math.max(0.0,
+        math.cos(phase * 1.7 + i)), 2).toDouble();
       final p = Offset(x, y);
-      final alpha = .04 + .22 * twinkle;
-      canvas.drawCircle(p, .6 + hash(i, 13) * 1.5,
-        Paint()..color = tint(colors[i % 3], alpha));
-      if (twinkle > .72) {
-        stroke(p + const Offset(-4, 0), p + const Offset(4, 0), colors[i % 3], alpha, .7);
-        stroke(p + const Offset(0, -4), p + const Offset(0, 4), colors[i % 3], alpha, .7);
+      final r = 1.2 + hash(i, 13) * 3.2;
+      final color = i % 5 == 0 ? Colors.white : colors[i % 3];
+      halo(p, r * 5.2, color, .045 * visible);
+      canvas.drawCircle(p, r, Paint()..color = tint(color, .08 * visible));
+      canvas.drawCircle(p, r * .42,
+        Paint()..color = tint(color, .42 * visible));
+      if (visible > .73 && i % 4 == 0) {
+        stroke(p + Offset(-r * 2.1, 0), p + Offset(r * 2.1, 0),
+          color, .27 * visible, .65);
+        stroke(p + Offset(0, -r * 2.1), p + Offset(0, r * 2.1),
+          color, .27 * visible, .65);
       }
     }
 
@@ -147,6 +200,7 @@ class ClubBackgroundPainter extends CustomPainter {
       stroke(Offset(w * (.16 - i * .04), y),
         Offset(w * (.84 + i * .04), y), colors[(i + 1) % 3], .035 + pulse * .035, 1);
     }
+    canvas.restore(); // Complete the isolated lighting blend.
     canvas.drawRect(rect, Paint()..color = Colors.black.withOpacity(
       (darkness * .24).clamp(0.0, .7)));
   }
@@ -154,5 +208,5 @@ class ClubBackgroundPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant ClubBackgroundPainter old) =>
     old.time != time || old.motion != motion || old.darkness != darkness ||
-    old.palette != palette;
+    old.palette != palette || old.lightingBlend != lightingBlend;
 }

@@ -514,6 +514,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  // Auto accent is sampled from artwork and can be nearly black. Keep the
+  // club lighting visibly luminous without changing other themes' palettes.
+  ArtPalette get _clubPalette {
+    final p = _palette;
+    if (settings.accent != 0) return p;
+    Color stageLight(Color color) {
+      final hsv = HSVColor.fromColor(color);
+      return hsv.withSaturation(hsv.saturation.clamp(0.55, 1.0))
+          .withValue(hsv.value.clamp(0.78, 1.0)).toColor();
+    }
+    return ArtPalette(stageLight(p.a), stageLight(p.b), stageLight(p.c));
+  }
+
   // ---------------------------------------------------------------- background
 
   Widget _background() {
@@ -522,9 +535,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         animation: _slow,
         builder: (context, _) => CustomPaint(
           painter: ClubBackgroundPainter(
-            palette: _palette, time: _time,
+            palette: _clubPalette, time: _time,
             motion: settings.performance ? 0 : settings.templateBackgroundMotion,
             darkness: settings.bgOverlay,
+            lightingBlend: const [
+              BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
+              BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
+              BlendMode.difference, BlendMode.exclusion,
+              BlendMode.colorDodge, BlendMode.hardLight,
+            ][settings.clubBlendMode.clamp(0, 9)],
           ),
           child: const SizedBox.expand(),
         ),
@@ -2603,7 +2622,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             )),
           )),
         ),
-      _orbitGhost(w, h, narrow),
+      if (settings.backgroundSource == 0) _orbitGhost(w, h, narrow),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.

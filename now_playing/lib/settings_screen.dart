@@ -180,6 +180,13 @@ class SettingsScreen extends StatelessWidget {
       _choices('Background', const ['Blurred album art', 'Animated color template', 'Club Light Show'],
         s.backgroundSource,
         (i) => s.update(() { s.backgroundSource = i; s.animatedTemplateBackground = i == 1; })),
+      if (s.backgroundSource == 2)
+        _choices('Club lighting blend mode', const [
+          'Normal', 'Add / Plus', 'Screen', 'Lighten', 'Overlay',
+          'Soft Light', 'Difference (Negative)', 'Exclusion',
+          'Color Dodge', 'Hard Light',
+        ], s.clubBlendMode,
+          (i) => s.update(() => s.clubBlendMode = i)),
       if (s.backgroundSource != 0)
         _slider('Background animation',
           '${(s.templateBackgroundMotion * 100).round()}%',
