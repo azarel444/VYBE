@@ -405,15 +405,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             if (vhs) ..._vhsBackdrop(fx),
             if (settings.bgEffects && settings.particles && heavy)
               IgnorePointer(
-                child: RepaintBoundary(
+                child: Transform.scale(
+                  scale: settings.fxSize['Floating Particles'] ?? 1.0,
+                  child: RepaintBoundary(
                   child: CustomPaint(
-                    painter: ParticlesPainter(
+                    painter: _FxBlendPainter(ParticlesPainter(
                         field: particles,
                         palette: _palette,
                         k: settings.kParticles,
                         repaint: _tick),
+                        settings.fxBlendMode['Floating Particles'] ?? 0,
+                        settings.fxBlendOpacity['Floating Particles'] ?? 1.0),
                   ),
-                ),
+                )),
               ),
             if (!model.accessGranted)
               _accessPrompt()
@@ -530,12 +534,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // ---------------------------------------------------------------- background
 
   Widget _background() {
-    if (settings.backgroundSource == 2) {
-      return RepaintBoundary(child: AnimatedBuilder(
+    if (settings.backgroundSource == 2 || settings.backgroundSource == 3) {
+      return Stack(fit: StackFit.expand, children: [
+        if (settings.backgroundSource == 3) _albumBackdrop(),
+        RepaintBoundary(child: AnimatedBuilder(
         animation: _slow,
         builder: (context, _) => CustomPaint(
           painter: ClubBackgroundPainter(
             palette: _clubPalette, time: _time,
+            transparentStage: settings.backgroundSource == 3,
             motion: settings.performance ? 0 : settings.templateBackgroundMotion,
             darkness: settings.bgOverlay,
             lightingBlend: const [
@@ -547,7 +554,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
           child: const SizedBox.expand(),
         ),
-      ));
+      )),
+      ]);
     }
     if (settings.backgroundSource == 1) {
       return RepaintBoundary(child: AnimatedBuilder(
@@ -564,6 +572,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ));
     }
+    return _albumBackdrop();
+  }
+
+  Widget _albumBackdrop() {
     final art = model.art;
     final Widget child;
     // A flat placeholder picture (a logo on one color) counts as no cover.
@@ -769,8 +781,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       builder: (context, _) => RefractionShaderLayer(
         time: fxClock.t, bass: fxClock.bass,
         strength: intensity, mode: mode,
-        blendMode: settings.fxBlendMode[name] ?? 0,
-        blendOpacity: settings.fxBlendOpacity[name] ?? 0.45,
+        blendMode: const [0, 1, 1, 2, 3, 4, 3, 1, 2, 5, 5, 6, 6, 7, 7, 7, 7, 0, 0, 0, 0, 0, 2, 0][(settings.fxBlendMode[name] ?? 0).clamp(0, 23)],
+        blendOpacity: settings.fxBlendOpacity[name] ?? 1.0,
         child: const SizedBox.expand(),
       ),
     ));
@@ -779,10 +791,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The optional effects, each switched on or off in settings.
   List<Widget> _extraFx() {
     final p = _palette;
-    Widget layer(CustomPainter painter, {GlobalKey? layerKey}) => IgnorePointer(
-          child: Transform.scale(scale: 1.18,
-            child: RepaintBoundary(child: CustomPaint(key: layerKey, painter: painter))),
-        );
+    Widget layer(String name, CustomPainter painter, {GlobalKey? layerKey}) {
+      final blend = settings.fxBlendMode[name] ?? 0;
+      final opacity = settings.fxBlendOpacity[name] ?? 1.0;
+      final size = settings.fxSize[name] ?? 1.0;
+      return IgnorePointer(child: Transform.scale(
+        scale: 1.18 * size,
+        child: RepaintBoundary(child: CustomPaint(
+          key: layerKey,
+          painter: _FxBlendPainter(painter, blend, opacity),
+        )),
+      ));
+    }
     return [
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
         if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
@@ -790,28 +810,28 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Never draw their old decorative strokes or polygon outlines.
             !(ui.ImageFilter.isShaderFilterSupported &&
               (i == 0 || i == 3 || i == 5 || i == 9)))
-          layer(ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
+          layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             artKey: i == 1 ? _artKey : null,
             layerKey: i == 1 ? _shockLayerKey : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: i == 1 ? _shockLayerKey : null),
       if (settings.fxNebula)
-        layer(AtmospherePainter(mode: 0, clock: fxClock, palette: p,
+        layer('Nebula Haze', AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),
       if (settings.fxGrid)
-        layer(AtmospherePainter(mode: 1, clock: fxClock, palette: p,
+        layer('Perspective Grid', AtmospherePainter(mode: 1, clock: fxClock, palette: p,
             k: settings.kGrid, repaint: _tick)),
       if (settings.fxStars)
-        layer(AtmospherePainter(mode: 2, clock: fxClock, palette: p,
+        layer('Twinkling Stars', AtmospherePainter(mode: 2, clock: fxClock, palette: p,
             k: settings.kStars, repaint: _tick)),
       if (settings.fxGlow)
-        layer(GlowPainter(
+        layer('Breathing Glow', GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow, repaint: _tick)),
       if (settings.fxSweep)
-        layer(SweepPainter(
+        layer('Aurora Sweep', SweepPainter(
             clock: fxClock, palette: p, k: settings.kSweep, repaint: _tick)),
       if (settings.fxRays)
-        layer(RaysPainter(
+        layer('Light Rays', RaysPainter(
             clock: fxClock,
             artKey: _artKey,
             layerKey: _raysLayerKey,
@@ -820,7 +840,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             topOrigin: settings.theme == AppSettings.tTypo,
             repaint: _tick), layerKey: _raysLayerKey),
       if (settings.fxRipples)
-        layer(RipplesPainter(
+        layer('Beat Ripples', RipplesPainter(
             state: ripples,
             clock: fxClock,
             artKey: _artKey,
@@ -829,7 +849,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             k: settings.kRipples,
             repaint: _tick), layerKey: _ripplesLayerKey),
       if (settings.fxWater)
-        layer(WaterPainter(
+        layer('Water Shimmer', WaterPainter(
             clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),
     ];
   }
@@ -2622,7 +2642,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             )),
           )),
         ),
-      if (settings.backgroundSource == 0) _orbitGhost(w, h, narrow),
+      if (settings.backgroundSource == 0 || settings.backgroundSource == 3) _orbitGhost(w, h, narrow),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.
@@ -3972,4 +3992,40 @@ class _RecordCurveShadowPainter extends CustomPainter {
       oldDelegate.centerAngle != centerAngle ||
       oldDelegate.span != span ||
       oldDelegate.depth != depth;
+}
+
+
+// Isolate each painter before compositing it with the underlying scene.
+// Normal at full opacity avoids the expensive saveLayer on entry-level GPUs.
+class _FxBlendPainter extends CustomPainter {
+  final CustomPainter delegate;
+  final int mode;
+  final double opacity;
+  _FxBlendPainter(this.delegate, this.mode, this.opacity) : super(repaint: delegate);
+  static const modes = <BlendMode>[
+    BlendMode.srcOver, BlendMode.plus, BlendMode.screen, BlendMode.multiply,
+    BlendMode.overlay, BlendMode.softLight, BlendMode.hardLight,
+    BlendMode.lighten, BlendMode.darken, BlendMode.colorDodge,
+    BlendMode.colorBurn, BlendMode.difference, BlendMode.exclusion,
+    BlendMode.hue, BlendMode.saturation, BlendMode.color,
+    BlendMode.luminosity, BlendMode.srcIn, BlendMode.dstIn,
+    BlendMode.srcOut, BlendMode.dstOut, BlendMode.xor,
+    BlendMode.modulate, BlendMode.clear,
+  ];
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (mode == 0 && opacity >= .999) {
+      delegate.paint(canvas, size);
+      return;
+    }
+    canvas.saveLayer(Offset.zero & size, Paint()
+      ..blendMode = modes[mode.clamp(0, modes.length - 1)]
+      ..color = Color.fromRGBO(255, 255, 255, opacity.clamp(0.0, 1.0)));
+    delegate.paint(canvas, size);
+    canvas.restore();
+  }
+  @override
+  bool shouldRepaint(covariant _FxBlendPainter old) =>
+      mode != old.mode || opacity != old.opacity ||
+      delegate != old.delegate || delegate.shouldRepaint(old.delegate);
 }

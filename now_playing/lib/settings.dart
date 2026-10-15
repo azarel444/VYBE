@@ -87,7 +87,7 @@ class AppSettings extends ChangeNotifier {
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
   int clubBlendMode = 0; // 0 Normal, 1 Add, 2 Screen, 3 Lighten, 4 Overlay, 5 Soft light, 6 Difference, 7 Exclusion, 8 Color dodge, 9 Hard light
-  int backgroundSource = 0; // 0 artwork, 1 palette scene, 2 club show
+  int backgroundSource = 0; // 0 artwork, 1 palette scene, 2 club show, 3 artwork + club
   bool animatedTemplateBackground = false; // alternative to blurred album art
   double templateBackgroundMotion = 0.65; // 0 = still, 1 = full motion
   bool bgEffects = true; // slow drift + beat pulse
@@ -130,6 +130,12 @@ class AppSettings extends ChangeNotifier {
     'Electric Arcs', 'Prism Shards', 'Light Trails', 'Morphing Wireframe',
     'Particle Currents', 'Holographic Interference',
   ];
+  static const allFxNames = <String>[
+    'VHS', 'Background Motion', 'Floating Particles', 'Nebula Haze',
+    'Perspective Grid', 'Twinkling Stars', 'Breathing Glow', 'Aurora Sweep',
+    'Light Rays', 'Beat Ripples', 'Water Shimmer', 'Cover Bloom',
+    ...extraFxNames,
+  ];
   final Map<String, bool> extraFx = {for (final n in extraFxNames) n: false};
   final Map<String, double> extraStrength = {for (final n in extraFxNames) n: 0.8};
   bool fxVhs = false; // VHS look over any theme (strength: vhsEffects)
@@ -149,8 +155,9 @@ class AppSettings extends ChangeNotifier {
   bool driveBubble = true; // floating "return to VYBE" button while VYBE is hidden
   double driveBarsH = 0.14; // Drive: visualizer height along the bottom, share of screen height
   double bgOverlay = 1.0; // 0 clear, 1 original shading, 2 darker
-  final Map<String, int> fxBlendMode = {for (final n in extraFxNames) n: 0};
-  final Map<String, double> fxBlendOpacity = {for (final n in extraFxNames) n: 0.45};
+  final Map<String, int> fxBlendMode = <String, int>{};
+  final Map<String, double> fxSize = <String, double>{};
+  final Map<String, double> fxBlendOpacity = <String, double>{};
   double bgContrast = 1.4; // blurred background contrast, 1.0 (normal) .. 2.0
 
   ArtPalette? get accentPalette =>
@@ -184,7 +191,7 @@ class AppSettings extends ChangeNotifier {
     kMotion = k('kMotion', 1.0);
     animatedTemplateBackground = p.getBool('animatedTemplateBackground') ?? false;
     clubBlendMode = (p.getInt('clubBlendMode') ?? 0).clamp(0, 9).toInt();
-    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 2).toInt();
+    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 3).toInt();
     templateBackgroundMotion = (p.getDouble('templateBackgroundMotion') ?? 0.65).clamp(0.0, 1.0).toDouble();
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;
@@ -241,9 +248,10 @@ class AppSettings extends ChangeNotifier {
     driveBubble = p.getBool('driveBubble') ?? true;
     driveBarsH = (p.getDouble('driveBarsH') ?? 0.14).clamp(0.08, 0.26).toDouble();
     bgOverlay = (p.getDouble('bgOverlay') ?? 1.0).clamp(0.0, 2.0).toDouble();
-    for (final n in extraFxNames) {
-      fxBlendMode[n] = (p.getInt('fxBlendMode:$n') ?? 0).clamp(0, 7);
-      fxBlendOpacity[n] = (p.getDouble('fxBlendOpacity:$n') ?? 0.45).clamp(0.0, 1.0).toDouble();
+    for (final n in allFxNames) {
+      fxSize[n] = (p.getDouble('fxSize:$n') ?? 1.0).clamp(0.5, 2.5).toDouble();
+      fxBlendMode[n] = (p.getInt('fxBlendMode:$n') ?? 0).clamp(0, 23);
+      fxBlendOpacity[n] = (p.getDouble('fxBlendOpacity:$n') ?? 1.0).clamp(0.0, 1.0).toDouble();
     }
     bgContrast = (p.getDouble('bgContrast') ?? 1.4).clamp(1.0, 2.0).toDouble();
     notifyListeners();
@@ -327,9 +335,10 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('driveBubble', driveBubble);
     await p.setDouble('driveBarsH', driveBarsH);
     await p.setDouble('bgOverlay', bgOverlay);
-    for (final n in extraFxNames) {
+    for (final n in allFxNames) {
+      await p.setDouble('fxSize:$n', fxSize[n] ?? 1.0);
       await p.setInt('fxBlendMode:$n', fxBlendMode[n] ?? 0);
-      await p.setDouble('fxBlendOpacity:$n', fxBlendOpacity[n] ?? 0.45);
+      await p.setDouble('fxBlendOpacity:$n', fxBlendOpacity[n] ?? 1.0);
     }
     await p.setDouble('bgContrast', bgContrast);
   }

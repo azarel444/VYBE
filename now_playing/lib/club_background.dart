@@ -10,9 +10,10 @@ class ClubBackgroundPainter extends CustomPainter {
   final ArtPalette palette;
   final double time, motion, darkness;
   final BlendMode lightingBlend;
+  final bool transparentStage;
   const ClubBackgroundPainter({required this.palette, required this.time,
     required this.motion, required this.darkness,
-    this.lightingBlend = BlendMode.srcOver});
+    this.lightingBlend = BlendMode.srcOver, this.transparentStage = false});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -22,7 +23,7 @@ class ClubBackgroundPainter extends CustomPainter {
     final colors = [palette.a, palette.b, palette.c];
     final rect = Offset.zero & size;
     final center = Offset(w * .5, h * .48);
-    canvas.drawRect(rect, Paint()..shader = const LinearGradient(
+    if (!transparentStage) canvas.drawRect(rect, Paint()..shader = const LinearGradient(
       begin: Alignment.topCenter, end: Alignment.bottomCenter,
       colors: [Color(0xFF04030C), Color(0xFF100B24), Color(0xFF030510)],
     ).createShader(rect));
@@ -242,12 +243,12 @@ class ClubBackgroundPainter extends CustomPainter {
         Offset(w * (.84 + i * .04), y), colors[(i + 1) % 3], .035 + pulse * .035, 1);
     }
     canvas.restore(); // Complete the isolated lighting blend.
-    canvas.drawRect(rect, Paint()..color = Colors.black.withOpacity(
+    if (!transparentStage) canvas.drawRect(rect, Paint()..color = Colors.black.withOpacity(
       (darkness * .24).clamp(0.0, .7)));
   }
 
   @override
   bool shouldRepaint(covariant ClubBackgroundPainter old) =>
     old.time != time || old.motion != motion || old.darkness != darkness ||
-    old.palette != palette || old.lightingBlend != lightingBlend;
+    old.palette != palette || old.lightingBlend != lightingBlend || old.transparentStage != transparentStage;
 }
