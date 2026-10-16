@@ -87,7 +87,7 @@ class AppSettings extends ChangeNotifier {
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
   int clubBlendMode = 0; // 0 Normal, 1 Add, 2 Screen, 3 Lighten, 4 Overlay, 5 Soft light, 6 Difference, 7 Exclusion, 8 Color dodge, 9 Hard light
-  int backgroundSource = 0; // 0 artwork, 1 palette scene, 2 club show, 3 artwork + club
+  int backgroundSource = 0; // 0 artwork, 1 palette, 2 club, 3 album + club, 4 laser tunnel, 5 album + tunnel
   bool animatedTemplateBackground = false; // alternative to blurred album art
   double templateBackgroundMotion = 0.65; // 0 = still, 1 = full motion
   bool bgEffects = true; // slow drift + beat pulse
@@ -191,7 +191,7 @@ class AppSettings extends ChangeNotifier {
     kMotion = k('kMotion', 1.0);
     animatedTemplateBackground = p.getBool('animatedTemplateBackground') ?? false;
     clubBlendMode = (p.getInt('clubBlendMode') ?? 0).clamp(0, 9).toInt();
-    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 3).toInt();
+    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 5).toInt();
     templateBackgroundMotion = (p.getDouble('templateBackgroundMotion') ?? 0.65).clamp(0.0, 1.0).toDouble();
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;

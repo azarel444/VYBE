@@ -20,6 +20,7 @@ import 'theme_parts.dart';
 import 'theme_library.dart';
 import 'template_background.dart';
 import 'club_background.dart';
+import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
 
 class NowPlayingScreen extends StatefulWidget {
@@ -543,13 +544,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // ---------------------------------------------------------------- background
 
   Widget _background() {
-    if (settings.backgroundSource == 2 || settings.backgroundSource == 3) {
+    if (settings.backgroundSource >= 2 && settings.backgroundSource <= 5) {
       return Stack(fit: StackFit.expand, children: [
-        if (settings.backgroundSource == 3) _albumBackdrop(),
+        if (settings.backgroundSource == 3 || settings.backgroundSource == 5) _albumBackdrop(),
         RepaintBoundary(child: AnimatedBuilder(
         animation: _slow,
         builder: (context, _) => CustomPaint(
-          painter: ClubBackgroundPainter(
+          painter: settings.backgroundSource >= 4 ? LaserTunnelBackgroundPainter(
+            palette: _clubPalette, time: _time,
+            transparentStage: settings.backgroundSource == 5,
+            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+            darkness: settings.bgOverlay,
+            lightingBlend: const [
+              BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
+              BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
+              BlendMode.difference, BlendMode.exclusion,
+              BlendMode.colorDodge, BlendMode.hardLight,
+            ][settings.clubBlendMode.clamp(0, 9)],
+          ) : ClubBackgroundPainter(
             palette: _clubPalette, time: _time,
             transparentStage: settings.backgroundSource == 3,
             motion: settings.performance ? 0 : settings.templateBackgroundMotion,
@@ -2656,7 +2668,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             )),
           )),
         ),
-      if (settings.backgroundSource == 0 || settings.backgroundSource == 3) _orbitGhost(w, h, narrow),
+      if (settings.backgroundSource == 0 || settings.backgroundSource == 3 || settings.backgroundSource == 5) _orbitGhost(w, h, narrow),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.
@@ -3720,6 +3732,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               children: [
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
+                if (settings.theme == 4 && MediaQuery.of(context).size.width > MediaQuery.of(context).size.height)
+                  btn(Icons.swap_horiz_rounded, 36, () {
+                    settings.update(() => settings.driveSwap = !settings.driveSwap);
+                    setState(() {});
+                  }),
                 if (widget.driveHost) ...[
                   btn(Icons.map_outlined, 36, _hideDrive),
                   btn(Icons.close_rounded, 36, _exitDrive),
