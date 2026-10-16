@@ -821,13 +821,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final blend = settings.fxBlendMode[name] ?? 0;
       final opacity = settings.fxBlendOpacity[name] ?? 1.0;
       final size = settings.fxSize[name] ?? 1.0;
-      return IgnorePointer(child: Transform.scale(
-        scale: 1.18 * size,
-        child: RepaintBoundary(child: CustomPaint(
-          key: layerKey,
-          painter: _FxBlendPainter(painter, blend, opacity),
-        )),
-      ));
+      // Keep the FX canvas full-screen. Scaling the widget itself exposes
+      // its rectangular bounds when Size drops below 100%.
+      final fullCanvas = name == 'Aurora Sweep' || name == 'Moving Bokeh';
+      return IgnorePointer(child: fullCanvas
+        ? RepaintBoundary(child: CustomPaint(
+            key: layerKey,
+            painter: _FxBlendPainter(painter, blend, opacity),
+          ))
+        : Transform.scale(
+            scale: 1.18 * size,
+            child: RepaintBoundary(child: CustomPaint(
+              key: layerKey,
+              painter: _FxBlendPainter(painter, blend, opacity),
+            )),
+          ));
     }
     return [
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
@@ -851,11 +859,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         layer('Twinkling Stars', AtmospherePainter(mode: 2, clock: fxClock, palette: p,
             k: settings.kStars, repaint: _tick)),
       if (settings.fxGlow)
-        layer('Breathing Glow', GlowPainter(
-            clock: fxClock, palette: p, k: settings.kGlow, repaint: _tick)),
+        layer('Moving Bokeh', GlowPainter(
+            clock: fxClock, palette: p, k: settings.kGlow,
+            effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0, repaint: _tick)),
       if (settings.fxSweep)
         layer('Aurora Sweep', SweepPainter(
-            clock: fxClock, palette: p, k: settings.kSweep, repaint: _tick)),
+            clock: fxClock, palette: p, k: settings.kSweep,
+            effectSize: settings.fxSize['Aurora Sweep'] ?? 1.0, repaint: _tick)),
       if (settings.fxRays)
         layer('Light Rays', RaysPainter(
             clock: fxClock,

@@ -132,7 +132,7 @@ class AppSettings extends ChangeNotifier {
   ];
   static const allFxNames = <String>[
     'VHS', 'Background Motion', 'Floating Particles', 'Nebula Haze',
-    'Perspective Grid', 'Twinkling Stars', 'Breathing Glow', 'Aurora Sweep',
+    'Perspective Grid', 'Twinkling Stars', 'Moving Bokeh', 'Aurora Sweep',
     'Light Rays', 'Beat Ripples', 'Water Shimmer', 'Cover Bloom',
     ...extraFxNames,
   ];

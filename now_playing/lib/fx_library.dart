@@ -26,7 +26,7 @@ final _effects = <_FxSpec>[
   _FxSpec('Nebula Haze', 'Soft animated clouds', (s)=>s.fxNebula,(s,v)=>s.fxNebula=v,(s)=>s.kNebula,(s,v)=>s.kNebula=v),
   _FxSpec('Perspective Grid', 'Receding grid lines', (s)=>s.fxGrid,(s,v)=>s.fxGrid=v,(s)=>s.kGrid,(s,v)=>s.kGrid=v),
   _FxSpec('Twinkling Stars', 'Subtle star field', (s)=>s.fxStars,(s,v)=>s.fxStars=v,(s)=>s.kStars,(s,v)=>s.kStars=v),
-  _FxSpec('Breathing Glow', 'Slowly expanding color glow', (s)=>s.fxGlow,(s,v)=>s.fxGlow=v,(s)=>s.kGlow,(s,v)=>s.kGlow=v),
+  _FxSpec('Moving Bokeh', 'Soft drifting out-of-focus lights', (s)=>s.fxGlow,(s,v)=>s.fxGlow=v,(s)=>s.kGlow,(s,v)=>s.kGlow=v),
   _FxSpec('Aurora Sweep', 'Flowing ribbons of light', (s)=>s.fxSweep,(s,v)=>s.fxSweep=v,(s)=>s.kSweep,(s,v)=>s.kSweep=v),
   _FxSpec('Light Rays', 'Radiating beams of light', (s)=>s.fxRays,(s,v)=>s.fxRays=v,(s)=>s.kRays,(s,v)=>s.kRays=v),
   _FxSpec('Beat Ripples', 'Expanding concentric rings', (s)=>s.fxRipples,(s,v)=>s.fxRipples=v,(s)=>s.kRipples,(s,v)=>s.kRipples=v),

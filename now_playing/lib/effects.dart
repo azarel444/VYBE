@@ -338,17 +338,19 @@ Offset _artCenter(GlobalKey key, Size size, {GlobalKey? layerKey}) {
   return globalCenter;
 }
 
-/// Breathing glow: three soft blobs in the art colors drift around and
-/// swell slowly, a little brighter on bass.
+/// Floating, softly focused bokeh lights. Rendered over the full-screen
+/// transparent canvas so shrinking the effect never exposes a hard border.
 class GlowPainter extends CustomPainter {
   final FxClock clock;
   final ArtPalette palette;
   final double k;
+  final double effectSize;
 
   GlowPainter({
     required this.clock,
     required this.palette,
     required this.k,
+    this.effectSize = 1.0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -356,26 +358,32 @@ class GlowPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final t = clock.t;
     final cols = palette.colors;
-    final big = math.max(size.width, size.height);
-    for (int i = 0; i < 3; i++) {
-      final c = Offset(
-        size.width * (0.5 + 0.57 * math.sin(t * 0.31 + i * 2.1)),
-        size.height * (0.5 + 0.54 * math.cos(t * 0.27 + i * 1.7)),
-      );
-      final r = big * (0.40 + 0.14 * math.sin(t * 0.56 + i));
-      final a = _a((0.16 + 0.10 * math.sin(t * 0.5 + i * 1.3) + 0.12 * clock.bass) * k);
-      final p = Paint()
-        ..shader = ui.Gradient.radial(
-          c,
-          r,
-          [cols[i].withOpacity(a), cols[i].withOpacity(0)],
-        );
-      canvas.drawCircle(c, r, p);
+    final scale = effectSize.clamp(0.15, 3.0);
+    final shortest = math.min(size.width, size.height);
+    // Deterministic positions avoid allocations/random flicker per frame.
+    for (int i = 0; i < 22; i++) {
+      final seed = i * 2.399963229728653;
+      final speed = 0.025 + (i % 5) * 0.008;
+      final x = (0.5 + 0.58 * math.sin(seed * 1.37 + t * speed)) * size.width;
+      final y = (0.5 + 0.60 * math.cos(seed * 0.87 + t * speed * 0.72)) * size.height;
+      final center = Offset(x, y);
+      final radius = shortest * (0.035 + (i % 6) * 0.012) * scale;
+      final twinkle = 0.74 + 0.26 * math.sin(t * 0.41 + seed);
+      final alpha = _a((0.13 + 0.05 * clock.bass) * k * twinkle);
+      final color = cols[i % cols.length];
+      final paint = Paint()
+        ..shader = ui.Gradient.radial(center, radius, [
+          color.withOpacity(alpha),
+          color.withOpacity(alpha * 0.68),
+          color.withOpacity(0),
+        ], const [0.0, 0.48, 1.0]);
+      canvas.drawCircle(center, radius, paint);
     }
   }
 
   @override
-  bool shouldRepaint(GlowPainter old) => old.palette != palette || old.k != k;
+  bool shouldRepaint(GlowPainter old) =>
+      old.palette != palette || old.k != k || old.effectSize != effectSize;
 }
 
 /// Aurora sweep: slow soft bands of the art colors roll across the screen.
@@ -383,17 +391,21 @@ class SweepPainter extends CustomPainter {
   final FxClock clock;
   final ArtPalette palette;
   final double k;
+  final double effectSize;
 
   SweepPainter({
     required this.clock,
     required this.palette,
     required this.k,
+    this.effectSize = 1.0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final v = Offset(size.width * 1.25, size.height * 0.85);
+    // Scale the sweep's pattern, not its rectangular render surface.
+    final scale = effectSize.clamp(0.15, 3.0);
+    final v = Offset(size.width * 1.25 * scale, size.height * 0.85 * scale);
     final p = (clock.t * 0.13) % 1.0;
     // Moving the start by exactly one period along v loops without a jump.
     final begin = Offset(v.dx * p, v.dy * p);
@@ -417,7 +429,8 @@ class SweepPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(SweepPainter old) => old.palette != palette || old.k != k;
+  bool shouldRepaint(SweepPainter old) =>
+      old.palette != palette || old.k != k || old.effectSize != effectSize;
 }
 
 /// Light rays fanning out from behind the art, brighter on bass.
