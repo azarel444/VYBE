@@ -57,14 +57,14 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     // The Drive activity and the normal activity use separate Flutter engines.
     widget.settings.update(() {
       widget.settings.theme = id;
-      if (id == 9) {
+      if (id == 0) {
         widget.settings.vizStyle = _focusedStyleChoice ?? widget.settings.vizStyle;
       }
     }, persist: false);
     // Persist only the changed theme: writing every setting from the Drive
     // engine could overwrite newer values from the normal player engine.
     await widget.settings.saveTheme();
-    if (id == 9) await widget.settings.saveFocusedStyle();
+    if (id == 0) await widget.settings.saveFocusedStyle();
     if (!mounted) return;
     Navigator.of(context).pop(id);
   }
@@ -188,7 +188,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                         ),
                       ]),
                     ),
-                    if (_preview == 9)
+                    if (_preview == 0)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                         child: Row(children: [
@@ -228,7 +228,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
               ),
               child: Row(children: [
                 Expanded(
-                  child: Text(_preview == 9
+                  child: Text(_preview == 0
                       ? 'Style applies when you select this theme'
                       : 'Actual theme screenshot',
                       style: TextStyle(fontSize: 12, color: Colors.white60)),

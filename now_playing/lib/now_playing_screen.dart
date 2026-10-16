@@ -1568,38 +1568,53 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// visualizer runs along the cover's edge, and the song info and lyrics
   /// are right-aligned in the space to the right of it.
   Widget _edgeLayout(double w, double h) {
-    final children = <Widget>[
-        SizedBox(width: w * 0.5, height: h, child: _edgeArt(w * 0.5, h)),
-        if (settings.visualizer)
-          SizedBox(
-            width: w * 0.09,
-            height: h,
-            child: _edgeBars(w * 0.09, leftEdge: true),
-          ),
-        Expanded(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(w * 0.02, h * 0.06, w * 0.04, h * 0.06),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                _artist(h * 0.03, Alignment.centerRight, false),
-                SizedBox(height: h * 0.012),
-                _title(h * 0.08, Alignment.centerRight, false),
-                if (model.album.isNotEmpty && model.album != model.title) ...[
-                  SizedBox(height: h * 0.012),
-                  _shaded(_fit(_albumText(h * 0.026), Alignment.centerRight)),
-                ],
-                if (_hasLyrics) ...[
-                  SizedBox(height: _lyricGap(h)),
-                  _lyricBlock(h, Alignment.centerRight, vhs: false),
-                ],
-              ],
-            ),
-          ),
+    final swapped = settings.layoutSwap;
+    final artPanel = SizedBox(
+      width: w * 0.5,
+      height: h,
+      child: _edgeArt(w * 0.5, h),
+    );
+    // The bars stay against the inner edge of the artwork. Their direction
+    // and gradient must mirror when the panels exchange sides.
+    final barsPanel = SizedBox(
+      width: w * 0.09,
+      height: h,
+      child: _edgeBars(w * 0.09, leftEdge: !swapped),
+    );
+    final textAlign = swapped ? Alignment.centerLeft : Alignment.centerRight;
+    final infoPanel = Expanded(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          swapped ? w * 0.04 : w * 0.02,
+          h * 0.06,
+          swapped ? w * 0.02 : w * 0.04,
+          h * 0.06,
         ),
-    ];
-    return Row(children: settings.layoutSwap ? children.reversed.toList() : children);
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment:
+              swapped ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+          children: [
+            _artist(h * 0.03, textAlign, false),
+            SizedBox(height: h * 0.012),
+            _title(h * 0.08, textAlign, false),
+            if (model.album.isNotEmpty && model.album != model.title) ...[
+              SizedBox(height: h * 0.012),
+              _shaded(_fit(_albumText(h * 0.026), textAlign)),
+            ],
+            if (_hasLyrics) ...[
+              SizedBox(height: _lyricGap(h)),
+              _lyricBlock(h, textAlign, vhs: false),
+            ],
+          ],
+        ),
+      ),
+    );
+    return Row(
+      children: swapped
+          ? [infoPanel, if (settings.visualizer) barsPanel, artPanel]
+          : [artPanel, if (settings.visualizer) barsPanel, infoPanel],
+    );
   }
 
   /// Narrow screens: the cover takes the top half edge to edge, with the
