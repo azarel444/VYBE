@@ -3732,6 +3732,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               children: [
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
+                if (model.artLookupEnabled)
+                  btn(Icons.refresh_rounded, 32, model.refreshArtwork),
                 if (settings.theme == 4 && MediaQuery.of(context).size.width > MediaQuery.of(context).size.height)
                   btn(Icons.swap_horiz_rounded, 36, () {
                     settings.update(() => settings.driveSwap = !settings.driveSwap);

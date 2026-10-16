@@ -37,6 +37,9 @@ class NowPlayingModel extends ChangeNotifier {
   int _lyricsToken = 0;
   Timer? _netTimer;
   Timer? _artClearTimer;
+  Timer? _artRetryTimer;
+  String _lookupInFlight = '';
+  int _artAttempts = 0;
   Timer? _idleTimer;
   String _albumKey = '';
   bool _needsArt = false; // album changed and the player sent no new cover yet
@@ -79,6 +82,7 @@ class NowPlayingModel extends ChangeNotifier {
     _fftSub?.cancel();
     _netTimer?.cancel();
     _artClearTimer?.cancel();
+    _artRetryTimer?.cancel();
     _idleTimer?.cancel();
     super.dispose();
   }
@@ -140,6 +144,17 @@ class NowPlayingModel extends ChangeNotifier {
     final albumKey = '${artist.toLowerCase()}|${album.toLowerCase()}';
     final albumChanged = albumKey != _albumKey;
 
+    if (changed) {
+      _artToken++; // Invalidate lookups and decoding from the previous song.
+      _artRetryTimer?.cancel();
+      _artAttempts = 0;
+      _lookupInFlight = '';
+      _needsArt = false;
+      _artClearTimer?.cancel();
+      // Only reuse a cover when the album is positively identified as the same.
+      if (albumChanged || album.isEmpty) art = null;
+    }
+
     final artBytes = m['art'];
     if (artBytes is Uint8List) {
       _artClearTimer?.cancel();
@@ -185,6 +200,9 @@ class NowPlayingModel extends ChangeNotifier {
     _albumKey = '';
     _needsArt = false;
     _artClearTimer?.cancel();
+    _artRetryTimer?.cancel();
+    _artAttempts = 0;
+    _lookupInFlight = '';
     _artToken++;
     art = null;
     lyrics = null;
@@ -197,19 +215,57 @@ class NowPlayingModel extends ChangeNotifier {
     if (lyricsEnabled) _fetchLyrics();
   }
 
-  Future<void> _lookupArt() async {
+  Future<void> _lookupArt({bool force = false}) async {
+    if (!artLookupEnabled || title.trim().isEmpty) return;
     final token = _artToken;
-    final k = '${artist.toLowerCase()}|${title.toLowerCase()}';
-    var bytes = _artCache[k];
-    bytes ??= await MediaCache.getArt(k);
-    bytes ??= await fetchArtwork(title, artist);
-    if (bytes == null || token != _artToken) return;
-    final decoded = await ArtAssets.load(bytes);
-    if (decoded == null || decoded.flat) return; // never cache placeholders
-    _artCache[k] = bytes;
-    MediaCache.putArt(k, bytes);
-    if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
-    await _setArt(bytes);
+    final track = _trackKey;
+    final k = '${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}';
+    if (_lookupInFlight == k && !force) return;
+    if (force) {
+      _artRetryTimer?.cancel();
+      _artAttempts = 0;
+    }
+    _lookupInFlight = k;
+    _artAttempts++;
+    try {
+      Uint8List? bytes = force ? null : _artCache[k];
+      bytes ??= force ? null : await MediaCache.getArt(k);
+      bytes ??= await fetchArtwork(title, artist, album: album);
+      if (token != _artToken || track != _trackKey) return;
+      if (bytes != null) {
+        final decoded = await ArtAssets.load(bytes);
+        if (token != _artToken || track != _trackKey) return;
+        if (decoded != null && !decoded.flat) {
+          _artCache[k] = bytes;
+          MediaCache.putArt(k, bytes);
+          if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
+          // Use decoded artwork directly: _setArt would invalidate this lookup's token.
+          art = decoded;
+          _needsArt = false;
+          _artClearTimer?.cancel();
+          _artRetryTimer?.cancel();
+          notifyListeners();
+          return;
+        }
+      }
+      // Never cache a failed lookup. Retry while the same track remains active.
+      if (_artAttempts < 4) {
+        _artRetryTimer?.cancel();
+        _artRetryTimer = Timer(Duration(seconds: 12 * _artAttempts), () {
+          if (_trackKey == track && art == null) _lookupArt();
+        });
+      }
+    } finally {
+      if (_lookupInFlight == k) _lookupInFlight = '';
+    }
+  }
+
+  /// User-requested artwork refresh; bypasses cached artwork and retries online.
+  void refreshArtwork() {
+    if (title.isEmpty || !artLookupEnabled) return;
+    _artToken++;
+    _lookupInFlight = '';
+    _lookupArt(force: true);
   }
 
   Future<void> _fetchLyrics() async {
