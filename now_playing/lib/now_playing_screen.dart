@@ -1024,12 +1024,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final lyricSlot = settings.lyrics ? h * 0.05 : 0.0;
     final lyricGap = settings.lyrics ? _lyricGap(h) : 0.0;
     final textH = h * 0.115 + lyricSlot + lyricGap; // title + artist (+ lyrics)
-    final wLimit = portrait ? (barsMode ? w * 0.8 : w * 0.54) : w * 0.4;
+    final wLimit = portrait ? (barsMode ? w * 0.76 : w * 0.54) : (barsMode ? w * 0.55 : w * 0.4);
 
     final double art;
     if (barsMode) {
-      final avail = h * 0.94 - textH - h * 0.12 - h * 0.05; // bars + gaps
-      art = math.min(wLimit, avail / 1.28); // art + reflection
+      final avail = h * 0.94 - textH - h * 0.045; // artwork and reflection
+      art = math.min(wLimit, avail / 1.28); // enlarged art without the ring
     } else {
       final avail = h * 0.94 - textH - h * 0.03;
       art = math.min(wLimit, avail / 1.72); // ring box is 1.72 x art
@@ -1038,17 +1038,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     final Widget top;
     if (barsMode) {
-      top = Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _artWithReflection(art),
-          if (settings.visualizer) ...[
-            SizedBox(height: h * 0.025),
-            SizedBox(width: art, child: _bars(h * 0.12)),
-          ],
-          SizedBox(height: h * 0.025),
-        ],
-      );
+      top = _artWithReflection(art);
     } else {
       top = SizedBox(
         width: outer * 2,
@@ -1103,12 +1093,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
 
-    if (portrait) return Padding(
-      padding: EdgeInsets.only(top: h * 0.075),
-      child: _portraitStack(h * 0.925, top, text),
-    );
+    if (portrait) {
+      final content = Padding(
+        padding: EdgeInsets.only(top: h * 0.075),
+        child: _portraitStack(h * 0.925, top, text),
+      );
+      if (!barsMode || !settings.visualizer) return content;
+      final edge = w * 0.07;
+      return Stack(children: [
+        Positioned(left: 0, top: 0, bottom: 0, width: edge,
+          child: _edgeBars(edge, leftEdge: true)),
+        Positioned(right: 0, top: 0, bottom: 0, width: edge,
+          child: _edgeBars(edge, leftEdge: false)),
+        Positioned.fill(child: content),
+      ]);
+    }
 
-    return Center(
+    final centered = Center(
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: SizedBox(
@@ -1120,6 +1121,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ),
     );
+    if (!barsMode || !settings.visualizer) return centered;
+    final edge = w * 0.105;
+    return Stack(children: [
+      Positioned(left: 0, top: 0, bottom: 0, width: edge,
+        child: _edgeBars(edge, leftEdge: true)),
+      Positioned(right: 0, top: 0, bottom: 0, width: edge,
+        child: _edgeBars(edge, leftEdge: false)),
+      Positioned.fill(child: centered),
+    ]);
   }
 
   /// Art on the left, text and bars on the right (Side by Side and VHS).
@@ -1134,9 +1144,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final barsMax = s * 0.40; // tallest bar
     final reflH = s * 0.28; // same height as the art's reflection
     final barsBox = barsMax + reflH;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
+    final children = <Widget>[
         SizedBox(width: w * 0.07),
         _artCentered(s, vhs: vhs),
         SizedBox(width: w * 0.05),
@@ -1183,8 +1191,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
         SizedBox(width: w * 0.05),
-      ],
-    );
+    ];
+    return Row(children: settings.layoutSwap ? children.reversed.toList() : children);
   }
 
   /// A thin fading line used between the sections of the stacked layout.
@@ -1560,8 +1568,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// visualizer runs along the cover's edge, and the song info and lyrics
   /// are right-aligned in the space to the right of it.
   Widget _edgeLayout(double w, double h) {
-    return Row(
-      children: [
+    final children = <Widget>[
         SizedBox(width: w * 0.5, height: h, child: _edgeArt(w * 0.5, h)),
         if (settings.visualizer)
           SizedBox(
@@ -1591,8 +1598,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
           ),
         ),
-      ],
-    );
+    ];
+    return Row(children: settings.layoutSwap ? children.reversed.toList() : children);
   }
 
   /// Narrow screens: the cover takes the top half edge to edge, with the
@@ -3732,11 +3739,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               children: [
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
-                if (model.artLookupEnabled)
-                  btn(Icons.refresh_rounded, 32, model.refreshArtwork),
-                if (settings.theme == 4 && MediaQuery.of(context).size.width > MediaQuery.of(context).size.height)
+                if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
+                    const [1, 3, 4].contains(settings.theme))
                   btn(Icons.swap_horiz_rounded, 36, () {
-                    settings.update(() => settings.driveSwap = !settings.driveSwap);
+                    settings.update(() {
+                      if (settings.theme == 4) {
+                        settings.driveSwap = !settings.driveSwap;
+                      } else {
+                        settings.layoutSwap = !settings.layoutSwap;
+                      }
+                    });
                     setState(() {});
                   }),
                 if (widget.driveHost) ...[

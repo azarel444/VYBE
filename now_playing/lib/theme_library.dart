@@ -24,6 +24,14 @@ class ThemeLibrary extends StatefulWidget {
 
 class _ThemeLibraryState extends State<ThemeLibrary> {
   int? _preview;
+  int? _focusedStyleChoice; // Staged until Apply theme is pressed.
+
+  void _openPreview(int id) {
+    setState(() {
+      _preview = id;
+      _focusedStyleChoice = widget.settings.vizStyle;
+    });
+  }
 
   static const Map<int, String> _assetNames = {
     0: 'orbit',
@@ -47,10 +55,16 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     _applying = true;
     // Notify the UI immediately, but do not start an unawaited settings save.
     // The Drive activity and the normal activity use separate Flutter engines.
-    widget.settings.update(() => widget.settings.theme = id, persist: false);
+    widget.settings.update(() {
+      widget.settings.theme = id;
+      if (id == 9) {
+        widget.settings.vizStyle = _focusedStyleChoice ?? widget.settings.vizStyle;
+      }
+    }, persist: false);
     // Persist only the changed theme: writing every setting from the Drive
     // engine could overwrite newer values from the normal player engine.
     await widget.settings.saveTheme();
+    if (id == 9) await widget.settings.saveFocusedStyle();
     if (!mounted) return;
     Navigator.of(context).pop(id);
   }
@@ -109,7 +123,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                         borderRadius: BorderRadius.circular(14),
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
-                          onTap: () => setState(() => _preview = id),
+                          onTap: () => _openPreview(id),
                           child: Container(
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(14),
@@ -174,6 +188,24 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                         ),
                       ]),
                     ),
+                    if (_preview == 9)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: Row(children: [
+                          const Text('Visualizer style',
+                              style: TextStyle(fontSize: 13)),
+                          const Spacer(),
+                          SegmentedButton<int>(
+                            segments: const [
+                              ButtonSegment<int>(value: 0, label: Text('Circle')),
+                              ButtonSegment<int>(value: 1, label: Text('Bars')),
+                            ],
+                            selected: {_focusedStyleChoice ?? widget.settings.vizStyle},
+                            onSelectionChanged: (selection) => setState(
+                              () => _focusedStyleChoice = selection.first),
+                          ),
+                        ]),
+                      ),
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -195,8 +227,10 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                 border: Border(top: BorderSide(color: Colors.white24)),
               ),
               child: Row(children: [
-                const Expanded(
-                  child: Text('Actual theme screenshot',
+                Expanded(
+                  child: Text(_preview == 9
+                      ? 'Style applies when you select this theme'
+                      : 'Actual theme screenshot',
                       style: TextStyle(fontSize: 12, color: Colors.white60)),
                 ),
                 TextButton(

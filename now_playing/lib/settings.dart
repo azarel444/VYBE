@@ -144,6 +144,7 @@ class AppSettings extends ChangeNotifier {
   String navPkg = ''; // navigation app (empty = find one automatically)
   String navLabel = '';
   bool driveAlbumCover = false; // Drive: square cover instead of spinning vinyl
+  bool layoutSwap = false; // Swap left/right panels in landscape layouts
   bool driveSwap = false; // Drive theme: navigation card on the left
   double driveCardWidth = 0.5; // Drive: share of the screen left open for the map, 0.35 .. 0.65
   int graceSec = 0; // a pause shorter than this does not reopen VYBE (0 = any pause reopens)
@@ -236,6 +237,7 @@ class AppSettings extends ChangeNotifier {
     navLabel = p.getString('navLabel') ?? '';
     driveAlbumCover = p.getBool('driveAlbumCover') ?? false;
     driveSwap = p.getBool('driveSwap') ?? false;
+    layoutSwap = p.getBool('layoutSwap') ?? false;
     driveCardWidth =
         (p.getDouble('driveCardWidth') ?? 0.5).clamp(0.35, 0.65).toDouble();
     final g = p.getInt('graceSec') ?? 0;
@@ -261,6 +263,11 @@ class AppSettings extends ChangeNotifier {
   int _int(SharedPreferences p, String key, int def, int lo, int hi) {
     final v = p.getInt(key) ?? def;
     return (v < lo || v > hi) ? def : v;
+  }
+
+  Future<void> saveFocusedStyle() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('vizStyle', vizStyle);
   }
 
   Future<void> saveTheme() async {
@@ -325,6 +332,7 @@ class AppSettings extends ChangeNotifier {
     await p.setString('navLabel', navLabel);
     await p.setBool('driveAlbumCover', driveAlbumCover);
     await p.setBool('driveSwap', driveSwap);
+    await p.setBool('layoutSwap', layoutSwap);
     await p.setDouble('driveCardWidth', driveCardWidth);
     await p.setInt('graceSec', graceSec);
     await p.setBool('driveControls', driveControls);
