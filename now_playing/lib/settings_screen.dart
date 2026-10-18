@@ -1,3 +1,4 @@
+import 'vybe_link_settings.dart';
 import 'package:flutter/material.dart';
 
 import 'native.dart';
@@ -23,6 +24,7 @@ class SettingsScreen extends StatelessWidget {
     'Launch',
     'Navigation',
     'Permissions',
+    'VYBE Link',
   ];
 
   @override
@@ -84,6 +86,7 @@ class SettingsScreen extends StatelessWidget {
                       _page(_launch(context)),
                       _page(_navigation(context)),
                       _page(_permissions(context)),
+                      const VybeLinkSettings(),
                     ],
                   ),
                 ),

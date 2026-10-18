@@ -1,3 +1,4 @@
+import 'vybe_link.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -142,6 +143,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     model.addListener(_onModel);
     settings.addListener(_onSettings);
     model.start();
+    if (!widget.driveHost) VybeLink.instance.initialize(model);
     _ticker = createTicker(_onTick)..start();
     if (widget.driveHost) {
       _dirTimer = Timer.periodic(const Duration(seconds: 2), (_) async {

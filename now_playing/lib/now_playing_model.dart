@@ -97,7 +97,39 @@ class NowPlayingModel extends ChangeNotifier {
     return p < 0 ? 0 : p;
   }
 
+  bool _linkReceiverActive = false;
+  void setLinkReceiverActive(bool on) {
+    _linkReceiverActive = on;
+    if (!on) { _clearAll(); active = false; notifyListeners(); }
+  }
+
+  void applyLinkMetadata({required String titleValue, required String artistValue,
+      required String albumValue, required bool isPlaying, required bool isActive,
+      required int duration, required int position, Uint8List? artwork}) {
+    if (!_linkReceiverActive) return;
+    final key = '$titleValue|$artistValue|$albumValue';
+    final changed = key != _trackKey;
+    if (changed) {
+      _artToken++; _artRetryTimer?.cancel(); _artClearTimer?.cancel();
+      _artAttempts = 0; _lookupInFlight = ''; art = null;
+      lyrics = null; _lyricsToken++;
+    }
+    title = titleValue; artist = artistValue; album = albumValue;
+    active = isActive; playing = isPlaying;
+    durationMs = duration; _posMs = position; _stamp = DateTime.now();
+    _trackKey = key; _albumKey = '${artist.toLowerCase()}|${album.toLowerCase()}';
+    if (artwork != null && (changed || art == null || !listEquals(art!.bytes, artwork))) {
+      _setArt(artwork);
+    } else if (changed && artLookupEnabled && artwork == null) {
+      _netTimer?.cancel();
+      _netTimer = Timer(const Duration(milliseconds: 700), _runNetwork);
+    }
+    if (changed && lyricsEnabled) _fetchLyrics();
+    notifyListeners();
+  }
+
   void _onEvent(dynamic e) {
+    if (_linkReceiverActive) return;
     final m = Map<String, dynamic>.from(e as Map);
     accessGranted = m['access'] == true;
     final nowActive = m['active'] == true;
