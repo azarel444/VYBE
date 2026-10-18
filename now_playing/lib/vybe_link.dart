@@ -40,17 +40,29 @@ class VybeLink extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Apply UI changes synchronously. Network and disk operations must never
+  // delay the visual state of a switch or device-role control.
   Future<void> configure({bool? isEnabled, String? deviceRole, bool? automatic, String? address}) async {
     if (isEnabled != null) enabled = isEnabled;
-    if (deviceRole != null) role = deviceRole;
+    if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
     if (automatic != null) autoConnect = automatic;
     if (address != null) receiverAddress = address.trim();
-    final p = await SharedPreferences.getInstance();
-    await p.setBool('link_enabled', enabled);
-    await p.setString('link_role', role);
-    await p.setBool('link_auto', autoConnect);
-    await p.setString('link_address', receiverAddress);
-    await connect();
+    status = enabled ? 'Applying connection settings...' : 'Disabled';
+    notifyListeners();
+    // Start reconfiguration immediately, but do not hold UI updates hostage
+    // to the socket teardown or an unreachable receiver.
+    final connection = connect();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool('link_enabled', enabled);
+      await p.setString('link_role', role);
+      await p.setBool('link_auto', autoConnect);
+      await p.setString('link_address', receiverAddress);
+    } catch (e) {
+      status = 'Could not save settings: $e';
+      notifyListeners();
+    }
+    await connection;
   }
 
   Future<void> _updateAddresses() async {
@@ -71,6 +83,7 @@ class VybeLink extends ChangeNotifier {
     _lastPayload = '';
     _model?.setLinkReceiverActive(false);
     await _updateAddresses();
+    if (generation != _generation) return;
     if (!enabled) { status = 'Disabled'; notifyListeners(); return; }
     if (role == 'receiver') {
       try {
