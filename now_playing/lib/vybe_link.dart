@@ -82,7 +82,7 @@ class VybeLink extends ChangeNotifier {
           status = 'Connected to ${client.remoteAddress.address}';
           _model?.setLinkReceiverActive(true);
           notifyListeners();
-          final lines = client.transform(utf8.decoder).transform(const LineSplitter());
+          final lines = client.cast<List<int>>().transform(utf8.decoder).transform(const LineSplitter());
           _socketSub = lines.listen(_receive, onError: (_) => _receiverDisconnected(client),
               onDone: () => _receiverDisconnected(client));
         });
