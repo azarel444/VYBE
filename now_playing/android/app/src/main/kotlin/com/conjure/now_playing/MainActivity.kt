@@ -34,6 +34,8 @@ import kotlin.math.pow
 
 open class MainActivity : FlutterActivity() {
 
+    private var vybeDirect: VybeDirect? = null
+    private var vybeDirect: VybeDirect? = null
     private var sink: EventChannel.EventSink? = null
     private var manager: MediaSessionManager? = null
     private var listenerComponent: ComponentName? = null
@@ -84,6 +86,52 @@ open class MainActivity : FlutterActivity() {
                     fftSink = null
                 }
             })
+
+        val directChannel = MethodChannel(messenger, "vybe/direct")
+        vybeDirect = VybeDirect(this, directChannel)
+        directChannel.setMethodCallHandler { call, result ->
+            val direct = vybeDirect!!
+            when (call.method) {
+                "available" -> result.success(direct.available())
+                "permission" -> result.success(direct.permission())
+                "requestPermission" -> {
+                    val permission = direct.permission()
+                    if (android.os.Build.VERSION.SDK_INT >= 23 && checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(arrayOf(permission), 8392)
+                    }
+                    result.success(true)
+                }
+                "start" -> result.success(direct.start())
+                "host" -> result.success(direct.host())
+                "discover" -> result.success(direct.discover())
+                "connect" -> result.success(direct.connect(call.argument<String>("address") ?: ""))
+                "stop" -> { direct.stop(); result.success(true) }
+                else -> result.notImplemented()
+            }
+        }
+
+        val directChannel = MethodChannel(messenger, "vybe/direct")
+        vybeDirect = VybeDirect(this, directChannel)
+        directChannel.setMethodCallHandler { call, result ->
+            val direct = vybeDirect!!
+            when (call.method) {
+                "available" -> result.success(direct.available())
+                "permission" -> result.success(direct.permission())
+                "requestPermission" -> {
+                    val permission = direct.permission()
+                    if (android.os.Build.VERSION.SDK_INT >= 23 && checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(arrayOf(permission), 8392)
+                    }
+                    result.success(true)
+                }
+                "start" -> result.success(direct.start())
+                "host" -> result.success(direct.host())
+                "discover" -> result.success(direct.discover())
+                "connect" -> result.success(direct.connect(call.argument<String>("address") ?: ""))
+                "stop" -> { direct.stop(); result.success(true) }
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(messenger, "nowplaying/control").setMethodCallHandler { call, result ->
             when (call.method) {

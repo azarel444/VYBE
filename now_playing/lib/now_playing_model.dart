@@ -100,6 +100,7 @@ class NowPlayingModel extends ChangeNotifier {
   bool _linkReceiverActive = false;
   void setLinkReceiverActive(bool on) {
     _linkReceiverActive = on;
+    if (on) { _netTimer?.cancel(); _artRetryTimer?.cancel(); _artClearTimer?.cancel(); }
     if (!on) { _clearAll(); active = false; notifyListeners(); }
   }
 
@@ -120,11 +121,14 @@ class NowPlayingModel extends ChangeNotifier {
     _trackKey = key; _albumKey = '${artist.toLowerCase()}|${album.toLowerCase()}';
     if (artwork != null && (changed || art == null || !listEquals(art!.bytes, artwork))) {
       _setArt(artwork);
-    } else if (changed && artLookupEnabled && artwork == null) {
-      _netTimer?.cancel();
-      _netTimer = Timer(const Duration(milliseconds: 700), _runNetwork);
     }
     if (changed && lyricsEnabled) _fetchLyrics();
+    notifyListeners();
+  }
+
+  void applyLinkArtwork(Uint8List bytes) {
+    if (!_linkReceiverActive || bytes.isEmpty) return;
+    _setArt(bytes);
     notifyListeners();
   }
 
@@ -242,13 +246,13 @@ class NowPlayingModel extends ChangeNotifier {
   }
 
   void _runNetwork() {
-    if (title.isEmpty) return;
+    if (title.isEmpty || _linkReceiverActive) return;
     if (artLookupEnabled && art == null) _lookupArt();
     if (lyricsEnabled) _fetchLyrics();
   }
 
   Future<void> _lookupArt({bool force = false}) async {
-    if (!artLookupEnabled || title.trim().isEmpty) return;
+    if (_linkReceiverActive || !artLookupEnabled || title.trim().isEmpty) return;
     final token = _artToken;
     final track = _trackKey;
     final k = '${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}';

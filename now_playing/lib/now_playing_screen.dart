@@ -1593,7 +1593,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       height: h,
       child: _edgeBars(w * 0.09, leftEdge: !swapped),
     );
-    final textAlign = swapped ? Alignment.centerLeft : Alignment.centerRight;
+    final textAlign = !settings.visualizer ? Alignment.center : (swapped ? Alignment.centerLeft : Alignment.centerRight);
     final infoPanel = Expanded(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -1604,8 +1604,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment:
-              swapped ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+          crossAxisAlignment: !settings.visualizer
+              ? CrossAxisAlignment.center
+              : (swapped ? CrossAxisAlignment.start : CrossAxisAlignment.end),
           children: [
             _artist(h * 0.03, textAlign, false),
             SizedBox(height: h * 0.012),

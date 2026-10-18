@@ -327,7 +327,8 @@ class AppSettings extends ChangeNotifier {
       await p.setBool('extraFx:$n', extraFx[n] ?? false);
       await p.setDouble('extraStrength:$n', extraStrength[n] ?? 0.8);
     }
-    await p.setBool('onboarded', onboarded);
+    // Onboarding completion is owned by _RootState._finish in main.dart.
+    // Never overwrite its persisted flag from a stale AppSettings instance.
     await p.setString('navPkg', navPkg);
     await p.setString('navLabel', navLabel);
     await p.setBool('driveAlbumCover', driveAlbumCover);
