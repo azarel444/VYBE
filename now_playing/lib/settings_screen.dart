@@ -176,16 +176,6 @@ class SettingsScreen extends StatelessWidget {
       _section('Background'),
       _choices('Artwork background image', const ['Album Art', 'Artist Fanart', 'Auto (fanart then album)'], s.fanartMode,
         (i) => s.update(() => s.fanartMode = i)),
-      if (s.fanartMode != 0) TextFormField(
-        initialValue: s.fanartProjectKey,
-        decoration: const InputDecoration(labelText: 'Fanart.tv project API key', helperText: 'Required for requests. A personal key alone cannot authenticate the app.'),
-        onChanged: (v) => s.update(() => s.fanartProjectKey = v.trim()),
-      ),
-      if (s.fanartMode != 0) TextFormField(
-        initialValue: s.fanartApiKey,
-        decoration: const InputDecoration(labelText: 'Fanart.tv personal API key', helperText: 'Optional client key. Requires a project key above.'),
-        onChanged: (v) => s.update(() => s.fanartApiKey = v.trim()),
-      ),
       _choices('Background source', const [
         'Blurred album art', 'Animated color template', 'Club Light Show',
         'Album Art + Club Light Show', 'Laser Tunnel', 'Album Art + Laser Tunnel',
