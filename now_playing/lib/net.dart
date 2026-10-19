@@ -10,7 +10,7 @@ Future<Uint8List?> httpGetBytes(Uri uri) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
   try {
     final req = await client.getUrl(uri);
-    req.headers.set('User-Agent', 'NowPlaying/1.2');
+    req.headers.set('User-Agent', 'VYBE/1.9.9 (Android music visualizer; artwork metadata lookup)');
     final res = await req.close().timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) {
       await res.drain<void>();
@@ -87,6 +87,50 @@ Future<Uint8List?> fetchArtwork(String title, String artist, {String album = ''}
         if (bytes != null && bytes.isNotEmpty) return bytes;
       }
     } catch (_) { /* Try another search term. */ }
+  }
+  // A second, independent catalog for albums missing from Apple's search.
+  // Only query when both artist and album are present; title-only searches
+  // frequently return the wrong release and therefore the wrong cover.
+  return fetchCoverArtArchive(artist, album);
+}
+
+/// MusicBrainz release-group search -> Cover Art Archive front image.
+/// Uses no API key. Deliberately conservative: an exact artist + album match
+/// is required, and unavailable images simply return null.
+Future<Uint8List?> fetchCoverArtArchive(String artist, String album) async {
+  if (_norm(artist).isEmpty || _norm(album).isEmpty) return null;
+  try {
+    String quoted(String s) => '"${s.replaceAll('"', '').trim()}"';
+    final query = 'releasegroup:${quoted(album)} AND artist:${quoted(artist)}';
+    final body = await httpGetString(Uri.https('musicbrainz.org', '/ws/2/release-group/', {
+      'query': query, 'fmt': 'json', 'limit': '8',
+    }));
+    if (body == null) return null;
+    final decoded = jsonDecode(body);
+    if (decoded is! Map || decoded['release-groups'] is! List) return null;
+    for (final item in decoded['release-groups'] as List) {
+      if (item is! Map) continue;
+      final id = item['id'];
+      final name = item['title'];
+      if (id is! String || name is! String || _norm(name) != _norm(album)) continue;
+      final credit = item['artist-credit'];
+      if (credit is! List) continue;
+      final artistMatch = credit.any((part) {
+        if (part is! Map) return false;
+        final a = part['artist'];
+        return a is Map &&
+            (_norm(a['name']?.toString() ?? '') == _norm(artist) ||
+             _norm(a['sort-name']?.toString() ?? '') == _norm(artist));
+      });
+      if (!artistMatch) continue;
+      // Cover Art Archive can respond with a redirect to the hosted image.
+      // httpGetBytes follows standard HttpClient redirects.
+      final image = await httpGetBytes(Uri.https('coverartarchive.org',
+          '/release-group/$id/front-500'));
+      if (image != null && image.isNotEmpty) return image;
+    }
+  } catch (_) {
+    // Absence or network failure should never break playback.
   }
   return null;
 }

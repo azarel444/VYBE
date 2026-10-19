@@ -798,7 +798,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (theme == 7 || theme == AppSettings.tTypo) onRight = false;
       // Follow the information panel when a theme swaps its art and text.
       if (settings.layoutSwap && (theme == 5 || theme == 7 || theme == 9 || theme == 6 || theme == 8)) onRight = !onRight;
-      if (theme == 9) onRight = settings.layoutSwap;
+      if (theme == 9) onRight = !settings.layoutSwap; // Orbit clock follows text side, opposite the ring.
       // Typo uses upper-center when lyrics actually display, upper-left
       // when the right pane contains artwork (including disabled lyrics).
     }

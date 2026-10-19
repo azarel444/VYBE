@@ -310,15 +310,18 @@ class NowPlayingModel extends ChangeNotifier {
           return;
         }
       }
+    } catch (error) {
+      // A temporary network/decoder failure must not permanently suppress retries.
+      debugPrint('VYBE artwork lookup failed for $k: $error');
+    } finally {
+      if (_lookupInFlight == k) _lookupInFlight = '';
+    }
+    if (token == _artToken && track == _trackKey && art == null && _artAttempts < 4) {
       // Never cache a failed lookup. Retry while the same track remains active.
-      if (_artAttempts < 4) {
         _artRetryTimer?.cancel();
         _artRetryTimer = Timer(Duration(seconds: 12 * _artAttempts), () {
           if (_trackKey == track && art == null) _lookupArt();
         });
-      }
-    } finally {
-      if (_lookupInFlight == k) _lookupInFlight = '';
     }
   }
 
