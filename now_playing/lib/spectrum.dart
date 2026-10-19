@@ -178,6 +178,7 @@ class BarsPainter extends CustomPainter {
   final ArtPalette palette;
   final int count;
   final double gain;
+  final int style;
 
   /// Wide square-ended bars (used by the VHS theme).
   final bool blocky;
@@ -191,6 +192,7 @@ class BarsPainter extends CustomPainter {
     required this.palette,
     required this.count,
     required this.gain,
+    this.style = 0,
     this.blocky = false,
     this.baseFrac = 0.72,
     required Listenable repaint,
@@ -216,6 +218,8 @@ class BarsPainter extends CustomPainter {
         colors: palette.colors.map((c) => c.withOpacity(0.2)).toList(),
       ).createShader(rect);
 
+    final wave = Path();
+    final reflection = Path();
     for (int i = 0; i < n; i++) {
       final idx = n > 1 ? (i * (SpectrumSim.bars - 1) / (n - 1)).round() : 0;
       final x = step * (i + 0.5);
@@ -225,12 +229,20 @@ class BarsPainter extends CustomPainter {
       bar.color = Colors.white.withOpacity(opacity);
       refl.color = Colors.white.withOpacity(opacity);
       final h = math.max(bw, sim.level(idx, gain) * barsH);
-      canvas.drawLine(Offset(x, baseY), Offset(x, baseY - h), bar);
+      if (style == 0) { canvas.drawLine(Offset(x, baseY), Offset(x, baseY - h), bar); }
+      else if (style == 2) { canvas.drawCircle(Offset(x, baseY - h), math.max(1.5, bw * 0.35), Paint()..color = palette.at(f).withOpacity(opacity)); }
+      else { if (i == 0) wave.moveTo(x, baseY-h); else wave.lineTo(x, baseY-h); }
 
       final rh = math.min(h * 0.4, size.height - baseY - 2);
       if (rh > 0) {
-        canvas.drawLine(Offset(x, baseY + 3), Offset(x, baseY + 3 + rh), refl);
+        if (style == 0) canvas.drawLine(Offset(x, baseY + 3), Offset(x, baseY + 3 + rh), refl);
+        else if (style == 1) { if (i == 0) reflection.moveTo(x, baseY+3+rh); else reflection.lineTo(x, baseY+3+rh); }
       }
+    }
+    if (style == 1) {
+      final gradient = LinearGradient(colors: [palette.a.withOpacity(0), palette.a, palette.b, palette.c, palette.c.withOpacity(0)], stops: const [0, .12, .5, .88, 1]).createShader(rect);
+      canvas.drawPath(wave, Paint()..style=PaintingStyle.stroke..strokeWidth=math.max(2, bw*.65)..strokeCap=StrokeCap.round..strokeJoin=StrokeJoin.round..shader=gradient);
+      canvas.drawPath(reflection, Paint()..style=PaintingStyle.stroke..strokeWidth=math.max(1, bw*.45)..shader=gradient..color=Colors.white.withOpacity(.2));
     }
   }
 
@@ -240,7 +252,7 @@ class BarsPainter extends CustomPainter {
       old.count != count ||
       old.gain != gain ||
       old.blocky != blocky ||
-      old.baseFrac != baseFrac;
+      old.baseFrac != baseFrac || old.style != style;
 }
 
 /// Vertical spectrum for the Edge to Edge theme: bars are stacked top to
@@ -251,12 +263,14 @@ class VerticalBarsPainter extends CustomPainter {
   final ArtPalette palette;
   final int count;
   final double gain;
+  final int style;
 
   VerticalBarsPainter({
     required this.sim,
     required this.palette,
     required this.count,
     required this.gain,
+    this.style = 0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -269,6 +283,7 @@ class VerticalBarsPainter extends CustomPainter {
     final p = Paint()
       ..strokeCap = StrokeCap.round
       ..strokeWidth = th;
+    final wave = Path();
     for (int i = 0; i < n; i++) {
       final f = n > 1 ? i / (n - 1) : 0.0; // 0 = bottom
       final idx = (f * (SpectrumSim.bars - 1)).round();
@@ -276,13 +291,16 @@ class VerticalBarsPainter extends CustomPainter {
       final y = size.height - step * (i + 0.5);
       final t = (math.min(f, 1 - f) / 0.12).clamp(0.0, 1.0).toDouble();
       p.color = palette.at(f).withOpacity(t * t * (3 - 2 * t));
-      canvas.drawLine(Offset(th / 2, y), Offset(th / 2 + len, y), p);
+      if (style == 0) canvas.drawLine(Offset(th / 2, y), Offset(th / 2 + len, y), p);
+      else if (style == 2) canvas.drawCircle(Offset(th/2+len,y), math.max(1.5,th*.35), p..style=PaintingStyle.fill);
+      else { if (i==0) wave.moveTo(th/2+len,y); else wave.lineTo(th/2+len,y); }
     }
+    if (style == 1) canvas.drawPath(wave, Paint()..style=PaintingStyle.stroke..strokeWidth=math.max(2,th*.65)..strokeCap=StrokeCap.round..strokeJoin=StrokeJoin.round..shader=LinearGradient(begin:Alignment.bottomCenter,end:Alignment.topCenter,colors:[palette.a.withOpacity(0),palette.a,palette.b,palette.c.withOpacity(0)],stops:const [0,.12,.85,1]).createShader(Offset.zero & size));
   }
 
   @override
   bool shouldRepaint(VerticalBarsPainter old) =>
-      old.palette != palette || old.count != count || old.gain != gain;
+      old.palette != palette || old.count != count || old.gain != gain || old.style != style;
 }
 
 /// Bars hanging down from the top edge of their box. Used under the cover
@@ -293,12 +311,14 @@ class DownBarsPainter extends CustomPainter {
   final ArtPalette palette;
   final int count;
   final double gain;
+  final int style;
 
   DownBarsPainter({
     required this.sim,
     required this.palette,
     required this.count,
     required this.gain,
+    this.style = 0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -311,6 +331,7 @@ class DownBarsPainter extends CustomPainter {
       ..strokeWidth = step * 0.62
       ..shader = LinearGradient(colors: palette.colors)
           .createShader(Offset.zero & size);
+    final wave = Path();
     for (int i = 0; i < n; i++) {
       final idx = n > 1 ? (i * (SpectrumSim.bars - 1) / (n - 1)).round() : 0;
       final len = math.max(2.0, sim.level(idx, gain) * size.height);
@@ -318,13 +339,16 @@ class DownBarsPainter extends CustomPainter {
       final f = n > 1 ? i / (n - 1) : 0.5;
       final t = (math.min(f, 1 - f) / 0.12).clamp(0.0, 1.0).toDouble();
       p.color = Colors.white.withOpacity(t * t * (3 - 2 * t));
-      canvas.drawLine(Offset(x, 0), Offset(x, len), p);
+      if (style == 0) canvas.drawLine(Offset(x,0), Offset(x,len),p);
+      else if (style == 2) canvas.drawCircle(Offset(x,len),math.max(1.5,step*.22),p..style=PaintingStyle.fill);
+      else { if(i==0) wave.moveTo(x,len); else wave.lineTo(x,len); }
     }
+    if (style == 1) canvas.drawPath(wave,Paint()..style=PaintingStyle.stroke..strokeWidth=math.max(2,step*.4)..strokeCap=StrokeCap.round..strokeJoin=StrokeJoin.round..shader=LinearGradient(colors:[palette.a.withOpacity(0),palette.a,palette.b,palette.c.withOpacity(0)],stops:const [0,.12,.85,1]).createShader(Offset.zero & size));
   }
 
   @override
   bool shouldRepaint(DownBarsPainter old) =>
-      old.palette != palette || old.count != count || old.gain != gain;
+      old.palette != palette || old.count != count || old.gain != gain || old.style != style;
 }
 
 /// A closed circle of bars growing outward from [innerRadius], used around

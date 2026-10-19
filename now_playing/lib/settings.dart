@@ -82,6 +82,8 @@ class AppSettings extends ChangeNotifier {
   int theme = 0; // index into themeNames
   bool visualizer = true;
   int diagonalWaveStyle = 0; // 0 bars, 1 smooth wave, 2 dot wave
+  int fanartMode = 0; // 0 album, 1 artist, 2 auto
+  String fanartApiKey = '';
   double sensitivity = 1.0; // 0.5 .. 1.5
   int vizStyle = 0; // Focused theme: 0 ring, 1 bars
   int barCount = 96;
@@ -173,6 +175,8 @@ class AppSettings extends ChangeNotifier {
     theme = _int(p, 'theme', 0, 0, themeNames.length - 1);
     visualizer = p.getBool('visualizer') ?? true;
     diagonalWaveStyle = _int(p, 'diagonalWaveStyle', 0, 0, 2);
+    fanartMode = _int(p, 'fanartMode', 0, 0, 2);
+    fanartApiKey = p.getString('fanartApiKey') ?? '';
     sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
     vizStyle = _int(p, 'vizStyle', 0, 0, 1);
     final bc = p.getInt('barCount') ?? 96;
@@ -282,6 +286,8 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('theme', theme);
     await p.setBool('visualizer', visualizer);
     await p.setInt('diagonalWaveStyle', diagonalWaveStyle);
+    await p.setInt('fanartMode', fanartMode);
+    await p.setString('fanartApiKey', fanartApiKey);
     await p.setDouble('sensitivity', sensitivity);
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('barCount', barCount);

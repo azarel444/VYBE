@@ -174,6 +174,13 @@ class SettingsScreen extends StatelessWidget {
       _choices('Accent color template', AppSettings.accentNames, s.accent,
         (i) => s.update(() => s.accent = i)),
       _section('Background'),
+      _choices('Artwork background image', const ['Album Art', 'Artist Fanart', 'Auto (fanart then album)'], s.fanartMode,
+        (i) => s.update(() => s.fanartMode = i)),
+      if (s.fanartMode != 0) TextFormField(
+        initialValue: s.fanartApiKey,
+        decoration: const InputDecoration(labelText: 'Fanart.tv personal API key', helperText: 'Required for artist images; without a key VYBE uses album artwork.'),
+        onChanged: (v) => s.update(() => s.fanartApiKey = v.trim()),
+      ),
       _choices('Background source', const [
         'Blurred album art', 'Animated color template', 'Club Light Show',
         'Album Art + Club Light Show', 'Laser Tunnel', 'Album Art + Laser Tunnel',
@@ -199,7 +206,7 @@ class SettingsScreen extends StatelessWidget {
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
       if (s.visualizer) ...[
-        _choices('Diagonal visualizer shape', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+        _choices('Visualizer shape (compatible layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
         _slider('Sensitivity', '${(s.sensitivity * 100).round()}%',
           s.sensitivity, 0.5, 1.5,

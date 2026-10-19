@@ -1,5 +1,7 @@
 import 'vybe_link.dart';
 import 'dart:async';
+import 'dart:typed_data';
+import 'artist_fanart.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -40,6 +42,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final model = NowPlayingModel();
   final settings = AppSettings();
   final sim = SpectrumSim();
+  final _fanart = ArtistFanartCache();
+  Uint8List? _fanartBytes;
+  String _fanartArtist = '';
+  int _fanartRequest = 0;
   final particles = ParticleField();
   final glitch = GlitchState();
   final grid = GridState();
@@ -204,6 +210,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void _onModel() {
     if (!mounted) return;
     _checkTrack();
+    _loadFanart();
     setState(() {});
   }
 
@@ -228,6 +235,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       navPkg: settings.navPkg,
     );
     _updateClock();
+    _loadFanart();
     if (widget.driveHost) {
       // Leaving Drive is coordinated by _pickTheme, after its awaited save.
       // Exiting here races SharedPreferences writes across Flutter engines.
@@ -553,6 +561,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ---------------------------------------------------------------- background
 
+  Future<void> _loadFanart() async {
+    final artist = model.artist.trim();
+    if (settings.fanartMode == 0 || settings.fanartApiKey.isEmpty || artist.isEmpty) {
+      if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
+        _fanartArtist = ''; _fanartBytes = null;
+      }
+      return;
+    }
+    if (_fanartArtist == artist) return;
+    _fanartArtist = artist;
+    _fanartBytes = null;
+    final request = ++_fanartRequest;
+    final bytes = await _fanart.get(artist, settings.fanartApiKey);
+    if (mounted && request == _fanartRequest && _fanartArtist == artist) {
+      setState(() => _fanartBytes = bytes);
+    }
+  }
+
   Widget _background() {
     if (settings.backgroundSource >= 2 && settings.backgroundSource <= 5) {
       return Stack(fit: StackFit.expand, children: [
@@ -607,6 +633,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _albumBackdrop() {
+    if (settings.fanartMode != 0 && _fanartBytes != null) {
+      return Stack(fit: StackFit.expand, children: [
+        Image.memory(_fanartBytes!, fit: BoxFit.cover, gaplessPlayback: true,
+          filterQuality: FilterQuality.low),
+        ColoredBox(color: Colors.black.withOpacity(
+          (0.32 + settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
+      ]);
+    }
     final art = model.art;
     final Widget child;
     // A flat placeholder picture (a logo on one color) counts as no cover.
@@ -1655,6 +1689,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   painter: DownBarsPainter(
                     sim: sim,
                     palette: _palette,
+                  style: settings.diagonalWaveStyle,
                     count: settings.barCount,
                     gain: settings.sensitivity,
                     repaint: _tick,
@@ -1713,6 +1748,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               painter: DownBarsPainter(
                 sim: sim,
                 palette: _palette,
+                  style: settings.diagonalWaveStyle,
                 count: settings.barCount,
                 gain: settings.sensitivity,
                 repaint: _tick,
@@ -1728,6 +1764,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           painter: VerticalBarsPainter(
             sim: sim,
             palette: _palette,
+                  style: settings.diagonalWaveStyle,
             count: settings.barCount,
             gain: settings.sensitivity,
             repaint: _tick,
@@ -1995,7 +2032,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 color: Colors.black.withOpacity(0.75), blurRadius: d * 0.1),
           ],
         ),
-        child: inner,
+        child: Stack(fit: StackFit.expand, children: [inner, const ColoredBox(color: Color(0xA6000000))]),
       ),
     );
   }
@@ -2180,7 +2217,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               : cx - r - maxLen - w * 0.08),
           top: 0,
           bottom: 0,
-          child: Column(
+          child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
+            child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2359,7 +2399,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           right: settings.layoutSwap ? textLeft : edge + w * 0.03,
           top: 0,
           bottom: 0,
-          child: Column(
+          child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
+            child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2388,6 +2431,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// info sits on the blurred side. The visualizer's bars grow off the white
   /// line, on the blurred side, and sit behind the cover.
   Widget _diagonalLayout(double w, double h, bool narrow) {
+    if (settings.layoutSwap && !narrow) {
+      // Build the normal composition in a reflected coordinate system;
+      // restore text orientation inside the information panel below.
+      return Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(-1, 1, 1),
+        child: _diagonalCore(w, h, narrow, counterFlipText: true),
+      );
+    }
+    return _diagonalCore(w, h, narrow);
+  }
+
+  Widget _diagonalCore(double w, double h, bool narrow, {bool counterFlipText = false}) {
     final List<Offset> poly;
     final List<Offset> other; // the blurred side of the line
     final Offset a;
@@ -2536,7 +2592,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           right: w * 0.05,
           top: infoTop,
           bottom: h * 0.07,
-          child: Column(
+          child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
+            child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2552,6 +2611,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),
               ],
             ],
+          ),
           ),
         ),
       ],
@@ -2694,7 +2754,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       c = Offset(w / 2, h * 0.57);
     } else {
       artR = math.min(h * 0.29, w * 0.17).toDouble();
-      c = Offset(w * (settings.layoutSwap ? 0.725 : 0.275), h / 2);
+      c = Offset(w * (settings.layoutSwap ? 0.74 : 0.26), h / 2);
     }
     final barsInner = artR * 1.08;
     final barsMax = artR * 0.40;
@@ -2872,8 +2932,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     } else {
       layers.add(
         Positioned(
-          left: settings.layoutSwap ? w * 0.05 : math.min(w * 0.77, c.dx + artR * 1.90 + w * 0.035),
-          right: settings.layoutSwap ? math.min(w * 0.77, (w - c.dx) + artR * 1.90 + w * 0.035) : w * 0.05,
+          left: settings.layoutSwap ? w * 0.055 : math.min(w * 0.77, c.dx + artR * 1.90 + w * 0.035),
+          right: settings.layoutSwap ? w * 0.56 : w * 0.05,
           top: 0,
           bottom: 0,
           child: Column(
@@ -3290,6 +3350,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 painter: BarsPainter(
                   sim: sim,
                   palette: _palette,
+                  style: settings.diagonalWaveStyle,
                   count: settings.barCount,
                   gain: settings.sensitivity,
                   blocky: blocky || _vhsOn,
@@ -3787,7 +3848,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
                 if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
-                    const [1, 3, 4, 5, 7, 8, 9].contains(settings.theme))
+                    const [1, 3, 4, 5, 6, 7, 8, 9].contains(settings.theme))
                   btn(Icons.swap_horiz_rounded, 36, () {
                     settings.update(() {
                       if (settings.theme == 4) {
