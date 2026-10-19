@@ -63,6 +63,17 @@ open class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
 
+        // Dedicated, synchronously committed onboarding state. Avoid relying
+        // solely on SharedPreferences' per-engine Dart cache.
+        MethodChannel(messenger, "vybe/setup_state").setMethodCallHandler { call, result ->
+            val prefs = getSharedPreferences("vybe_setup_state", Context.MODE_PRIVATE)
+            when (call.method) {
+                "isComplete" -> result.success(prefs.getBoolean("complete", false))
+                "complete" -> result.success(prefs.edit().putBoolean("complete", true).commit())
+                else -> result.notImplemented()
+            }
+        }
+
         EventChannel(messenger, "nowplaying/stream").setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(args: Any?, events: EventChannel.EventSink?) {

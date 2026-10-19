@@ -47,6 +47,7 @@ class _Root extends StatefulWidget {
 class _RootState extends State<_Root> {
   bool? _onboarded; // null while checking persistent setup state
   bool _firstLaunchSplash = false;
+  static const _setupChannel = MethodChannel("vybe/setup_state");
 
   @override
   void initState() {
@@ -58,8 +59,22 @@ class _RootState extends State<_Root> {
     var done = false;
     try {
       final p = await SharedPreferences.getInstance();
+      await p.reload();
       done = (p.getBool('vybe_setup_completed_v2') ?? false) || (p.getBool('onboarded') ?? false);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('VYBE: Flutter setup read failed: $e');
+    }
+    // Native Android storage is independent of Flutter SharedPreferences caches
+    // and survives app process restarts. Either valid completion record wins.
+    try {
+      final nativeDone = await _setupChannel.invokeMethod<bool>('isComplete') ?? false;
+      done = done || nativeDone;
+      if (done && !nativeDone) {
+        await _setupChannel.invokeMethod<bool>('complete');
+      }
+    } catch (e) {
+      debugPrint('VYBE: native setup read failed: $e');
+    }
     if (!mounted) return;
     if (done) {
       // Returning users go straight to their saved Now Playing theme.
@@ -77,8 +92,14 @@ class _RootState extends State<_Root> {
   Future<void> _finish() async {
     if (_finishing) return;
     _finishing = true;
-    // Enter the player even if a storage write fails. A failed persistence
-    // operation must never leave the Launch VYBE button apparently dead.
+    // Native completion is committed before navigating. Flutter storage is
+    // retained for compatibility with previous installations.
+    try {
+      final saved = await _setupChannel.invokeMethod<bool>('complete');
+      if (saved != true) debugPrint('VYBE: native setup commit returned $saved');
+    } catch (e) {
+      debugPrint('VYBE: native setup commit failed: $e');
+    }
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool('vybe_setup_completed_v2', true);
