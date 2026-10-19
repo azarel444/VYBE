@@ -219,6 +219,11 @@ class BarsPainter extends CustomPainter {
     for (int i = 0; i < n; i++) {
       final idx = n > 1 ? (i * (SpectrumSim.bars - 1) / (n - 1)).round() : 0;
       final x = step * (i + 0.5);
+      final f = n > 1 ? i / (n - 1) : 0.5;
+      final t = (math.min(f, 1 - f) / 0.12).clamp(0.0, 1.0).toDouble();
+      final opacity = t * t * (3 - 2 * t);
+      bar.color = Colors.white.withOpacity(opacity);
+      refl.color = Colors.white.withOpacity(opacity);
       final h = math.max(bw, sim.level(idx, gain) * barsH);
       canvas.drawLine(Offset(x, baseY), Offset(x, baseY - h), bar);
 
@@ -269,7 +274,8 @@ class VerticalBarsPainter extends CustomPainter {
       final idx = (f * (SpectrumSim.bars - 1)).round();
       final len = math.max(th, sim.level(idx, gain) * maxLen);
       final y = size.height - step * (i + 0.5);
-      p.color = palette.at(f);
+      final t = (math.min(f, 1 - f) / 0.12).clamp(0.0, 1.0).toDouble();
+      p.color = palette.at(f).withOpacity(t * t * (3 - 2 * t));
       canvas.drawLine(Offset(th / 2, y), Offset(th / 2 + len, y), p);
     }
   }
@@ -309,6 +315,9 @@ class DownBarsPainter extends CustomPainter {
       final idx = n > 1 ? (i * (SpectrumSim.bars - 1) / (n - 1)).round() : 0;
       final len = math.max(2.0, sim.level(idx, gain) * size.height);
       final x = step * (i + 0.5);
+      final f = n > 1 ? i / (n - 1) : 0.5;
+      final t = (math.min(f, 1 - f) / 0.12).clamp(0.0, 1.0).toDouble();
+      p.color = Colors.white.withOpacity(t * t * (3 - 2 * t));
       canvas.drawLine(Offset(x, 0), Offset(x, len), p);
     }
   }
@@ -475,6 +484,7 @@ class LineBarsPainter extends CustomPainter {
   final int count;
   final double gain;
   final bool mirror;
+  final int style;
 
   LineBarsPainter({
     required this.sim,
@@ -486,6 +496,7 @@ class LineBarsPainter extends CustomPainter {
     required this.count,
     required this.gain,
     required this.mirror,
+    this.style = 0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -501,14 +512,38 @@ class LineBarsPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke
       ..strokeWidth = width;
+    final wavePath = Path();
     for (int i = 0; i < n; i++) {
       final f = n > 1 ? i / (n - 1) : 0.0;
       final u = mirror ? (1 - (f - 0.5).abs() * 2) : f; // 0 = bass
       final idx = (u * (SpectrumSim.bars - 1)).round();
       final l = width + maxLen * sim.level(idx, gain);
       final root = a + dir * (step * (i + 0.5));
-      bar.color = palette.at(1 - u);
-      canvas.drawLine(root, root + normal * l, bar);
+      final edge = math.min(1.0, math.min(f, 1 - f) / 0.12).clamp(0.0, 1.0).toDouble();
+      final alpha = edge * edge * (3 - 2 * edge);
+      bar.color = palette.at(1 - u).withOpacity(alpha);
+      if (style == 0) {
+        canvas.drawLine(root, root + normal * l, bar);
+      } else if (style == 2) {
+        final dot = Paint()..color = bar.color;
+        canvas.drawCircle(root + normal * l, math.max(1.5, width * 0.4), dot);
+      } else {
+        final point = root + normal * l;
+        if (i == 0) wavePath.moveTo(point.dx, point.dy);
+        else wavePath.lineTo(point.dx, point.dy);
+      }
+    }
+    if (style == 1) {
+      final wave = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..strokeWidth = math.max(2.0, width * 0.65)
+        ..shader = LinearGradient(
+          colors: [palette.a.withOpacity(0), palette.a, palette.b, palette.c, palette.c.withOpacity(0)],
+          stops: const [0, 0.12, 0.5, 0.88, 1],
+        ).createShader(Rect.fromPoints(a, b).inflate(maxLen));
+      canvas.drawPath(wavePath, wave);
     }
   }
 
@@ -521,5 +556,6 @@ class LineBarsPainter extends CustomPainter {
       old.maxLen != maxLen ||
       old.count != count ||
       old.gain != gain ||
-      old.mirror != mirror;
+      old.mirror != mirror ||
+      old.style != style;
 }

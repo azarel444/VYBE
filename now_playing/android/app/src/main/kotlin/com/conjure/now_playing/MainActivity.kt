@@ -65,6 +65,24 @@ open class MainActivity : FlutterActivity() {
 
         // Dedicated, synchronously committed onboarding state. Avoid relying
         // solely on SharedPreferences' per-engine Dart cache.
+        MethodChannel(messenger, "vybe/window_brightness").setMethodCallHandler { call, result ->
+            if (call.method == "setNight") {
+                val night = call.arguments as? Boolean ?: false
+                runOnUiThread {
+                    val params = window.attributes
+                    if (night) {
+                        val systemLevel = try {
+                            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+                        } catch (_: Exception) { 0.75f }
+                        params.screenBrightness = (systemLevel * 0.75f).coerceIn(0.02f, 1f)
+                    } else {
+                        params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    }
+                    window.attributes = params
+                    result.success(null)
+                }
+            } else result.notImplemented()
+        }
         MethodChannel(messenger, "vybe/setup_state").setMethodCallHandler { call, result ->
             val prefs = getSharedPreferences("vybe_setup_state", Context.MODE_PRIVATE)
             when (call.method) {

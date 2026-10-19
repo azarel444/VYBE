@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'effects.dart';
@@ -180,6 +181,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     settings.removeListener(_onSettings);
     _ticker.dispose();
     _hideTimer?.cancel();
+    _brightnessChannel.invokeMethod<void>('setNight', false).catchError((Object _) {});
     _clockTimer?.cancel();
     _dirTimer?.cancel();
     _noise?.dispose();
@@ -237,6 +239,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   /// Night mode and the burn-in shift only need updating every so often.
+  static const _brightnessChannel = MethodChannel('vybe/window_brightness');
+  bool? _lastNightBrightness;
+
   void _updateClock() {
     final now = DateTime.now();
     if (settings.night == 0) {
@@ -245,6 +250,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _night = now.hour >= 20 || now.hour < 6;
     } else {
       _night = true;
+    }
+    if (_lastNightBrightness != _night) {
+      _lastNightBrightness = _night;
+      _brightnessChannel.invokeMethod<void>('setNight', _night).catchError((Object _) {});
     }
     if (settings.burnIn) {
       final t = now.millisecondsSinceEpoch / 60000.0;
@@ -481,8 +490,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   ),
                 ),
               ),
-            if (_night)
-              const IgnorePointer(child: ColoredBox(color: Color(0x80000000))),
+            // Night Mode uses window brightness, never a text-dimming overlay.
             _progressLine(),
             if (controlsInside && _showControls) _controls(),
           ],
@@ -763,7 +771,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: Center(widthFactor: centered ? null : 1, heightFactor: 1,
           child: Text(value, style: TextStyle(
           color: Colors.white.withOpacity(0.93),
-          fontSize: portrait ? 12 : 14,
+          fontSize: portrait ? 17 : 19,
           fontWeight: FontWeight.w500,
           letterSpacing: 0.5,
           fontFeatures: const [ui.FontFeature.tabularFigures()],
@@ -2143,13 +2151,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // just outside it and the bars come off that curve.
     final d = math.min(h * 0.72, w * 0.36).toDouble();
     final r = _discR(d, h);
-    final rcx = w - d * 0.64;
-    final cx = rcx - d / 2 - _discGap(d) + r;
+    final rcx = settings.layoutSwap ? d * 0.64 : w - d * 0.64;
+    final cx = settings.layoutSwap
+        ? rcx + d / 2 + _discGap(d) - r
+        : rcx - d / 2 - _discGap(d) + r;
     final cy = h / 2;
     final maxLen = d * 0.16;
     return Stack(
       children: [
-        ..._discStack(cx, cy, r, d, h, math.pi),
+        ..._discStack(cx, cy, r, d, h, settings.layoutSwap ? 0 : math.pi),
         Positioned(
           left: rcx - d / 2,
           top: cy - d / 2,
@@ -2163,8 +2173,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
         Positioned(
-          left: w * 0.06,
-          width: math.max(w * 0.2, cx - r - maxLen - w * 0.08),
+          left: settings.layoutSwap ? null : w * 0.06,
+          right: settings.layoutSwap ? w * 0.06 : null,
+          width: math.max(w * 0.2, settings.layoutSwap
+              ? w - (cx + r + maxLen) - w * 0.08
+              : cx - r - maxLen - w * 0.08),
           top: 0,
           bottom: 0,
           child: Column(
@@ -2331,18 +2344,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return Stack(
       children: [
         Positioned.fill(child: _bottomArtworkFade()),
-        Positioned(left: fanLeftInset, top: (h - s * 1.25) / 2, child: _fanCards(s)),
+        Positioned(left: settings.layoutSwap ? null : fanLeftInset, right: settings.layoutSwap ? fanLeftInset : null, top: (h - s * 1.25) / 2, child: _fanCards(s)),
         if (settings.visualizer)
           Positioned(
-            right: 0,
+            left: settings.layoutSwap ? 0 : null,
+            right: settings.layoutSwap ? null : 0,
             top: 0,
             bottom: 0,
             width: edge,
-            child: _edgeBars(edge, leftEdge: false),
+            child: _edgeBars(edge, leftEdge: settings.layoutSwap),
           ),
         Positioned(
-          left: textLeft,
-          right: edge + w * 0.03,
+          left: settings.layoutSwap ? edge + w * 0.03 : textLeft,
+          right: settings.layoutSwap ? textLeft : edge + w * 0.03,
           top: 0,
           bottom: 0,
           child: Column(
@@ -2446,6 +2460,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         count: settings.barCount,
                         gain: settings.sensitivity,
                         mirror: narrow,
+                        style: settings.diagonalWaveStyle,
                         repaint: _tick,
                       ),
                     ),
@@ -2675,10 +2690,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final Offset c;
     if (narrow) {
       artR = math.min(w * 0.27, h * 0.15).toDouble();
-      c = Offset(w / 2, h / 2);
+      // Give the title group breathing room above the orbit assembly.
+      c = Offset(w / 2, h * 0.57);
     } else {
       artR = math.min(h * 0.29, w * 0.17).toDouble();
-      c = Offset(w * 0.275, h / 2);
+      c = Offset(w * (settings.layoutSwap ? 0.725 : 0.275), h / 2);
     }
     final barsInner = artR * 1.08;
     final barsMax = artR * 0.40;
@@ -2693,8 +2709,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // It ends before the text panel and does not darken the whole backdrop.
       if (!narrow)
         Positioned(
-          left: 0, top: 0, bottom: 0,
-          width: math.min(w * 0.57, c.dx + artR * 1.94),
+          left: settings.layoutSwap ? null : 0,
+          right: settings.layoutSwap ? 0 : null,
+          top: 0, bottom: 0,
+          width: w * 0.57,
           child: IgnorePointer(child: DecoratedBox(
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.centerLeft, end: Alignment.centerRight,
@@ -2854,8 +2872,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     } else {
       layers.add(
         Positioned(
-          left: math.min(w * 0.77, c.dx + artR * 1.90 + w * 0.035),
-          right: w * 0.05,
+          left: settings.layoutSwap ? w * 0.05 : math.min(w * 0.77, c.dx + artR * 1.90 + w * 0.035),
+          right: settings.layoutSwap ? math.min(w * 0.77, (w - c.dx) + artR * 1.90 + w * 0.035) : w * 0.05,
           top: 0,
           bottom: 0,
           child: Column(
@@ -3107,6 +3125,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           top: 0,
           bottom: 0,
           child: Row(
+            textDirection: settings.layoutSwap ? TextDirection.rtl : TextDirection.ltr,
             children: [
               Expanded(
                 child: Align(
@@ -3768,7 +3787,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
                 if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
-                    const [1, 3, 4].contains(settings.theme))
+                    const [1, 3, 4, 5, 7, 8, 9].contains(settings.theme))
                   btn(Icons.swap_horiz_rounded, 36, () {
                     settings.update(() {
                       if (settings.theme == 4) {

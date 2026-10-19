@@ -63,10 +63,10 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     }, persist: false);
     // Persist only the changed theme: writing every setting from the Drive
     // engine could overwrite newer values from the normal player engine.
+    // Close immediately after applying; persistence must not hold the dialog open.
+    if (mounted) Navigator.of(context).pop(id);
     await widget.settings.saveTheme();
     if (id == 0) await widget.settings.saveFocusedStyle();
-    if (!mounted) return;
-    Navigator.of(context).pop(id);
   }
 
   @override
@@ -188,6 +188,24 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                         ),
                       ]),
                     ),
+                    if (_preview == 4)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: Row(children: [
+                          const Expanded(child: Text('Drive artwork style', style: TextStyle(fontSize: 13))),
+                          SegmentedButton<bool>(
+                            segments: const [
+                              ButtonSegment<bool>(value: true, label: Text('Square')),
+                              ButtonSegment<bool>(value: false, label: Text('Record')),
+                            ],
+                            selected: {widget.settings.driveAlbumCover},
+                            onSelectionChanged: (selection) {
+                              widget.settings.update(() => widget.settings.driveAlbumCover = selection.first);
+                              setState(() {});
+                            },
+                          ),
+                        ]),
+                      ),
                     if (_preview == 0)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
