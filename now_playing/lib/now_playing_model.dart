@@ -47,6 +47,23 @@ class NowPlayingModel extends ChangeNotifier {
   bool _needsArt = false; // album changed and the player sent no new cover yet
   String _sentLaunch = '';
   final Map<String, Uint8List> _artCache = {};
+  // Reuse covers across songs on the same positively identified album.
+  final Map<String, Uint8List> _albumArtCache = {};
+
+  String _albumArtKey(String artistName, String albumName) {
+    final a = artistName.trim().toLowerCase();
+    final b = albumName.trim().toLowerCase();
+    return a.isNotEmpty && b.isNotEmpty ? 'album|$a|$b' : '';
+  }
+
+  void _rememberAlbumArt(Uint8List bytes, String albumKey) {
+    if (albumKey.isEmpty || bytes.isEmpty) return;
+    _albumArtCache[albumKey] = bytes;
+    if (_albumArtCache.length > 24) {
+      _albumArtCache.remove(_albumArtCache.keys.first);
+    }
+    MediaCache.putArt(albumKey, bytes);
+  }
   final Map<String, List<LyricLine>?> _lyricsCache = {};
   StreamSubscription? _sub;
   StreamSubscription? _fftSub;
@@ -181,6 +198,7 @@ class NowPlayingModel extends ChangeNotifier {
     final key = '$title|$artist|$album';
     final changed = key != _trackKey;
     final albumKey = '${artist.toLowerCase()}|${album.toLowerCase()}';
+    final cacheAlbumKey = _albumArtKey(artist, album);
     final albumChanged = albumKey != _albumKey;
 
     if (changed) {
@@ -194,6 +212,11 @@ class NowPlayingModel extends ChangeNotifier {
       _artClearTimer?.cancel();
       // Only reuse a cover when the album is positively identified as the same.
       if (albumChanged || album.isEmpty) art = null;
+      // Restore an already decoded cover from another track on this album.
+      if (art == null && cacheAlbumKey.isNotEmpty) {
+        final cached = _albumArtCache[cacheAlbumKey];
+        if (cached != null) _setArt(cached);
+      }
     }
 
     final artBytes = m['art'];
@@ -290,8 +313,11 @@ class NowPlayingModel extends ChangeNotifier {
     _lookupInFlight = k;
     _artAttempts++;
     try {
+      final albumCacheKey = _albumArtKey(artist, album);
       Uint8List? bytes = force ? null : _artCache[k];
+      bytes ??= force || albumCacheKey.isEmpty ? null : _albumArtCache[albumCacheKey];
       bytes ??= force ? null : await MediaCache.getArt(k);
+      bytes ??= force || albumCacheKey.isEmpty ? null : await MediaCache.getArt(albumCacheKey);
       bytes ??= await fetchArtwork(title, artist, album: album);
       if (token != _artToken || track != _trackKey) return;
       if (bytes != null) {
@@ -299,6 +325,7 @@ class NowPlayingModel extends ChangeNotifier {
         if (token != _artToken || track != _trackKey) return;
         if (decoded != null && !decoded.flat) {
           _artCache[k] = bytes;
+          _rememberAlbumArt(bytes, albumCacheKey);
           MediaCache.putArt(k, bytes);
           if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
           // Use decoded artwork directly: _setArt would invalidate this lookup's token.
@@ -388,10 +415,12 @@ class NowPlayingModel extends ChangeNotifier {
 
   Future<void> _setArt(Uint8List bytes) async {
     final token = ++_artToken;
+    final albumCacheKey = _albumArtKey(artist, album);
     final loaded = await ArtAssets.load(bytes);
     if (token != _artToken) return;
     // Generic music-player placeholders are not usable album artwork.
     art = (loaded != null && !loaded.flat) ? loaded : null;
+    if (art != null) _rememberAlbumArt(bytes, albumCacheKey);
     if (art == null && artLookupEnabled && title.isNotEmpty) {
       // Avoid blocking the media-session event while lookup runs.
       _netTimer?.cancel();
