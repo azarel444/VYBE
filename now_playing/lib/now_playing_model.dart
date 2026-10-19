@@ -42,6 +42,7 @@ class NowPlayingModel extends ChangeNotifier {
   int _sessionArtRetries = 0;
   String _lookupInFlight = '';
   int _artAttempts = 0;
+  String artworkStatus = 'Waiting for playback';
   Timer? _idleTimer;
   String _albumKey = '';
   bool _needsArt = false; // album changed and the player sent no new cover yet
@@ -221,6 +222,7 @@ class NowPlayingModel extends ChangeNotifier {
 
     final artBytes = m['art'];
     if (artBytes is Uint8List && artBytes.isNotEmpty) {
+      artworkStatus = 'Android media session artwork';
       _artClearTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
       _needsArt = false;
@@ -318,6 +320,7 @@ class NowPlayingModel extends ChangeNotifier {
       bytes ??= force || albumCacheKey.isEmpty ? null : _albumArtCache[albumCacheKey];
       bytes ??= force ? null : await MediaCache.getArt(k);
       bytes ??= force || albumCacheKey.isEmpty ? null : await MediaCache.getArt(albumCacheKey);
+      if (bytes == null) artworkStatus = 'Searching online catalogs';
       bytes ??= await fetchArtwork(title, artist, album: album);
       if (token != _artToken || track != _trackKey) return;
       if (bytes != null) {
@@ -330,6 +333,7 @@ class NowPlayingModel extends ChangeNotifier {
           if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
           // Use decoded artwork directly: _setArt would invalidate this lookup's token.
           art = decoded;
+          artworkStatus = 'Artwork restored from cache or online catalog';
           _needsArt = false;
           _artClearTimer?.cancel();
           _artRetryTimer?.cancel();
@@ -342,6 +346,9 @@ class NowPlayingModel extends ChangeNotifier {
       debugPrint('VYBE artwork lookup failed for $k: $error');
     } finally {
       if (_lookupInFlight == k) _lookupInFlight = '';
+    }
+    if (token == _artToken && track == _trackKey && art == null) {
+      artworkStatus = 'Artwork not found; retry ${_artAttempts}/4';
     }
     if (token == _artToken && track == _trackKey && art == null && _artAttempts < 4) {
       // Never cache a failed lookup. Retry while the same track remains active.

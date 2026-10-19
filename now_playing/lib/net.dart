@@ -55,6 +55,7 @@ Future<Uint8List?> fetchArtwork(String title, String artist, {String album = ''}
   final queries = <String>[
     '$artist $title'.trim(),
     '$artist ${clean(title)}'.trim(),
+    '$artist ${clean(title).replaceAll(RegExp(r'\s+'), ' ')}'.trim(),
     if (album.isNotEmpty) '$artist $album'.trim(),
   ].where((q) => q.isNotEmpty).toSet();
   for (final term in queries) {
@@ -91,7 +92,7 @@ Future<Uint8List?> fetchArtwork(String title, String artist, {String album = ''}
   // A second, independent catalog for albums missing from Apple's search.
   // Only query when both artist and album are present; title-only searches
   // frequently return the wrong release and therefore the wrong cover.
-  return fetchCoverArtArchive(artist, album);
+  return fetchCoverArtArchive(artist, album); 
 }
 
 /// MusicBrainz release-group search -> Cover Art Archive front image.
@@ -101,18 +102,23 @@ Future<Uint8List?> fetchCoverArtArchive(String artist, String album) async {
   if (_norm(artist).isEmpty || _norm(album).isEmpty) return null;
   try {
     String quoted(String s) => '"${s.replaceAll('"', '').trim()}"';
-    final query = 'releasegroup:${quoted(album)} AND artist:${quoted(artist)}';
+    final albumVariants = <String>{
+      album.trim(),
+      album.replaceAll(RegExp(r'\s*[\(\[][\s\S]*?(?:remaster|deluxe|anniversary|edition)[\s\S]*?[\)\]]', caseSensitive: false), '').trim(),
+    }..removeWhere((s) => s.isEmpty);
+    for (final albumVariant in albumVariants) {
+    final query = 'releasegroup:${quoted(albumVariant)} AND artist:${quoted(artist)}';
     final body = await httpGetString(Uri.https('musicbrainz.org', '/ws/2/release-group/', {
-      'query': query, 'fmt': 'json', 'limit': '8',
+      'query': query, 'fmt': 'json', 'limit': '12',
     }));
-    if (body == null) return null;
+    if (body == null) continue;
     final decoded = jsonDecode(body);
-    if (decoded is! Map || decoded['release-groups'] is! List) return null;
+    if (decoded is! Map || decoded['release-groups'] is! List) continue;
     for (final item in decoded['release-groups'] as List) {
       if (item is! Map) continue;
       final id = item['id'];
       final name = item['title'];
-      if (id is! String || name is! String || _norm(name) != _norm(album)) continue;
+      if (id is! String || name is! String || _norm(name) != _norm(albumVariant)) continue;
       final credit = item['artist-credit'];
       if (credit is! List) continue;
       final artistMatch = credit.any((part) {
@@ -128,6 +134,7 @@ Future<Uint8List?> fetchCoverArtArchive(String artist, String album) async {
       final image = await httpGetBytes(Uri.https('coverartarchive.org',
           '/release-group/$id/front-500'));
       if (image != null && image.isNotEmpty) return image;
+    }
     }
   } catch (_) {
     // Absence or network failure should never break playback.

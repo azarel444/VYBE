@@ -3,8 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 
-/// Fanart.tv client. A user-supplied API key is required.
-/// No public/test key is embedded in the shipped application.
+/// Fanart.tv client. Receives the development credential from app settings.
+/// Production builds must use a server-side proxy instead.
 class ArtistFanartCache {
   final Map<String, Uint8List?> _memory = {};
   String lastStatus = 'Not checked';
@@ -24,28 +24,49 @@ class ArtistFanartCache {
         lastStatus = 'Loaded cached image';
         return bytes;
       }
+      // Search more than one candidate: MusicBrainz may return duplicate names,
+      // legacy entries, or artist records without Fanart.tv coverage.
       final search = Uri.https('musicbrainz.org', '/ws/2/artist/', {
-        'query': 'artist:"${artist.replaceAll('"', '')}"', 'fmt': 'json', 'limit': '5',
+        'query': 'artist:"${artist.replaceAll('"', '')}"', 'fmt': 'json', 'limit': '15',
       });
       final result = await _json(search);
       final candidates = result['artists'];
-      if (candidates is! List) { lastStatus = 'MusicBrainz lookup failed'; return null; }
-      String? mbid;
+      if (candidates is! List) { lastStatus = 'MusicBrainz lookup unavailable'; return null; }
+      final ids = <String>[];
       for (final entry in candidates) {
-        if (entry is Map && (entry['name']?.toString().toLowerCase() == cacheKey)) {
-          mbid = entry['id']?.toString(); break;
+        if (entry is! Map) continue;
+        final candidateName = entry['name']?.toString().toLowerCase().trim();
+        final candidateId = entry['id']?.toString();
+        if (candidateName == cacheKey && candidateId != null && candidateId.isNotEmpty && !ids.contains(candidateId)) {
+          ids.add(candidateId);
         }
       }
-      if (mbid == null) { lastStatus = 'Artist not matched in MusicBrainz'; return null; }
-      final fanart = await _json(Uri.https('webservice.fanart.tv', '/v3/music/$mbid', {'api_key': projectKey, if (personalKey.isNotEmpty) 'client_key': personalKey}));
-      final images = fanart['artistbackground'];
-      if (images is! List || images.isEmpty) { lastStatus = 'Fanart.tv returned no artist background (or API request failed)'; return null; }
-      final entry = images.first;
-      if (entry is! Map || entry['url'] is! String) return null;
-      final uri = Uri.tryParse(entry['url'] as String);
-      if (uri == null || uri.scheme != 'https') return null;
-      final bytes = await _bytes(uri);
-      if (bytes == null) return null;
+      if (ids.isEmpty) { lastStatus = 'Artist not matched in MusicBrainz'; return null; }
+      Uint8List? bytes;
+      var noBackground = 0;
+      var lookupFailures = 0;
+      for (final mbid in ids.take(5)) {
+        final response = await _json(Uri.https('webservice.fanart.tv', '/v3/music/$mbid', {
+          'api_key': projectKey,
+          if (personalKey.isNotEmpty) 'client_key': personalKey,
+        }));
+        if (response.isEmpty) { lookupFailures++; continue; }
+        final images = response['artistbackground'];
+        if (images is! List || images.isEmpty) { noBackground++; continue; }
+        for (final entry in images.take(3)) {
+          if (entry is! Map || entry['url'] is! String) continue;
+          final uri = Uri.tryParse(entry['url'] as String);
+          if (uri == null || uri.scheme != 'https') continue;
+          bytes = await _bytes(uri);
+          if (bytes != null && bytes.isNotEmpty) break;
+        }
+        if (bytes != null && bytes.isNotEmpty) break;
+      }
+      if (bytes == null || bytes.isEmpty) {
+        lastStatus = 'No usable background across ${ids.take(5).length} artist IDs '
+            '($noBackground without images, $lookupFailures request failures)';
+        return null;
+      }
       await file.writeAsBytes(bytes, flush: false);
       _memory[cacheKey] = bytes;
       lastStatus = 'Downloaded artist background';
