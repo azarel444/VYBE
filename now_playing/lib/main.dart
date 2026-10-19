@@ -72,21 +72,23 @@ class _RootState extends State<_Root> {
     setState(() { _firstLaunchSplash = false; _onboarded = false; });
   }
 
+  bool _finishing = false;
+
   Future<void> _finish() async {
+    if (_finishing) return;
+    _finishing = true;
+    // Enter the player even if a storage write fails. A failed persistence
+    // operation must never leave the Launch VYBE button apparently dead.
     try {
       final p = await SharedPreferences.getInstance();
-      final primarySaved = await p.setBool('vybe_setup_completed_v2', true);
-      final legacySaved = await p.setBool('onboarded', true);
-      if (!primarySaved || !legacySaved) {
-        debugPrint('VYBE: onboarding completion could not be persisted');
-        return;
-      }
+      await p.setBool('vybe_setup_completed_v2', true);
+      await p.setBool('onboarded', true);
     } catch (e) {
-      debugPrint('VYBE: failed to save onboarding completion: $e');
-      return;
+      debugPrint('VYBE: onboarding save failed: $e');
+    } finally {
+      if (mounted) setState(() => _onboarded = true);
+      _finishing = false;
     }
-    if (!mounted) return;
-    setState(() => _onboarded = true);
   }
 
   @override
