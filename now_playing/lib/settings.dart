@@ -84,6 +84,7 @@ class AppSettings extends ChangeNotifier {
   int diagonalWaveStyle = 0; // 0 bars, 1 smooth wave, 2 dot wave
   int fanartMode = 0; // 0 album, 1 artist, 2 auto
   String fanartApiKey = '';
+  String fanartProjectKey = '';
   double sensitivity = 1.0; // 0.5 .. 1.5
   int vizStyle = 0; // Focused theme: 0 ring, 1 bars
   int barCount = 96;
@@ -162,6 +163,7 @@ class AppSettings extends ChangeNotifier {
   final Map<String, int> fxBlendMode = <String, int>{};
   final Map<String, double> fxSize = <String, double>{};
   final Map<String, double> fxBlendOpacity = <String, double>{};
+  double bgBlur = 6.0; // Original album blur = 6; fanart originally sharp.
   double bgContrast = 1.4; // blurred background contrast, 1.0 (normal) .. 2.0
 
   ArtPalette? get accentPalette =>
@@ -177,6 +179,7 @@ class AppSettings extends ChangeNotifier {
     diagonalWaveStyle = _int(p, 'diagonalWaveStyle', 0, 0, 2);
     fanartMode = _int(p, 'fanartMode', 0, 0, 2);
     fanartApiKey = p.getString('fanartApiKey') ?? '';
+    fanartProjectKey = p.getString('fanartProjectKey') ?? '';
     sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
     vizStyle = _int(p, 'vizStyle', 0, 0, 1);
     final bc = p.getInt('barCount') ?? 96;
@@ -261,6 +264,7 @@ class AppSettings extends ChangeNotifier {
       fxBlendMode[n] = (p.getInt('fxBlendMode:$n') ?? 0).clamp(0, 23);
       fxBlendOpacity[n] = (p.getDouble('fxBlendOpacity:$n') ?? 1.0).clamp(0.0, 1.0).toDouble();
     }
+    bgBlur = (p.getDouble('bgBlur') ?? 6.0).clamp(0.0, 18.0).toDouble();
     bgContrast = (p.getDouble('bgContrast') ?? 1.4).clamp(1.0, 2.0).toDouble();
     notifyListeners();
     if (migrated) save();
@@ -288,6 +292,7 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('diagonalWaveStyle', diagonalWaveStyle);
     await p.setInt('fanartMode', fanartMode);
     await p.setString('fanartApiKey', fanartApiKey);
+    await p.setString('fanartProjectKey', fanartProjectKey);
     await p.setDouble('sensitivity', sensitivity);
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('barCount', barCount);
@@ -358,6 +363,7 @@ class AppSettings extends ChangeNotifier {
       await p.setInt('fxBlendMode:$n', fxBlendMode[n] ?? 0);
       await p.setDouble('fxBlendOpacity:$n', fxBlendOpacity[n] ?? 1.0);
     }
+    await p.setDouble('bgBlur', bgBlur);
     await p.setDouble('bgContrast', bgContrast);
   }
 

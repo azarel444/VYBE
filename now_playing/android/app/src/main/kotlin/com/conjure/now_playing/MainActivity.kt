@@ -149,6 +149,7 @@ open class MainActivity : FlutterActivity() {
                 "next" -> { controller?.transportControls?.skipToNext(); result.success(null) }
                 "previous" -> { controller?.transportControls?.skipToPrevious(); result.success(null) }
                 "refresh" -> { refresh(); result.success(null) }
+                "recheckArtwork" -> { push(true); result.success(null) }
                 "startVisualizer" -> result.success(startVisualizer())
                 "stopVisualizer" -> { stopVisualizer(); result.success(null) }
                 "openAccessSettings" -> { openAccessSettings(); result.success(null) }

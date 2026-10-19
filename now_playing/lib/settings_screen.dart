@@ -177,8 +177,13 @@ class SettingsScreen extends StatelessWidget {
       _choices('Artwork background image', const ['Album Art', 'Artist Fanart', 'Auto (fanart then album)'], s.fanartMode,
         (i) => s.update(() => s.fanartMode = i)),
       if (s.fanartMode != 0) TextFormField(
+        initialValue: s.fanartProjectKey,
+        decoration: const InputDecoration(labelText: 'Fanart.tv project API key', helperText: 'Required for requests. A personal key alone cannot authenticate the app.'),
+        onChanged: (v) => s.update(() => s.fanartProjectKey = v.trim()),
+      ),
+      if (s.fanartMode != 0) TextFormField(
         initialValue: s.fanartApiKey,
-        decoration: const InputDecoration(labelText: 'Fanart.tv personal API key', helperText: 'Required for artist images; without a key VYBE uses album artwork.'),
+        decoration: const InputDecoration(labelText: 'Fanart.tv personal API key', helperText: 'Optional client key. Requires a project key above.'),
         onChanged: (v) => s.update(() => s.fanartApiKey = v.trim()),
       ),
       _choices('Background source', const [
@@ -189,6 +194,9 @@ class SettingsScreen extends StatelessWidget {
       _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
         s.bgOverlay, 0.0, 2.0,
         (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
+      _slider('Background blur', '${s.bgBlur.round()}',
+        s.bgBlur, 0.0, 18.0,
+        (v) => s.update(() => s.bgBlur = v, persist: false), s.save),
       _slider('Background contrast', '${(s.bgContrast * 100).round()}%',
         s.bgContrast, 1.0, 2.0,
         (v) => s.update(() => s.bgContrast = v, persist: false), s.save),

@@ -38,6 +38,8 @@ class NowPlayingModel extends ChangeNotifier {
   Timer? _netTimer;
   Timer? _artClearTimer;
   Timer? _artRetryTimer;
+  Timer? _sessionArtRetryTimer;
+  int _sessionArtRetries = 0;
   String _lookupInFlight = '';
   int _artAttempts = 0;
   Timer? _idleTimer;
@@ -83,6 +85,7 @@ class NowPlayingModel extends ChangeNotifier {
     _netTimer?.cancel();
     _artClearTimer?.cancel();
     _artRetryTimer?.cancel();
+    _sessionArtRetryTimer?.cancel();
     _idleTimer?.cancel();
     super.dispose();
   }
@@ -183,6 +186,8 @@ class NowPlayingModel extends ChangeNotifier {
     if (changed) {
       _artToken++; // Invalidate lookups and decoding from the previous song.
       _artRetryTimer?.cancel();
+      _sessionArtRetryTimer?.cancel();
+      _sessionArtRetries = 0;
       _artAttempts = 0;
       _lookupInFlight = '';
       _needsArt = false;
@@ -192,8 +197,9 @@ class NowPlayingModel extends ChangeNotifier {
     }
 
     final artBytes = m['art'];
-    if (artBytes is Uint8List) {
+    if (artBytes is Uint8List && artBytes.isNotEmpty) {
       _artClearTimer?.cancel();
+      _sessionArtRetryTimer?.cancel();
       _needsArt = false;
       if (art == null || !listEquals(art!.bytes, artBytes)) {
         _setArt(artBytes);
@@ -216,6 +222,7 @@ class NowPlayingModel extends ChangeNotifier {
     }
     _trackKey = key;
     _albumKey = albumKey;
+    if (art == null && title.isNotEmpty) _scheduleSessionArtRetry();
 
     if (changed) {
       lyrics = null;
@@ -225,6 +232,23 @@ class NowPlayingModel extends ChangeNotifier {
       _netTimer = Timer(const Duration(milliseconds: 700), _runNetwork);
     }
     notifyListeners();
+  }
+
+  // Re-query the Android media session when the player publishes metadata
+  // before its artwork. A refresh re-reads the existing session without
+  // restarting the music player or changing the track.
+  void _scheduleSessionArtRetry() {
+    if (_sessionArtRetryTimer != null || _sessionArtRetries >= 6 ||
+        _linkReceiverActive) return;
+    final track = _trackKey;
+    final delays = <int>[1, 2, 3, 5, 8, 12];
+    final delay = delays[_sessionArtRetries++];
+    _sessionArtRetryTimer = Timer(Duration(seconds: delay), () {
+      _sessionArtRetryTimer = null;
+      if (_trackKey != track || art != null || !active) return;
+      _control.invokeMethod<void>('recheckArtwork').catchError((_) {});
+      _scheduleSessionArtRetry();
+    });
   }
 
   void _clearAll() {
@@ -237,6 +261,8 @@ class NowPlayingModel extends ChangeNotifier {
     _needsArt = false;
     _artClearTimer?.cancel();
     _artRetryTimer?.cancel();
+    _sessionArtRetryTimer?.cancel();
+    _sessionArtRetries = 0;
     _artAttempts = 0;
     _lookupInFlight = '';
     _artToken++;

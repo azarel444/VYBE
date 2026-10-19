@@ -7,10 +7,12 @@ import 'package:path_provider/path_provider.dart';
 /// No public/test key is embedded in the shipped application.
 class ArtistFanartCache {
   final Map<String, Uint8List?> _memory = {};
+  String lastStatus = 'Not checked';
 
-  Future<Uint8List?> get(String artist, String key) async {
+  Future<Uint8List?> get(String artist, String projectKey, {String personalKey = ''}) async {
     final cacheKey = artist.toLowerCase().trim();
-    if (_memory.containsKey(cacheKey)) return _memory[cacheKey];
+    if (projectKey.trim().isEmpty) { lastStatus = 'Missing project API key'; return null; }
+    if (_memory[cacheKey] != null) { lastStatus = 'Cached artwork'; return _memory[cacheKey]; }
     try {
       final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
       await folder.create(recursive: true);
@@ -19,6 +21,7 @@ class ArtistFanartCache {
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
         _memory[cacheKey] = bytes;
+        lastStatus = 'Loaded cached image';
         return bytes;
       }
       final search = Uri.https('musicbrainz.org', '/ws/2/artist/', {
@@ -26,17 +29,17 @@ class ArtistFanartCache {
       });
       final result = await _json(search);
       final candidates = result['artists'];
-      if (candidates is! List) return null;
+      if (candidates is! List) { lastStatus = 'MusicBrainz lookup failed'; return null; }
       String? mbid;
       for (final entry in candidates) {
         if (entry is Map && (entry['name']?.toString().toLowerCase() == cacheKey)) {
           mbid = entry['id']?.toString(); break;
         }
       }
-      if (mbid == null) return null;
-      final fanart = await _json(Uri.https('webservice.fanart.tv', '/v3/music/$mbid', {'api_key': key}));
+      if (mbid == null) { lastStatus = 'Artist not matched in MusicBrainz'; return null; }
+      final fanart = await _json(Uri.https('webservice.fanart.tv', '/v3/music/$mbid', {'api_key': projectKey, if (personalKey.isNotEmpty) 'client_key': personalKey}));
       final images = fanart['artistbackground'];
-      if (images is! List || images.isEmpty) return null;
+      if (images is! List || images.isEmpty) { lastStatus = 'Fanart.tv returned no artist background (or API request failed)'; return null; }
       final entry = images.first;
       if (entry is! Map || entry['url'] is! String) return null;
       final uri = Uri.tryParse(entry['url'] as String);
@@ -45,8 +48,9 @@ class ArtistFanartCache {
       if (bytes == null) return null;
       await file.writeAsBytes(bytes, flush: false);
       _memory[cacheKey] = bytes;
+      lastStatus = 'Downloaded artist background';
       return bytes;
-    } catch (_) { return null; }
+    } catch (e) { lastStatus = 'Artwork request failed: $e'; return null; }
   }
 
   Future<Map<String, dynamic>> _json(Uri uri) async {

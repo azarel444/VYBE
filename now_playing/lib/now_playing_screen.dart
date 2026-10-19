@@ -46,6 +46,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Uint8List? _fanartBytes;
   String _fanartArtist = '';
   int _fanartRequest = 0;
+  DateTime? _fanartLastFailure;
   final particles = ParticleField();
   final glitch = GlitchState();
   final grid = GridState();
@@ -563,18 +564,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
-    if (settings.fanartMode == 0 || settings.fanartApiKey.isEmpty || artist.isEmpty) {
+    if (settings.fanartMode == 0 || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
         _fanartArtist = ''; _fanartBytes = null;
       }
       return;
     }
-    if (_fanartArtist == artist) return;
+    if (_fanartArtist == artist && _fanartBytes != null) return;
+    if (_fanartArtist == artist && _fanartLastFailure != null &&
+        DateTime.now().difference(_fanartLastFailure!) < const Duration(seconds: 25)) return;
     _fanartArtist = artist;
     _fanartBytes = null;
     final request = ++_fanartRequest;
-    final bytes = await _fanart.get(artist, settings.fanartApiKey);
+    final bytes = await _fanart.get(artist, settings.fanartProjectKey, personalKey: settings.fanartApiKey);
     if (mounted && request == _fanartRequest && _fanartArtist == artist) {
+      _fanartLastFailure = bytes == null ? DateTime.now() : null;
       setState(() => _fanartBytes = bytes);
     }
   }
@@ -635,8 +639,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _albumBackdrop() {
     if (settings.fanartMode != 0 && _fanartBytes != null) {
       return Stack(fit: StackFit.expand, children: [
-        Image.memory(_fanartBytes!, fit: BoxFit.cover, gaplessPlayback: true,
-          filterQuality: FilterQuality.low),
+        // Fanart was unblurred before this setting. Keep that original look
+        // at the default value while allowing additional softening.
+        ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(
+            sigmaX: (settings.bgBlur - 6.0).clamp(0.0, 12.0).toDouble(),
+            sigmaY: (settings.bgBlur - 6.0).clamp(0.0, 12.0).toDouble(),
+            tileMode: TileMode.clamp),
+          child: Image.memory(_fanartBytes!, fit: BoxFit.cover, gaplessPlayback: true,
+            filterQuality: FilterQuality.low),
+        ),
         ColoredBox(color: Colors.black.withOpacity(
           (0.32 + settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
       ]);
@@ -664,7 +676,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           colorFilter: _contrastFilter(settings.bgContrast),
           child: ImageFiltered(
             imageFilter: ui.ImageFilter.blur(
-                sigmaX: 6, sigmaY: 6, tileMode: TileMode.clamp),
+                sigmaX: settings.bgBlur, sigmaY: settings.bgBlur, tileMode: TileMode.clamp),
             child: RawImage(
               image: art.tiny,
               fit: BoxFit.cover,
@@ -784,6 +796,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (theme == 4) onRight = settings.driveSwap;
       // Fan and Record Cut landscape have the artwork on the left/right.
       if (theme == 7 || theme == AppSettings.tTypo) onRight = false;
+      // Follow the information panel when a theme swaps its art and text.
+      if (settings.layoutSwap && (theme == 5 || theme == 7 || theme == 9 || theme == 6 || theme == 8)) onRight = !onRight;
+      if (theme == 9) onRight = settings.layoutSwap;
       // Typo uses upper-center when lyrics actually display, upper-left
       // when the right pane contains artwork (including disabled lyrics).
     }
@@ -1994,6 +2009,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final art = model.art;
     final big = r * 2;
     final rim = math.max(4.0, d * 0.03).toDouble();
+    // The full-screen background is already painted below the Record Cut
+    // layout. An opaque disc here used to hide it behind a hard circular
+    // boundary. With artist fanart active, keep the disc's subdued styling
+    // but let the *same continuous background* show through its surface.
+    final showFanartThroughDisc = settings.fanartMode != 0 &&
+        _fanartBytes != null &&
+        (settings.backgroundSource == 0 ||
+         settings.backgroundSource == 3 ||
+         settings.backgroundSource == 5);
+    if (showFanartThroughDisc) {
+      return RepaintBoundary(
+        child: Container(
+          width: big,
+          height: big,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0x77000000),
+            border: Border.all(color: const Color(0xBB000000), width: rim),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.35),
+                  blurRadius: d * 0.06),
+            ],
+          ),
+        ),
+      );
+    }
     final Widget inner = ClipOval(
       child: art == null
           ? const DecoratedBox(
@@ -2032,7 +2073,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 color: Colors.black.withOpacity(0.75), blurRadius: d * 0.1),
           ],
         ),
-        child: Stack(fit: StackFit.expand, children: [inner, const ColoredBox(color: Color(0xA6000000))]),
+        child: ClipOval(child: Stack(fit: StackFit.expand, children: [
+          inner,
+          const ColoredBox(color: Color(0xA6000000)),
+        ])),
       ),
     );
   }
@@ -2673,8 +2717,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final Widget picture = ShaderMask(
       blendMode: BlendMode.dstIn,
       shaderCallback: (rect) => LinearGradient(
-        begin: narrow ? Alignment.topCenter : Alignment.centerLeft,
-        end: narrow ? Alignment.bottomCenter : Alignment.centerRight,
+        begin: narrow ? Alignment.topCenter : (settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft),
+        end: narrow ? Alignment.bottomCenter : (settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight),
         colors: const [
           Color(0x00FFFFFF),
           Color(0x00FFFFFF),
@@ -2769,13 +2813,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           width: w * 0.57,
           child: IgnorePointer(child: DecoratedBox(
             decoration: BoxDecoration(gradient: LinearGradient(
-              begin: Alignment.centerLeft, end: Alignment.centerRight,
+              begin: settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft,
+              end: settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight,
               colors: const [Color(0x99000000), Color(0x66000000), Color(0x00000000)],
               stops: const [0.0, 0.48, 1.0],
             )),
           )),
         ),
-      if (settings.backgroundSource == 0 || settings.backgroundSource == 3 || settings.backgroundSource == 5) _orbitGhost(w, h, narrow),
+      if ((settings.backgroundSource == 0 || settings.backgroundSource == 3 || settings.backgroundSource == 5) && !(settings.fanartMode != 0 && _fanartBytes != null)) _orbitGhost(w, h, narrow),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.
