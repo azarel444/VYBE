@@ -2233,6 +2233,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),
               ],
             ],
+          ),
         ),
       ],
     );
@@ -2411,6 +2412,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),
               ],
             ],
+          ),
         ),
       ],
     );
