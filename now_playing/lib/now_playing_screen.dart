@@ -2217,10 +2217,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               : cx - r - maxLen - w * 0.08),
           top: 0,
           bottom: 0,
-          child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
-            child: Column(
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2236,7 +2233,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),
               ],
             ],
-          ),
         ),
       ],
     );
@@ -2399,10 +2395,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           right: settings.layoutSwap ? textLeft : edge + w * 0.03,
           top: 0,
           bottom: 0,
-          child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
-            child: Column(
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2418,7 +2411,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _lyricBlock(h, Alignment.centerLeft, vhs: false),
               ],
             ],
-          ),
         ),
       ],
     );
