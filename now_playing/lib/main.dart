@@ -58,7 +58,7 @@ class _RootState extends State<_Root> {
     var done = false;
     try {
       final p = await SharedPreferences.getInstance();
-      done = p.getBool('onboarded') ?? false;
+      done = (p.getBool('vybe_setup_completed_v2') ?? false) || (p.getBool('onboarded') ?? false);
     } catch (_) {}
     if (!mounted) return;
     if (done) {
@@ -75,8 +75,16 @@ class _RootState extends State<_Root> {
   Future<void> _finish() async {
     try {
       final p = await SharedPreferences.getInstance();
-      await p.setBool('onboarded', true);
-    } catch (_) {}
+      final primarySaved = await p.setBool('vybe_setup_completed_v2', true);
+      final legacySaved = await p.setBool('onboarded', true);
+      if (!primarySaved || !legacySaved) {
+        debugPrint('VYBE: onboarding completion could not be persisted');
+        return;
+      }
+    } catch (e) {
+      debugPrint('VYBE: failed to save onboarding completion: $e');
+      return;
+    }
     if (!mounted) return;
     setState(() => _onboarded = true);
   }
