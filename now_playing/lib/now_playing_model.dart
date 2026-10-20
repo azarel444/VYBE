@@ -335,6 +335,9 @@ class NowPlayingModel extends ChangeNotifier {
       _artRetryTimer?.cancel();
       _artAttempts = 0;
     }
+    // _runNetwork can be called repeatedly for one track; do not let it
+    // bypass the retry budget after the scheduled attempts are exhausted.
+    if (_artAttempts >= 4) return;
     _lookupInFlight = k;
     _artAttempts++;
     try {
@@ -381,7 +384,9 @@ class NowPlayingModel extends ChangeNotifier {
       if (_lookupInFlight == k) _lookupInFlight = '';
     }
     if (token == _artToken && track == _trackKey && art == null) {
-      artworkStatus = 'Artwork not found; retry ${_artAttempts}/4';
+      artworkStatus = _artAttempts < 4
+          ? 'Artwork not found; retry ${_artAttempts}/4'
+          : 'Artwork not found; automatic retries exhausted (4/4)';
       artworkLookupState = 'No usable match (attempt $_artAttempts/4)';
       if (artworkFailure == 'None') artworkFailure = 'No usable artwork returned by catalogs';
       notifyListeners();

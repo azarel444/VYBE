@@ -392,8 +392,15 @@ class AppSettings extends ChangeNotifier {
       default: throw ArgumentError.value(key, 'key');
     }
     notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setBool(key, value);
+    final previous = _pendingSave;
+    final next = previous.catchError((Object error) {
+      debugPrint('VYBE previous save failed: $error');
+    }).then((_) async {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(key, value);
+    });
+    _pendingSave = next;
+    await next;
   }
 
   /// Apply a change, tell listeners, and (by default) save it.

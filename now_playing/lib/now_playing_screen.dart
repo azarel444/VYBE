@@ -1,3 +1,4 @@
+import 'onboarding.dart';
 import 'vybe_link.dart';
 import 'dart:async';
 import 'dart:typed_data';
@@ -166,8 +167,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (mounted) setState(() => _noise = img);
     });
     _updateClock();
-    settings.load().then((_) {
+    settings.load().then((_) async {
       if (!mounted) return;
+      if (!widget.driveHost) {
+        final selections = OnboardingScreen.launchSelections;
+        if (selections != null) {
+          OnboardingScreen.launchSelections = null;
+          for (final choice in selections.entries) {
+            await settings.setLaunchOrContentChoice(choice.key, choice.value);
+          }
+        }
+      }
       if (widget.driveHost) {
         // The Drive window always shows the Drive theme.
         // Force the Drive view only for this engine, without saving the
@@ -206,7 +216,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _fxGovernor.enabled = settings.autoFxQuality && settings.fxPerformanceMode != 2 && !settings.performance;
       model.refresh();
       // The Drive window may have changed the theme while VYBE was away.
-      if (!widget.driveHost && _themeReady) settings.load();
+      // Avoid racing an in-flight settings write with a stale preference reload.
+      // The Drive engine never writes launch/content preferences.
     }
   }
 

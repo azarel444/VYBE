@@ -43,6 +43,9 @@ class SplashScreen extends StatelessWidget {
 /// for it. Optional ones can be skipped; the tour can be replayed from
 /// Settings.
 class OnboardingScreen extends StatefulWidget {
+  // One-time in-process handoff prevents stale preference reads at launch.
+  static Map<String, bool>? launchSelections;
+
   final VoidCallback onDone;
 
   /// Given when replayed from Settings, so changes go through the same
@@ -149,6 +152,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   Future<void> _next() async {
     if (_step >= _lastStep) {
+      OnboardingScreen.launchSelections = {
+        'artLookup': _art, 'lyrics': _lyrics,
+        'bootStart': _boot, 'musicStart': _music,
+      };
       // Do not gate entry into VYBE on a potentially stalled preference write.
       // The selected values are captured from UI state and committed by the
       // root before its main screen is shown.
