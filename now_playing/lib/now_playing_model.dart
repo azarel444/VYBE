@@ -43,6 +43,16 @@ class NowPlayingModel extends ChangeNotifier {
   String _lookupInFlight = '';
   int _artAttempts = 0;
   String artworkStatus = 'Waiting for playback';
+  String sessionArtworkStatus = 'No media-session event yet';
+  String artworkSource = 'None';
+  String artworkFailure = 'None';
+  String artworkLookupState = 'Idle';
+
+  String get artworkDiagnostics => 'Track: $title\nArtist: $artist\nAlbum: $album\n'
+      'Session artwork: $sessionArtworkStatus\n'
+      'Source: $artworkSource\nLookup: $artworkLookupState\n'
+      'Status: $artworkStatus\nFailure: $artworkFailure\n'
+      'Cover displayed: ${art != null && !art!.flat}';
   Timer? _idleTimer;
   String _albumKey = '';
   bool _needsArt = false; // album changed and the player sent no new cover yet
@@ -210,18 +220,27 @@ class NowPlayingModel extends ChangeNotifier {
       _artAttempts = 0;
       _lookupInFlight = '';
       _needsArt = false;
+      sessionArtworkStatus = 'Awaiting artwork for new track';
+      artworkSource = 'None';
+      artworkFailure = 'None';
+      artworkLookupState = 'Idle';
       _artClearTimer?.cancel();
       // Only reuse a cover when the album is positively identified as the same.
       if (albumChanged || album.isEmpty) art = null;
       // Restore an already decoded cover from another track on this album.
       if (art == null && cacheAlbumKey.isNotEmpty) {
         final cached = _albumArtCache[cacheAlbumKey];
-        if (cached != null) _setArt(cached);
+        if (cached != null) {
+          artworkSource = 'Album memory cache';
+          _setArt(cached);
+        }
       }
     }
 
     final artBytes = m['art'];
     if (artBytes is Uint8List && artBytes.isNotEmpty) {
+      sessionArtworkStatus = 'Received ${artBytes.length} bytes';
+      artworkSource = 'Android media session';
       artworkStatus = 'Android media session artwork';
       _artClearTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
@@ -230,6 +249,7 @@ class NowPlayingModel extends ChangeNotifier {
         _setArt(artBytes);
       }
     } else if (changed && art != null) {
+      sessionArtworkStatus = 'Missing (no bytes in media session)';
       // Keep showing the current cover. Within the same album it stays for
       // good. If the album changed and no new cover shows up in a few
       // seconds, drop it so the placeholder (or an online lookup) takes over.
@@ -244,6 +264,9 @@ class NowPlayingModel extends ChangeNotifier {
           if (artLookupEnabled && title.isNotEmpty) _lookupArt();
         });
       }
+    }
+    if ((artBytes is! Uint8List || artBytes.isEmpty) && changed) {
+      sessionArtworkStatus = 'Missing (no bytes in media session)';
     }
     _trackKey = key;
     _albumKey = albumKey;
@@ -320,8 +343,14 @@ class NowPlayingModel extends ChangeNotifier {
       bytes ??= force || albumCacheKey.isEmpty ? null : _albumArtCache[albumCacheKey];
       bytes ??= force ? null : await MediaCache.getArt(k);
       bytes ??= force || albumCacheKey.isEmpty ? null : await MediaCache.getArt(albumCacheKey);
-      if (bytes == null) artworkStatus = 'Searching online catalogs';
+      if (bytes != null) artworkSource = 'Memory or disk cache';
+      if (bytes == null) {
+        artworkStatus = 'Searching online catalogs';
+        artworkLookupState = 'Searching iTunes / Cover Art Archive';
+        notifyListeners();
+      }
       bytes ??= await fetchArtwork(title, artist, album: album);
+      if (bytes != null && artworkSource != 'Memory or disk cache') artworkSource = 'Online catalog (iTunes or Cover Art Archive)';
       if (token != _artToken || track != _trackKey) return;
       if (bytes != null) {
         final decoded = await ArtAssets.load(bytes);
@@ -334,6 +363,8 @@ class NowPlayingModel extends ChangeNotifier {
           // Use decoded artwork directly: _setArt would invalidate this lookup's token.
           art = decoded;
           artworkStatus = 'Artwork restored from cache or online catalog';
+          artworkLookupState = 'Found and decoded';
+          artworkFailure = 'None';
           _needsArt = false;
           _artClearTimer?.cancel();
           _artRetryTimer?.cancel();
@@ -342,6 +373,8 @@ class NowPlayingModel extends ChangeNotifier {
         }
       }
     } catch (error) {
+      artworkFailure = 'Lookup exception: $error';
+      artworkLookupState = 'Failed';
       // A temporary network/decoder failure must not permanently suppress retries.
       debugPrint('VYBE artwork lookup failed for $k: $error');
     } finally {
@@ -349,6 +382,9 @@ class NowPlayingModel extends ChangeNotifier {
     }
     if (token == _artToken && track == _trackKey && art == null) {
       artworkStatus = 'Artwork not found; retry ${_artAttempts}/4';
+      artworkLookupState = 'No usable match (attempt $_artAttempts/4)';
+      if (artworkFailure == 'None') artworkFailure = 'No usable artwork returned by catalogs';
+      notifyListeners();
     }
     if (token == _artToken && track == _trackKey && art == null && _artAttempts < 4) {
       // Never cache a failed lookup. Retry while the same track remains active.
@@ -427,6 +463,13 @@ class NowPlayingModel extends ChangeNotifier {
     if (token != _artToken) return;
     // Generic music-player placeholders are not usable album artwork.
     art = (loaded != null && !loaded.flat) ? loaded : null;
+    if (art == null) {
+      artworkFailure = 'Received image was empty, invalid, or a placeholder';
+      if (artworkSource == 'Android media session') sessionArtworkStatus = 'Received but unusable';
+    } else {
+      artworkFailure = 'None';
+      artworkLookupState = 'Artwork displayed';
+    }
     if (art != null) _rememberAlbumArt(bytes, albumCacheKey);
     if (art == null && artLookupEnabled && title.isNotEmpty) {
       // Avoid blocking the media-session event while lookup runs.

@@ -655,8 +655,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Image.memory(_fanartBytes!, fit: BoxFit.cover, gaplessPlayback: true,
             filterQuality: FilterQuality.low),
         ),
+        // A single darkness layer controlled entirely by Background darkness.
+        // Zero means no dimming for artist photos, just like album covers.
         ColoredBox(color: Colors.black.withOpacity(
-          (0.32 + settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
+          (settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
       ]);
     }
     final art = model.art;
@@ -703,19 +705,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             blurred,
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color.fromARGB((140 * settings.bgOverlay).round().clamp(0, 255).toInt(), 0, 0, 0),
-                    Color.fromARGB((89 * settings.bgOverlay).round().clamp(0, 255).toInt(), 0, 0, 0),
-                    Color.fromARGB((179 * settings.bgOverlay).round().clamp(0, 255).toInt(), 0, 0, 0),
-                  ],
-                ),
-              ),
-            ),
+            // Same single user-controlled darkness layer as fanart.
+            ColoredBox(color: Colors.black.withOpacity(
+              (settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
           ],
         ),
       );

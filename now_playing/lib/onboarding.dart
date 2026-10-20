@@ -70,6 +70,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _boot = false;
   bool _music = false;
   Timer? _poll;
+  Future<void> _pendingChoiceWrite = Future<void>.value();
 
   @override
   void initState() {
@@ -117,6 +118,14 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   /// Saves a yes/no choice, through the app's settings when replaying.
   Future<void> _put(String key, bool v) async {
+    // Serialize writes so finishing onboarding cannot race the final toggle.
+    final previous = _pendingChoiceWrite;
+    final next = previous.catchError((Object _) {}).then((_) => _saveChoice(key, v));
+    _pendingChoiceWrite = next;
+    await next;
+  }
+
+  Future<void> _saveChoice(String key, bool v) async {
     final s = widget.settings;
     if (s != null) {
       s.update(() {
@@ -143,8 +152,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   bool _granted(String k) => _perm[k] == true;
 
-  void _next() {
+  Future<void> _next() async {
     if (_step >= _lastStep) {
+      await _pendingChoiceWrite;
+      if (!mounted) return;
       widget.onDone();
     } else {
       setState(() => _step++);

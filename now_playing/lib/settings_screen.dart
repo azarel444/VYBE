@@ -1,5 +1,6 @@
 import 'vybe_link_settings.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'native.dart';
 import 'now_playing_model.dart';
@@ -120,6 +121,16 @@ class SettingsScreen extends StatelessWidget {
       _switch('Show lyrics',
           'When off, themes use the available space for artwork and song details',
           s.lyrics, (v) => s.update(() => s.lyrics = v)),
+      _section('Artwork diagnostics'),
+      _action('Copy artwork diagnostics',
+          'Track, media-session artwork, cache/online lookup and failure details',
+          'Copy Diagnostics', () async {
+            await Clipboard.setData(ClipboardData(text: model.artworkDiagnostics));
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Artwork diagnostics copied')));
+          }),
+      Text(model.artworkDiagnostics,
+          style: const TextStyle(fontSize: 13, color: Colors.white70)),
       _section('Offline media cache'),
       _action('Clear cached artwork and lyrics',
           'Delete downloaded artwork and synced lyrics stored on this device',
