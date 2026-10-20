@@ -71,6 +71,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _music = false;
   Timer? _poll;
   Future<void> _pendingChoiceWrite = Future<void>.value();
+  bool _choicesTouched = false;
 
   @override
   void initState() {
@@ -96,6 +97,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   Future<void> _loadChoices() async {
     final p = await SharedPreferences.getInstance();
     if (!mounted) return;
+    if (_choicesTouched) return;
     setState(() {
       _art = p.getBool('artLookup') ?? true;
       _lyrics = p.getBool('lyrics') ?? false;
@@ -126,28 +128,21 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Future<void> _saveChoice(String key, bool v) async {
-    final s = widget.settings;
-    if (s != null) {
-      s.update(() {
-        switch (key) {
-          case 'artLookup':
-            s.artLookup = v;
-            break;
-          case 'lyrics':
-            s.lyrics = v;
-            break;
-          case 'bootStart':
-            s.bootStart = v;
-            break;
-          case 'musicStart':
-            s.musicStart = v;
-            break;
-        }
-      });
-      return;
-    }
+    // Commit each onboarding selection directly to the same preferences store
+    // read by AppSettings.load. Avoid a full-settings save from an instance
+    // whose other fields may still contain defaults.
     final p = await SharedPreferences.getInstance();
     await p.setBool(key, v);
+    final settings = widget.settings;
+    if (settings != null) {
+      switch (key) {
+        case 'artLookup': settings.artLookup = v; break;
+        case 'lyrics': settings.lyrics = v; break;
+        case 'bootStart': settings.bootStart = v; break;
+        case 'musicStart': settings.musicStart = v; break;
+      }
+      settings.notifyListeners();
+    }
   }
 
   bool _granted(String k) => _perm[k] == true;
@@ -157,7 +152,19 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       // Do not gate entry into VYBE on a potentially stalled preference write.
       // The selected values are captured from UI state and committed by the
       // root before its main screen is shown.
-      widget.onDone();
+      try {
+        await _pendingChoiceWrite.timeout(const Duration(seconds: 3));
+        final p = await SharedPreferences.getInstance();
+        await Future.wait([
+          p.setBool('artLookup', _art),
+          p.setBool('lyrics', _lyrics),
+          p.setBool('bootStart', _boot),
+          p.setBool('musicStart', _music),
+        ]).timeout(const Duration(seconds: 3));
+      } catch (e) {
+        debugPrint('VYBE onboarding preference commit: $e');
+      }
+      if (mounted) widget.onDone();
     } else {
       setState(() => _step++);
     }
@@ -278,7 +285,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 'Find missing album art',
                 _art,
                 (v) {
-                  setState(() => _art = v);
+                  setState(() { _choicesTouched = true; _art = v; });
                   _put('artLookup', v);
                 },
               ),
@@ -286,7 +293,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 'Show synced lyrics',
                 _lyrics,
                 (v) {
-                  setState(() => _lyrics = v);
+                  setState(() { _choicesTouched = true; _lyrics = v; });
                   _put('lyrics', v);
                 },
               ),
@@ -326,7 +333,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 'Open when the unit starts',
                 _boot,
                 (v) {
-                  setState(() => _boot = v);
+                  setState(() { _choicesTouched = true; _boot = v; });
                   _put('bootStart', v);
                 },
               ),
@@ -334,7 +341,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 'Open when music starts',
                 _music,
                 (v) {
-                  setState(() => _music = v);
+                  setState(() { _choicesTouched = true; _music = v; });
                   _put('musicStart', v);
                 },
               ),

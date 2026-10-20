@@ -292,7 +292,18 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('theme', theme);
   }
 
-  Future<void> save() async {
+  // Keep writes ordered: multiple toggles must not race whole-settings saves.
+  Future<void> _pendingSave = Future<void>.value();
+
+  Future<void> save() {
+    final next = _pendingSave.catchError((Object error) {
+      debugPrint('VYBE previous settings save failed: $error');
+    }).then((_) => _saveToDisk());
+    _pendingSave = next;
+    return next;
+  }
+
+  Future<void> _saveToDisk() async {
     final p = await SharedPreferences.getInstance();
     await p.setInt('theme', theme);
     await p.setBool('visualizer', visualizer);
@@ -330,10 +341,8 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('fxPerformanceMode', fxPerformanceMode);
     await p.setInt('night', night);
     await p.setBool('burnIn', burnIn);
-    await p.setBool('artLookup', artLookup);
-    await p.setBool('lyrics', lyrics);
-    await p.setBool('bootStart', bootStart);
-    await p.setBool('musicStart', musicStart);
+    // These four preferences have dedicated writes. A Drive engine or an
+    // in-flight full save must never overwrite onboarding/user selections.
     await p.setBool('vhsVaporwave', vhsVaporwave);
     await p.setBool('fxGlow', fxGlow);
     await p.setBool('fxSweep', fxSweep);
@@ -370,6 +379,21 @@ class AppSettings extends ChangeNotifier {
     }
     await p.setDouble('bgBlur', bgBlur);
     await p.setDouble('bgContrast', bgContrast);
+  }
+
+  // Persist the exact user selection, rather than a snapshot of an entire
+  // settings instance (the Drive overlay runs a separate Flutter engine).
+  Future<void> setLaunchOrContentChoice(String key, bool value) async {
+    switch (key) {
+      case 'artLookup': artLookup = value; break;
+      case 'lyrics': lyrics = value; break;
+      case 'bootStart': bootStart = value; break;
+      case 'musicStart': musicStart = value; break;
+      default: throw ArgumentError.value(key, 'key');
+    }
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(key, value);
   }
 
   /// Apply a change, tell listeners, and (by default) save it.
