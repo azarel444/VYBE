@@ -218,6 +218,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // The Drive window may have changed the theme while VYBE was away.
       // Avoid racing an in-flight settings write with a stale preference reload.
       // The Drive engine never writes launch/content preferences.
+      // Reload on resume so switches reflect the persisted user choices.
+      settings.load();
     }
   }
 

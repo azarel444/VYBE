@@ -1,1 +1,0 @@
-v1.9.9.42: Remove accidental Transform wrappers in Vinyl and Fan landscape layouts that referenced undefined counterFlipText and left an unmatched parenthesis. Retains v1.9.9.41 features. Source-only correction; Android build not verified.

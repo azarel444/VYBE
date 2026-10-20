@@ -181,9 +181,11 @@ class AppSettings extends ChangeNotifier {
   static Future<void> persistContentChoice(String key, bool value) async {
     final p = await SharedPreferences.getInstance();
     await p.setBool(key, value);
+    await p.reload(); // Refresh the plugin cache shared with other Flutter engines.
     try {
-      await contentChoicesChannel.invokeMethod<bool>('setContentChoice',
+      final committed = await contentChoicesChannel.invokeMethod<bool>('setContentChoice',
           {'key': key, 'value': value});
+      if (committed != true) debugPrint('VYBE native preference not committed: $key');
     } catch (e) {
       debugPrint('VYBE native preference save failed: $e');
     }
@@ -243,15 +245,17 @@ class AppSettings extends ChangeNotifier {
     lyrics = p.getBool('lyrics') ?? false;
     bootStart = p.getBool('bootStart') ?? false;
     musicStart = p.getBool('musicStart') ?? false;
-    // Shared native preferences prevent stale plugin caches across engines.
+    // The Flutter preference store is authoritative for the UI. Native is a
+    // fallback only for values absent from Flutter storage; never overwrite
+    // a newer user selection with an old native value.
     try {
       final native = await contentChoicesChannel
           .invokeMapMethod<String, dynamic>('getContentChoices');
       if (native != null) {
-        if (native['artLookup'] is bool) artLookup = native['artLookup'] as bool;
-        if (native['lyrics'] is bool) lyrics = native['lyrics'] as bool;
-        if (native['bootStart'] is bool) bootStart = native['bootStart'] as bool;
-        if (native['musicStart'] is bool) musicStart = native['musicStart'] as bool;
+        if (!p.containsKey('artLookup') && native['artLookup'] is bool) artLookup = native['artLookup'] as bool;
+        if (!p.containsKey('lyrics') && native['lyrics'] is bool) lyrics = native['lyrics'] as bool;
+        if (!p.containsKey('bootStart') && native['bootStart'] is bool) bootStart = native['bootStart'] as bool;
+        if (!p.containsKey('musicStart') && native['musicStart'] is bool) musicStart = native['musicStart'] as bool;
       }
     } catch (e) {
       debugPrint('VYBE native preference load failed: $e');
@@ -419,14 +423,10 @@ class AppSettings extends ChangeNotifier {
       default: throw ArgumentError.value(key, 'key');
     }
     notifyListeners();
-    final previous = _pendingSave;
-    final next = previous.catchError((Object error) {
-      debugPrint('VYBE previous save failed: $error');
-    }).then((_) async {
-      await persistContentChoice(key, value);
-    });
-    _pendingSave = next;
-    await next;
+    // Persist the individual switch immediately; do not queue behind an
+    // unrelated multi-setting save or let a stale instance overwrite it.
+    await persistContentChoice(key, value);
+
   }
 
   /// Apply a change, tell listeners, and (by default) save it.

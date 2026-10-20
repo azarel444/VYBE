@@ -99,6 +99,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   Future<void> _loadChoices() async {
     final p = await SharedPreferences.getInstance();
+    await p.reload();
     if (!mounted) return;
     if (_choicesTouched) return;
     setState(() {
@@ -155,9 +156,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         'artLookup': _art, 'lyrics': _lyrics,
         'bootStart': _boot, 'musicStart': _music,
       };
-      // Do not gate entry into VYBE on a potentially stalled preference write.
-      // The selected values are captured from UI state and committed by the
-      // root before its main screen is shown.
+      // Commit selected values before opening the player. The handoff map
+      // also applies them to the newly created player settings instance.
       try {
         await _pendingChoiceWrite.timeout(const Duration(seconds: 3));
         await Future.wait([

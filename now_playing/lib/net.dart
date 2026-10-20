@@ -41,6 +41,27 @@ Future<String?> httpGetString(Uri uri) async {
 
 String _norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
+// Album artwork URLs returned by iTunes are often 100x100bb.jpg. Try a
+// higher-resolution variant, then the original URL if the CDN rejects it.
+Future<Uint8List?> _appleArtwork(String rawUrl) async {
+  final original = Uri.tryParse(rawUrl);
+  if (original == null || original.scheme != 'https') return null;
+  final larger = Uri.tryParse(rawUrl.replaceFirst(RegExp(r'100x100'), '600x600'));
+  for (final uri in <Uri>{if (larger != null) larger, original}) {
+    final bytes = await httpGetBytes(uri);
+    if (bytes != null && bytes.length > 1024 && _looksLikeImage(bytes)) return bytes;
+  }
+  return null;
+}
+
+bool _looksLikeImage(Uint8List b) => b.length > 12 && (
+  (b[0] == 0xff && b[1] == 0xd8 && b[2] == 0xff) ||
+  (b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4e && b[3] == 0x47) ||
+  (b[0] == 0x52 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x46 &&
+   b[8] == 0x57 && b[9] == 0x45 && b[10] == 0x42 && b[11] == 0x50)
+);
+
+
 bool _looseMatch(String a, String b) {
   final x = _norm(a), y = _norm(b);
   if (x.isEmpty || y.isEmpty) return false;
@@ -76,10 +97,8 @@ Future<Uint8List?> fetchArtwork(String title, String artist, {String album = ''}
             final artUrl = entry['artworkUrl100']?.toString() ?? '';
             if (!_looseMatch(foundArtist, artist) ||
                 _norm(foundAlbum) != _norm(album) || artUrl.isEmpty) continue;
-            final imageUri = Uri.tryParse(artUrl.replaceFirst('100x100', '600x600'));
-            if (imageUri == null || imageUri.scheme != 'https') continue;
-            final bytes = await httpGetBytes(imageUri);
-            if (bytes != null && bytes.isNotEmpty) return bytes;
+            final bytes = await _appleArtwork(artUrl);
+            if (bytes != null) return bytes;
           }
         }
       } catch (_) { /* Try the independent album catalog. */ }
@@ -112,8 +131,8 @@ Future<Uint8List?> fetchArtwork(String title, String artist, {String album = ''}
       });
       for (final r in matches.take(3)) {
         final url = r['artworkUrl100'] as String;
-        final bytes = await httpGetBytes(Uri.parse(url.replaceFirst('100x100', '600x600')));
-        if (bytes != null && bytes.isNotEmpty) return bytes;
+        final bytes = await _appleArtwork(url);
+        if (bytes != null) return bytes;
       }
     } catch (_) { /* Try another search term. */ }
   }
@@ -161,7 +180,11 @@ Future<Uint8List?> fetchCoverArtArchive(String artist, String album) async {
       // httpGetBytes follows standard HttpClient redirects.
       final image = await httpGetBytes(Uri.https('coverartarchive.org',
           '/release-group/$id/front-500'));
-      if (image != null && image.isNotEmpty) return image;
+      if (image != null && _looksLikeImage(image)) return image;
+      // Some release groups have only the original front available.
+      final original = await httpGetBytes(Uri.https('coverartarchive.org',
+          '/release-group/$id/front'));
+      if (original != null && _looksLikeImage(original)) return original;
     }
     }
   } catch (_) {

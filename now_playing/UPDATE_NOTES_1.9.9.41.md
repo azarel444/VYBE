@@ -1,1 +1,0 @@
-v1.9.9.41: Smooth Wave and Dot Wave extended to straight horizontal, downward and vertical-edge visualizers. Circular rings retain bars pending geometry-specific implementation. Based on v1.9.9.40. No Flutter build performed.
