@@ -674,8 +674,14 @@ open class MainActivity : FlutterActivity() {
 
 /** The see-through Drive window. It runs the same app on the '/drive' route. */
 class DriveActivity : MainActivity() {
+    // Explicitly request a transparent Flutter surface in the Drive engine.
+    override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode =
+        FlutterActivityLaunchConfigs.BackgroundMode.transparent
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setBackgroundDrawableResource(android.R.color.transparent)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         alive = true
     }
 

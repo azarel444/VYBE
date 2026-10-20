@@ -22,6 +22,28 @@ class NowPlayingApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Drive is a translucent Android activity. A default MaterialPageRoute is
+    // opaque even when the child Scaffold is transparent, hiding Google Maps.
+    // Use a non-opaque route and transparent app canvas for the Drive engine.
+    if (driveHost) {
+      return MaterialApp(
+        title: 'VYBE Drive',
+        debugShowCheckedModeBanner: false,
+        color: Colors.transparent,
+        theme: ThemeData(
+          brightness: Brightness.dark,
+          scaffoldBackgroundColor: Colors.transparent,
+          canvasColor: Colors.transparent,
+          useMaterial3: false,
+        ),
+        onGenerateRoute: (_) => PageRouteBuilder<void>(
+          opaque: false,
+          barrierColor: null,
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              const NowPlayingScreen(driveHost: true),
+        ),
+      );
+    }
     return MaterialApp(
       title: 'VYBE',
       debugShowCheckedModeBanner: false,
@@ -92,22 +114,23 @@ class _RootState extends State<_Root> {
   Future<void> _finish() async {
     if (_finishing) return;
     _finishing = true;
-    // Native completion is committed before navigating. Flutter storage is
-    // retained for compatibility with previous installations.
-    try {
-      final saved = await _setupChannel.invokeMethod<bool>('complete');
-      if (saved != true) debugPrint('VYBE: native setup commit returned $saved');
-    } catch (e) {
-      debugPrint('VYBE: native setup commit failed: $e');
-    }
+    // Enter the player immediately. A slow Android channel or preferences
+    // operation must never leave Launch VYBE stuck on the last tour page.
+    if (mounted) setState(() => _onboarded = true);
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool('vybe_setup_completed_v2', true);
       await p.setBool('onboarded', true);
     } catch (e) {
       debugPrint('VYBE: onboarding save failed: $e');
+    }
+    try {
+      final saved = await _setupChannel.invokeMethod<bool>('complete')
+          .timeout(const Duration(seconds: 3));
+      if (saved != true) debugPrint('VYBE: native setup commit returned $saved');
+    } catch (e) {
+      debugPrint('VYBE: native setup commit failed: $e');
     } finally {
-      if (mounted) setState(() => _onboarded = true);
       _finishing = false;
     }
   }

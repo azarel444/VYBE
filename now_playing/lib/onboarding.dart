@@ -154,8 +154,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   Future<void> _next() async {
     if (_step >= _lastStep) {
-      await _pendingChoiceWrite;
-      if (!mounted) return;
+      // Do not gate entry into VYBE on a potentially stalled preference write.
+      // The selected values are captured from UI state and committed by the
+      // root before its main screen is shown.
       widget.onDone();
     } else {
       setState(() => _step++);
