@@ -176,22 +176,37 @@ class AppSettings extends ChangeNotifier {
   ArtPalette? get accentPalette =>
       (accent > 0 && accent < accents.length) ? accents[accent] : null;
 
+  static Future<void> _pendingChoiceWrite = Future<void>.value();
+
   static const MethodChannel contentChoicesChannel = MethodChannel('nowplaying/control');
 
-  static Future<void> persistContentChoice(String key, bool value) async {
-    final p = await SharedPreferences.getInstance();
-    await p.setBool(key, value);
-    await p.reload(); // Refresh the plugin cache shared with other Flutter engines.
-    try {
-      final committed = await contentChoicesChannel.invokeMethod<bool>('setContentChoice',
-          {'key': key, 'value': value});
-      if (committed != true) debugPrint('VYBE native preference not committed: $key');
-    } catch (e) {
-      debugPrint('VYBE native preference save failed: $e');
-    }
+  static Future<void> persistContentChoice(String key, bool value) {
+    // Serialize individual writes across onboarding and settings screens.
+    final next = _pendingChoiceWrite.catchError((Object e) {
+      debugPrint('VYBE previous choice write failed: $e');
+    }).then((_) async {
+      final p = await SharedPreferences.getInstance();
+      final saved = await p.setBool(key, value);
+      if (!saved) throw StateError('Flutter preference write failed: $key');
+      // Do not reload immediately after a write: other Flutter engines may
+      // have different cached values while their writes are still pending.
+      final committed = await contentChoicesChannel.invokeMethod<bool>(
+          'setContentChoice', {'key': key, 'value': value});
+      if (committed != true) {
+        throw StateError('Native preference commit failed: $key');
+      }
+    });
+    _pendingChoiceWrite = next;
+    return next;
   }
 
   Future<void> load() async {
+    await _pendingChoiceWrite.catchError((Object e) {
+      debugPrint('VYBE choice synchronization failed: $e');
+    });
+    await _pendingSave.catchError((Object e) {
+      debugPrint('VYBE settings synchronization failed: $e');
+    });
     final p = await SharedPreferences.getInstance();
     // The Drive overlay uses a separate Flutter engine with its own cache.
     // Refresh from Android storage before reading changes made by that engine.

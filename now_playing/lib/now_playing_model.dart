@@ -523,7 +523,6 @@ class NowPlayingModel extends ChangeNotifier {
     final key =
         '$boot|$music|$graceSec|$allowVideo|$allowNav|$avoidNav|$navPkg';
     if (key == _sentLaunch) return;
-    _sentLaunch = key;
     _control.invokeMethod('setLaunchSettings', {
       'boot': boot,
       'music': music,
@@ -532,7 +531,12 @@ class NowPlayingModel extends ChangeNotifier {
       'allowNav': allowNav,
       'avoidNav': avoidNav,
       'navPkg': navPkg,
-    }).catchError((_) {});
+    }).then((_) {
+      _sentLaunch = key; // Only suppress repeats after native acknowledgement.
+    }).catchError((Object e) {
+      _sentLaunch = ''; // Permit retry on the next settings notification.
+      debugPrint('VYBE native launch settings failed: $e');
+    });
   }
 
   Future<void> startVisualizer() => _call('startVisualizer');

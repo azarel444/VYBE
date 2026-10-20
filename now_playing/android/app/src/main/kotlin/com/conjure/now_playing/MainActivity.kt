@@ -173,7 +173,17 @@ open class MainActivity : FlutterActivity() {
                     } else {
                         val ok = getSharedPreferences("vybe_content_choices", Context.MODE_PRIVATE)
                             .edit().putBoolean(key, value).commit()
-                        result.success(ok)
+                        // The service reads these values from PlayerFilter.PREFS.
+                        // Commit the same choice there immediately, rather than
+                        // depending on a later Flutter listener callback.
+                        val launchOk = when (key) {
+                            "bootStart" -> getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+                                .edit().putBoolean("openOnBoot", value).commit()
+                            "musicStart" -> getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+                                .edit().putBoolean("openOnMusic", value).commit()
+                            else -> true
+                        }
+                        result.success(ok && launchOk)
                     }
                 }
                 "setLaunchSettings" -> {
