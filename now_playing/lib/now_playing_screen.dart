@@ -170,6 +170,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (!mounted) return;
       if (widget.driveHost) {
         // The Drive window always shows the Drive theme.
+        // Force the Drive view only for this engine, without saving the
+        // selected theme to the normal app preferences.
         settings.update(() => settings.theme = 4, persist: false);
         _hostReady = true;
       } else {
@@ -453,7 +455,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 // then song info and lyrics) when the screen gets narrow.
                 final narrow = w < h * 1.3;
                 final Widget layout;
-                if (settings.theme == AppSettings.tRecord) {
+                if (widget.driveHost) {
+                  // The transparent Drive activity has its own Flutter engine.
+                  // Never render a persisted normal theme (Focused, etc.) here.
+                  layout = _driveLayout(w, h, narrow);
+                } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tFan) {
                   layout = _fanLayout(w, h, narrow);
@@ -475,13 +481,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   layout = _focused(w, h);
                 }
                 return Transform.translate(
-                  offset: settings.theme >= 3 ? Offset.zero : _shift,
+                  offset: (widget.driveHost || settings.theme >= 3) ? Offset.zero : _shift,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       layout,
                       if (settings.showClock && !widget.driveHost && settings.theme != 4) _themeClock(w, h, narrow),
-                      if (vhs && settings.theme != 4) _osd(h, compact: narrow),
+                      if (vhs && !widget.driveHost && settings.theme != 4) _osd(h, compact: narrow),
                     ],
                   ),
                 );
