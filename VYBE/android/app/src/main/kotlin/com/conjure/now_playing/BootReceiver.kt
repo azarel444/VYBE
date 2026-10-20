@@ -16,7 +16,7 @@ class BootReceiver : BroadcastReceiver() {
         if (!prefs.getBoolean("openOnBoot", false)) return
         try {
             val i = Intent(context, MainActivity::class.java)
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             context.startActivity(i)
         } catch (_: Exception) {
         }

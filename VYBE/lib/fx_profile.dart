@@ -21,7 +21,7 @@ class FxProfileStore {
     if (s.fxNebula) selected.add('Nebula Haze');
     if (s.fxGrid) selected.add('Perspective Grid');
     if (s.fxStars) selected.add('Twinkling Stars');
-    if (s.fxGlow) selected.add('Breathing Glow');
+    if (s.fxGlow) selected.add('Moving Bokeh');
     if (s.fxSweep) selected.add('Aurora Sweep');
     if (s.fxRays) selected.add('Light Rays');
     if (s.fxRipples) selected.add('Beat Ripples');

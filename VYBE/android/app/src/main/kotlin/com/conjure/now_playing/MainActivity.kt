@@ -34,6 +34,7 @@ import kotlin.math.pow
 
 open class MainActivity : FlutterActivity() {
 
+    private var vybeDirect: VybeDirect? = null
     private var sink: EventChannel.EventSink? = null
     private var manager: MediaSessionManager? = null
     private var listenerComponent: ComponentName? = null
@@ -62,6 +63,35 @@ open class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
 
+        // Dedicated, synchronously committed onboarding state. Avoid relying
+        // solely on SharedPreferences' per-engine Dart cache.
+        MethodChannel(messenger, "vybe/window_brightness").setMethodCallHandler { call, result ->
+            if (call.method == "setNight") {
+                val night = call.arguments as? Boolean ?: false
+                runOnUiThread {
+                    val params = window.attributes
+                    if (night) {
+                        val systemLevel = try {
+                            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+                        } catch (_: Exception) { 0.75f }
+                        params.screenBrightness = (systemLevel * 0.75f).coerceIn(0.02f, 1f)
+                    } else {
+                        params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    }
+                    window.attributes = params
+                    result.success(null)
+                }
+            } else result.notImplemented()
+        }
+        MethodChannel(messenger, "vybe/setup_state").setMethodCallHandler { call, result ->
+            val prefs = getSharedPreferences("vybe_setup_state", Context.MODE_PRIVATE)
+            when (call.method) {
+                "isComplete" -> result.success(prefs.getBoolean("complete", false))
+                "complete" -> result.success(prefs.edit().putBoolean("complete", true).commit())
+                else -> result.notImplemented()
+            }
+        }
+
         EventChannel(messenger, "nowplaying/stream").setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(args: Any?, events: EventChannel.EventSink?) {
@@ -85,6 +115,29 @@ open class MainActivity : FlutterActivity() {
                 }
             })
 
+        val directChannel = MethodChannel(messenger, "vybe/direct")
+        vybeDirect = VybeDirect(this, directChannel)
+        directChannel.setMethodCallHandler { call, result ->
+            val direct = vybeDirect!!
+            when (call.method) {
+                "available" -> result.success(direct.available())
+                "permission" -> result.success(direct.permission())
+                "requestPermission" -> {
+                    val permission = direct.permission()
+                    if (android.os.Build.VERSION.SDK_INT >= 23 && checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(arrayOf(permission), 8392)
+                    }
+                    result.success(true)
+                }
+                "start" -> result.success(direct.start())
+                "host" -> result.success(direct.host())
+                "discover" -> result.success(direct.discover())
+                "connect" -> result.success(direct.connect(call.argument<String>("address") ?: ""))
+                "stop" -> { direct.stop(); result.success(true) }
+                else -> result.notImplemented()
+            }
+        }
+
         MethodChannel(messenger, "nowplaying/control").setMethodCallHandler { call, result ->
             when (call.method) {
                 "playPause" -> {
@@ -96,6 +149,7 @@ open class MainActivity : FlutterActivity() {
                 "next" -> { controller?.transportControls?.skipToNext(); result.success(null) }
                 "previous" -> { controller?.transportControls?.skipToPrevious(); result.success(null) }
                 "refresh" -> { refresh(); result.success(null) }
+                "recheckArtwork" -> { push(true); result.success(null) }
                 "startVisualizer" -> result.success(startVisualizer())
                 "stopVisualizer" -> { stopVisualizer(); result.success(null) }
                 "openAccessSettings" -> { openAccessSettings(); result.success(null) }
@@ -620,8 +674,14 @@ open class MainActivity : FlutterActivity() {
 
 /** The see-through Drive window. It runs the same app on the '/drive' route. */
 class DriveActivity : MainActivity() {
+    // Explicitly request a transparent Flutter surface in the Drive engine.
+    override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode =
+        FlutterActivityLaunchConfigs.BackgroundMode.transparent
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setBackgroundDrawableResource(android.R.color.transparent)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         alive = true
     }
 

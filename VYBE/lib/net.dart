@@ -10,7 +10,7 @@ Future<Uint8List?> httpGetBytes(Uri uri) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
   try {
     final req = await client.getUrl(uri);
-    req.headers.set('User-Agent', 'NowPlaying/1.2');
+    req.headers.set('User-Agent', 'VYBE/1.9.9 (Android music visualizer; artwork metadata lookup)');
     final res = await req.close().timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) {
       await res.drain<void>();
@@ -49,29 +49,95 @@ bool _looseMatch(String a, String b) {
 
 /// Looks the track up on the iTunes Search API (free, no key) and returns
 /// the album cover as image bytes, or null.
-Future<Uint8List?> fetchArtwork(String title, String artist) async {
-  final term = artist.isEmpty ? title : '$artist $title';
-  final body = await httpGetString(Uri.https('itunes.apple.com', '/search', {
-    'term': term,
-    'entity': 'song',
-    'limit': '5',
-  }));
-  if (body == null) return null;
-  try {
-    final data = jsonDecode(body);
-    if (data is! Map) return null;
-    final results = data['results'];
-    if (results is! List) return null;
-    for (final r in results) {
-      if (r is! Map) continue;
-      final url = r['artworkUrl100'];
-      if (url is! String) continue;
-      final a = r['artistName'];
-      if (artist.isNotEmpty && !(a is String && _looseMatch(a, artist))) {
-        continue; // avoid showing the cover of a different artist's song
+Future<Uint8List?> fetchArtwork(String title, String artist, {String album = ''}) async {
+  String clean(String s) => s.replaceAll(
+      RegExp(r'\s*[\(\[][^\)\]]*(?:remaster|extended|radio edit|version|mix)[^\)\]]*[\)\]]', caseSensitive: false), '').trim();
+  final queries = <String>[
+    '$artist $title'.trim(),
+    '$artist ${clean(title)}'.trim(),
+    '$artist ${clean(title).replaceAll(RegExp(r'\s+'), ' ')}'.trim(),
+    if (album.isNotEmpty) '$artist $album'.trim(),
+  ].where((q) => q.isNotEmpty).toSet();
+  for (final term in queries) {
+    final body = await httpGetString(Uri.https('itunes.apple.com', '/search', {
+      'term': term, 'entity': 'song', 'limit': '25',
+    }));
+    if (body == null) continue;
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map || data['results'] is! List) continue;
+      final matches = <Map>[];
+      for (final item in data['results'] as List) {
+        if (item is! Map || item['artworkUrl100'] is! String) continue;
+        final a = item['artistName'];
+        final t = item['trackName'];
+        if (artist.isNotEmpty && (a is! String || !_looseMatch(a, artist))) continue;
+        // Never substitute unrelated songs just because their artist matches.
+        if (t is! String || !_looseMatch(clean(t), clean(title))) continue;
+        matches.add(item);
       }
-      return httpGetBytes(Uri.parse(url.replaceFirst('100x100', '600x600')));
+      matches.sort((a, b) {
+        int score(Map r) =>
+          (_norm(r['trackName']?.toString() ?? '') == _norm(title) ? 4 : 0) +
+          (album.isNotEmpty && _looseMatch(r['collectionName']?.toString() ?? '', album) ? 2 : 0);
+        return score(b).compareTo(score(a));
+      });
+      for (final r in matches.take(3)) {
+        final url = r['artworkUrl100'] as String;
+        final bytes = await httpGetBytes(Uri.parse(url.replaceFirst('100x100', '600x600')));
+        if (bytes != null && bytes.isNotEmpty) return bytes;
+      }
+    } catch (_) { /* Try another search term. */ }
+  }
+  // A second, independent catalog for albums missing from Apple's search.
+  // Only query when both artist and album are present; title-only searches
+  // frequently return the wrong release and therefore the wrong cover.
+  return fetchCoverArtArchive(artist, album); 
+}
+
+/// MusicBrainz release-group search -> Cover Art Archive front image.
+/// Uses no API key. Deliberately conservative: an exact artist + album match
+/// is required, and unavailable images simply return null.
+Future<Uint8List?> fetchCoverArtArchive(String artist, String album) async {
+  if (_norm(artist).isEmpty || _norm(album).isEmpty) return null;
+  try {
+    String quoted(String s) => '"${s.replaceAll('"', '').trim()}"';
+    final albumVariants = <String>{
+      album.trim(),
+      album.replaceAll(RegExp(r'\s*[\(\[][\s\S]*?(?:remaster|deluxe|anniversary|edition)[\s\S]*?[\)\]]', caseSensitive: false), '').trim(),
+    }..removeWhere((s) => s.isEmpty);
+    for (final albumVariant in albumVariants) {
+    final query = 'releasegroup:${quoted(albumVariant)} AND artist:${quoted(artist)}';
+    final body = await httpGetString(Uri.https('musicbrainz.org', '/ws/2/release-group/', {
+      'query': query, 'fmt': 'json', 'limit': '12',
+    }));
+    if (body == null) continue;
+    final decoded = jsonDecode(body);
+    if (decoded is! Map || decoded['release-groups'] is! List) continue;
+    for (final item in decoded['release-groups'] as List) {
+      if (item is! Map) continue;
+      final id = item['id'];
+      final name = item['title'];
+      if (id is! String || name is! String || _norm(name) != _norm(albumVariant)) continue;
+      final credit = item['artist-credit'];
+      if (credit is! List) continue;
+      final artistMatch = credit.any((part) {
+        if (part is! Map) return false;
+        final a = part['artist'];
+        return a is Map &&
+            (_norm(a['name']?.toString() ?? '') == _norm(artist) ||
+             _norm(a['sort-name']?.toString() ?? '') == _norm(artist));
+      });
+      if (!artistMatch) continue;
+      // Cover Art Archive can respond with a redirect to the hosted image.
+      // httpGetBytes follows standard HttpClient redirects.
+      final image = await httpGetBytes(Uri.https('coverartarchive.org',
+          '/release-group/$id/front-500'));
+      if (image != null && image.isNotEmpty) return image;
     }
-  } catch (_) {}
+    }
+  } catch (_) {
+    // Absence or network failure should never break playback.
+  }
   return null;
 }

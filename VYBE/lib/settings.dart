@@ -81,11 +81,25 @@ class AppSettings extends ChangeNotifier {
 
   int theme = 0; // index into themeNames
   bool visualizer = true;
+  int diagonalWaveStyle = 0; // 0 bars, 1 smooth wave, 2 dot wave
+  // Beta only: project key is bundled so testers never enter credentials.
+  // IMPORTANT: replace with a developer-managed proxy before public release.
+  static const String bundledFanartProjectKey = String.fromEnvironment(
+    'FANART_PROJECT_KEY',
+    defaultValue: 'a5663b830e451594869e3892dbaaa551',
+  );
+  int fanartMode = 2; // 0 album, 1 artist, 2 auto
+  String fanartApiKey = '';
+  String fanartProjectKey = bundledFanartProjectKey;
   double sensitivity = 1.0; // 0.5 .. 1.5
   int vizStyle = 0; // Focused theme: 0 ring, 1 bars
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
+  int clubBlendMode = 0; // 0 Normal, 1 Add, 2 Screen, 3 Lighten, 4 Overlay, 5 Soft light, 6 Difference, 7 Exclusion, 8 Color dodge, 9 Hard light
+  int backgroundSource = 0; // 0 artwork, 1 palette, 2 club, 3 album + club, 4 laser tunnel, 5 album + tunnel
+  bool animatedTemplateBackground = false; // alternative to blurred album art
+  double templateBackgroundMotion = 0.65; // 0 = still, 1 = full motion
   bool bgEffects = true; // slow drift + beat pulse
   bool particles = false;
   bool fxNebula = false;
@@ -126,6 +140,12 @@ class AppSettings extends ChangeNotifier {
     'Electric Arcs', 'Prism Shards', 'Light Trails', 'Morphing Wireframe',
     'Particle Currents', 'Holographic Interference',
   ];
+  static const allFxNames = <String>[
+    'VHS', 'Background Motion', 'Floating Particles', 'Nebula Haze',
+    'Perspective Grid', 'Twinkling Stars', 'Moving Bokeh', 'Aurora Sweep',
+    'Light Rays', 'Beat Ripples', 'Water Shimmer', 'Cover Bloom',
+    ...extraFxNames,
+  ];
   final Map<String, bool> extraFx = {for (final n in extraFxNames) n: false};
   final Map<String, double> extraStrength = {for (final n in extraFxNames) n: 0.8};
   bool fxVhs = false; // VHS look over any theme (strength: vhsEffects)
@@ -133,6 +153,8 @@ class AppSettings extends ChangeNotifier {
   bool onboarded = false; // the first-launch tour has been shown
   String navPkg = ''; // navigation app (empty = find one automatically)
   String navLabel = '';
+  bool driveAlbumCover = false; // Drive: square cover instead of spinning vinyl
+  bool layoutSwap = false; // Swap left/right panels in landscape layouts
   bool driveSwap = false; // Drive theme: navigation card on the left
   double driveCardWidth = 0.5; // Drive: share of the screen left open for the map, 0.35 .. 0.65
   int graceSec = 0; // a pause shorter than this does not reopen VYBE (0 = any pause reopens)
@@ -143,6 +165,11 @@ class AppSettings extends ChangeNotifier {
   bool avoidNav = true; // never open VYBE while navigation is active
   bool driveBubble = true; // floating "return to VYBE" button while VYBE is hidden
   double driveBarsH = 0.14; // Drive: visualizer height along the bottom, share of screen height
+  double bgOverlay = 1.0; // 0 clear, 1 original shading, 2 darker
+  final Map<String, int> fxBlendMode = <String, int>{};
+  final Map<String, double> fxSize = <String, double>{};
+  final Map<String, double> fxBlendOpacity = <String, double>{};
+  double bgBlur = 6.0; // Original album blur = 6; fanart originally sharp.
   double bgContrast = 1.4; // blurred background contrast, 1.0 (normal) .. 2.0
 
   ArtPalette? get accentPalette =>
@@ -155,6 +182,11 @@ class AppSettings extends ChangeNotifier {
     await p.reload();
     theme = _int(p, 'theme', 0, 0, themeNames.length - 1);
     visualizer = p.getBool('visualizer') ?? true;
+    diagonalWaveStyle = _int(p, 'diagonalWaveStyle', 0, 0, 2);
+    fanartMode = _int(p, 'fanartMode', 2, 0, 2);
+    // Ignore stale locally saved keys. All beta builds use the bundled key.
+    fanartApiKey = '';
+    fanartProjectKey = bundledFanartProjectKey;
     sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
     vizStyle = _int(p, 'vizStyle', 0, 0, 1);
     final bc = p.getInt('barCount') ?? 96;
@@ -174,6 +206,10 @@ class AppSettings extends ChangeNotifier {
     kBloom = k('kBloom', oldFx);
     kParticles = k('kParticles', 1.0);
     kMotion = k('kMotion', 1.0);
+    animatedTemplateBackground = p.getBool('animatedTemplateBackground') ?? false;
+    clubBlendMode = (p.getInt('clubBlendMode') ?? 0).clamp(0, 9).toInt();
+    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 5).toInt();
+    templateBackgroundMotion = (p.getDouble('templateBackgroundMotion') ?? 0.65).clamp(0.0, 1.0).toDouble();
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;
     fxNebula = p.getBool('fxNebula') ?? false;
@@ -215,7 +251,9 @@ class AppSettings extends ChangeNotifier {
     onboarded = p.getBool('onboarded') ?? false;
     navPkg = p.getString('navPkg') ?? '';
     navLabel = p.getString('navLabel') ?? '';
+    driveAlbumCover = p.getBool('driveAlbumCover') ?? false;
     driveSwap = p.getBool('driveSwap') ?? false;
+    layoutSwap = p.getBool('layoutSwap') ?? false;
     driveCardWidth =
         (p.getDouble('driveCardWidth') ?? 0.5).clamp(0.35, 0.65).toDouble();
     final g = p.getInt('graceSec') ?? 0;
@@ -227,6 +265,13 @@ class AppSettings extends ChangeNotifier {
     avoidNav = p.getBool('avoidNav') ?? true;
     driveBubble = p.getBool('driveBubble') ?? true;
     driveBarsH = (p.getDouble('driveBarsH') ?? 0.14).clamp(0.08, 0.26).toDouble();
+    bgOverlay = (p.getDouble('bgOverlay') ?? 1.0).clamp(0.0, 2.0).toDouble();
+    for (final n in allFxNames) {
+      fxSize[n] = (p.getDouble('fxSize:$n') ?? 1.0).clamp(0.5, 2.5).toDouble();
+      fxBlendMode[n] = (p.getInt('fxBlendMode:$n') ?? 0).clamp(0, 23);
+      fxBlendOpacity[n] = (p.getDouble('fxBlendOpacity:$n') ?? 1.0).clamp(0.0, 1.0).toDouble();
+    }
+    bgBlur = (p.getDouble('bgBlur') ?? 6.0).clamp(0.0, 18.0).toDouble();
     bgContrast = (p.getDouble('bgContrast') ?? 1.4).clamp(1.0, 2.0).toDouble();
     notifyListeners();
     if (migrated) save();
@@ -235,6 +280,11 @@ class AppSettings extends ChangeNotifier {
   int _int(SharedPreferences p, String key, int def, int lo, int hi) {
     final v = p.getInt(key) ?? def;
     return (v < lo || v > hi) ? def : v;
+  }
+
+  Future<void> saveFocusedStyle() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('vizStyle', vizStyle);
   }
 
   Future<void> saveTheme() async {
@@ -246,6 +296,8 @@ class AppSettings extends ChangeNotifier {
     final p = await SharedPreferences.getInstance();
     await p.setInt('theme', theme);
     await p.setBool('visualizer', visualizer);
+    await p.setInt('diagonalWaveStyle', diagonalWaveStyle);
+    await p.setInt('fanartMode', fanartMode);
     await p.setDouble('sensitivity', sensitivity);
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('barCount', barCount);
@@ -259,6 +311,10 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('kParticles', kParticles);
     await p.setDouble('kMotion', kMotion);
     await p.setDouble('vhsEffects', vhsEffects);
+    await p.setBool('animatedTemplateBackground', backgroundSource == 1);
+    await p.setInt('backgroundSource', backgroundSource);
+    await p.setInt('clubBlendMode', clubBlendMode);
+    await p.setDouble('templateBackgroundMotion', templateBackgroundMotion);
     await p.setBool('bgEffects', bgEffects);
     await p.setBool('particles', particles);
     await p.setBool('fxNebula', fxNebula);
@@ -290,10 +346,13 @@ class AppSettings extends ChangeNotifier {
       await p.setBool('extraFx:$n', extraFx[n] ?? false);
       await p.setDouble('extraStrength:$n', extraStrength[n] ?? 0.8);
     }
-    await p.setBool('onboarded', onboarded);
+    // Onboarding completion is owned by _RootState._finish in main.dart.
+    // Never overwrite its persisted flag from a stale AppSettings instance.
     await p.setString('navPkg', navPkg);
     await p.setString('navLabel', navLabel);
+    await p.setBool('driveAlbumCover', driveAlbumCover);
     await p.setBool('driveSwap', driveSwap);
+    await p.setBool('layoutSwap', layoutSwap);
     await p.setDouble('driveCardWidth', driveCardWidth);
     await p.setInt('graceSec', graceSec);
     await p.setBool('driveControls', driveControls);
@@ -303,6 +362,13 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('avoidNav', avoidNav);
     await p.setBool('driveBubble', driveBubble);
     await p.setDouble('driveBarsH', driveBarsH);
+    await p.setDouble('bgOverlay', bgOverlay);
+    for (final n in allFxNames) {
+      await p.setDouble('fxSize:$n', fxSize[n] ?? 1.0);
+      await p.setInt('fxBlendMode:$n', fxBlendMode[n] ?? 0);
+      await p.setDouble('fxBlendOpacity:$n', fxBlendOpacity[n] ?? 1.0);
+    }
+    await p.setDouble('bgBlur', bgBlur);
     await p.setDouble('bgContrast', bgContrast);
   }
 

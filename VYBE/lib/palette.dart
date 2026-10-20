@@ -45,7 +45,10 @@ class ArtAssets {
   /// True when the picture is almost one flat color, which is what players
   /// send when a song has no real cover (a logo on a plain background).
   final bool flat;
-  ArtAssets(this.bytes, this.tiny, this.palette, {this.flat = false});
+  /// Fraction of the blurred artwork in the left/center text area that is near-white.
+  final double nearWhiteTextCoverage;
+  ArtAssets(this.bytes, this.tiny, this.palette,
+      {this.flat = false, this.nearWhiteTextCoverage = 0});
 
   static Future<ArtAssets?> load(Uint8List bytes) async {
     try {
@@ -58,10 +61,27 @@ class ArtAssets {
           : _extract(data, img.width, img.height);
       final flat = data != null && (_isFlat(data, img.width * img.height) ||
           _isGenericPlaceholder(data, img.width, img.height));
-      return ArtAssets(bytes, img, palette, flat: flat);
+      return ArtAssets(bytes, img, palette, flat: flat,
+          nearWhiteTextCoverage: data == null ? 0 : _nearWhiteCoverage(data, img.width, img.height));
     } catch (_) {
       return null;
     }
+  }
+
+  static double _nearWhiteCoverage(ByteData data, int w, int h) {
+    var white = 0, total = 0;
+    // Left and central region where most themes display song information.
+    for (var y = h ~/ 4; y < h * 3 ~/ 4; y += 2) {
+      for (var x = 0; x < w * 3 ~/ 5; x += 2) {
+        final idx = (y * w + x) * 4;
+        final r = data.getUint8(idx), g = data.getUint8(idx + 1), b = data.getUint8(idx + 2);
+        final maxC = math.max(r, math.max(g, b));
+        final minC = math.min(r, math.min(g, b));
+        if (minC >= 214 && maxC - minC <= 38) white++;
+        total++;
+      }
+    }
+    return total == 0 ? 0 : white / total;
   }
 
   /// Looks at the tiny copy: if one color (4 bits per channel) covers most

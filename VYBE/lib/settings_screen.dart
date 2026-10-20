@@ -1,4 +1,6 @@
+import 'vybe_link_settings.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'native.dart';
 import 'now_playing_model.dart';
@@ -23,6 +25,7 @@ class SettingsScreen extends StatelessWidget {
     'Launch',
     'Navigation',
     'Permissions',
+    'VYBE Link',
   ];
 
   @override
@@ -84,6 +87,7 @@ class SettingsScreen extends StatelessWidget {
                       _page(_launch(context)),
                       _page(_navigation(context)),
                       _page(_permissions(context)),
+                      const VybeLinkSettings(),
                     ],
                   ),
                 ),
@@ -114,9 +118,19 @@ class SettingsScreen extends StatelessWidget {
       _switch('Find missing album art',
           'Searches online when a player does not send a cover',
           s.artLookup, (v) => s.update(() => s.artLookup = v)),
-      _switch('Synced lyrics',
-          'Shows the current line as it is sung, when the song has lyrics',
+      _switch('Show lyrics',
+          'When off, themes use the available space for artwork and song details',
           s.lyrics, (v) => s.update(() => s.lyrics = v)),
+      _section('Artwork diagnostics'),
+      _action('Copy artwork diagnostics',
+          'Track, media-session artwork, cache/online lookup and failure details',
+          'Copy Diagnostics', () async {
+            await Clipboard.setData(ClipboardData(text: model.artworkDiagnostics));
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Artwork diagnostics copied')));
+          }),
+      Text(model.artworkDiagnostics,
+          style: const TextStyle(fontSize: 13, color: Colors.white70)),
       _section('Offline media cache'),
       _action('Clear cached artwork and lyrics',
           'Delete downloaded artwork and synced lyrics stored on this device',
@@ -132,6 +146,20 @@ class SettingsScreen extends StatelessWidget {
           'Moves the layout a few pixels over time',
           s.burnIn, (v) => s.update(() => s.burnIn = v)),
       _section('Welcome'),
+      _action(
+        'Floating toolbar guide',
+        'See what each Standard and Drive control does',
+        'View Guide',
+        () => Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (ctx) => Scaffold(
+            appBar: AppBar(title: const Text('VYBE Controls')),
+            body: SafeArea(child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: const ToolbarGuide(),
+            )),
+          ),
+        )),
+      ),
       _action(
         'Welcome tour',
         'Replay the explanation of each permission',
@@ -149,72 +177,73 @@ class SettingsScreen extends StatelessWidget {
   List<Widget> _visuals(BuildContext context) {
     final s = settings;
     return [
-      _section('Theme and color'),
-      _choices(
-        'Theme',
+      _section('Theme & palette'),
+      _choices('Now Playing theme',
         AppSettings.pickable.map((i) => AppSettings.themeNames[i]).toList(),
         AppSettings.pickable.indexOf(s.theme).clamp(0, AppSettings.pickable.length - 1).toInt(),
-        (i) => s.update(() => s.theme = AppSettings.pickable[i]),
-      ),
-      _choices(
-        'Accent colors',
-        AppSettings.accentNames,
-        s.accent,
-        (i) => s.update(() => s.accent = i),
-      ),
-      _switch('VHS effect uses vaporwave colors',
-          'Pink and cyan instead of colors from the album art',
-          s.vhsVaporwave, (v) => s.update(() => s.vhsVaporwave = v)),
+        (i) => s.update(() => s.theme = AppSettings.pickable[i])),
+      _choices('Accent color template', AppSettings.accentNames, s.accent,
+        (i) => s.update(() => s.accent = i)),
+      _section('Background'),
+      _choices('Artwork background image', const ['Album Art', 'Artist Fanart', 'Auto (fanart then album)'], s.fanartMode,
+        (i) => s.update(() => s.fanartMode = i)),
+      _choices('Background source', const [
+        'Blurred album art', 'Animated color template', 'Club Light Show',
+        'Album Art + Club Light Show', 'Laser Tunnel', 'Album Art + Laser Tunnel',
+      ], s.backgroundSource,
+        (i) => s.update(() { s.backgroundSource = i; s.animatedTemplateBackground = i == 1; })),
+      _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
+        s.bgOverlay, 0.0, 2.0,
+        (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
+      _slider('Background blur', '${s.bgBlur.round()}',
+        s.bgBlur, 0.0, 18.0,
+        (v) => s.update(() => s.bgBlur = v, persist: false), s.save),
+      _slider('Background contrast', '${(s.bgContrast * 100).round()}%',
+        s.bgContrast, 1.0, 2.0,
+        (v) => s.update(() => s.bgContrast = v, persist: false), s.save),
+      if (s.backgroundSource != 0)
+        _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
+          s.templateBackgroundMotion, 0.0, 1.0,
+          (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
+      if (s.backgroundSource >= 2 && s.backgroundSource <= 5)
+        _choices('Lighting blend mode', const [
+          'Normal', 'Add / Plus', 'Screen', 'Lighten', 'Overlay',
+          'Soft Light', 'Difference (Negative)', 'Exclusion',
+          'Color Dodge', 'Hard Light',
+        ], s.clubBlendMode, (i) => s.update(() => s.clubBlendMode = i)),
       _section('Visualizer'),
       _switch('Show visualizer', 'Turn the bars and ring off completely',
-          s.visualizer, (v) => s.update(() => s.visualizer = v)),
-      _slider(
-        'Sensitivity',
-        '${(s.sensitivity * 100).round()}%',
-        s.sensitivity,
-        0.5,
-        1.5,
-        (v) => s.update(() => s.sensitivity = v, persist: false),
-        s.save,
-      ),
-      _choices(
-        'Style in the Focused theme',
-        const ['Ring', 'Bars'],
-        s.vizStyle,
-        (i) => s.update(() => s.vizStyle = i),
-      ),
-      _slider(
-        'Background contrast',
-        '${(s.bgContrast * 100).round()}%',
-        s.bgContrast,
-        1.0,
-        2.0,
-        (v) => s.update(() => s.bgContrast = v, persist: false),
-        s.save,
-      ),
-      _choices(
-        'Number of bars',
-        AppSettings.barCounts.map((e) => '$e').toList(),
-        AppSettings.barCounts.indexOf(s.barCount),
-        (i) => s.update(() => s.barCount = AppSettings.barCounts[i]),
-      ),
+        s.visualizer, (v) => s.update(() => s.visualizer = v)),
+      if (s.visualizer) ...[
+        _choices('Visualizer shape (compatible layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+          s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
+        _slider('Sensitivity', '${(s.sensitivity * 100).round()}%',
+          s.sensitivity, 0.5, 1.5,
+          (v) => s.update(() => s.sensitivity = v, persist: false), s.save),
+        _choices('Style in the Focused theme', const ['Ring', 'Bars'],
+          s.vizStyle, (i) => s.update(() => s.vizStyle = i)),
+        _choices('Number of bars', AppSettings.barCounts.map((e) => '$e').toList(),
+          AppSettings.barCounts.indexOf(s.barCount),
+          (i) => s.update(() => s.barCount = AppSettings.barCounts[i])),
+      ],
+      _section('Visual effects'),
+      _action('FX Library',
+        'Configure each effect: blend mode, intensity, size and opacity',
+        'Open library', () => Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => FxLibraryScreen(settings: settings)))),
+      _switch('VHS vaporwave colors',
+        'Use pink and cyan instead of colors from album artwork',
+        s.vhsVaporwave, (v) => s.update(() => s.vhsVaporwave = v)),
       _section('Clock'),
-      _switch('Show clock', 'Small clock placed separately for each theme and orientation',
-          s.showClock, (v) => s.update(() => s.showClock = v)),
-      _switch('24-hour time', 'Off uses 12-hour time with AM/PM',
+      _switch('Show clock', 'Shown according to each theme and orientation',
+        s.showClock, (v) => s.update(() => s.showClock = v)),
+      if (s.showClock)
+        _switch('24-hour time', 'Off uses 12-hour time with AM/PM',
           s.clock24h, (v) => s.update(() => s.clock24h = v)),
-      _section('Background effects'),
-      _action(
-        'Background FX Library',
-        'Visual previews, individual effects, intensity and quick presets',
-        'Open library',
-        () => Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => FxLibraryScreen(settings: settings),
-        )),
-      ),
+      _section('Performance'),
       _switch('Performance mode',
-          'For slower units: turns off the effects above, plus grain, glitch bands, drift and the animated idle background',
-          s.performance, (v) => s.update(() => s.performance = v)),
+        'Reduce animated backgrounds and intensive visual effects on slower units',
+        s.performance, (v) => s.update(() => s.performance = v)),
     ];
   }
 
@@ -278,6 +307,10 @@ class SettingsScreen extends StatelessWidget {
         'Choose',
         () => _pickNavApp(context),
       ),
+      _section('Drive artwork & layout'),
+      _switch('Square album cover',
+          'Drive uses square album artwork instead of the spinning vinyl record. Applies immediately and is remembered.',
+          s.driveAlbumCover, (v) => s.update(() => s.driveAlbumCover = v)),
       _switch('Swap sides',
           'Song info on the left and album art on the right',
           s.driveSwap, (v) => s.update(() => s.driveSwap = v)),
@@ -299,6 +332,7 @@ class SettingsScreen extends StatelessWidget {
         (v) => s.update(() => s.driveBarsH = v, persist: false),
         s.save,
       ),
+      _section('Drive behavior & controls'),
       _switch('Return to VYBE button',
           'A labeled Return to VYBE edge tab over the map while VYBE is hidden. Tap to return; drag to move. Requires display-over-other-apps permission',
           s.driveBubble, (v) => s.update(() => s.driveBubble = v)),
@@ -473,34 +507,41 @@ class SettingsScreen extends StatelessWidget {
         ),
       );
 
+  /// Compact, scroll-friendly selector. Preserves the exact stored integer values.
   Widget _choices(String title, List<String> labels, int selected,
-          ValueChanged<int> onSelect) =>
-      Padding(
-        padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontSize: 20)),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: List<Widget>.generate(
-                labels.length,
-                (i) => ChoiceChip(
-                  label: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    child: Text(labels[i], style: const TextStyle(fontSize: 18)),
-                  ),
-                  selected: i == selected,
-                  onSelected: (_) => onSelect(i),
-                ),
-              ),
+      ValueChanged<int> onSelect) {
+    if (labels.isEmpty) return const SizedBox.shrink();
+    final current = selected.clamp(0, labels.length - 1).toInt();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 20)),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<int>(
+            key: ValueKey('selector_$title'),
+            value: current,
+            isExpanded: true,
+            dropdownColor: const Color(0xFF18212E),
+            style: const TextStyle(fontSize: 18, color: Colors.white),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: const Color(0xFF111B26),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
-          ],
-        ),
-      );
+            items: [for (var i = 0; i < labels.length; i++)
+              DropdownMenuItem<int>(value: i, child: Text(labels[i],
+                overflow: TextOverflow.ellipsis))],
+            onChanged: (i) { if (i != null && i != current) onSelect(i); },
+          ),
+        ],
+      ),
+    );
+  }
+
 }
 
 /// Live status of each permission, with a button to change it.

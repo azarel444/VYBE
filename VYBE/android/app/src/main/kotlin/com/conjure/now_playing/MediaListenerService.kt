@@ -352,7 +352,7 @@ class MediaListenerService : NotificationListenerService() {
         userChangeAt.remove(pkg)
         try {
             val i = Intent(this, MainActivity::class.java)
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             startActivity(i)
         } catch (_: Exception) {
         }

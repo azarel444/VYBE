@@ -26,7 +26,7 @@ final _effects = <_FxSpec>[
   _FxSpec('Nebula Haze', 'Soft animated clouds', (s)=>s.fxNebula,(s,v)=>s.fxNebula=v,(s)=>s.kNebula,(s,v)=>s.kNebula=v),
   _FxSpec('Perspective Grid', 'Receding grid lines', (s)=>s.fxGrid,(s,v)=>s.fxGrid=v,(s)=>s.kGrid,(s,v)=>s.kGrid=v),
   _FxSpec('Twinkling Stars', 'Subtle star field', (s)=>s.fxStars,(s,v)=>s.fxStars=v,(s)=>s.kStars,(s,v)=>s.kStars=v),
-  _FxSpec('Breathing Glow', 'Slowly expanding color glow', (s)=>s.fxGlow,(s,v)=>s.fxGlow=v,(s)=>s.kGlow,(s,v)=>s.kGlow=v),
+  _FxSpec('Moving Bokeh', 'Soft drifting out-of-focus lights', (s)=>s.fxGlow,(s,v)=>s.fxGlow=v,(s)=>s.kGlow,(s,v)=>s.kGlow=v),
   _FxSpec('Aurora Sweep', 'Flowing ribbons of light', (s)=>s.fxSweep,(s,v)=>s.fxSweep=v,(s)=>s.kSweep,(s,v)=>s.kSweep=v),
   _FxSpec('Light Rays', 'Radiating beams of light', (s)=>s.fxRays,(s,v)=>s.fxRays=v,(s)=>s.kRays,(s,v)=>s.kRays=v),
   _FxSpec('Beat Ripples', 'Expanding concentric rings', (s)=>s.fxRipples,(s,v)=>s.fxRipples=v,(s)=>s.kRipples,(s,v)=>s.kRipples=v),
@@ -122,9 +122,11 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
       builder: (context) => AnimatedBuilder(
         animation: widget.settings,
         builder: (context, _) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.88),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [Expanded(child: Text(fx.name, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w600))),
                 Switch(activeColor: _cyan, value: fx.enabled(widget.settings), onChanged: (v)=>_setOne(index,v))]),
               Text(fx.description, style: const TextStyle(color: Colors.white60)),
@@ -135,9 +137,34 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
               Slider(value: fx.intensity(widget.settings).clamp(0.0,1.0).toDouble(), activeColor: _cyan,
                 onChanged: (v)=>widget.settings.update(()=>fx.setIntensity(widget.settings,v),persist:false),
                 onChangeEnd: (_)=>widget.settings.save()),
+              const SizedBox(height: 8),
+              const Text('Transfer / blend mode'),
+              DropdownButton<int>(
+                isExpanded: true,
+                value: widget.settings.fxBlendMode[fx.name] ?? 0,
+                items: const [
+                  'Normal', 'Add / Plus', 'Screen', 'Multiply', 'Overlay',
+                  'Soft Light', 'Hard Light', 'Lighten', 'Darken',
+                  'Color Dodge', 'Color Burn', 'Difference / Negative',
+                  'Exclusion', 'Hue', 'Saturation', 'Color', 'Luminosity',
+                  'Src In', 'Dst In', 'Src Out', 'Dst Out', 'XOR',
+                  'Modulate', 'Clear',
+                ].asMap().entries.map((e) => DropdownMenuItem<int>(
+                  value: e.key, child: Text(e.value))).toList(),
+                onChanged: (v) { if (v != null) widget.settings.update(() => widget.settings.fxBlendMode[fx.name] = v); },
+              ),
+              Text('Blend opacity ${((widget.settings.fxBlendOpacity[fx.name] ?? 1.0) * 100).round()}%'),
+              Slider(value: widget.settings.fxBlendOpacity[fx.name] ?? 1.0,
+                onChanged: (v) => widget.settings.update(() => widget.settings.fxBlendOpacity[fx.name] = v, persist: false),
+                onChangeEnd: (_) => widget.settings.save()),
+              Text('Size ${((widget.settings.fxSize[fx.name] ?? 1.0) * 100).round()}%'),
+              Slider(value: widget.settings.fxSize[fx.name] ?? 1.0, min: 0.5, max: 2.5,
+                onChanged: (v) => widget.settings.update(() => widget.settings.fxSize[fx.name] = v, persist: false),
+                onChangeEnd: (_) => widget.settings.save()),
               const Text('Preview illustrates the effect shape; actual motion and color appear in Now Playing.',
                 style: TextStyle(fontSize: 12,color: Colors.white54)),
-            ]),
+              ]),
+            ),
           ),
         ),
       ),

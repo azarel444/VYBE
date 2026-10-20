@@ -57,7 +57,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen>
     with WidgetsBindingObserver {
-  static const _lastStep = 6;
+  static const _lastStep = 7;
 
   int _step = 0;
   Map<String, bool> _perm = const {
@@ -70,6 +70,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _boot = false;
   bool _music = false;
   Timer? _poll;
+  Future<void> _pendingChoiceWrite = Future<void>.value();
 
   @override
   void initState() {
@@ -117,6 +118,14 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   /// Saves a yes/no choice, through the app's settings when replaying.
   Future<void> _put(String key, bool v) async {
+    // Serialize writes so finishing onboarding cannot race the final toggle.
+    final previous = _pendingChoiceWrite;
+    final next = previous.catchError((Object _) {}).then((_) => _saveChoice(key, v));
+    _pendingChoiceWrite = next;
+    await next;
+  }
+
+  Future<void> _saveChoice(String key, bool v) async {
     final s = widget.settings;
     if (s != null) {
       s.update(() {
@@ -143,8 +152,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   bool _granted(String k) => _perm[k] == true;
 
-  void _next() {
+  Future<void> _next() async {
     if (_step >= _lastStep) {
+      // Do not gate entry into VYBE on a potentially stalled preference write.
+      // The selected values are captured from UI state and committed by the
+      // root before its main screen is shown.
       widget.onDone();
     } else {
       setState(() => _step++);
@@ -329,7 +341,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             ],
           ),
         );
-      default:
+      case 6:
         return _page(
           icon: Icons.check_circle_outline,
           title: 'You are set',
@@ -347,6 +359,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               _summaryRow('Open when music starts', _music),
             ],
           ),
+        );
+      default:
+        return _page(
+          icon: Icons.touch_app_outlined,
+          title: 'Your VYBE controls',
+          body: 'The floating toolbar appears when you tap the player. '
+              'These are the expanded controls in both modes. '
+              'No guessing or tapping around required.',
+          extra: const ToolbarGuide(),
         );
     }
   }
@@ -476,7 +497,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       label = 'Get started';
       onPressed = _next;
     } else if (_step == _lastStep) {
-      label = 'Start VYBE';
+      label = 'Launch VYBE';
       onPressed = _next;
     } else if (isRequired && !_granted('notification')) {
       label = 'Open notification settings';
@@ -544,4 +565,103 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       );
     });
   }
+}
+
+/// Read-only guide using the same icons and ordering as the expanded player
+/// toolbar. Both variants remain visible without needing to activate Drive.
+class ToolbarGuide extends StatelessWidget {
+  const ToolbarGuide({super.key});
+
+  static const _normal = <_GuideControl>[
+    _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
+    _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.navigation_rounded, 'Drive', 'Open the Drive map experience'),
+    _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
+    _GuideControl(Icons.play_circle_filled, 'Play / Pause', 'Control music playback'),
+    _GuideControl(Icons.skip_next_rounded, 'Next', 'Skip to the next track'),
+  ];
+  static const _drive = <_GuideControl>[
+    _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
+    _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.map_outlined, 'Show Map', 'Return to the map while Drive stays active'),
+    _GuideControl(Icons.close_rounded, 'Close Drive', 'Exit the Drive overlay'),
+    _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
+    _GuideControl(Icons.play_circle_filled, 'Play / Pause', 'Control music playback'),
+    _GuideControl(Icons.skip_next_rounded, 'Next', 'Skip to the next track'),
+  ];
+
+  Widget _section(String title, List<_GuideControl> controls) => Padding(
+    padding: const EdgeInsets.only(top: 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _cyan)),
+        const SizedBox(height: 10),
+        // Full expanded toolbar preview, scaled to fit narrow portrait screens.
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xDD151A25),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Column(children: [
+            const Row(children: [
+              Icon(Icons.linear_scale, color: Colors.white38, size: 18),
+              SizedBox(width: 8),
+              Expanded(child: Divider(color: Colors.white24, thickness: 3)),
+              SizedBox(width: 8),
+              Text('0:00 / 0:00', style: TextStyle(color: Colors.white54, fontSize: 11)),
+            ]),
+            const SizedBox(height: 10),
+            Row(children: [
+              for (var i = 0; i < controls.length; i++)
+                Expanded(child: Column(children: [
+                  Icon(controls[i].icon, size: 25, color: Colors.white),
+                  const SizedBox(height: 5),
+                  Text('${i + 1}', style: const TextStyle(color: _cyan, fontSize: 12, fontWeight: FontWeight.bold)),
+                ])),
+            ]),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        for (var i = 0; i < controls.length; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                width: 26, height: 26,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(color: Color(0x3322DDEE), shape: BoxShape.circle),
+                child: Text('${i + 1}', style: const TextStyle(color: _cyan, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: Text('${controls[i].label} — ${controls[i].description}',
+                style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.3))),
+            ]),
+          ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _section('Standard', _normal),
+      _section('Drive Theme Activated', _drive),
+      const SizedBox(height: 16),
+      const Text('Tap the screen to show the toolbar. The seek bar at the top '
+          'lets you move through the track; playback time and audio status '
+          'appear at the right. Tap outside the toolbar to return to the full view.',
+          style: TextStyle(color: Colors.white70, fontSize: 15, height: 1.4)),
+    ],
+  );
+}
+
+class _GuideControl {
+  final IconData icon;
+  final String label;
+  final String description;
+  const _GuideControl(this.icon, this.label, this.description);
 }
