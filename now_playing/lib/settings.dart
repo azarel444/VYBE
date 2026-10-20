@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -175,6 +176,19 @@ class AppSettings extends ChangeNotifier {
   ArtPalette? get accentPalette =>
       (accent > 0 && accent < accents.length) ? accents[accent] : null;
 
+  static const MethodChannel contentChoicesChannel = MethodChannel('nowplaying/control');
+
+  static Future<void> persistContentChoice(String key, bool value) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(key, value);
+    try {
+      await contentChoicesChannel.invokeMethod<bool>('setContentChoice',
+          {'key': key, 'value': value});
+    } catch (e) {
+      debugPrint('VYBE native preference save failed: $e');
+    }
+  }
+
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
     // The Drive overlay uses a separate Flutter engine with its own cache.
@@ -229,6 +243,19 @@ class AppSettings extends ChangeNotifier {
     lyrics = p.getBool('lyrics') ?? false;
     bootStart = p.getBool('bootStart') ?? false;
     musicStart = p.getBool('musicStart') ?? false;
+    // Shared native preferences prevent stale plugin caches across engines.
+    try {
+      final native = await contentChoicesChannel
+          .invokeMapMethod<String, dynamic>('getContentChoices');
+      if (native != null) {
+        if (native['artLookup'] is bool) artLookup = native['artLookup'] as bool;
+        if (native['lyrics'] is bool) lyrics = native['lyrics'] as bool;
+        if (native['bootStart'] is bool) bootStart = native['bootStart'] as bool;
+        if (native['musicStart'] is bool) musicStart = native['musicStart'] as bool;
+      }
+    } catch (e) {
+      debugPrint('VYBE native preference load failed: $e');
+    }
     vhsVaporwave = p.getBool('vhsVaporwave') ?? false;
     fxGlow = p.getBool('fxGlow') ?? false;
     fxSweep = p.getBool('fxSweep') ?? false;
@@ -396,8 +423,7 @@ class AppSettings extends ChangeNotifier {
     final next = previous.catchError((Object error) {
       debugPrint('VYBE previous save failed: $error');
     }).then((_) async {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(key, value);
+      await persistContentChoice(key, value);
     });
     _pendingSave = next;
     await next;

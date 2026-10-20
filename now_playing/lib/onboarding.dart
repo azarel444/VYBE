@@ -134,8 +134,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     // Commit each onboarding selection directly to the same preferences store
     // read by AppSettings.load. Avoid a full-settings save from an instance
     // whose other fields may still contain defaults.
-    final p = await SharedPreferences.getInstance();
-    await p.setBool(key, v);
+    await AppSettings.persistContentChoice(key, v);
     final settings = widget.settings;
     if (settings != null) {
       switch (key) {
@@ -161,13 +160,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       // root before its main screen is shown.
       try {
         await _pendingChoiceWrite.timeout(const Duration(seconds: 3));
-        final p = await SharedPreferences.getInstance();
         await Future.wait([
-          p.setBool('artLookup', _art),
-          p.setBool('lyrics', _lyrics),
-          p.setBool('bootStart', _boot),
-          p.setBool('musicStart', _music),
-        ]).timeout(const Duration(seconds: 3));
+          AppSettings.persistContentChoice('artLookup', _art),
+          AppSettings.persistContentChoice('lyrics', _lyrics),
+          AppSettings.persistContentChoice('bootStart', _boot),
+          AppSettings.persistContentChoice('musicStart', _music),
+        ]).timeout(const Duration(seconds: 5));
       } catch (e) {
         debugPrint('VYBE onboarding preference commit: $e');
       }

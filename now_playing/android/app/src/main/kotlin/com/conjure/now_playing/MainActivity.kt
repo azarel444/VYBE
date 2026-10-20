@@ -160,6 +160,22 @@ open class MainActivity : FlutterActivity() {
                 }
                 "openPlayer" -> result.success(openPlayer())
                 "openOverlaySettings" -> { openOverlaySettings(); result.success(null) }
+                "getContentChoices" -> {
+                    val prefs = getSharedPreferences("vybe_content_choices", Context.MODE_PRIVATE)
+                    val keys = listOf("artLookup", "lyrics", "bootStart", "musicStart")
+                    result.success(keys.filter { prefs.contains(it) }.associateWith { prefs.getBoolean(it, false) })
+                }
+                "setContentChoice" -> {
+                    val key = call.argument<String>("key")
+                    val value = call.argument<Boolean>("value")
+                    if (key !in listOf("artLookup", "lyrics", "bootStart", "musicStart") || value == null) {
+                        result.error("BAD_CHOICE", "Invalid content choice", null)
+                    } else {
+                        val ok = getSharedPreferences("vybe_content_choices", Context.MODE_PRIVATE)
+                            .edit().putBoolean(key, value).commit()
+                        result.success(ok)
+                    }
+                }
                 "setLaunchSettings" -> {
                     getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE).edit()
                         .putBoolean("openOnBoot", call.argument<Boolean>("boot") ?: false)

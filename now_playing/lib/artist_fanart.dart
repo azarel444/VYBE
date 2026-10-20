@@ -45,7 +45,7 @@ class ArtistFanartCache {
       Uint8List? bytes;
       var noBackground = 0;
       var lookupFailures = 0;
-      for (final mbid in ids.take(5)) {
+      for (final mbid in ids.take(2)) {
         final response = await _json(Uri.https('webservice.fanart.tv', '/v3/music/$mbid', {
           'api_key': projectKey,
           if (personalKey.isNotEmpty) 'client_key': personalKey,
@@ -63,7 +63,7 @@ class ArtistFanartCache {
         if (bytes != null && bytes.isNotEmpty) break;
       }
       if (bytes == null || bytes.isEmpty) {
-        lastStatus = 'No usable background across ${ids.take(5).length} artist IDs '
+        lastStatus = 'No usable background across ${ids.take(2).length} artist IDs '
             '($noBackground without images, $lookupFailures request failures)';
         return null;
       }
@@ -75,11 +75,11 @@ class ArtistFanartCache {
   }
 
   Future<Map<String, dynamic>> _json(Uri uri) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 7);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
     try {
       final req = await client.getUrl(uri);
       req.headers.set(HttpHeaders.userAgentHeader, 'VYBE/1.9 (music artwork; contact via app publisher)');
-      final res = await req.close().timeout(const Duration(seconds: 9));
+      final res = await req.close().timeout(const Duration(seconds: 6));
       if (res.statusCode != 200) return {};
       final body = await res.transform(utf8.decoder).join();
       if (body.length > 500000) return {};
@@ -89,10 +89,10 @@ class ArtistFanartCache {
   }
 
   Future<Uint8List?> _bytes(Uri uri) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 7);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
     try {
       final req = await client.getUrl(uri);
-      final res = await req.close().timeout(const Duration(seconds: 10));
+      final res = await req.close().timeout(const Duration(seconds: 7));
       if (res.statusCode != 200) return null;
       final out = BytesBuilder(copy: false);
       await for (final chunk in res) {

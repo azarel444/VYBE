@@ -58,6 +58,34 @@ Future<Uint8List?> fetchArtwork(String title, String artist, {String album = ''}
     '$artist ${clean(title).replaceAll(RegExp(r'\s+'), ' ')}'.trim(),
     if (album.isNotEmpty) '$artist $album'.trim(),
   ].where((q) => q.isNotEmpty).toSet();
+  // Album-only fallback: a valid album match must not be rejected just
+  // because the song search result is for a different track on that album.
+  // Apple's album entity returns the cover directly.
+  if (_norm(album).isNotEmpty && _norm(artist).isNotEmpty) {
+    final body = await httpGetString(Uri.https('itunes.apple.com', '/search', {
+      'term': '$artist $album', 'entity': 'album', 'limit': '30',
+    }));
+    if (body != null) {
+      try {
+        final decoded = jsonDecode(body);
+        if (decoded is Map && decoded['results'] is List) {
+          for (final entry in decoded['results'] as List) {
+            if (entry is! Map) continue;
+            final foundArtist = entry['artistName']?.toString() ?? '';
+            final foundAlbum = entry['collectionName']?.toString() ?? '';
+            final artUrl = entry['artworkUrl100']?.toString() ?? '';
+            if (!_looseMatch(foundArtist, artist) ||
+                _norm(foundAlbum) != _norm(album) || artUrl.isEmpty) continue;
+            final imageUri = Uri.tryParse(artUrl.replaceFirst('100x100', '600x600'));
+            if (imageUri == null || imageUri.scheme != 'https') continue;
+            final bytes = await httpGetBytes(imageUri);
+            if (bytes != null && bytes.isNotEmpty) return bytes;
+          }
+        }
+      } catch (_) { /* Try the independent album catalog. */ }
+    }
+  }
+
   for (final term in queries) {
     final body = await httpGetString(Uri.https('itunes.apple.com', '/search', {
       'term': term, 'entity': 'song', 'limit': '25',
