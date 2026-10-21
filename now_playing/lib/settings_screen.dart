@@ -123,20 +123,24 @@ class SettingsScreen extends StatelessWidget {
           'When off, themes use the available space for artwork and song details',
           s.lyrics, (v) => s.setLaunchOrContentChoice('lyrics', v)),
       _section('Settings storage diagnostics'),
-      _action('Copy saved settings',
-          'Compare current switches with Android committed storage and Flutter preferences',
-          'Copy Settings', () async {
-            final p = await SharedPreferences.getInstance();
-            await p.reload();
+      _action('Inspect saved settings',
+          'Show current, Flutter, and Android values on screen',
+          'Inspect Settings', () async {
+            final report = StringBuffer('VYBE settings diagnostics\\n');
             Map<String, dynamic>? native;
-            String? error;
+            SharedPreferences? p;
+            try {
+              p = await SharedPreferences.getInstance();
+              await p.reload();
+            } catch (e) {
+              report.writeln('Flutter read error: $e');
+            }
             try {
               native = await AppSettings.contentChoicesChannel
                   .invokeMapMethod<String, dynamic>('getContentChoices');
             } catch (e) {
-              error = e.toString();
+              report.writeln('Android read error: $e');
             }
-            final report = StringBuffer('VYBE settings diagnostics\\n');
             for (final key in ['artLookup', 'lyrics', 'bootStart', 'musicStart']) {
               final bool ui;
               if (key == 'artLookup') {
@@ -148,12 +152,42 @@ class SettingsScreen extends StatelessWidget {
               } else {
                 ui = s.musicStart;
               }
-              report.writeln('$key: UI=$ui Flutter=${p.getBool(key)} Android=${native?[key]}');
+              report.writeln('$key: UI=$ui Flutter=${p?.getBool(key)} Android=${native?[key]}');
             }
-            if (error != null) report.writeln('Android read error: $error');
-            await Clipboard.setData(ClipboardData(text: report.toString()));
-            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Settings diagnostics copied')));
+            if (!context.mounted) return;
+            final diagnostics = report.toString();
+            await showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Settings diagnostics'),
+                content: SingleChildScrollView(
+                  child: SelectableText(diagnostics),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      try {
+                        await Clipboard.setData(ClipboardData(text: diagnostics));
+                        if (dialogContext.mounted) {
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            const SnackBar(content: Text('Diagnostics copied')));
+                        }
+                      } catch (e) {
+                        if (dialogContext.mounted) {
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            SnackBar(content: Text('Copy failed: $e')));
+                        }
+                      }
+                    },
+                    child: const Text('Copy'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            );
           }),
       _section('Artwork diagnostics'),
       _action('Copy artwork diagnostics',
