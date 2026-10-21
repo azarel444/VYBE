@@ -437,6 +437,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
+            if (!widget.driveHost && settings.theme == AppSettings.tCinematic &&
+                settings.backgroundSource >= 2 && settings.backgroundSource <= 5)
+              _cinematicLightShow(),
             if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
@@ -658,6 +661,37 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ));
     }
     return _albumBackdrop();
+  }
+
+  /// Keep Cinematic fanart visible beneath the optional club/laser lights.
+  Widget _cinematicLightShow() {
+    const blends = <BlendMode>[
+      BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
+      BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
+      BlendMode.difference, BlendMode.exclusion,
+      BlendMode.colorDodge, BlendMode.hardLight,
+    ];
+    return IgnorePointer(child: RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _slow,
+        builder: (context, _) => CustomPaint(
+          painter: settings.backgroundSource >= 4
+            ? LaserTunnelBackgroundPainter(
+                palette: _clubPalette, time: _time,
+                transparentStage: true,
+                motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+                darkness: settings.bgOverlay,
+                lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)])
+            : ClubBackgroundPainter(
+                palette: _clubPalette, time: _time,
+                transparentStage: true,
+                motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+                darkness: settings.bgOverlay,
+                lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)]),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    ));
   }
 
   Widget _albumBackdrop() {
