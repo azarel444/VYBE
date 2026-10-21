@@ -4347,8 +4347,9 @@ class _CinematicWavePainter extends CustomPainter {
   final SpectrumSim sim;
   final Color color;
   final double gain;
+  final int style;
   _CinematicWavePainter({required this.sim, required this.color,
-    required this.gain, required Listenable repaint}) : super(repaint: repaint);
+    required this.gain, required this.style, required Listenable repaint}) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -4369,6 +4370,30 @@ class _CinematicWavePainter extends CustomPainter {
       path.quadraticBezierTo(points[i].dx, points[i].dy, mid.dx, mid.dy);
     }
     path.lineTo(points.last.dx, points.last.dy);
+    final fade = LinearGradient(
+      colors: [color.withOpacity(0.0), color.withOpacity(0.85),
+               color.withOpacity(0.85), color.withOpacity(0.0)],
+      stops: const [0.0, 0.13, 0.87, 1.0],
+    ).createShader(Offset.zero & size);
+    final paint = Paint()
+      ..shader = fade
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    if (style == 0) {
+      for (var i = 0; i < points.length; i += 2) {
+        canvas.drawLine(Offset(points[i].dx, size.height * 0.60),
+          points[i], paint);
+      }
+    } else if (style == 2) {
+      for (final point in points) {
+        canvas.drawCircle(point, 2.2, Paint()..color =
+          color.withOpacity((0.85 * (1 - (point.dx / size.width * 2 - 1).abs())).clamp(0.0, 1.0)));
+      }
+    } else {
+      canvas.drawPath(path, paint);
+    }
     // Fade the waveform at both horizontal edges.
     final fade = LinearGradient(
       colors: [color.withOpacity(0.0), color.withOpacity(0.85),
@@ -4391,16 +4416,27 @@ class _CinematicWavePainter extends CustomPainter {
                color.withOpacity(0.23), color.withOpacity(0.0)],
       stops: const [0.0, 0.13, 0.87, 1.0],
     ).createShader(Offset.zero & size);
-    canvas.drawPath(path, Paint()
-      ..shader = reflection
-      ..strokeWidth = 2.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round);
+    if (style == 1) {
+      canvas.drawPath(path, Paint()
+        ..shader = reflection
+        ..strokeWidth = 2.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round);
+    } else if (style == 0) {
+      final rp = Paint()..shader = reflection..strokeWidth = 1.8;
+      for (var i = 0; i < points.length; i += 2) {
+        canvas.drawLine(Offset(points[i].dx, size.height * 0.60), points[i], rp);
+      }
+    } else {
+      for (final point in points) {
+        canvas.drawCircle(point, 1.7, Paint()..color = color.withOpacity(0.12));
+      }
+    }
     canvas.restore();
   }
 
   @override
   bool shouldRepaint(_CinematicWavePainter old) =>
-      old.color != color || old.gain != gain;
+      old.color != color || old.gain != gain || old.style != style;
 }
