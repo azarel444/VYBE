@@ -18,6 +18,7 @@ class AppSettings extends ChangeNotifier {
     'Record Cut',
     'Typo',
     'Orbit',
+    'Cinematic',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
@@ -26,13 +27,14 @@ class AppSettings extends ChangeNotifier {
   static const int tRecord = 7;
   static const int tTypo = 8;
   static const int tOrbit = 9;
+  static const int tCinematic = 10;
 
   /// Number 2 was the VHS theme. It is now an effect, so it is no longer
   /// offered as a theme; the other numbers stay as they were.
   static const int tRemovedVhs = 2;
 
   /// The themes that can be picked, in order.
-  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9];
+  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10];
   static const accentNames = [
     'Auto (from art)',
     'Vaporwave',
