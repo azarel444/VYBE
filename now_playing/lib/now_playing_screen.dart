@@ -4316,3 +4316,44 @@ class _FxBlendPainter extends CustomPainter {
       mode != old.mode || opacity != old.opacity ||
       delegate != old.delegate || delegate.shouldRepaint(old.delegate);
 }
+
+
+/// Thin, smoothed audio-reactive waveform for Cinematic.
+class _CinematicWavePainter extends CustomPainter {
+  final SpectrumSim sim;
+  final Color color;
+  final double gain;
+  _CinematicWavePainter({required this.sim, required this.color,
+    required this.gain, required Listenable repaint}) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    const samples = 48;
+    final points = <Offset>[];
+    for (var i = 0; i < samples; i++) {
+      final x = i / (samples - 1);
+      final band = (i * (SpectrumSim.bars - 1) / (samples - 1)).round();
+      final energy = sim.level(band, gain);
+      final y = size.height * (0.55 - 0.36 * energy);
+      points.add(Offset(x * size.width, y));
+    }
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length - 1; i++) {
+      final mid = Offset((points[i].dx + points[i + 1].dx) / 2,
+          (points[i].dy + points[i + 1].dy) / 2);
+      path.quadraticBezierTo(points[i].dx, points[i].dy, mid.dx, mid.dy);
+    }
+    path.lineTo(points.last.dx, points.last.dy);
+    canvas.drawPath(path, Paint()
+      ..color = color.withOpacity(0.85)
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round);
+  }
+
+  @override
+  bool shouldRepaint(_CinematicWavePainter old) =>
+      old.color != color || old.gain != gain;
+}
