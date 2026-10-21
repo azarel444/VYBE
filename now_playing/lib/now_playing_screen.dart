@@ -1319,10 +1319,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
 
     if (portrait) {
-      final content = Padding(
-        padding: EdgeInsets.only(top: h * 0.075),
-        child: _portraitStack(h * 0.925, top, text),
-      );
+      // Focused: lower the album/ring assembly and let its reflection extend
+      // behind the song labels. Draw text last so it stays on top.
+      final content = Stack(clipBehavior: Clip.none, children: [
+        Positioned(
+          left: 0, right: 0, top: h * 0.19,
+          child: Center(child: FittedBox(
+            fit: BoxFit.scaleDown, child: top)),
+        ),
+        Positioned(
+          left: 0, right: 0, top: h * 0.69,
+          child: Center(child: FittedBox(
+            fit: BoxFit.scaleDown, child: text)),
+        ),
+      ]);
       if (!barsMode || !settings.visualizer) return content;
       final edge = w * 0.07;
       return Stack(children: [
