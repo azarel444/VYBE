@@ -913,7 +913,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // upper-left, clear of the artwork. Other landscape themes retain sides.
     final typoLyricsCentered = !portrait &&
         theme == AppSettings.tTypo && _hasLyrics;
-    final centered = portrait || typoLyricsCentered;
+    // Cinematic landscape clock belongs at the top center, independent
+    // of the mirrored music-information layout.
+    final centered = portrait || typoLyricsCentered ||
+        (!portrait && theme == AppSettings.tCinematic);
     bool onRight = true;
     double topInset = portrait ? h * 0.055 : 18.0;
     double? bottomInset;
