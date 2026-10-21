@@ -758,32 +758,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _cinematicBackdrop() {
     final fanart = _fanartBytes;
     final art = model.art;
-    final Widget backdrop;
+    final bool hasAlbum = art != null && !art.flat;
+    final Widget image;
     if (fanart != null) {
-      backdrop = Image.memory(fanart, fit: BoxFit.cover,
+      image = Image.memory(fanart, fit: BoxFit.cover,
           alignment: Alignment.topCenter, gaplessPlayback: true);
-    } else if (art != null && !art.flat) {
-      backdrop = ImageFiltered(
-        imageFilter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-        child: RawImage(image: art.tiny, fit: BoxFit.cover));
+    } else if (hasAlbum) {
+      image = RawImage(image: art.tiny, fit: BoxFit.cover);
     } else {
-      backdrop = RepaintBoundary(child: CustomPaint(
-        painter: IdleBackdropPainter(
-          clock: fxClock, palette: _palette,
+      image = RepaintBoundary(child: CustomPaint(
+        painter: IdleBackdropPainter(clock: fxClock, palette: _palette,
           animate: !settings.performance, repaint: _tick)));
     }
+    final bool hasImage = fanart != null || hasAlbum;
     return Stack(fit: StackFit.expand, children: [
-      if (fanart != null) ...[
+      // Same two-layer edge softening for fanart AND album-only fallback.
+      if (hasImage)
         ImageFiltered(
           imageFilter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: Image.memory(fanart, fit: BoxFit.cover,
-            alignment: Alignment.topCenter, gaplessPlayback: true)),
-      ],
+          child: ColorFiltered(
+            colorFilter: _contrastFilter(settings.bgContrast),
+            child: image)),
       AnimatedSwitcher(duration: const Duration(milliseconds: 700),
         child: SizedBox.expand(
           key: ValueKey(fanart != null ? 'fanart:${_fanartArtist}' :
-              art != null && !art.flat ? 'album:${model.artist}' : 'palette'),
-          child: fanart == null ? backdrop : ShaderMask(
+              hasAlbum ? 'album:${model.artist}:${model.album}' : 'palette'),
+          child: hasImage ? ShaderMask(
             blendMode: BlendMode.dstIn,
             shaderCallback: (bounds) => const RadialGradient(
               center: Alignment.center, radius: 0.95,
@@ -791,13 +791,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               colors: [Colors.white, Colors.white,
                 Color(0xAAFFFFFF), Colors.transparent],
             ).createShader(bounds),
-            child: backdrop))),
+            child: ColorFiltered(
+              colorFilter: _contrastFilter(settings.bgContrast),
+              child: image)) : image)),
+      // Cinematic keeps its fixed edge blur, but uses global darkness.
+      ColoredBox(color: Colors.black.withOpacity(
+        (settings.bgOverlay * 0.16).clamp(0.0, 0.65))),
       const DecoratedBox(decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter, end: Alignment.bottomCenter,
           stops: [0, 0.32, 0.57, 0.79, 1],
           colors: [Color(0x17000000), Color(0x00000000),
-                   Color(0x55000000), Color(0xAA000000), Color(0xF5000000)]))),
+                   Color(0x55000000), Color(0xAA000000),
+                   Color(0xF5000000)]))),
     ]);
   }
 
@@ -828,8 +834,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final waveHeight = portrait ? h * 0.14 : h * 0.25;
     final wave = settings.visualizer ? IgnorePointer(child: CustomPaint(
       painter: _CinematicWavePainter(sim: sim, color: _palette.a,
+        style: settings.diagonalWaveStyle,
         gain: settings.sensitivity, repaint: _tick))) :
         const SizedBox.shrink();
+    final swap = settings.layoutSwap;
     return Stack(children: [
       if (portrait) ...[
         Positioned(left: w * 0.06, right: w * 0.04,
@@ -837,9 +845,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * 0.02, right: w * 0.02,
           bottom: h * 0.035, height: waveHeight, child: wave),
       ] else ...[
-        Positioned(left: w * 0.02, bottom: h * 0.035,
-          child: info),
-        Positioned(left: w * 0.43, right: w * 0.025,
+        Positioned(left: swap ? w * 0.51 : w * 0.02,
+          bottom: h * 0.035, child: info),
+        Positioned(left: swap ? w * 0.025 : w * 0.43,
+          right: swap ? w * 0.57 : w * 0.025,
           bottom: h * 0.035, height: waveHeight, child: wave),
       ],
     ]);
@@ -3994,7 +4003,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
                 if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
-                    const [1, 3, 4, 5, 6, 7, 8, 9].contains(settings.theme))
+                    const [1, 3, 4, 5, 6, 7, 8, 9, 10].contains(settings.theme))
                   btn(Icons.swap_horiz_rounded, 36, () {
                     settings.update(() {
                       if (settings.theme == 4) {
