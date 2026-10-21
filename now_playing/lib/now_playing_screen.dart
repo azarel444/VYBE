@@ -4394,19 +4394,6 @@ class _CinematicWavePainter extends CustomPainter {
     } else {
       canvas.drawPath(path, paint);
     }
-    // Fade the waveform at both horizontal edges.
-    final fade = LinearGradient(
-      colors: [color.withOpacity(0.0), color.withOpacity(0.85),
-               color.withOpacity(0.85), color.withOpacity(0.0)],
-      stops: const [0.0, 0.13, 0.87, 1.0],
-    ).createShader(Offset.zero & size);
-    canvas.drawPath(path, Paint()
-      ..shader = fade
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round);
-
     // A subtle, vertically compressed reflection underneath the waveform.
     canvas.save();
     canvas.translate(0, size.height * 1.10);
