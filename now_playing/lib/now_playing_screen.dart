@@ -1344,18 +1344,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ]);
     }
 
-    final centered = Center(
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: SizedBox(
-          width: w,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [top, SizedBox(height: h * 0.03), text],
-          ),
-        ),
+    // Landscape Focused: leave a clear header for the centered clock.
+    // Keep the album reflection behind (rather than above) the song info.
+    // Paint the text last so it remains legible over the reflection.
+    final centered = Stack(clipBehavior: Clip.none, children: [
+      Positioned(
+        top: h * 0.14, left: 0, right: 0,
+        child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: top)),
       ),
-    );
+      Positioned(
+        bottom: h * 0.035, left: 0, right: 0,
+        child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: text)),
+      ),
+    ]);
     if (!barsMode || !settings.visualizer) return centered;
     final edge = w * 0.105;
     return Stack(children: [
