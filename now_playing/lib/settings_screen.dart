@@ -1,6 +1,7 @@
 import 'vybe_link_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'native.dart';
 import 'now_playing_model.dart';
@@ -121,6 +122,35 @@ class SettingsScreen extends StatelessWidget {
       _switch('Show lyrics',
           'When off, themes use the available space for artwork and song details',
           s.lyrics, (v) => s.setLaunchOrContentChoice('lyrics', v)),
+      _section('Settings storage diagnostics'),
+      _action('Copy saved settings',
+          'Compare current switches with Android committed storage and Flutter preferences',
+          'Copy Settings', () async {
+            final p = await SharedPreferences.getInstance();
+            await p.reload();
+            Map<String, dynamic>? native;
+            String? error;
+            try {
+              native = await AppSettings.contentChoicesChannel
+                  .invokeMapMethod<String, dynamic>('getContentChoices');
+            } catch (e) {
+              error = e.toString();
+            }
+            final report = StringBuffer('VYBE settings diagnostics\\n');
+            for (final key in ['artLookup', 'lyrics', 'bootStart', 'musicStart']) {
+              final ui = switch (key) {
+                'artLookup' => s.artLookup,
+                'lyrics' => s.lyrics,
+                'bootStart' => s.bootStart,
+                _ => s.musicStart,
+              };
+              report.writeln('$key: UI=$ui Flutter=${p.getBool(key)} Android=${native?[key]}');
+            }
+            if (error != null) report.writeln('Android read error: $error');
+            await Clipboard.setData(ClipboardData(text: report.toString()));
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Settings diagnostics copied')));
+          }),
       _section('Artwork diagnostics'),
       _action('Copy artwork diagnostics',
           'Track, media-session artwork, cache/online lookup and failure details',
