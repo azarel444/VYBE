@@ -4360,12 +4360,35 @@ class _CinematicWavePainter extends CustomPainter {
       path.quadraticBezierTo(points[i].dx, points[i].dy, mid.dx, mid.dy);
     }
     path.lineTo(points.last.dx, points.last.dy);
+    // Fade the waveform at both horizontal edges.
+    final fade = LinearGradient(
+      colors: [color.withOpacity(0.0), color.withOpacity(0.85),
+               color.withOpacity(0.85), color.withOpacity(0.0)],
+      stops: const [0.0, 0.13, 0.87, 1.0],
+    ).createShader(Offset.zero & size);
     canvas.drawPath(path, Paint()
-      ..color = color.withOpacity(0.85)
+      ..shader = fade
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round);
+
+    // A subtle, vertically compressed reflection underneath the waveform.
+    canvas.save();
+    canvas.translate(0, size.height * 1.10);
+    canvas.scale(1.0, -0.48);
+    final reflection = LinearGradient(
+      colors: [color.withOpacity(0.0), color.withOpacity(0.23),
+               color.withOpacity(0.23), color.withOpacity(0.0)],
+      stops: const [0.0, 0.13, 0.87, 1.0],
+    ).createShader(Offset.zero & size);
+    canvas.drawPath(path, Paint()
+      ..shader = reflection
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round);
+    canvas.restore();
   }
 
   @override
