@@ -9,6 +9,7 @@ import 'onboarding.dart';
 import 'settings.dart';
 import 'fx_library.dart';
 import 'media_cache.dart';
+import 'artist_fanart.dart';
 
 const _cyan = Color(0xFF00E5FF);
 
@@ -198,6 +199,17 @@ class SettingsScreen extends StatelessWidget {
               const SnackBar(content: Text('Artwork diagnostics copied')));
           }),
       Text(model.artworkDiagnostics,
+          style: const TextStyle(fontSize: 13, color: Colors.white70)),
+      _section('Fanart diagnostics'),
+      _action('Copy fanart diagnostics',
+          'Timing of cache, MusicBrainz, Fanart.tv and image downloads',
+          'Copy Fanart Diagnostics', () async {
+            await Clipboard.setData(
+              ClipboardData(text: ArtistFanartCache.diagnostics));
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Fanart diagnostics copied')));
+          }),
+      Text(ArtistFanartCache.diagnostics,
           style: const TextStyle(fontSize: 13, color: Colors.white70)),
       _section('Offline media cache'),
       _action('Clear cached artwork and lyrics',
