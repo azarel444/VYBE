@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'native_preferences.dart';
 
 import 'palette.dart';
 
