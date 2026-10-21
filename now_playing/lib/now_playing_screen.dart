@@ -773,17 +773,31 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           animate: !settings.performance, repaint: _tick)));
     }
     return Stack(fit: StackFit.expand, children: [
+      if (fanart != null) ...[
+        ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: Image.memory(fanart, fit: BoxFit.cover,
+            alignment: Alignment.topCenter, gaplessPlayback: true)),
+      ],
       AnimatedSwitcher(duration: const Duration(milliseconds: 700),
         child: SizedBox.expand(
           key: ValueKey(fanart != null ? 'fanart:${_fanartArtist}' :
               art != null && !art.flat ? 'album:${model.artist}' : 'palette'),
-          child: backdrop)),
+          child: fanart == null ? backdrop : ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) => const RadialGradient(
+              center: Alignment.center, radius: 0.95,
+              stops: [0.0, 0.48, 0.78, 1.0],
+              colors: [Colors.white, Colors.white,
+                Color(0xAAFFFFFF), Colors.transparent],
+            ).createShader(bounds),
+            child: backdrop))),
       const DecoratedBox(decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          stops: [0, 0.42, 0.72, 1],
+          stops: [0, 0.32, 0.57, 0.79, 1],
           colors: [Color(0x17000000), Color(0x00000000),
-                   Color(0x66000000), Color(0xF0000000)]))),
+                   Color(0x55000000), Color(0xAA000000), Color(0xF5000000)]))),
     ]);
   }
 
@@ -795,7 +809,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final titleSize = portrait ? w * 0.052 : h * 0.065;
     final info = Row(mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center, children: [
-        _artCard(coverSize),
+        GestureDetector(behavior: HitTestBehavior.opaque,
+          onTap: _openPlayer, child: _artCard(coverSize)),
         SizedBox(width: portrait ? w * 0.025 : w * 0.018),
         SizedBox(width: textWidth, child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
