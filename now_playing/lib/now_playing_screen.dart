@@ -472,6 +472,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   // The transparent Drive activity has its own Flutter engine.
                   // Never render a persisted normal theme (Focused, etc.) here.
                   layout = _driveLayout(w, h, narrow);
+                } else if (settings.theme == AppSettings.tCinematic) {
+                  layout = _cinematicLayout(w, h);
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tFan) {
@@ -583,7 +585,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
-    if (settings.fanartMode == 0 || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
+    if ((settings.fanartMode == 0 && settings.theme != AppSettings.tCinematic) || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
         _fanartArtist = ''; _fanartBytes = null;
       }
@@ -603,6 +605,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _background() {
+    if (!widget.driveHost && settings.theme == AppSettings.tCinematic) {
+      return _cinematicBackdrop();
+    }
     if (settings.backgroundSource >= 2 && settings.backgroundSource <= 5) {
       return Stack(fit: StackFit.expand, children: [
         if (settings.backgroundSource == 3 || settings.backgroundSource == 5) _albumBackdrop(),
@@ -747,6 +752,82 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         );
       },
     );
+  }
+
+  /// Cinematic ignores the global background source: artist imagery is first.
+  Widget _cinematicBackdrop() {
+    final fanart = _fanartBytes;
+    final art = model.art;
+    final Widget backdrop;
+    if (fanart != null) {
+      backdrop = Image.memory(fanart, fit: BoxFit.cover,
+          alignment: Alignment.topCenter, gaplessPlayback: true);
+    } else if (art != null && !art.flat) {
+      backdrop = ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: RawImage(image: art.tiny, fit: BoxFit.cover));
+    } else {
+      backdrop = RepaintBoundary(child: CustomPaint(
+        painter: IdleBackdropPainter(
+          clock: fxClock, palette: _palette,
+          animate: !settings.performance, repaint: _tick)));
+    }
+    return Stack(fit: StackFit.expand, children: [
+      AnimatedSwitcher(duration: const Duration(milliseconds: 700),
+        child: SizedBox.expand(
+          key: ValueKey(fanart != null ? 'fanart:${_fanartArtist}' :
+              art != null && !art.flat ? 'album:${model.artist}' : 'palette'),
+          child: backdrop)),
+      const DecoratedBox(decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          stops: [0, 0.42, 0.72, 1],
+          colors: [Color(0x17000000), Color(0x00000000),
+                   Color(0x66000000), Color(0xF0000000)]))),
+    ]);
+  }
+
+  Widget _cinematicLayout(double w, double h) {
+    final portrait = h > w * 1.1;
+    final coverSize = portrait ? math.min(w * 0.22, h * 0.15) :
+        math.min(h * 0.22, w * 0.16);
+    final textWidth = portrait ? w * 0.57 : w * 0.34;
+    final titleSize = portrait ? w * 0.052 : h * 0.065;
+    final info = Row(mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center, children: [
+        _artCard(coverSize),
+        SizedBox(width: portrait ? w * 0.025 : w * 0.018),
+        SizedBox(width: textWidth, child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min, children: [
+            _artist(titleSize * 0.65, Alignment.centerLeft, false),
+            SizedBox(height: h * 0.008),
+            _title(titleSize, Alignment.centerLeft, false),
+            SizedBox(height: h * 0.008),
+            Text(model.album.isEmpty ? '' : model.album,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.white70,
+                fontSize: titleSize * 0.7)),
+          ])),
+      ]);
+    final waveHeight = portrait ? h * 0.14 : h * 0.25;
+    final wave = settings.visualizer ? IgnorePointer(child: CustomPaint(
+      painter: _CinematicWavePainter(sim: sim, color: _palette.a,
+        gain: settings.sensitivity, repaint: _tick))) :
+        const SizedBox.shrink();
+    return Stack(children: [
+      if (portrait) ...[
+        Positioned(left: w * 0.06, right: w * 0.04,
+          bottom: h * 0.205, child: info),
+        Positioned(left: w * 0.02, right: w * 0.02,
+          bottom: h * 0.035, height: waveHeight, child: wave),
+      ] else ...[
+        Positioned(left: w * 0.02, bottom: h * 0.035,
+          child: info),
+        Positioned(left: w * 0.43, right: w * 0.025,
+          bottom: h * 0.035, height: waveHeight, child: wave),
+      ],
+    ]);
   }
 
   /// Each layout gets an independent clock anchor in portrait and landscape.
