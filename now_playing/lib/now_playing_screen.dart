@@ -828,9 +828,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: ColorFiltered(
               colorFilter: _contrastFilter(settings.bgContrast),
               child: image)) : image)),
-      // Cinematic keeps its fixed edge blur, but uses global darkness.
-      ColoredBox(color: Colors.black.withOpacity(
-        (settings.bgOverlay * 0.16).clamp(0.0, 0.65))),
+      // Apply the same darkness range as the other artwork backgrounds.
+      // At 0 the image is untouched; at 2 the overlay reaches 60% black.
+      // Use an explicit full-size layer so the slider visibly affects fanart.
+      Positioned.fill(child: IgnorePointer(child: ColoredBox(
+        color: Colors.black.withOpacity(
+          (settings.bgOverlay * 0.30).clamp(0.0, 0.85))))),
       const DecoratedBox(decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter, end: Alignment.bottomCenter,
