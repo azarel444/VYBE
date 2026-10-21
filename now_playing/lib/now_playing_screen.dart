@@ -437,6 +437,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
+            if (!widget.driveHost && settings.theme == AppSettings.tCinematic &&
+                settings.backgroundSource >= 2 && settings.backgroundSource <= 5)
+              _cinematicLightShow(),
             if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
@@ -472,6 +475,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   // The transparent Drive activity has its own Flutter engine.
                   // Never render a persisted normal theme (Focused, etc.) here.
                   layout = _driveLayout(w, h, narrow);
+                } else if (settings.theme == AppSettings.tCinematic) {
+                  layout = _cinematicLayout(w, h);
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tFan) {
@@ -583,7 +588,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
-    if (settings.fanartMode == 0 || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
+    if ((settings.fanartMode == 0 && settings.theme != AppSettings.tCinematic) || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
         _fanartArtist = ''; _fanartBytes = null;
       }
@@ -603,6 +608,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _background() {
+    if (!widget.driveHost && settings.theme == AppSettings.tCinematic) {
+      return _cinematicBackdrop();
+    }
     if (settings.backgroundSource >= 2 && settings.backgroundSource <= 5) {
       return Stack(fit: StackFit.expand, children: [
         if (settings.backgroundSource == 3 || settings.backgroundSource == 5) _albumBackdrop(),
@@ -653,6 +661,37 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ));
     }
     return _albumBackdrop();
+  }
+
+  /// Keep Cinematic fanart visible beneath the optional club/laser lights.
+  Widget _cinematicLightShow() {
+    const blends = <BlendMode>[
+      BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
+      BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
+      BlendMode.difference, BlendMode.exclusion,
+      BlendMode.colorDodge, BlendMode.hardLight,
+    ];
+    return IgnorePointer(child: RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _slow,
+        builder: (context, _) => CustomPaint(
+          painter: settings.backgroundSource >= 4
+            ? LaserTunnelBackgroundPainter(
+                palette: _clubPalette, time: _time,
+                transparentStage: true,
+                motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+                darkness: settings.bgOverlay,
+                lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)])
+            : ClubBackgroundPainter(
+                palette: _clubPalette, time: _time,
+                transparentStage: true,
+                motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+                darkness: settings.bgOverlay,
+                lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)]),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    ));
   }
 
   Widget _albumBackdrop() {
@@ -747,6 +786,109 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         );
       },
     );
+  }
+
+  /// Cinematic ignores the global background source: artist imagery is first.
+  Widget _cinematicBackdrop() {
+    final fanart = _fanartBytes;
+    final art = model.art;
+    final bool hasAlbum = art != null && !art.flat;
+    final Widget image;
+    if (fanart != null) {
+      image = Image.memory(fanart, fit: BoxFit.cover,
+          alignment: Alignment.topCenter, gaplessPlayback: true);
+    } else if (hasAlbum) {
+      image = RawImage(image: art.tiny, fit: BoxFit.cover);
+    } else {
+      image = RepaintBoundary(child: CustomPaint(
+        painter: IdleBackdropPainter(clock: fxClock, palette: _palette,
+          animate: !settings.performance, repaint: _tick)));
+    }
+    final bool hasImage = fanart != null || hasAlbum;
+    return Stack(fit: StackFit.expand, children: [
+      // Same two-layer edge softening for fanart AND album-only fallback.
+      if (hasImage)
+        ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: ColorFiltered(
+            colorFilter: _contrastFilter(settings.bgContrast),
+            child: image)),
+      AnimatedSwitcher(duration: const Duration(milliseconds: 700),
+        child: SizedBox.expand(
+          key: ValueKey(fanart != null ? 'fanart:${_fanartArtist}' :
+              hasAlbum ? 'album:${model.artist}:${model.album}' : 'palette'),
+          child: hasImage ? ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) => const RadialGradient(
+              center: Alignment.center, radius: 0.95,
+              stops: [0.0, 0.48, 0.78, 1.0],
+              colors: [Colors.white, Colors.white,
+                Color(0xAAFFFFFF), Colors.transparent],
+            ).createShader(bounds),
+            child: ColorFiltered(
+              colorFilter: _contrastFilter(settings.bgContrast),
+              child: image)) : image)),
+      // Apply the same darkness range as the other artwork backgrounds.
+      // At 0 the image is untouched; at 2 the overlay reaches 60% black.
+      // Use an explicit full-size layer so the slider visibly affects fanart.
+      Positioned.fill(child: IgnorePointer(child: ColoredBox(
+        color: Colors.black.withOpacity(
+          (settings.bgOverlay * 0.30).clamp(0.0, 0.85))))),
+      const DecoratedBox(decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          stops: [0, 0.32, 0.57, 0.79, 1],
+          colors: [Color(0x17000000), Color(0x00000000),
+                   Color(0x55000000), Color(0xAA000000),
+                   Color(0xF5000000)]))),
+    ]);
+  }
+
+  Widget _cinematicLayout(double w, double h) {
+    final portrait = h > w * 1.1;
+    final coverSize = portrait ? math.min(w * 0.22, h * 0.15) :
+        math.min(h * 0.22, w * 0.16);
+    final textWidth = portrait ? w * 0.57 : w * 0.34;
+    final titleSize = portrait ? w * 0.052 : h * 0.065;
+    final info = Row(mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center, children: [
+        GestureDetector(behavior: HitTestBehavior.opaque,
+          onTap: _openPlayer, child: _artCard(coverSize)),
+        SizedBox(width: portrait ? w * 0.025 : w * 0.018),
+        SizedBox(width: textWidth, child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min, children: [
+            _artist(titleSize * 0.65, Alignment.centerLeft, false),
+            SizedBox(height: h * 0.008),
+            _title(titleSize, Alignment.centerLeft, false),
+            SizedBox(height: h * 0.008),
+            Text(model.album.isEmpty ? '' : model.album,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.white70,
+                fontSize: titleSize * 0.7)),
+          ])),
+      ]);
+    final waveHeight = portrait ? h * 0.14 : h * 0.25;
+    final wave = settings.visualizer ? IgnorePointer(child: CustomPaint(
+      painter: _CinematicWavePainter(sim: sim, color: _palette.a,
+        style: settings.cinematicWaveStyle,
+        gain: settings.sensitivity, repaint: _tick))) :
+        const SizedBox.shrink();
+    final swap = settings.layoutSwap;
+    return Stack(children: [
+      if (portrait) ...[
+        Positioned(left: w * 0.06, right: w * 0.04,
+          bottom: h * 0.205, child: info),
+        Positioned(left: w * 0.02, right: w * 0.02,
+          bottom: h * 0.035, height: waveHeight, child: wave),
+      ] else ...[
+        Positioned(left: swap ? w * 0.51 : w * 0.02,
+          bottom: h * 0.035, child: info),
+        Positioned(left: swap ? w * 0.025 : w * 0.43,
+          right: swap ? w * 0.57 : w * 0.025,
+          bottom: h * 0.035, height: waveHeight, child: wave),
+      ],
+    ]);
   }
 
   /// Each layout gets an independent clock anchor in portrait and landscape.
@@ -3898,7 +4040,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
                 if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
-                    const [1, 3, 4, 5, 6, 7, 8, 9].contains(settings.theme))
+                    const [1, 3, 4, 5, 6, 7, 8, 9, 10].contains(settings.theme))
                   btn(Icons.swap_horiz_rounded, 36, () {
                     settings.update(() {
                       if (settings.theme == 4) {
@@ -4234,4 +4376,91 @@ class _FxBlendPainter extends CustomPainter {
   bool shouldRepaint(covariant _FxBlendPainter old) =>
       mode != old.mode || opacity != old.opacity ||
       delegate != old.delegate || delegate.shouldRepaint(old.delegate);
+}
+
+
+/// Thin, smoothed audio-reactive waveform for Cinematic.
+class _CinematicWavePainter extends CustomPainter {
+  final SpectrumSim sim;
+  final Color color;
+  final double gain;
+  final int style;
+  _CinematicWavePainter({required this.sim, required this.color,
+    required this.gain, required this.style, required Listenable repaint}) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    const samples = 48;
+    final points = <Offset>[];
+    for (var i = 0; i < samples; i++) {
+      final x = i / (samples - 1);
+      final band = (i * (SpectrumSim.bars - 1) / (samples - 1)).round();
+      final energy = sim.level(band, gain);
+      final y = size.height * (0.55 - 0.36 * energy);
+      points.add(Offset(x * size.width, y));
+    }
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length - 1; i++) {
+      final mid = Offset((points[i].dx + points[i + 1].dx) / 2,
+          (points[i].dy + points[i + 1].dy) / 2);
+      path.quadraticBezierTo(points[i].dx, points[i].dy, mid.dx, mid.dy);
+    }
+    path.lineTo(points.last.dx, points.last.dy);
+    final fade = LinearGradient(
+      colors: [color.withOpacity(0.0), color.withOpacity(0.85),
+               color.withOpacity(0.85), color.withOpacity(0.0)],
+      stops: const [0.0, 0.13, 0.87, 1.0],
+    ).createShader(Offset.zero & size);
+    final paint = Paint()
+      ..shader = fade
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    if (style == 0) {
+      for (var i = 0; i < points.length; i += 2) {
+        canvas.drawLine(Offset(points[i].dx, size.height * 0.60),
+          points[i], paint);
+      }
+    } else if (style == 2) {
+      for (final point in points) {
+        canvas.drawCircle(point, 2.2, Paint()..color =
+          color.withOpacity((0.85 * (1 - (point.dx / size.width * 2 - 1).abs())).clamp(0.0, 1.0)));
+      }
+    } else {
+      canvas.drawPath(path, paint);
+    }
+    // A subtle, vertically compressed reflection underneath the waveform.
+    canvas.save();
+    canvas.translate(0, size.height * 1.10);
+    canvas.scale(1.0, -0.48);
+    final reflection = LinearGradient(
+      colors: [color.withOpacity(0.0), color.withOpacity(0.23),
+               color.withOpacity(0.23), color.withOpacity(0.0)],
+      stops: const [0.0, 0.13, 0.87, 1.0],
+    ).createShader(Offset.zero & size);
+    if (style == 1) {
+      canvas.drawPath(path, Paint()
+        ..shader = reflection
+        ..strokeWidth = 2.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round);
+    } else if (style == 0) {
+      final rp = Paint()..shader = reflection..strokeWidth = 1.8;
+      for (var i = 0; i < points.length; i += 2) {
+        canvas.drawLine(Offset(points[i].dx, size.height * 0.60), points[i], rp);
+      }
+    } else {
+      for (final point in points) {
+        canvas.drawCircle(point, 1.7, Paint()..color = color.withOpacity(0.12));
+      }
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_CinematicWavePainter old) =>
+      old.color != color || old.gain != gain || old.style != style;
 }

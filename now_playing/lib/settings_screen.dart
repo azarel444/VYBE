@@ -1,6 +1,7 @@
 import 'vybe_link_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'native_preferences.dart';
 
 import 'native.dart';
 import 'now_playing_model.dart';
@@ -121,6 +122,73 @@ class SettingsScreen extends StatelessWidget {
       _switch('Show lyrics',
           'When off, themes use the available space for artwork and song details',
           s.lyrics, (v) => s.setLaunchOrContentChoice('lyrics', v)),
+      _section('Settings storage diagnostics'),
+      _action('Inspect saved settings',
+          'Show current, Flutter, and Android values on screen',
+          'Inspect Settings', () async {
+            final report = StringBuffer('VYBE settings diagnostics\\n');
+            Map<String, dynamic>? native;
+            SharedPreferences? p;
+            try {
+              p = await SharedPreferences.getInstance();
+              await p.reload();
+            } catch (e) {
+              report.writeln('Flutter read error: $e');
+            }
+            try {
+              native = await AppSettings.contentChoicesChannel
+                  .invokeMapMethod<String, dynamic>('getContentChoices');
+            } catch (e) {
+              report.writeln('Android read error: $e');
+            }
+            for (final key in ['artLookup', 'lyrics', 'bootStart', 'musicStart']) {
+              final bool ui;
+              if (key == 'artLookup') {
+                ui = s.artLookup;
+              } else if (key == 'lyrics') {
+                ui = s.lyrics;
+              } else if (key == 'bootStart') {
+                ui = s.bootStart;
+              } else {
+                ui = s.musicStart;
+              }
+              report.writeln('$key: UI=$ui Flutter=${p?.getBool(key)} Android=${native?[key]}');
+            }
+            if (!context.mounted) return;
+            final diagnostics = report.toString();
+            await showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Settings diagnostics'),
+                content: SingleChildScrollView(
+                  child: SelectableText(diagnostics),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      try {
+                        await Clipboard.setData(ClipboardData(text: diagnostics));
+                        if (dialogContext.mounted) {
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            const SnackBar(content: Text('Diagnostics copied')));
+                        }
+                      } catch (e) {
+                        if (dialogContext.mounted) {
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            SnackBar(content: Text('Copy failed: $e')));
+                        }
+                      }
+                    },
+                    child: const Text('Copy'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            );
+          }),
       _section('Artwork diagnostics'),
       _action('Copy artwork diagnostics',
           'Track, media-session artwork, cache/online lookup and failure details',
@@ -215,6 +283,8 @@ class SettingsScreen extends StatelessWidget {
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
       if (s.visualizer) ...[
+        _choices('Cinematic waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+          s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i)),
         _choices('Visualizer shape (compatible layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
         _slider('Sensitivity', '${(s.sensitivity * 100).round()}%',

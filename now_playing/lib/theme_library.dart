@@ -43,6 +43,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     7: 'record_cut',
     8: 'typo',
     9: 'focused',
+    10: 'cinematic',
   };
 
   String _imagePath(int id, bool portrait) =>

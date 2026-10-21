@@ -83,6 +83,50 @@ open class MainActivity : FlutterActivity() {
                 }
             } else result.notImplemented()
         }
+        MethodChannel(messenger, "vybe/preferences").setMethodCallHandler { call, result ->
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val key = call.argument<String>("key")
+            when (call.method) {
+                "getAll" -> {
+                    val values = mutableMapOf<String, Any>()
+                    for ((rawKey, rawValue) in prefs.all) {
+                        if (!rawKey.startsWith("flutter.")) continue
+                        val name = rawKey.removePrefix("flutter.")
+                        when (rawValue) {
+                            is Boolean, is Int, is Long, is Float -> values[name] = rawValue
+                            is String -> {
+                                val doublePrefix = "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGRvdWJsZS4="
+                                if (rawValue.startsWith(doublePrefix)) {
+                                    rawValue.removePrefix(doublePrefix).toDoubleOrNull()?.let { values[name] = it }
+                                } else values[name] = rawValue
+                            }
+                        }
+                    }
+                    result.success(values)
+                }
+                "set" -> {
+                    val value = call.argument<Any>("value")
+                    if (key == null || value == null) {
+                        result.error("INVALID_PREF", "Missing key or value", null)
+                    } else {
+                        val editor = prefs.edit()
+                        when (value) {
+                            is Boolean -> editor.putBoolean("flutter.$key", value)
+                            is Int -> editor.putInt("flutter.$key", value)
+                            is Long -> editor.putLong("flutter.$key", value)
+                            is Double -> editor.putString("flutter.$key", "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGRvdWJsZS4=" + value.toString())
+                            is String -> editor.putString("flutter.$key", value)
+                            else -> {
+                                result.error("INVALID_PREF", "Unsupported type", null)
+                                return@setMethodCallHandler
+                            }
+                        }
+                        result.success(editor.commit())
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(messenger, "vybe/setup_state").setMethodCallHandler { call, result ->
             val prefs = getSharedPreferences("vybe_setup_state", Context.MODE_PRIVATE)
             when (call.method) {
@@ -187,9 +231,10 @@ open class MainActivity : FlutterActivity() {
                     }
                 }
                 "setLaunchSettings" -> {
+                    val choices = getSharedPreferences("vybe_content_choices", Context.MODE_PRIVATE)
                     getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE).edit()
-                        .putBoolean("openOnBoot", call.argument<Boolean>("boot") ?: false)
-                        .putBoolean("openOnMusic", call.argument<Boolean>("music") ?: false)
+                        .putBoolean("openOnBoot", if (choices.contains("bootStart")) choices.getBoolean("bootStart", false) else (call.argument<Boolean>("boot") ?: false))
+                        .putBoolean("openOnMusic", if (choices.contains("musicStart")) choices.getBoolean("musicStart", false) else (call.argument<Boolean>("music") ?: false))
                         .putInt("graceSec", call.argument<Int>("graceSec") ?: 0)
                         .putBoolean("allowVideo", call.argument<Boolean>("allowVideo") ?: false)
                         .putBoolean("allowNav", call.argument<Boolean>("allowNav") ?: false)

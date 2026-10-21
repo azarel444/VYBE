@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'native_preferences.dart';
 
 import 'palette.dart';
 
@@ -18,6 +18,7 @@ class AppSettings extends ChangeNotifier {
     'Record Cut',
     'Typo',
     'Orbit',
+    'Cinematic',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
@@ -26,13 +27,14 @@ class AppSettings extends ChangeNotifier {
   static const int tRecord = 7;
   static const int tTypo = 8;
   static const int tOrbit = 9;
+  static const int tCinematic = 10;
 
   /// Number 2 was the VHS theme. It is now an effect, so it is no longer
   /// offered as a theme; the other numbers stay as they were.
   static const int tRemovedVhs = 2;
 
   /// The themes that can be picked, in order.
-  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9];
+  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10];
   static const accentNames = [
     'Auto (from art)',
     'Vaporwave',
@@ -83,6 +85,7 @@ class AppSettings extends ChangeNotifier {
   int theme = 0; // index into themeNames
   bool visualizer = true;
   int diagonalWaveStyle = 0; // 0 bars, 1 smooth wave, 2 dot wave
+  int cinematicWaveStyle = 1; // 0 bars, 1 smooth wave, 2 dot wave
   // Beta only: project key is bundled so testers never enter credentials.
   // IMPORTANT: replace with a developer-managed proxy before public release.
   static const String bundledFanartProjectKey = String.fromEnvironment(
@@ -128,7 +131,7 @@ class AppSettings extends ChangeNotifier {
   bool artLookup = true; // search online when a player sends no cover
   bool lyrics = false; // synced lyrics from LRCLIB
   bool bootStart = false;
-  bool musicStart = false;
+  bool musicStart = true;
   bool vhsVaporwave = false; // VHS: pink/cyan instead of album colors
   bool fxGlow = false;
   bool fxSweep = false;
@@ -185,15 +188,17 @@ class AppSettings extends ChangeNotifier {
     final next = _pendingChoiceWrite.catchError((Object e) {
       debugPrint('VYBE previous choice write failed: $e');
     }).then((_) async {
-      final p = await SharedPreferences.getInstance();
-      final saved = await p.setBool(key, value);
-      if (!saved) throw StateError('Flutter preference write failed: $key');
-      // Do not reload immediately after a write: other Flutter engines may
-      // have different cached values while their writes are still pending.
+      // Android's committed store is authoritative across Flutter engines and restarts.
+      // Commit there first; a Flutter cache failure must not lose the choice.
       final committed = await contentChoicesChannel.invokeMethod<bool>(
           'setContentChoice', {'key': key, 'value': value});
       if (committed != true) {
         throw StateError('Native preference commit failed: $key');
+      }
+      final p = await SharedPreferences.getInstance();
+      final saved = await p.setBool(key, value);
+      if (!saved) {
+        debugPrint('VYBE Flutter preference mirror failed: $key');
       }
     });
     _pendingChoiceWrite = next;
@@ -214,6 +219,7 @@ class AppSettings extends ChangeNotifier {
     theme = _int(p, 'theme', 0, 0, themeNames.length - 1);
     visualizer = p.getBool('visualizer') ?? true;
     diagonalWaveStyle = _int(p, 'diagonalWaveStyle', 0, 0, 2);
+    cinematicWaveStyle = _int(p, 'cinematicWaveStyle', 1, 0, 2);
     fanartMode = _int(p, 'fanartMode', 2, 0, 2);
     // Ignore stale locally saved keys. All beta builds use the bundled key.
     fanartApiKey = '';
@@ -259,18 +265,17 @@ class AppSettings extends ChangeNotifier {
     artLookup = p.getBool('artLookup') ?? true;
     lyrics = p.getBool('lyrics') ?? false;
     bootStart = p.getBool('bootStart') ?? false;
-    musicStart = p.getBool('musicStart') ?? false;
-    // The Flutter preference store is authoritative for the UI. Native is a
-    // fallback only for values absent from Flutter storage; never overwrite
-    // a newer user selection with an old native value.
+    musicStart = p.getBool('musicStart') ?? true;
+    // Native committed choices win even when Flutter has stale cached keys.
+    // This is shared by onboarding, the main UI, and the Drive Flutter engine.
     try {
       final native = await contentChoicesChannel
           .invokeMapMethod<String, dynamic>('getContentChoices');
       if (native != null) {
-        if (!p.containsKey('artLookup') && native['artLookup'] is bool) artLookup = native['artLookup'] as bool;
-        if (!p.containsKey('lyrics') && native['lyrics'] is bool) lyrics = native['lyrics'] as bool;
-        if (!p.containsKey('bootStart') && native['bootStart'] is bool) bootStart = native['bootStart'] as bool;
-        if (!p.containsKey('musicStart') && native['musicStart'] is bool) musicStart = native['musicStart'] as bool;
+        if (native['artLookup'] is bool) artLookup = native['artLookup'] as bool;
+        if (native['lyrics'] is bool) lyrics = native['lyrics'] as bool;
+        if (native['bootStart'] is bool) bootStart = native['bootStart'] as bool;
+        if (native['musicStart'] is bool) musicStart = native['musicStart'] as bool;
       }
     } catch (e) {
       debugPrint('VYBE native preference load failed: $e');
@@ -354,6 +359,7 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('theme', theme);
     await p.setBool('visualizer', visualizer);
     await p.setInt('diagonalWaveStyle', diagonalWaveStyle);
+    await p.setInt('cinematicWaveStyle', cinematicWaveStyle);
     await p.setInt('fanartMode', fanartMode);
     await p.setDouble('sensitivity', sensitivity);
     await p.setInt('vizStyle', vizStyle);

@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'native_preferences.dart';
 
 import 'now_playing_screen.dart';
 import 'onboarding.dart';
