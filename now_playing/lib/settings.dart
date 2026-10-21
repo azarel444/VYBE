@@ -96,7 +96,7 @@ class AppSettings extends ChangeNotifier {
   String fanartApiKey = '';
   String fanartProjectKey = bundledFanartProjectKey;
   double sensitivity = 1.0; // 0.5 .. 1.5
-  int vizStyle = 0; // Focused theme: 0 ring, 1 bars
+  int vizStyle = 1; // Focused theme: 0 ring, 1 bars; bars by default
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
@@ -225,7 +225,7 @@ class AppSettings extends ChangeNotifier {
     fanartApiKey = '';
     fanartProjectKey = bundledFanartProjectKey;
     sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
-    vizStyle = _int(p, 'vizStyle', 0, 0, 1);
+    vizStyle = _int(p, 'vizStyle', 1, 0, 1);
     final bc = p.getInt('barCount') ?? 96;
     barCount = barCounts.contains(bc) ? bc : 96;
     accent = _int(p, 'accent', 0, 0, accents.length - 1);
