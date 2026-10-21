@@ -43,7 +43,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     7: 'record_cut',
     8: 'typo',
     9: 'focused',
-    10: 'fan',
+    10: 'cinematic',
   };
 
   String _imagePath(int id, bool portrait) =>
@@ -137,9 +137,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                               Expanded(
                                 child: Padding(
                                   padding: const EdgeInsets.all(3),
-                                  child: id == AppSettings.tCinematic
-                                      ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.photo_size_select_actual_outlined, size: 36, color: Colors.white70), SizedBox(height: 8), Text('CINEMATIC', style: TextStyle(letterSpacing: 2, color: Colors.white70))]))
-                                      : Image.asset(
+                                  child: Image.asset(
                                     _imagePath(id, portrait),
                                     fit: BoxFit.contain,
                                     width: double.infinity,
@@ -230,9 +228,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                        child: _preview == AppSettings.tCinematic
-                        ? const Center(child: Text('CINEMATIC\nFanart-first fullscreen layout\nPreview available in player', textAlign: TextAlign.center))
-                        : Image.asset(
+                        child: Image.asset(
                           _imagePath(_preview!, portrait),
                           fit: BoxFit.contain,
                           width: double.infinity,
@@ -253,7 +249,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                 Expanded(
                   child: Text(_preview == 0
                       ? 'Style applies when you select this theme'
-                      : _preview == AppSettings.tCinematic ? 'Live theme preview in player' : 'Actual theme screenshot',
+                      : 'Actual theme screenshot',
                       style: TextStyle(fontSize: 12, color: Colors.white60)),
                 ),
                 TextButton(
