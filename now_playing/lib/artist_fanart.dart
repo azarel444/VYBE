@@ -42,25 +42,45 @@ class ArtistFanartCache {
         }
       }
       if (ids.isEmpty) { lastStatus = 'Artist not matched in MusicBrainz'; return null; }
+      // Fanart.tv artist records are independent: query both candidates in
+      // parallel instead of waiting for a timeout before trying the second.
+      final responses = await Future.wait(ids.take(2).map((mbid) =>
+          _json(Uri.https('webservice.fanart.tv', '/v3/music/$mbid', {
+            'api_key': projectKey,
+            if (personalKey.isNotEmpty) 'client_key': personalKey,
+          }))));
       Uint8List? bytes;
       var noBackground = 0;
       var lookupFailures = 0;
-      for (final mbid in ids.take(2)) {
-        final response = await _json(Uri.https('webservice.fanart.tv', '/v3/music/$mbid', {
-          'api_key': projectKey,
-          if (personalKey.isNotEmpty) 'client_key': personalKey,
-        }));
+      final urls = <Uri>[];
+      for (final response in responses) {
         if (response.isEmpty) { lookupFailures++; continue; }
         final images = response['artistbackground'];
         if (images is! List || images.isEmpty) { noBackground++; continue; }
         for (final entry in images.take(3)) {
           if (entry is! Map || entry['url'] is! String) continue;
           final uri = Uri.tryParse(entry['url'] as String);
-          if (uri == null || uri.scheme != 'https') continue;
-          bytes = await _bytes(uri);
-          if (bytes != null && bytes.isNotEmpty) break;
+          if (uri != null && uri.scheme == 'https' && !urls.contains(uri)) {
+            urls.add(uri);
+          }
         }
-        if (bytes != null && bytes.isNotEmpty) break;
+      }
+      // Request the first two image candidates together, so a slow/broken
+      // image CDN does not block the usable image behind it. Preserve the
+      // existing sequential fallback for remaining candidates.
+      if (urls.isNotEmpty) {
+        final first = await Future.wait(urls.take(2).map((uri) async {
+          try { return await _bytes(uri); } catch (_) { return null; }
+        }));
+        for (final result in first) {
+          if (result != null && result.isNotEmpty) { bytes = result; break; }
+        }
+        if (bytes == null) {
+          for (final uri in urls.skip(2)) {
+            try { bytes = await _bytes(uri); } catch (_) { bytes = null; }
+            if (bytes != null && bytes.isNotEmpty) break;
+          }
+        }
       }
       if (bytes == null || bytes.isEmpty) {
         lastStatus = 'No usable background across ${ids.take(2).length} artist IDs '
