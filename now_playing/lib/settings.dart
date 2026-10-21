@@ -185,15 +185,17 @@ class AppSettings extends ChangeNotifier {
     final next = _pendingChoiceWrite.catchError((Object e) {
       debugPrint('VYBE previous choice write failed: $e');
     }).then((_) async {
-      final p = await SharedPreferences.getInstance();
-      final saved = await p.setBool(key, value);
-      if (!saved) throw StateError('Flutter preference write failed: $key');
-      // Do not reload immediately after a write: other Flutter engines may
-      // have different cached values while their writes are still pending.
+      // Android's committed store is authoritative across Flutter engines and restarts.
+      // Commit there first; a Flutter cache failure must not lose the choice.
       final committed = await contentChoicesChannel.invokeMethod<bool>(
           'setContentChoice', {'key': key, 'value': value});
       if (committed != true) {
         throw StateError('Native preference commit failed: $key');
+      }
+      final p = await SharedPreferences.getInstance();
+      final saved = await p.setBool(key, value);
+      if (!saved) {
+        debugPrint('VYBE Flutter preference mirror failed: $key');
       }
     });
     _pendingChoiceWrite = next;
@@ -260,17 +262,16 @@ class AppSettings extends ChangeNotifier {
     lyrics = p.getBool('lyrics') ?? false;
     bootStart = p.getBool('bootStart') ?? false;
     musicStart = p.getBool('musicStart') ?? false;
-    // The Flutter preference store is authoritative for the UI. Native is a
-    // fallback only for values absent from Flutter storage; never overwrite
-    // a newer user selection with an old native value.
+    // Native committed choices win even when Flutter has stale cached keys.
+    // This is shared by onboarding, the main UI, and the Drive Flutter engine.
     try {
       final native = await contentChoicesChannel
           .invokeMapMethod<String, dynamic>('getContentChoices');
       if (native != null) {
-        if (!p.containsKey('artLookup') && native['artLookup'] is bool) artLookup = native['artLookup'] as bool;
-        if (!p.containsKey('lyrics') && native['lyrics'] is bool) lyrics = native['lyrics'] as bool;
-        if (!p.containsKey('bootStart') && native['bootStart'] is bool) bootStart = native['bootStart'] as bool;
-        if (!p.containsKey('musicStart') && native['musicStart'] is bool) musicStart = native['musicStart'] as bool;
+        if (native['artLookup'] is bool) artLookup = native['artLookup'] as bool;
+        if (native['lyrics'] is bool) lyrics = native['lyrics'] as bool;
+        if (native['bootStart'] is bool) bootStart = native['bootStart'] as bool;
+        if (native['musicStart'] is bool) musicStart = native['musicStart'] as bool;
       }
     } catch (e) {
       debugPrint('VYBE native preference load failed: $e');
