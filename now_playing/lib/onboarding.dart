@@ -71,7 +71,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _art = true;
   bool _lyrics = false;
   bool _boot = false;
-  bool _music = false;
+  bool _music = true;
   Timer? _poll;
   Future<void> _pendingChoiceWrite = Future<void>.value();
   bool _choicesTouched = false;
@@ -106,7 +106,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       _art = p.getBool('artLookup') ?? true;
       _lyrics = p.getBool('lyrics') ?? false;
       _boot = p.getBool('bootStart') ?? false;
-      _music = p.getBool('musicStart') ?? false;
+      _music = p.getBool('musicStart') ?? true;
     });
   }
 
