@@ -469,8 +469,8 @@ class NowPlayingModel extends ChangeNotifier {
     // Generic music-player placeholders are not usable album artwork.
     art = (loaded != null && !loaded.flat) ? loaded : null;
     if (art == null) {
-      // Do not discard a verified cover from another song on this album just
-      // because the player sends a generic placeholder for the next song.
+      // Keep a previously verified cover only when new media-session bytes
+      // cannot be decoded at all.
       final previousAlbumCover = _albumArtCache[albumCacheKey];
       if (previousAlbumCover != null && !listEquals(previousAlbumCover, bytes)) {
         final restored = await ArtAssets.load(previousAlbumCover);
@@ -484,7 +484,7 @@ class NowPlayingModel extends ChangeNotifier {
       if (art == null) {
         artworkFailure = loaded == null
             ? 'Media-session image could not be decoded'
-            : 'Media-session image rejected as flat or generic placeholder';
+            : 'Media-session image unavailable';
         if (artworkSource == 'Android media session') {
           sessionArtworkStatus = 'Received but unusable';
         }
