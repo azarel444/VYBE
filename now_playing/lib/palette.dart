@@ -42,8 +42,8 @@ class ArtAssets {
   final Uint8List bytes;
   final ui.Image tiny;
   final ArtPalette palette;
-  /// True when the picture is almost one flat color, which is what players
-  /// send when a song has no real cover (a logo on a plain background).
+  /// Legacy compatibility flag. Decodable images are not rejected based on
+  /// their color distribution or layout; minimalist album covers are valid.
   final bool flat;
   /// Fraction of the blurred artwork in the left/center text area that is near-white.
   final double nearWhiteTextCoverage;
@@ -59,8 +59,9 @@ class ArtAssets {
       final palette = data == null
           ? ArtPalette.fallback
           : _extract(data, img.width, img.height);
-      final flat = data != null && (_isFlat(data, img.width * img.height) ||
-          _isGenericPlaceholder(data, img.width, img.height));
+      // A valid decoded image is artwork. Do not guess whether it is a
+      // placeholder from pixel colors: that rejects real minimalist covers.
+      const flat = false;
       return ArtAssets(bytes, img, palette, flat: flat,
           nearWhiteTextCoverage: data == null ? 0 : _nearWhiteCoverage(data, img.width, img.height));
     } catch (_) {
@@ -82,75 +83,6 @@ class ArtAssets {
       }
     }
     return total == 0 ? 0 : white / total;
-  }
-
-  /// Looks at the tiny copy: if one color (4 bits per channel) covers most
-  /// of the picture, it is a placeholder rather than a real cover.
-  static bool _isFlat(ByteData d, int n) {
-    if (n <= 0) return false;
-    final counts = <int, int>{};
-    var best = 0;
-    for (int i = 0; i < n; i++) {
-      final key = ((d.getUint8(i * 4) >> 4) << 8) |
-          ((d.getUint8(i * 4 + 1) >> 4) << 4) |
-          (d.getUint8(i * 4 + 2) >> 4);
-      final c = (counts[key] ?? 0) + 1;
-      counts[key] = c;
-      if (c > best) best = c;
-    }
-    return best > n * 0.995;
-  }
-
-  /// Detect generic player icons on an almost uniform dark-gray canvas.
-  /// Unlike the single-color check above, this catches placeholders with a
-  /// central logo and label (such as the Musicolett default cover). Require
-  /// uniform neutral corners AND a dominant neutral background to avoid
-  /// rejecting legitimate dark photographic album artwork.
-  static bool _isGenericPlaceholder(ByteData data, int w, int h) {
-    if (w < 24 || h < 24) return false;
-    final cornerSize = math.max(2, math.min(w, h) ~/ 9);
-    final samples = <List<int>>[];
-    for (final y0 in [0, h - cornerSize]) {
-      for (final x0 in [0, w - cornerSize]) {
-        var r = 0, g = 0, b = 0, count = 0;
-        for (var y = y0; y < y0 + cornerSize; y += 2) {
-          for (var x = x0; x < x0 + cornerSize; x += 2) {
-            final i = (y * w + x) * 4;
-            r += data.getUint8(i);
-            g += data.getUint8(i + 1);
-            b += data.getUint8(i + 2);
-            count++;
-          }
-        }
-        samples.add([r ~/ count, g ~/ count, b ~/ count]);
-      }
-    }
-    final base = samples.first;
-    // Generic dark placeholders have the same neutral canvas in every corner.
-    if (base.reduce(math.max) - base.reduce(math.min) > 18 ||
-        base.reduce(math.max) > 95) return false;
-    for (final c in samples.skip(1)) {
-      for (var j = 0; j < 3; j++) {
-        if ((c[j] - base[j]).abs() > 13) return false;
-      }
-    }
-    var background = 0, total = 0, centerDetail = 0;
-    for (var y = 0; y < h; y += 2) {
-      for (var x = 0; x < w; x += 2) {
-        final i = (y * w + x) * 4;
-        final r = data.getUint8(i), g = data.getUint8(i + 1),
-            b = data.getUint8(i + 2);
-        if ((r - base[0]).abs() <= 19 &&
-            (g - base[1]).abs() <= 19 &&
-            (b - base[2]).abs() <= 19) background++;
-        if (x > w * 0.25 && x < w * 0.75 &&
-            y > h * 0.2 && y < h * 0.8 &&
-            (r - base[0]).abs() + (g - base[1]).abs() +
-                (b - base[2]).abs() > 80) centerDetail++;
-        total++;
-      }
-    }
-    return background > total * 0.58 && centerDetail > total * 0.012;
   }
 
   /// Colors come only from the art itself: pixels are grouped into 12 hue
