@@ -587,6 +587,7 @@ class ToolbarGuide extends StatelessWidget {
   static const _normal = <_GuideControl>[
     _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
     _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.swap_horiz_rounded, 'Swap layout', 'Switch artwork and visualizer positions in supported landscape themes'),
     _GuideControl(Icons.navigation_rounded, 'Drive', 'Open the Drive map experience'),
     _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
     _GuideControl(Icons.play_circle_filled, 'Play / Pause', 'Control music playback'),
@@ -595,6 +596,7 @@ class ToolbarGuide extends StatelessWidget {
   static const _drive = <_GuideControl>[
     _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
     _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.swap_horiz_rounded, 'Swap layout', 'Switch artwork and visualizer positions in supported landscape themes'),
     _GuideControl(Icons.map_outlined, 'Show Map', 'Return to the map while Drive stays active'),
     _GuideControl(Icons.close_rounded, 'Close Drive', 'Exit the Drive overlay'),
     _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
