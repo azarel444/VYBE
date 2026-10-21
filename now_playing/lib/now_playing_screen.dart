@@ -916,7 +916,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Cinematic landscape clock belongs at the top center, independent
     // of the mirrored music-information layout.
     final centered = portrait || typoLyricsCentered ||
-        (!portrait && theme == AppSettings.tCinematic);
+        (!portrait && (theme == AppSettings.tCinematic || theme == AppSettings.tFocused));
     bool onRight = true;
     double topInset = portrait ? h * 0.055 : 18.0;
     double? bottomInset;
@@ -3587,14 +3587,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// Keep this wrapper for existing theme call sites; it draws no backdrop.
   Widget _shaded(Widget child) => child;
 
-  // Switch only for largely near-white, low-saturation art, not bright colors.
-  // Evaluated from the already decoded 96px artwork, never per frame.
-  bool get _nearWhiteText => (model.art?.nearWhiteTextCoverage ?? 0) >= 0.46;
-  Color _readableText(double opacity) =>
-      (_nearWhiteText ? Colors.black : Colors.white).withOpacity(opacity);
-  List<Shadow> get _cleanTextShadows => [
-    Shadow(color: _nearWhiteText ? const Color(0x88FFFFFF) : const Color(0x55000000),
-        offset: const Offset(0, 1), blurRadius: 2.5),
+  // Stable white typography across all artwork and fanart backgrounds.
+  // Do not switch foreground text to black based on album-cover pixels.
+  bool get _nearWhiteText => false;
+  Color _readableText(double opacity) => Colors.white.withOpacity(opacity);
+  List<Shadow> get _cleanTextShadows => const [
+    Shadow(color: Color(0xB0000000), offset: Offset(0, 1), blurRadius: 3.5),
+    Shadow(color: Color(0x77000000), offset: Offset(0, 2), blurRadius: 8),
   ];
 
   /// Compositional fade (not a text backdrop), placed beneath foreground art.
