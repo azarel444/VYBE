@@ -283,6 +283,8 @@ class SettingsScreen extends StatelessWidget {
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
       if (s.visualizer) ...[
+        _choices('Cinematic waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+          s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i)),
         _choices('Visualizer shape (compatible layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
         _slider('Sensitivity', '${(s.sensitivity * 100).round()}%',
