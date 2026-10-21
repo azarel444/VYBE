@@ -98,7 +98,7 @@ class ArtAssets {
       counts[key] = c;
       if (c > best) best = c;
     }
-    return best > n * 0.85;
+    return best > n * 0.995;
   }
 
   /// Detect generic player icons on an almost uniform dark-gray canvas.
