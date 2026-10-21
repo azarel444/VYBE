@@ -187,9 +187,10 @@ open class MainActivity : FlutterActivity() {
                     }
                 }
                 "setLaunchSettings" -> {
+                    val choices = getSharedPreferences("vybe_content_choices", Context.MODE_PRIVATE)
                     getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE).edit()
-                        .putBoolean("openOnBoot", call.argument<Boolean>("boot") ?: false)
-                        .putBoolean("openOnMusic", call.argument<Boolean>("music") ?: false)
+                        .putBoolean("openOnBoot", if (choices.contains("bootStart")) choices.getBoolean("bootStart", false) else (call.argument<Boolean>("boot") ?: false))
+                        .putBoolean("openOnMusic", if (choices.contains("musicStart")) choices.getBoolean("musicStart", false) else (call.argument<Boolean>("music") ?: false))
                         .putInt("graceSec", call.argument<Int>("graceSec") ?: 0)
                         .putBoolean("allowVideo", call.argument<Boolean>("allowVideo") ?: false)
                         .putBoolean("allowNav", call.argument<Boolean>("allowNav") ?: false)
