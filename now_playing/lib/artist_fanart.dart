@@ -8,12 +8,21 @@ import 'package:path_provider/path_provider.dart';
 class ArtistFanartCache {
   final Map<String, Uint8List?> _memory = {};
   String lastStatus = 'Not checked';
+  static String diagnostics = 'No fanart lookup recorded yet';
 
   Future<Uint8List?> get(String artist, String projectKey, {String personalKey = ''}) async {
+    final watch = Stopwatch()..start();
+    final stages = <String>[];
+    void record(String stage) => stages.add('$stage: ${watch.elapsedMilliseconds} ms elapsed');
+    void report(String status) {
+      lastStatus = status;
+      diagnostics = 'Artist: $artist\\nStatus: $status\\n${stages.join('\\n')}\\nTotal: ${watch.elapsedMilliseconds} ms';
+    }
     final cacheKey = artist.toLowerCase().trim();
-    if (projectKey.trim().isEmpty) { lastStatus = 'Missing project API key'; return null; }
-    if (_memory[cacheKey] != null) { lastStatus = 'Cached artwork'; return _memory[cacheKey]; }
+    if (projectKey.trim().isEmpty) { report('Missing project API key'); return null; }
+    if (_memory[cacheKey] != null) { record('Memory cache hit'); report('Cached artwork'); return _memory[cacheKey]; }
     try {
+      record('Memory cache miss');
       final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
       await folder.create(recursive: true);
       final name = base64Url.encode(utf8.encode(cacheKey)).replaceAll('=', '');
@@ -21,17 +30,20 @@ class ArtistFanartCache {
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
         _memory[cacheKey] = bytes;
-        lastStatus = 'Loaded cached image';
+        record('Disk cache hit');
+        report('Loaded cached image');
         return bytes;
       }
+      record('Disk cache miss');
       // Search more than one candidate: MusicBrainz may return duplicate names,
       // legacy entries, or artist records without Fanart.tv coverage.
       final search = Uri.https('musicbrainz.org', '/ws/2/artist/', {
         'query': 'artist:"${artist.replaceAll('"', '')}"', 'fmt': 'json', 'limit': '15',
       });
       final result = await _json(search);
+      record('MusicBrainz lookup completed');
       final candidates = result['artists'];
-      if (candidates is! List) { lastStatus = 'MusicBrainz lookup unavailable'; return null; }
+      if (candidates is! List) { report('MusicBrainz lookup unavailable'); return null; }
       final ids = <String>[];
       for (final entry in candidates) {
         if (entry is! Map) continue;
@@ -41,7 +53,8 @@ class ArtistFanartCache {
           ids.add(candidateId);
         }
       }
-      if (ids.isEmpty) { lastStatus = 'Artist not matched in MusicBrainz'; return null; }
+      if (ids.isEmpty) { report('Artist not matched in MusicBrainz'); return null; }
+      record('Matched ${ids.length} MusicBrainz artist IDs');
       // Fanart.tv artist records are independent: query both candidates in
       // parallel instead of waiting for a timeout before trying the second.
       final responses = await Future.wait(ids.take(2).map((mbid) =>
@@ -49,6 +62,7 @@ class ArtistFanartCache {
             'api_key': projectKey,
             if (personalKey.isNotEmpty) 'client_key': personalKey,
           }))));
+      record('Fanart.tv metadata completed (${responses.length} requests)');
       Uint8List? bytes;
       var noBackground = 0;
       var lookupFailures = 0;
@@ -68,6 +82,7 @@ class ArtistFanartCache {
       // Request the first two image candidates together, so a slow/broken
       // image CDN does not block the usable image behind it. Preserve the
       // existing sequential fallback for remaining candidates.
+      record('Found ${urls.length} background URLs');
       if (urls.isNotEmpty) {
         final first = await Future.wait(urls.take(2).map((uri) async {
           try { return await _bytes(uri); } catch (_) { return null; }
@@ -75,6 +90,7 @@ class ArtistFanartCache {
         for (final result in first) {
           if (result != null && result.isNotEmpty) { bytes = result; break; }
         }
+        record('First image downloads completed');
         if (bytes == null) {
           for (final uri in urls.skip(2)) {
             try { bytes = await _bytes(uri); } catch (_) { bytes = null; }
@@ -82,16 +98,18 @@ class ArtistFanartCache {
           }
         }
       }
+      record('Image download attempts completed');
       if (bytes == null || bytes.isEmpty) {
-        lastStatus = 'No usable background across ${ids.take(2).length} artist IDs '
-            '($noBackground without images, $lookupFailures request failures)';
+        report('No usable background across ${ids.take(2).length} artist IDs '
+            '($noBackground without images, $lookupFailures request failures)');
         return null;
       }
       await file.writeAsBytes(bytes, flush: false);
       _memory[cacheKey] = bytes;
-      lastStatus = 'Downloaded artist background';
+      record('Disk cache write completed (${bytes.length} bytes)');
+      report('Downloaded artist background');
       return bytes;
-    } catch (e) { lastStatus = 'Artwork request failed: $e'; return null; }
+    } catch (e) { report('Artwork request failed: $e'); return null; }
   }
 
   Future<Map<String, dynamic>> _json(Uri uri) async {
@@ -101,7 +119,7 @@ class ArtistFanartCache {
       req.headers.set(HttpHeaders.userAgentHeader, 'VYBE/1.9 (music artwork; contact via app publisher)');
       final res = await req.close().timeout(const Duration(seconds: 6));
       if (res.statusCode != 200) return {};
-      final body = await res.transform(utf8.decoder).join();
+      final body = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
       if (body.length > 500000) return {};
       final json = jsonDecode(body);
       return json is Map<String, dynamic> ? json : {};
@@ -115,7 +133,7 @@ class ArtistFanartCache {
       final res = await req.close().timeout(const Duration(seconds: 7));
       if (res.statusCode != 200) return null;
       final out = BytesBuilder(copy: false);
-      await for (final chunk in res) {
+      await for (final chunk in res.timeout(const Duration(seconds: 10))) {
         out.add(chunk);
         if (out.length > 6 * 1024 * 1024) return null;
       }
