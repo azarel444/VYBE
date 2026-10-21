@@ -1,7 +1,7 @@
 import 'vybe_link_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'native_preferences.dart';
 
 import 'native.dart';
 import 'now_playing_model.dart';
