@@ -834,7 +834,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final waveHeight = portrait ? h * 0.14 : h * 0.25;
     final wave = settings.visualizer ? IgnorePointer(child: CustomPaint(
       painter: _CinematicWavePainter(sim: sim, color: _palette.a,
-        style: settings.diagonalWaveStyle,
+        style: settings.cinematicWaveStyle,
         gain: settings.sensitivity, repaint: _tick))) :
         const SizedBox.shrink();
     final swap = settings.layoutSwap;
