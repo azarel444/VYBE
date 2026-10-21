@@ -128,7 +128,7 @@ class AppSettings extends ChangeNotifier {
   bool artLookup = true; // search online when a player sends no cover
   bool lyrics = false; // synced lyrics from LRCLIB
   bool bootStart = false;
-  bool musicStart = false;
+  bool musicStart = true;
   bool vhsVaporwave = false; // VHS: pink/cyan instead of album colors
   bool fxGlow = false;
   bool fxSweep = false;
@@ -261,7 +261,7 @@ class AppSettings extends ChangeNotifier {
     artLookup = p.getBool('artLookup') ?? true;
     lyrics = p.getBool('lyrics') ?? false;
     bootStart = p.getBool('bootStart') ?? false;
-    musicStart = p.getBool('musicStart') ?? false;
+    musicStart = p.getBool('musicStart') ?? true;
     // Native committed choices win even when Flutter has stale cached keys.
     // This is shared by onboarding, the main UI, and the Drive Flutter engine.
     try {
