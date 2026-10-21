@@ -138,12 +138,16 @@ class SettingsScreen extends StatelessWidget {
             }
             final report = StringBuffer('VYBE settings diagnostics\\n');
             for (final key in ['artLookup', 'lyrics', 'bootStart', 'musicStart']) {
-              final ui = switch (key) {
-                'artLookup' => s.artLookup,
-                'lyrics' => s.lyrics,
-                'bootStart' => s.bootStart,
-                _ => s.musicStart,
-              };
+              final bool ui;
+              if (key == 'artLookup') {
+                ui = s.artLookup;
+              } else if (key == 'lyrics') {
+                ui = s.lyrics;
+              } else if (key == 'bootStart') {
+                ui = s.bootStart;
+              } else {
+                ui = s.musicStart;
+              }
               report.writeln('$key: UI=$ui Flutter=${p.getBool(key)} Android=${native?[key]}');
             }
             if (error != null) report.writeln('Android read error: $error');
