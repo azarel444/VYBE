@@ -2494,18 +2494,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.start : CrossAxisAlignment.end,
             children: [
-              _artist(h * 0.032, Alignment.centerLeft, false),
+              _artist(h * 0.032, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, Alignment.centerLeft, false),
+              _title(h * 0.085, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.028), settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, vhs: false),
               ],
             ],
           ),
@@ -2673,18 +2673,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              _artist(h * 0.032, Alignment.centerLeft, false),
+              _artist(h * 0.032, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, Alignment.centerLeft, false),
+              _title(h * 0.085, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.028), settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, vhs: false),
               ],
             ],
           ),
@@ -2866,18 +2866,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
             child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: counterFlipText ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              _artist(h * 0.032, Alignment.centerLeft, false),
+              _artist(h * 0.032, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, Alignment.centerLeft, false),
+              _title(h * 0.085, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.028), counterFlipText ? Alignment.centerRight : Alignment.centerLeft)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, vhs: false),
               ],
             ],
           ),
@@ -3208,19 +3208,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              _artist(h * 0.024, Alignment.centerLeft, false),
+              _artist(h * 0.024, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
               SizedBox(height: h * 0.014),
-              _title(h * 0.06, Alignment.centerLeft, false),
+              _title(h * 0.06, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.014),
-                _shaded(_fit(_albumText(h * 0.022), Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.022), settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft)),
               ],
               SizedBox(height: h * 0.035),
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h) * 1.2),
-                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, vhs: false),
               ],
             ],
           ),
