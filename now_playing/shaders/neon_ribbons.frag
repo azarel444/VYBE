@@ -114,6 +114,22 @@ void main() {
   q+=oilDisplacement(q,t*.71)*.28;
   float depthLight=.5+.5*sin(q.x*3.1+t*.18)*cos(q.y*4.3-t*.16);
   col+=(a*.012+b*.011+c*.012)*depthLight*exp(-dot(q,q)*.35);
+  // Large soft light pools exist INSIDE the liquid field: use the same
+  // displaced coordinates so suction, swelling and folding warp them too.
+  for(int i=0;i<7;i++) {
+    float fi=float(i);
+    float phase=fi*2.39996;
+    vec2 center=vec2(
+      .60*sin(phase*1.43+t*(.11+.014*fi)),
+      .48*cos(phase*.91-t*(.075+.012*fi)));
+    float radius=.085+.10*hash21(vec2(fi,13.));
+    float d=length(q-center)/radius;
+    float disk=1.-smoothstep(.24,1.25,d);
+    float bright=exp(-d*d*3.5);
+    float shimmer=.4+.6*pow(.5+.5*sin(t*.53+phase),2.);
+    vec3 tint=mod(fi,3.)<.5?a:(mod(fi,3.)<1.5?b:c);
+    col+=tint*(disk*.052+bright*.13)*shimmer;
+  }
   // Deep, middle and foreground contours with independent color shifts.
   for(int i=0;i<12;i++){
     float fi=float(i);
@@ -174,22 +190,6 @@ void main() {
   vec2 jitter=vec2(hash21(cell+3.1),hash21(cell+8.7))-.5;
   float star=exp(-dot(local-jitter*.7,local-jitter*.7)*160.);
   col+=(a+b+c)*.12*star*step(.985,hash21(cell+17.));
-  // Large out-of-focus lights drift across the foreground, with localized
-  // bright centers instead of a uniform bloom over the entire scene.
-  for(int i=0;i<7;i++) {
-    float fi=float(i);
-    float phase=fi*2.39996;
-    vec2 center=vec2(
-      .60*sin(phase*1.43+t*(.11+.014*fi)),
-      .48*cos(phase*.91-t*(.075+.012*fi)));
-    float radius=.085+.10*hash21(vec2(fi,13.));
-    float d=length(p-center)/radius;
-    float disk=1.-smoothstep(.24,1.25,d);
-    float bright=exp(-d*d*3.5);
-    float shimmer=.4+.6*pow(.5+.5*sin(t*.53+phase),2.);
-    vec3 tint=mod(fi,3.)<.5?a:(mod(fi,3.)<1.5?b:c);
-    col+=tint*(disk*.043+bright*.095)*shimmer;
-  }
   // Filmic compression: bright neon cores without lifting the black stage.
   col=vec3(1.)-exp(-col*1.35);
   col=pow(max(col,vec3(0.)),vec3(.94));
