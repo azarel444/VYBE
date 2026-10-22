@@ -20,3 +20,4 @@ flutter:
     - assets/theme_previews/
   shaders:
     - shaders/vybe_refraction.frag
+    - shaders/golden_hour.frag
