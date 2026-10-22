@@ -188,7 +188,8 @@ class RingPainter extends CustomPainter {
       final len = width + maxLen * sim.level(ix[i], gain);
       bar.color = cl[i];
       roots.add(Offset(c.dx + cs[i] * innerRadius, c.dy + sn[i] * innerRadius));
-      tips.add(Offset(c.dx + cs[i] * (innerRadius + len));
+      tips.add(Offset(c.dx + cs[i] * (innerRadius + len),
+          c.dy + sn[i] * (innerRadius + len)));
       colors.add(bar.color);
     }
     _paintCircularSpectrum(canvas, c, roots, tips, colors, width, style);
@@ -449,7 +450,8 @@ class FullRingPainter extends CustomPainter {
       final len = width + maxLen * sim.level(ix[i], gain);
       bar.color = cl[i];
       roots.add(Offset(c.dx + cs[i] * innerRadius, c.dy + sn[i] * innerRadius));
-      tips.add(Offset(c.dx + cs[i] * (innerRadius + len));
+      tips.add(Offset(c.dx + cs[i] * (innerRadius + len),
+          c.dy + sn[i] * (innerRadius + len)));
       colors.add(bar.color);
     }
     _paintCircularSpectrum(canvas, c, roots, tips, colors, width, style);
@@ -515,7 +517,7 @@ class HalfRingPainter extends CustomPainter {
       final cs = math.cos(ang), sn = math.sin(ang);
       bar.color = palette.at(1 - u);
       roots.add(Offset(c.dx + cs * innerRadius, c.dy + sn * innerRadius));
-      tips.add(Offset(c.dx + cs * (innerRadius + len));
+      tips.add(Offset(c.dx + cs * (innerRadius + len), c.dy + sn * (innerRadius + len)));
       colors.add(bar.color);
     }
     _paintCircularSpectrum(canvas, c, roots, tips, colors, width, style);
