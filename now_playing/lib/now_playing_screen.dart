@@ -850,31 +850,35 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         math.min(h * 0.22, w * 0.16);
     final textWidth = portrait ? w * 0.57 : w * 0.34;
     final titleSize = portrait ? w * 0.052 : h * 0.065;
+    final swap = settings.layoutSwap && !portrait;
+    final textAlign = swap ? Alignment.centerRight : Alignment.centerLeft;
+    final details = SizedBox(width: textWidth, child: Column(
+      crossAxisAlignment: swap ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min, children: [
+        _artist(titleSize * 0.65, textAlign, false),
+        SizedBox(height: h * 0.008),
+        _title(titleSize, textAlign, false),
+        SizedBox(height: h * 0.008),
+        Text(model.album.isEmpty ? '' : model.album,
+          textAlign: swap ? TextAlign.right : TextAlign.left,
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Colors.white70,
+            fontSize: titleSize * 0.7)),
+      ]));
+    final cover = GestureDetector(
+      key: _artKey,
+      behavior: HitTestBehavior.opaque,
+      onTap: _openPlayer, child: _artCard(coverSize));
+    final spacing = SizedBox(width: portrait ? w * 0.025 : w * 0.018);
     final info = Row(mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center, children: [
-        GestureDetector(behavior: HitTestBehavior.opaque,
-          onTap: _openPlayer, child: _artCard(coverSize)),
-        SizedBox(width: portrait ? w * 0.025 : w * 0.018),
-        SizedBox(width: textWidth, child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min, children: [
-            _artist(titleSize * 0.65, Alignment.centerLeft, false),
-            SizedBox(height: h * 0.008),
-            _title(titleSize, Alignment.centerLeft, false),
-            SizedBox(height: h * 0.008),
-            Text(model.album.isEmpty ? '' : model.album,
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white70,
-                fontSize: titleSize * 0.7)),
-          ])),
-      ]);
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: swap ? [details, spacing, cover] : [cover, spacing, details]);
     final waveHeight = portrait ? h * 0.14 : h * 0.25;
     final wave = settings.visualizer ? IgnorePointer(child: CustomPaint(
       painter: _CinematicWavePainter(sim: sim, color: _palette.a,
         style: settings.cinematicWaveStyle,
         gain: settings.sensitivity, repaint: _tick))) :
         const SizedBox.shrink();
-    final swap = settings.layoutSwap;
     return Stack(children: [
       if (portrait) ...[
         Positioned(left: w * 0.06, right: w * 0.04,
@@ -882,10 +886,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * 0.02, right: w * 0.02,
           bottom: h * 0.035, height: waveHeight, child: wave),
       ] else ...[
-        Positioned(left: swap ? w * 0.51 : w * 0.02,
+        Positioned(left: swap ? null : w * 0.02,
+          right: swap ? w * 0.02 : null,
           bottom: h * 0.035, child: info),
         Positioned(left: swap ? w * 0.025 : w * 0.43,
-          right: swap ? w * 0.57 : w * 0.025,
+          right: swap ? w * 0.43 : w * 0.025,
           bottom: h * 0.035, height: waveHeight, child: wave),
       ],
     ]);
