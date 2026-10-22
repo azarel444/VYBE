@@ -851,13 +851,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (fanart != null) {
       image = Image.memory(fanart, fit: BoxFit.cover,
           alignment: Alignment.topCenter, gaplessPlayback: true);
-    } else if (settings.backgroundSource == 0 && hasAlbum && settings.fanartMode == 0) {
+    } else if (hasAlbum && (settings.fanartMode == 0 || settings.fanartMode == 2)) {
       image = RawImage(image: art.tiny, fit: BoxFit.cover);
     } else {
       // Render the configured animated background, not the generic idle painter.
       image = _cinematicAnimatedFallback();
     }
-    final bool hasImage = fanart != null || (settings.backgroundSource == 0 && hasAlbum && settings.fanartMode == 0);
+    final bool hasImage = fanart != null || (hasAlbum && (settings.fanartMode == 0 || settings.fanartMode == 2));
     return Stack(fit: StackFit.expand, children: [
       // Same two-layer edge softening for fanart AND album-only fallback.
       if (hasImage)
