@@ -304,6 +304,12 @@ class SettingsScreen extends StatelessWidget {
           AppSettings.accentNames.skip(1).toList(),
           (s.cinematicPalette - 1).clamp(0, AppSettings.accentNames.length - 2),
           (i) => s.update(() => s.cinematicPalette = i + 1)),
+      if (s.cinematicFallback == 0)
+        _slider('Cinematic animation speed',
+          '${(s.cinematicAnimationSpeed * 100).round()}%',
+          s.cinematicAnimationSpeed, 0.0, 3.0,
+          (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
+          s.save),
       _slider('Cinematic darkness', '${(s.cinematicDarkness * 100).round()}%',
         s.cinematicDarkness, 0.0, 1.0,
         (v) => s.update(() => s.cinematicDarkness = v, persist: false), s.save),
