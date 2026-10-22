@@ -653,11 +653,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (settings.backgroundSource == 1) {
       return RepaintBoundary(child: AnimatedBuilder(
         animation: _slow,
-        builder: (context, _) => settings.accent == 14
+        builder: (context, _) => (settings.accent == 14 || settings.accent == 15)
           ? GoldenHourBackground(
               time: _time,
               motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-              palette: AppSettings.accents[14]!)
+              palette: AppSettings.accents[settings.accent]!,
+              shaderAsset: settings.accent == 15
+                  ? 'shaders/neon_ribbons.frag' : 'shaders/golden_hour.frag')
           : CustomPaint(
           painter: TemplateBackgroundPainter(
             palette: _palette,
@@ -800,11 +802,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// every other theme. Each preset is drawn by the actual template painter.
   Widget _cinematicAnimatedFallback() {
     final palette = AppSettings.accents[settings.cinematicPalette]!;
-    if (settings.cinematicPalette == 14) {
+    if (settings.cinematicPalette == 14 || settings.cinematicPalette == 15) {
       return GoldenHourBackground(
         time: _time,
         motion: settings.cinematicAnimationSpeed,
         palette: palette,
+        shaderAsset: settings.cinematicPalette == 15
+            ? 'shaders/neon_ribbons.frag' : 'shaders/golden_hour.frag',
       );
     }
     return CustomPaint(
