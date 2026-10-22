@@ -257,23 +257,23 @@ class SettingsScreen extends StatelessWidget {
   List<Widget> _visuals(BuildContext context) {
     final s = settings;
     return [
-      _section('Theme & palette'),
+      _section('Themes & backgrounds'),
       _choices('Now Playing theme',
         AppSettings.pickable.map((i) => AppSettings.themeNames[i]).toList(),
         AppSettings.pickable.indexOf(s.theme).clamp(0, AppSettings.pickable.length - 1).toInt(),
         (i) => s.update(() => s.theme = AppSettings.pickable[i])),
-      _choices('Accent color template', AppSettings.accentNames, s.accent,
-        (i) => s.update(() => s.accent = i)),
-      _section('Background — other themes'),
-      Text('These settings do not change Cinematic backgrounds.'),
-
-      _choices('Artwork background image', const ['Album Art', 'Artist Fanart', 'Auto (fanart then album)'], s.fanartMode,
+      const Text('Animated backgrounds replace the old color templates. '
+          'Artwork colors are sampled automatically.'),
+      _choices('Animated background',
+        const ['Golden Hour', 'Neon Ribbons'],
+        s.cinematicPalette == 14 ? 0 : 1,
+        (i) => s.update(() => s.cinematicPalette = i == 0 ? 14 : 15)),
+      _choices('Artwork background image',
+        const ['Album Art', 'Artist Fanart', 'Auto (fanart then album)'],
+        s.fanartMode,
         (i) => s.update(() => s.fanartMode = i)),
-      _choices('Background source', const [
-        'Blurred album art', 'Animated color template', 'Club Light Show',
-        'Album Art + Club Light Show', 'Laser Tunnel', 'Album Art + Laser Tunnel',
-      ], s.backgroundSource,
-        (i) => s.update(() { s.backgroundSource = i; s.animatedTemplateBackground = i == 1; })),
+      const Text('Cinematic and Editorial prioritize artist fanart; '
+          'the selected animation appears when artwork is unavailable.'),
       _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
         s.bgOverlay, 0.0, 1.0,
         (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
@@ -283,27 +283,15 @@ class SettingsScreen extends StatelessWidget {
       _slider('Background contrast', '${(s.bgContrast * 100).round()}%',
         s.bgContrast, 1.0, 2.0,
         (v) => s.update(() => s.bgContrast = v, persist: false), s.save),
-      if (s.backgroundSource != 0)
-        _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
-          s.templateBackgroundMotion, 0.0, 1.0,
-          (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
-      if (s.backgroundSource >= 2 && s.backgroundSource <= 5)
-        _choices('Lighting blend mode', const [
-          'Normal', 'Add / Plus', 'Screen', 'Lighten', 'Overlay',
-          'Soft Light', 'Difference (Negative)', 'Exclusion',
-          'Color Dodge', 'Hard Light',
-        ], s.clubBlendMode, (i) => s.update(() => s.clubBlendMode = i)),
-      _section('Cinematic background (independent)'),
-      Text('Artist fanart is always the primary source for Cinematic.'),
+      _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
+        s.templateBackgroundMotion, 0.0, 1.0,
+        (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
+      _section('Fanart backgrounds'),
+      const Text('Cinematic and Editorial use artist fanart first.'),
       _choices('When artist fanart is missing',
         const ['Animated color theme', 'Blurred album artwork'],
         s.cinematicFallback,
         (i) => s.update(() => s.cinematicFallback = i)),
-      if (s.cinematicFallback == 0)
-        _choices('Cinematic fallback animation',
-          const ['Golden Hour', 'Neon Ribbons'],
-          s.cinematicPalette == 14 ? 0 : 1,
-          (i) => s.update(() => s.cinematicPalette = i == 0 ? 14 : 15)),
       if (s.cinematicFallback == 0)
         _slider('Cinematic animation speed',
           '${(s.cinematicAnimationSpeed * 100).round()}%',
