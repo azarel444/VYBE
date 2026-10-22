@@ -437,6 +437,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
+            // Uniform darkness for every theme and background source.
+            // Applied once, after background rendering, before foreground FX/UI.
+            Positioned.fill(child: IgnorePointer(child: ColoredBox(
+              color: Colors.black.withOpacity(settings.bgOverlay.clamp(0.0, 1.0))))),
             if (!widget.driveHost && settings.theme == AppSettings.tCinematic &&
                 settings.backgroundSource >= 2 && settings.backgroundSource <= 5)
               _cinematicLightShow(),
@@ -621,7 +625,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             palette: _clubPalette, time: _time,
             transparentStage: settings.backgroundSource == 5,
             motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: settings.bgOverlay,
+            darkness: 0.0,
             lightingBlend: const [
               BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
               BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
@@ -632,7 +636,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             palette: _clubPalette, time: _time,
             transparentStage: settings.backgroundSource == 3,
             motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: settings.bgOverlay,
+            darkness: 0.0,
             lightingBlend: const [
               BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
               BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
@@ -654,7 +658,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             preset: settings.accent,
             time: _time,
             motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: settings.bgOverlay,
+            darkness: 0.0,
           ),
           child: const SizedBox.expand(),
         ),
@@ -680,13 +684,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 palette: _clubPalette, time: _time,
                 transparentStage: true,
                 motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-                darkness: settings.bgOverlay,
+                darkness: 0.0,
                 lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)])
             : ClubBackgroundPainter(
                 palette: _clubPalette, time: _time,
                 transparentStage: true,
                 motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-                darkness: settings.bgOverlay,
+                darkness: 0.0,
                 lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)]),
           child: const SizedBox.expand(),
         ),
@@ -709,8 +713,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         // A single darkness layer controlled entirely by Background darkness.
         // Zero means no dimming for artist photos, just like album covers.
-        ColoredBox(color: Colors.black.withOpacity(
-          (settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
+
       ]);
     }
     final art = model.art;
@@ -758,8 +761,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           children: [
             blurred,
             // Same single user-controlled darkness layer as fanart.
-            ColoredBox(color: Colors.black.withOpacity(
-              (settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
+
           ],
         ),
       );
@@ -831,9 +833,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Apply the same darkness range as the other artwork backgrounds.
       // At 0 the image is untouched; at 2 the overlay reaches 60% black.
       // Use an explicit full-size layer so the slider visibly affects fanart.
-      Positioned.fill(child: IgnorePointer(child: ColoredBox(
-        color: Colors.black.withOpacity(
-          (settings.bgOverlay * 0.30).clamp(0.0, 0.85))))),
+
       const DecoratedBox(decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter, end: Alignment.bottomCenter,
