@@ -1035,7 +1035,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         theme == AppSettings.tTypo && _hasLyrics;
     // Cinematic landscape clock belongs at the top center, independent
     // of the mirrored music-information layout.
-    final centered = portrait || typoLyricsCentered ||
+    final centered = (portrait && theme != AppSettings.tEditorial) || typoLyricsCentered ||
         (!portrait && (theme == AppSettings.tCinematic || theme == 0));
     bool onRight = true;
     double topInset = portrait ? h * 0.055 : 18.0;
@@ -1058,6 +1058,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 8: // Typo: clock gets its own camera-safe header above the title.
           topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
+        case 11: // Editorial: keep the clock below the diagonal sleeve.
+          topInset = h * .36;
+          break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
           break;
@@ -1077,6 +1080,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Follow the information panel when a theme swaps its art and text.
       if (settings.layoutSwap && (theme == 5 || theme == 7 || theme == 9 || theme == 6 || theme == 8)) onRight = !onRight;
       if (theme == 9) onRight = !settings.layoutSwap; // Orbit clock follows text side, opposite the ring.
+      if (theme == AppSettings.tEditorial) onRight = true;
       // Typo uses upper-center when lyrics actually display, upper-left
       // when the right pane contains artwork (including disabled lyrics).
     }
