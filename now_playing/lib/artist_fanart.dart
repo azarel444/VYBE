@@ -7,10 +7,22 @@ import 'package:path_provider/path_provider.dart';
 /// Production builds must use a server-side proxy instead.
 class ArtistFanartCache {
   final Map<String, Uint8List?> _memory = {};
+  final Map<String, Future<Uint8List?>> _inFlight = {};
+  final Map<String, List<String>> _artistIds = {};
   String lastStatus = 'Not checked';
   static String diagnostics = 'No fanart lookup recorded yet';
 
-  Future<Uint8List?> get(String artist, String projectKey, {String personalKey = ''}) async {
+  Future<Uint8List?> get(String artist, String projectKey, {String personalKey = ''}) {
+    final key = artist.toLowerCase().trim();
+    final existing = _inFlight[key];
+    if (existing != null) return existing;
+    final future = _getUnshared(artist, projectKey, personalKey: personalKey);
+    _inFlight[key] = future;
+    future.whenComplete(() { _inFlight.remove(key); });
+    return future;
+  }
+
+  Future<Uint8List?> _getUnshared(String artist, String projectKey, {String personalKey = ''}) async {
     final watch = Stopwatch()..start();
     final stages = <String>[];
     void record(String stage) => stages.add('$stage: ${watch.elapsedMilliseconds} ms elapsed');
@@ -35,30 +47,64 @@ class ArtistFanartCache {
         return bytes;
       }
       record('Disk cache miss');
-      // Search more than one candidate: MusicBrainz may return duplicate names,
-      // legacy entries, or artist records without Fanart.tv coverage.
-      final search = Uri.https('musicbrainz.org', '/ws/2/artist/', {
-        'query': 'artist:"${artist.replaceAll('"', '')}"', 'fmt': 'json', 'limit': '15',
-      });
-      final result = await _json(search);
-      record('MusicBrainz lookup completed');
-      final candidates = result['artists'];
-      if (candidates is! List) { report('MusicBrainz lookup unavailable'); return null; }
+      // Cache resolved MusicBrainz IDs on disk independently of the image.
+      // This also helps when a previous image download failed.
+      final idFile = File('${folder.path}/$name.ids.json');
       final ids = <String>[];
-      for (final entry in candidates) {
-        if (entry is! Map) continue;
-        final candidateName = entry['name']?.toString().toLowerCase().trim();
-        final candidateId = entry['id']?.toString();
-        // MusicBrainz may store "The Sisters of Mercy" while the player
-        // reports "Sisters Of Mercy". Ignore only a leading "the".
-        String normalize(String name) => name.replaceFirst(RegExp(r'^the\s+'), '');
-        final matches = candidateName != null &&
-            normalize(candidateName) == normalize(cacheKey);
-        if (matches && candidateId != null && candidateId.isNotEmpty && !ids.contains(candidateId)) {
-          ids.add(candidateId);
+      final remembered = _artistIds[cacheKey];
+      if (remembered != null) {
+        ids.addAll(remembered);
+        record('Artist IDs memory cache hit');
+      } else if (await idFile.exists()) {
+        try {
+          final decoded = jsonDecode(await idFile.readAsString());
+          if (decoded is List) {
+            ids.addAll(decoded.whereType<String>().where((id) =>
+                RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)).take(2));
+          }
+        } catch (_) {}
+        if (ids.isNotEmpty) {
+          _artistIds[cacheKey] = List.of(ids);
+          record('Artist IDs disk cache hit');
         }
       }
-      if (ids.isEmpty) { report('Artist not matched in MusicBrainz'); return null; }
+      if (ids.isEmpty) {
+        record('Artist IDs cache miss');
+        final search = Uri.https('musicbrainz.org', '/ws/2/artist/', {
+          'query': 'artist:"${artist.replaceAll('"', '')}"',
+          'fmt': 'json', 'limit': '15',
+        });
+        final result = await _json(search);
+        record('MusicBrainz lookup completed');
+        final candidates = result['artists'];
+        if (candidates is! List) {
+          report('MusicBrainz lookup unavailable');
+          return null;
+        }
+        String normalize(String name) =>
+            name.toLowerCase().trim().replaceFirst(RegExp(r'^the\s+'), '');
+        for (final entry in candidates) {
+          if (entry is! Map) continue;
+          final candidateName = entry['name']?.toString();
+          final candidateId = entry['id']?.toString();
+          if (candidateName != null && candidateId != null &&
+              normalize(candidateName) == normalize(cacheKey) &&
+              !ids.contains(candidateId)) {
+            ids.add(candidateId);
+          }
+        }
+        if (ids.isEmpty) {
+          report('Artist not matched in MusicBrainz');
+          return null;
+        }
+        _artistIds[cacheKey] = ids.take(2).toList();
+        try {
+          await idFile.writeAsString(jsonEncode(_artistIds[cacheKey]));
+          record('Artist IDs cached to disk');
+        } catch (_) {
+          record('Artist IDs kept in memory only');
+        }
+      }
       record('Matched ${ids.length} MusicBrainz artist IDs');
       // Fanart.tv artist records are independent: query both candidates in
       // parallel instead of waiting for a timeout before trying the second.
