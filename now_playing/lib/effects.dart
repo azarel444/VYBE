@@ -357,27 +357,41 @@ class GlowPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final t = clock.t;
-    final cols = palette.colors;
     final scale = effectSize.clamp(0.15, 3.0);
     final shortest = math.min(size.width, size.height);
-    // Deterministic positions avoid allocations/random flicker per frame.
-    for (int i = 0; i < 22; i++) {
-      final seed = i * 2.399963229728653;
-      final speed = 0.025 + (i % 5) * 0.008;
-      final x = (0.5 + 0.58 * math.sin(seed * 1.37 + t * speed)) * size.width;
-      final y = (0.5 + 0.60 * math.cos(seed * 0.87 + t * speed * 0.72)) * size.height;
-      final center = Offset(x, y);
-      final radius = shortest * (0.035 + (i % 6) * 0.012) * scale;
-      final twinkle = 0.74 + 0.26 * math.sin(t * 0.41 + seed);
-      final alpha = _a((0.13 + 0.05 * clock.bass) * k * twinkle);
-      final color = cols[i % cols.length];
-      final paint = Paint()
-        ..shader = ui.Gradient.radial(center, radius, [
-          color.withOpacity(alpha),
-          color.withOpacity(alpha * 0.68),
-          color.withOpacity(0),
-        ], const [0.0, 0.48, 1.0]);
-      canvas.drawCircle(center, radius, paint);
+    final colors = palette.colors;
+    // Three optical depth planes: distant pin lights, mid-field discs and
+    // large defocused foreground circles. All positions are deterministic.
+    for (int layer = 0; layer < 3; layer++) {
+      final count = layer == 0 ? 24 : (layer == 1 ? 12 : 7);
+      final parallax = layer == 0 ? .25 : (layer == 1 ? .65 : 1.35);
+      for (int i = 0; i < count; i++) {
+        final seed = (i + layer * 47) * 2.399963229728653;
+        final nx = .5 + .64 * math.sin(seed * 1.37 + t * .035 * parallax);
+        final ny = .5 + .68 * math.cos(seed * .87 + t * .023 * parallax);
+        final center = Offset(nx * size.width, ny * size.height);
+        final fraction = (i % 7) / 6.0;
+        final radius = shortest * (layer == 0
+            ? (.002 + fraction * .005)
+            : layer == 1
+                ? (.015 + fraction * .037)
+                : (.075 + fraction * .115)) * scale;
+        final focus = layer == 0 ? .75 : (layer == 1 ? .45 : .12);
+        final shimmer = .83 + .17 * math.sin(t * .38 + seed);
+        final opacity = _a((layer == 0 ? .56 : layer == 1 ? .33 : .17)
+            * k * shimmer * (1.0 + .10 * clock.bass));
+        final base = colors[(i + layer) % colors.length];
+        final highlight = Color.lerp(base, const Color(0xFFFFE4A1),
+            layer == 0 ? .38 : .20)!;
+        final paint = Paint()
+          ..shader = ui.Gradient.radial(center, radius, [
+            highlight.withOpacity(opacity),
+            base.withOpacity(opacity * (layer == 2 ? .74 : .85)),
+            base.withOpacity(opacity * (layer == 0 ? .36 : .46)),
+            base.withOpacity(0),
+          ], [0.0, focus, layer == 2 ? .78 : .87, 1.0]);
+        canvas.drawCircle(center, radius, paint);
+      }
     }
   }
 
