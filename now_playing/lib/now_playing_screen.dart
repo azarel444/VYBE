@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'effects.dart';
+import 'golden_hour_background.dart';
 import 'refraction_shader.dart';
 import 'fx_adaptive.dart';
 import 'fx_profile.dart';
@@ -652,7 +653,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (settings.backgroundSource == 1) {
       return RepaintBoundary(child: AnimatedBuilder(
         animation: _slow,
-        builder: (context, _) => CustomPaint(
+        builder: (context, _) => settings.accent == 14
+          ? GoldenHourBackground(
+              time: _time,
+              motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+              palette: AppSettings.accents[14]!)
+          : CustomPaint(
           painter: TemplateBackgroundPainter(
             palette: _palette,
             preset: settings.accent,
@@ -794,6 +800,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// every other theme. Each preset is drawn by the actual template painter.
   Widget _cinematicAnimatedFallback() {
     final palette = AppSettings.accents[settings.cinematicPalette]!;
+    if (settings.cinematicPalette == 14) {
+      return GoldenHourBackground(
+        time: _time,
+        motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+        palette: palette,
+      );
+    }
     return CustomPaint(
       painter: TemplateBackgroundPainter(
         palette: palette,
