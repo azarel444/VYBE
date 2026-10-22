@@ -19,6 +19,7 @@ class AppSettings extends ChangeNotifier {
     'Typo',
     'Orbit',
     'Cinematic',
+    'Editorial',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
@@ -28,13 +29,14 @@ class AppSettings extends ChangeNotifier {
   static const int tTypo = 8;
   static const int tOrbit = 9;
   static const int tCinematic = 10;
+  static const int tEditorial = 11;
 
   /// Number 2 was the VHS theme. It is now an effect, so it is no longer
   /// offered as a theme; the other numbers stay as they were.
   static const int tRemovedVhs = 2;
 
   /// The themes that can be picked, in order.
-  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10];
+  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11];
   static const accentNames = [
     'Auto (from art)',
     'Vaporwave',
@@ -94,7 +96,7 @@ class AppSettings extends ChangeNotifier {
   );
   int fanartMode = 2; // Non-Cinematic artwork preference
   int cinematicFallback = 0; // 0 animated template, 1 blurred album art
-  int cinematicPalette = 6; // Cosmic; independent from other themes
+  int cinematicPalette = 15; // Legacy storage; 14 Golden Hour, 15 Neon Ribbons
   double cinematicDarkness = 0.30;
   double cinematicBlur = 0.0;
   double cinematicContrast = 1.0;
@@ -228,7 +230,8 @@ class AppSettings extends ChangeNotifier {
     cinematicWaveStyle = _int(p, 'cinematicWaveStyle', 1, 0, 2);
     fanartMode = _int(p, 'fanartMode', 2, 0, 2);
     cinematicFallback = _int(p, 'cinematicFallback', 0, 0, 1);
-    cinematicPalette = _int(p, 'cinematicPalette', 6, 1, accentNames.length - 1);
+    cinematicPalette = _int(p, 'cinematicPalette', 15, 1, accentNames.length - 1);
+    if (cinematicPalette != 14 && cinematicPalette != 15) cinematicPalette = 15;
     cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.30).clamp(0.0, 1.0).toDouble();
     cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
     cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
@@ -240,7 +243,7 @@ class AppSettings extends ChangeNotifier {
     vizStyle = _int(p, 'vizStyle', 1, 0, 1);
     final bc = p.getInt('barCount') ?? 96;
     barCount = barCounts.contains(bc) ? bc : 96;
-    accent = _int(p, 'accent', 0, 0, accents.length - 1);
+    accent = 0; // Album-art colors replace the retired manual color palettes.
     final oldFx = p.getDouble('effects') ?? 0.7;
     // Older versions had one slider; start the VHS one at that value.
     vhsEffects =
