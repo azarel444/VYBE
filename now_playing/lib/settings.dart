@@ -98,6 +98,7 @@ class AppSettings extends ChangeNotifier {
   double cinematicDarkness = 0.30;
   double cinematicBlur = 0.0;
   double cinematicContrast = 1.0;
+  double cinematicAnimationSpeed = 1.0; // premium shader playback multiplier
   String fanartApiKey = '';
   String fanartProjectKey = bundledFanartProjectKey;
   double sensitivity = 1.0; // 0.5 .. 1.5
@@ -231,6 +232,7 @@ class AppSettings extends ChangeNotifier {
     cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.30).clamp(0.0, 1.0).toDouble();
     cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
     cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
+    cinematicAnimationSpeed = (p.getDouble('cinematicAnimationSpeed') ?? 1.0).clamp(0.0, 3.0).toDouble();
     // Ignore stale locally saved keys. All beta builds use the bundled key.
     fanartApiKey = '';
     fanartProjectKey = bundledFanartProjectKey;
@@ -376,6 +378,7 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('cinematicDarkness', cinematicDarkness);
     await p.setDouble('cinematicBlur', cinematicBlur);
     await p.setDouble('cinematicContrast', cinematicContrast);
+    await p.setDouble('cinematicAnimationSpeed', cinematicAnimationSpeed);
     await p.setDouble('sensitivity', sensitivity);
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('barCount', barCount);
