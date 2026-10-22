@@ -19,18 +19,18 @@ class TemplateBackgroundPainter extends CustomPainter {
     final c = [palette.a, palette.b, palette.c];
     final t = time * motion;
     canvas.drawRect(r, Paint()..color = const Color(0xFF050811));
+    void glow(Offset p, double radius, Color color, double alpha) {
+      final bounds = Rect.fromCircle(center: p, radius: radius);
+      canvas.drawCircle(p, radius, Paint()..shader = RadialGradient(colors: [
+        color.withOpacity(alpha.clamp(0.0, 1.0)), color.withOpacity(0)
+      ]).createShader(bounds));
+    }
     // Soft animated light volumes extend outside the viewport.
     for (var layer = 0; layer < 3; layer++) {
       final x = w * (.12 + layer * .38 + math.sin(t * (.045 + layer * .012) + layer) * .12);
       final y = h * (.25 + layer * .22 + math.cos(t * .04 + layer * 2) * .15);
       glow(Offset(x, y), math.max(w, h) * (.45 + layer * .08),
         c[layer], .095);
-    }
-    void glow(Offset p, double radius, Color color, double alpha) {
-      final bounds = Rect.fromCircle(center: p, radius: radius);
-      canvas.drawCircle(p, radius, Paint()..shader = RadialGradient(colors: [
-        color.withOpacity(alpha.clamp(0.0, 1.0)), color.withOpacity(0)
-      ]).createShader(bounds));
     }
     void line(Offset a, Offset b, Color color, double opacity, double stroke) {
       canvas.drawLine(a, b, Paint()..color = color.withOpacity(opacity)
