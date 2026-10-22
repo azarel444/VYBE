@@ -51,7 +51,7 @@ class AppSettings extends ChangeNotifier {
     'Ice',
     'Ruby',
     'Golden Hour',
-    'Ultraviolet',
+    'Neon Ribbons',
     'Monochrome',
   ];
 
