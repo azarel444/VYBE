@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/material.dart';
 import 'palette.dart';
 
@@ -18,11 +19,34 @@ class GoldenHourBackground extends StatefulWidget {
   State<GoldenHourBackground> createState() => _GoldenHourBackgroundState();
 }
 
-class _GoldenHourBackgroundState extends State<GoldenHourBackground> {
+class _GoldenHourBackgroundState extends State<GoldenHourBackground>
+    with SingleTickerProviderStateMixin {
+  late final Ticker _animationTicker;
+  Duration? _lastFrame;
+  double _sceneTime = 0;
+
+  void _onFrame(Duration elapsed) {
+    final last = _lastFrame;
+    _lastFrame = elapsed;
+    if (last == null || !mounted) return;
+    final dt = (elapsed - last).inMicroseconds / 1000000.0;
+    if (dt <= 0) return;
+    // Premium scene keeps animating independently of the other background
+    // motion/performance toggles, which previously could freeze its time.
+    setState(() => _sceneTime += dt.clamp(0.0, 0.1));
+  }
+
+  @override
+  void dispose() {
+    _animationTicker.dispose();
+    super.dispose();
+  }
+
   ui.FragmentProgram? _program;
   @override
   void initState() {
     super.initState();
+    _animationTicker = createTicker(_onFrame)..start();
     _load();
   }
 
@@ -44,7 +68,7 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground> {
     }
     return CustomPaint(
       painter: _GoldenHourPainter(
-        program: program, time: widget.time * widget.motion,
+        program: program, time: _sceneTime,
         palette: widget.palette),
       child: const SizedBox.expand(),
     );
