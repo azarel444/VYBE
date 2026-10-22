@@ -36,19 +36,22 @@ void main() {
   float cloud=fbm(p*5.0+vec2(-t*.19,t*.12)+fog*.8);
   vec3 col=mix(vec3(.007,.009,.019),uAmber*.17, smoothstep(-.48,.43,p.y));
   col+=mix(uGold,uAccent,.25)*pow(max(cloud-.32,0.),2.)*.45;
-  // Layered volumetric rays: radial angular turbulence, drifting shadow bands.
-  float shafts=0.;
-  for(int j=0;j<3;j++){
-    float f=float(j);
-    float bands=noise2(vec2(ang*(13.+f*19.)+t*(.72+f*.24),f*19.));
-    float narrow=pow(max(bands-.40,0.),2.0);
-    shafts+=narrow*(.40+f*.20);
-  }
-  float radial=exp(-dist*.78);
-  float breathing=.72+.28*sin(t*1.35);
-  float sweeping=sin(ang*8.0-t*.82)*.5+.5;
-  float haze=fbm(vec2(ang*4.0+t*.22,dist*1.3-t*.28));
-  col+=uAmber*shafts*radial*(.36+.55*haze)*breathing*(.65+.65*sweeping);
+  // Animated light rig: rotating shafts with traveling shadow patterns.
+  // Beam direction and intensity are functions of time, not static rays.
+  float radiusFade=exp(-dist*.72);
+  float sweepAngle=ang-t*.28;
+  float beams=pow(.5+.5*cos(sweepAngle*18.0
+      +sin(ang*5.0-t*.52)*.65), 18.0);
+  float wideBeams=pow(.5+.5*cos(ang*9.0+t*.19), 9.0);
+  float turbulence=fbm(vec2(ang*7.0+t*.32,dist*2.5-t*.44));
+  float shadow=.35+.65*smoothstep(.28,.78,turbulence);
+  float breathing=.75+.25*sin(t*1.6);
+  col+=uGold*beams*radiusFade*shadow*1.45*breathing;
+  col+=uAmber*wideBeams*radiusFade*(.45+.5*turbulence)*.82;
+  // Luminous moving clouds cross the beams, revealing their motion.
+  float movingMist=fbm(p*3.7+vec2(t*.27,-t*.19));
+  float mistBand=smoothstep(.38,.72,movingMist);
+  col+=mix(uGold,uAmber,.55)*mistBand*exp(-dist*.9)*.38;
   // Intense white-hot source and concentric diffused glow.
   float core=exp(-dist*dist*(82.+18.*sin(t*.9)));
   float halo=exp(-dist*dist*(5.2+1.1*sin(t*.55)));
