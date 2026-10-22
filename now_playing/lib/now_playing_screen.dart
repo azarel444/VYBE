@@ -857,6 +857,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: image)),
       ColoredBox(color: Colors.black.withOpacity(
         settings.cinematicDarkness.clamp(0.0, 1.0))),
+      // Cinematic framing: soft dark side falloff and a stronger bottom
+      // gradient beneath the album cover, title and artist information.
+      // This sits above either fanart or the animated fallback.
+      IgnorePointer(child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            stops: [0.0, 0.22, 0.48, 0.72],
+            colors: [
+              Color(0xE6000000), Color(0xAD000000),
+              Color(0x33000000), Color(0x00000000),
+            ],
+          ),
+        ),
+        child: const SizedBox.expand(),
+      )),
+      IgnorePointer(child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            stops: [0.0, 0.16, 0.34, 0.66, 0.84, 1.0],
+            colors: [
+              Color(0x88000000), Color(0x38000000),
+              Color(0x00000000), Color(0x00000000),
+              Color(0x38000000), Color(0x88000000),
+            ],
+          ),
+        ),
+        child: const SizedBox.expand(),
+      )),
     ]);
   }
 
