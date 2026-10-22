@@ -509,19 +509,30 @@ class RaysPainter extends CustomPainter {
 class RippleState {
   final List<double> starts = [];
   double _lastBeat = -10;
-  double _avg = 0.2;
+  double _baseline = 0.0;
+  double _previous = 0.0;
 
-  void update(double now, double bass, bool enabled) {
+  /// Detect low-frequency onsets only from live FFT, not the simulated spectrum.
+  void update(double now, double bass, bool enabled, {bool liveAudio = false}) {
     starts.removeWhere((s) => now - s > 2.8);
-    final previous = _avg;
-    _avg = _avg * 0.93 + bass * 0.07;
-    if (!enabled) return;
-    // Adaptive transient gate: reacts to bass peaks across quiet and loud
-    // sources without a fixed 0.25 floor that misses most head-unit audio.
-    if (bass > 0.09 && bass > previous * 1.17 + 0.025 && now - _lastBeat > 0.27) {
+    if (!enabled || !liveAudio) {
+      _baseline = 0;
+      _previous = 0;
+      return;
+    }
+    final rise = bass - _previous;
+    final threshold = math.max(0.035, _baseline * 0.28);
+    final hit = bass > 0.10 &&
+        rise > threshold &&
+        bass > _baseline * 1.18 &&
+        now - _lastBeat > 0.22;
+    _previous = bass;
+    // Slow baseline tracks sustained bass without treating it as new hits.
+    _baseline += (bass - _baseline) * 0.035;
+    if (hit) {
       _lastBeat = now;
       starts.add(now);
-      if (starts.length > 5) starts.removeAt(0);
+      if (starts.length > 8) starts.removeAt(0);
     }
   }
 }
@@ -777,8 +788,9 @@ class ExpandedFxPainter extends CustomPainter {
   final double k;
   final GlobalKey? artKey;
   final GlobalKey? layerKey;
+  final RippleState? bassOnsets;
   ExpandedFxPainter({required this.mode, required this.clock,
-    required this.palette, required this.k, this.artKey, this.layerKey, required Listenable repaint})
+    required this.palette, required this.k, this.artKey, this.layerKey, this.bassOnsets, required Listenable repaint})
     : super(repaint: repaint);
 
   @override
@@ -813,11 +825,11 @@ class ExpandedFxPainter extends CustomPainter {
         break;
       case 1: // Bass shockwave: energy-responsive expanding rings
         final shockCenter = artKey == null ? center : _artCenter(artKey!, size, layerKey: layerKey);
-        final phase = (t * (0.55 + clock.bass * 2)) % 1.0;
-        for (var i = 0; i < 3; i++) {
-          final f = (phase + i / 3) % 1.0;
+        for (final onset in (bassOnsets?.starts ?? const <double>[])) {
+          final f = (t - onset) / 0.85;
+          if (f < 0 || f > 1) continue;
           final radius = (0.08 + f * .7) * math.min(w, h);
-          final color = palette.at(i / 3);
+          final color = palette.at(f);
           canvas.drawCircle(shockCenter, radius, Paint()..style = PaintingStyle.stroke
             ..strokeWidth = 15 + 18 * clock.bass
             ..color = color.withOpacity((1 - f) * .22 * k)
