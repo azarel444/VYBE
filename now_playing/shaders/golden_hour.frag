@@ -52,6 +52,12 @@ void main() {
   float movingMist=fbm(p*3.7+vec2(t*.27,-t*.19));
   float mistBand=smoothstep(.52,.78,movingMist);
   col+=vec3(.62,.12,.012)*mistBand*exp(-dist*.9)*.22;
+  // Independent foreground haze moves faster than the distant clouds.
+  // Its dark occlusion adds depth without painting the entire scene gold.
+  float nearHaze=fbm(p*8.0+vec2(t*.19,-t*.14));
+  float nearVeil=smoothstep(.58,.81,nearHaze);
+  col*=1.0-nearVeil*.48;
+  col+=vec3(.38,.055,.006)*nearVeil*.075;
   // Intense white-hot source and concentric diffused glow.
   float core=exp(-dist*dist*(175.+18.*sin(t*.9)));
   float halo=exp(-dist*dist*(22.+2.*sin(t*.55)));
