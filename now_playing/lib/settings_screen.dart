@@ -301,9 +301,9 @@ class SettingsScreen extends StatelessWidget {
         (i) => s.update(() => s.cinematicFallback = i)),
       if (s.cinematicFallback == 0)
         _choices('Cinematic fallback animation',
-          AppSettings.accentNames.skip(1).toList(),
-          (s.cinematicPalette - 1).clamp(0, AppSettings.accentNames.length - 2),
-          (i) => s.update(() => s.cinematicPalette = i + 1)),
+          const ['Golden Hour', 'Neon Ribbons'],
+          s.cinematicPalette == 14 ? 0 : 1,
+          (i) => s.update(() => s.cinematicPalette = i == 0 ? 14 : 15)),
       if (s.cinematicFallback == 0)
         _slider('Cinematic animation speed',
           '${(s.cinematicAnimationSpeed * 100).round()}%',
