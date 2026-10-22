@@ -25,22 +25,30 @@ vec2 flow(vec2 p,float t) {
   }
   return q;
 }
-vec3 filament(vec2 p,float t,float index,vec3 tint) {
+// Signed liquid contours: each band has a broad translucent body, an
+// intensely lit irregular rim, and a narrow white-hot filament.
+vec3 filament(vec2 q,float t,float index,vec3 tint) {
   float phase=index*1.618;
   float depth=mod(index,3.);
-  vec2 q=flow(p+vec2(.16*sin(phase),.13*cos(phase)),t+phase*.21);
-  float field=sin(q.x*(4.7+depth*.45)+phase)
-      +.85*cos(q.y*(5.2+depth*.65)-phase*.81)
-      +.42*sin((q.x+q.y)*7.3+t*.19+phase*.7);
-  float target=(index-5.5)*.17;
-  float d=abs(field-target);
-  float thickness=.024+.015*sin(q.x*2.6+q.y*3.2+t*.41+phase);
-  float fine=exp(-pow(d/max(thickness,.008),1.25));
-  float glow=exp(-pow(d/.15,2.));
-  float aura=exp(-pow(d/.42,2.));
-  float intensity=.73+.27*sin(q.x*4.1-q.y*3.5+t*.52+phase);
-  return tint*(fine*1.75+glow*.48+aura*.085)*intensity
-      *(.55+.22*depth);
+  vec2 r=q+vec2(.21*sin(phase+t*.09),.19*cos(phase*.83-t*.11));
+  float field=sin(r.x*(3.6+depth*.48)+phase)
+      +.92*cos(r.y*(4.1+depth*.55)-phase*.83)
+      +.44*sin((r.x+r.y)*6.7+t*.21+phase*.73);
+  float contour=(index-5.5)*.19;
+  float signedDistance=field-contour;
+  float d=abs(signedDistance);
+  // Variable thickness creates expanding sheets and narrowing tendrils.
+  float swelling=.5+.5*sin(r.x*4.2-r.y*3.1+t*.57+phase);
+  float width=mix(.012,.085,pow(swelling,2.3));
+  float core=exp(-pow(d/max(width*.27,.004),1.3));
+  float rim=exp(-pow(d/max(width,.013),1.5));
+  float bloom=exp(-pow(d/(width+.16),2.));
+  float liquid=smoothstep(-.19,.09,signedDistance)
+      *(1.-smoothstep(.12,.67,signedDistance));
+  float softBody=liquid*(.08+.13*swelling);
+  float depthGain=depth<.5?.44:(depth<1.5?.68:.90);
+  return tint*(core*1.48+rim*.54+bloom*.13+softBody)
+      *depthGain*(.82+.18*sin(t*.37+phase));
 }
 void main() {
   vec2 uv=FlutterFragCoord().xy/uSize;
@@ -49,16 +57,18 @@ void main() {
   float t=uTime;
   vec3 a=normalize(uColorA+.001),b=normalize(uColorB+.001),c=normalize(uColorC+.001);
   vec3 col=mix(vec3(.0015,.002,.011),vec3(.008,.003,.026),smoothstep(-.45,.5,p.y));
-  // Shared flow coordinates deform the background illumination as well
-  // as the filaments: it is a liquid field, not independent moving lines.
+  // Shared advected coordinates: every luminous sheet, boundary and
+  // background pool bends through the same moving liquid.
   vec2 q=flow(p,t*.78);
   float depthLight=.5+.5*sin(q.x*3.1+t*.18)*cos(q.y*4.3-t*.16);
-  col+=(a*.055+b*.048+c*.052)*depthLight*exp(-dot(q,q)*.35);
+  col+=(a*.046+b*.041+c*.045)*depthLight*exp(-dot(q,q)*.35);
+  // Deep, middle and foreground contours with independent color shifts.
   for(int i=0;i<12;i++){
     float fi=float(i);
     vec3 tint=mod(fi,3.)<.5?a:(mod(fi,3.)<1.5?b:c);
-    float layer=fi<4.? .34 : (fi<8.? .66 : 1.);
-    col+=filament(p,t*(.64+layer*.36),fi,tint)*layer;
+    float layer=fi<4.? .38 : (fi<8.? .67 : 1.);
+    vec2 shifted=q+vec2(.045*sin(t*.18+fi),.055*cos(t*.14+fi));
+    col+=filament(shifted,t*(.68+layer*.32),fi,tint)*layer;
   }
   // Moving caustics and diffused light pools warp with the same fluid.
   float caustic=pow(.5+.5*sin(q.x*8.5+t*.4)*cos(q.y*7.4-t*.32),5.);
