@@ -790,6 +790,58 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  Widget _cinematicAnimatedFallback() {
+    if (settings.backgroundSource == 1) {
+      return RepaintBoundary(child: AnimatedBuilder(
+        animation: _slow,
+        builder: (context, _) => CustomPaint(
+          painter: TemplateBackgroundPainter(
+            palette: _palette,
+            preset: settings.accent,
+            time: _time,
+            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+            darkness: 0.0,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ));
+    }
+    if (settings.backgroundSource >= 2 && settings.backgroundSource <= 5) {
+      return RepaintBoundary(child: AnimatedBuilder(
+        animation: _slow,
+        builder: (context, _) => CustomPaint(
+          painter: settings.backgroundSource >= 4
+              ? LaserTunnelBackgroundPainter(
+                  palette: _clubPalette, time: _time,
+                  transparentStage: false,
+                  motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+                  darkness: 0.0)
+              : ClubBackgroundPainter(
+                  palette: _clubPalette, time: _time,
+                  transparentStage: false,
+                  motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+                  darkness: 0.0),
+          child: const SizedBox.expand(),
+        ),
+      ));
+    }
+    // Cinematic's fanart-first default uses the selected animated palette
+    // when artist imagery is unavailable, regardless of album art.
+    return RepaintBoundary(child: AnimatedBuilder(
+      animation: _slow,
+      builder: (context, _) => CustomPaint(
+        painter: TemplateBackgroundPainter(
+          palette: _palette,
+          preset: settings.accent,
+          time: _time,
+          motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+          darkness: 0.0,
+        ),
+        child: const SizedBox.expand(),
+      ),
+    ));
+  }
+
   /// Cinematic ignores the global background source: artist imagery is first.
   Widget _cinematicBackdrop() {
     final fanart = _fanartBytes;
@@ -802,9 +854,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     } else if (settings.backgroundSource == 0 && hasAlbum && settings.fanartMode == 0) {
       image = RawImage(image: art.tiny, fit: BoxFit.cover);
     } else {
-      image = RepaintBoundary(child: CustomPaint(
-        painter: IdleBackdropPainter(clock: fxClock, palette: _palette,
-          animate: !settings.performance, repaint: _tick)));
+      // Render the configured animated background, not the generic idle painter.
+      image = _cinematicAnimatedFallback();
     }
     final bool hasImage = fanart != null || (settings.backgroundSource == 0 && hasAlbum && settings.fanartMode == 0);
     return Stack(fit: StackFit.expand, children: [
