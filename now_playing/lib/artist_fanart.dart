@@ -81,8 +81,13 @@ class ArtistFanartCache {
           report('MusicBrainz lookup unavailable');
           return null;
         }
-        String normalize(String name) =>
-            name.toLowerCase().trim().replaceFirst(RegExp(r'^the\s+'), '');
+        // Match harmless typography variations such as Rendez Vous versus
+        // Rendez-Vous, while still requiring the full artist name.
+        String normalize(String name) => name.toLowerCase().trim()
+            .replaceAll(RegExp(r'[-‐‑‒–—_]'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .replaceFirst(RegExp(r'^the '), '')
+            .trim();
         for (final entry in candidates) {
           if (entry is! Map) continue;
           final candidateName = entry['name']?.toString();
