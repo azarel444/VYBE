@@ -33,7 +33,7 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
     if (dt <= 0) return;
     // Premium scene keeps animating independently of the other background
     // motion/performance toggles, which previously could freeze its time.
-    setState(() => _sceneTime += dt.clamp(0.0, 0.1));
+    setState(() => _sceneTime += dt.clamp(0.0, 0.1) * widget.motion);
   }
 
   @override
