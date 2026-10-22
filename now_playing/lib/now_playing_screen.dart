@@ -1058,8 +1058,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 8: // Typo: clock gets its own camera-safe header above the title.
           topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
-        case 11: // Editorial: keep the clock below the diagonal sleeve.
-          topInset = h * .36;
+        case 11: // Editorial: upper-right pocket beside the angled sleeve.
+          topInset = h * .145;
           break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
@@ -1080,7 +1080,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Follow the information panel when a theme swaps its art and text.
       if (settings.layoutSwap && (theme == 5 || theme == 7 || theme == 9 || theme == 6 || theme == 8)) onRight = !onRight;
       if (theme == 9) onRight = !settings.layoutSwap; // Orbit clock follows text side, opposite the ring.
-      if (theme == AppSettings.tEditorial) onRight = true;
+      if (theme == AppSettings.tEditorial) onRight = false;
       // Typo uses upper-center when lyrics actually display, upper-left
       // when the right pane contains artwork (including disabled lyrics).
     }
@@ -1092,7 +1092,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       topInset = math.max(topInset, cameraSafeTop + 14.0);
     }
     if (typoLyricsCentered) topInset = 22.0;
-    final inset = portrait ? 18.0 : 30.0;
+    final inset = theme == AppSettings.tEditorial && !portrait
+        ? w * .085 : (portrait ? 18.0 : 30.0);
+    if (theme == AppSettings.tEditorial && !portrait) topInset = h * .055;
     return Positioned(
       left: centered ? 0 : (onRight ? null : inset),
       right: centered ? 0 : (onRight ? inset : null),
