@@ -297,7 +297,7 @@ class SettingsScreen extends StatelessWidget {
       if (s.visualizer) ...[
         _choices('Cinematic waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i)),
-        _choices('Visualizer shape (compatible layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+        _choices('Visualizer shape (including circular layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
         _slider('Sensitivity', '${(s.sensitivity * 100).round()}%',
           s.sensitivity, 0.5, 1.5,
