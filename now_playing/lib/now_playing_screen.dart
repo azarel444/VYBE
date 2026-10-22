@@ -437,13 +437,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
+            if (!widget.driveHost && settings.theme == AppSettings.tCinematic &&
+                settings.backgroundSource >= 2 && settings.backgroundSource <= 5)
+              _cinematicLightShow(),
             // Uniform darkness for every theme and background source.
             // Applied once, after background rendering, before foreground FX/UI.
             Positioned.fill(child: IgnorePointer(child: ColoredBox(
               color: Colors.black.withOpacity(settings.bgOverlay.clamp(0.0, 1.0))))),
-            if (!widget.driveHost && settings.theme == AppSettings.tCinematic &&
-                settings.backgroundSource >= 2 && settings.backgroundSource <= 5)
-              _cinematicLightShow(),
             if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
