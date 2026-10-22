@@ -166,7 +166,7 @@ class ArtistFanartCache {
   Future<Map<String, dynamic>> _json(Uri uri) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
     try {
-      final req = await client.getUrl(uri);
+      final req = await client.getUrl(uri).timeout(const Duration(seconds: 6));
       req.headers.set(HttpHeaders.userAgentHeader, 'VYBE/1.9 (music artwork; contact via app publisher)');
       final res = await req.close().timeout(const Duration(seconds: 6));
       if (res.statusCode != 200) return {};
