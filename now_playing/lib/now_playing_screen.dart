@@ -340,7 +340,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _stepGlitch();
     fxClock.t = _time;
     fxClock.bass = bass;
-    ripples.update(_time, bass, settings.fxRipples && model.playing);
+    ripples.update(_time, bass, model.playing, liveAudio: model.realActive && model.fft != null);
 
     // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.
@@ -1128,6 +1128,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             artKey: i == 1 ? _artKey : null,
             layerKey: i == 1 ? _shockLayerKey : null,
+            bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: i == 1 ? _shockLayerKey : null),
       if (settings.fxNebula)
@@ -3143,7 +3144,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           key: _artKey,
           behavior: HitTestBehavior.opaque,
           onTap: _openPlayer,
-          child: _pulse(_orbitArt(artR * 2)),
+          child: _orbitArt(artR * 2),
         ),
       ),
     ];
@@ -3914,27 +3915,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// Small scale-up on bass hits. Only moves a cached layer.
-  Widget _pulse(Widget child) {
-    if (!settings.bgEffects) return child;
-    return AnimatedBuilder(
-      animation: _tick,
-      child: child,
-      builder: (context, c) {
-        final b = ((sim.bass - 0.15) / 0.6).clamp(0.0, 1.0).toDouble();
-        return Transform.scale(
-            scale: 1.0 + 0.03 * b * settings.kMotion, child: c);
-      },
-    );
-  }
-
   /// Tapping the cover opens the player app that is playing.
   Widget _front(double s, bool vhs) => GestureDetector(
         key: _artKey,
         behavior: HitTestBehavior.opaque,
         onTap: _openPlayer,
-        child: _pulse(
-          Stack(
+        child: Stack(
             clipBehavior: Clip.none,
             children: [
               if (settings.fxBloom && !settings.performance)
@@ -3944,7 +3930,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               (vhs || _vhsOn) ? _splitArt(s) : _artCard(s),
             ],
           ),
-        ),
       );
 
   /// Soft glow: a blurred, slightly larger copy of the cover behind it.
