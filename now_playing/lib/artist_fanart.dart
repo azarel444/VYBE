@@ -49,7 +49,12 @@ class ArtistFanartCache {
         if (entry is! Map) continue;
         final candidateName = entry['name']?.toString().toLowerCase().trim();
         final candidateId = entry['id']?.toString();
-        if (candidateName == cacheKey && candidateId != null && candidateId.isNotEmpty && !ids.contains(candidateId)) {
+        // MusicBrainz may store "The Sisters of Mercy" while the player
+        // reports "Sisters Of Mercy". Ignore only a leading "the".
+        String normalize(String name) => name.replaceFirst(RegExp(r'^the\s+'), '');
+        final matches = candidateName != null &&
+            normalize(candidateName) == normalize(cacheKey);
+        if (matches && candidateId != null && candidateId.isNotEmpty && !ids.contains(candidateId)) {
           ids.add(candidateId);
         }
       }
