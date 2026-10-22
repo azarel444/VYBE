@@ -794,22 +794,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// every other theme. Each preset is drawn by the actual template painter.
   Widget _cinematicAnimatedFallback() {
     final palette = AppSettings.accents[settings.cinematicPalette]!;
-    return RepaintBoundary(child: AnimatedBuilder(
-      animation: _slow,
-      builder: (context, _) => CustomPaint(
-        painter: TemplateBackgroundPainter(
-          palette: palette,
-          preset: settings.cinematicPalette,
-          time: _time,
-          motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-          darkness: 0.0,
-        ),
-        child: const SizedBox.expand(),
+    return CustomPaint(
+      painter: TemplateBackgroundPainter(
+        palette: palette,
+        preset: settings.cinematicPalette,
+        time: _time,
+        motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+        darkness: 0.0,
       ),
-    ));
+      child: const SizedBox.expand(),
+    );
   }
 
-  Widget _cinematicBackdrop() {
+  Widget _cinematicBackdrop() => AnimatedBuilder(
+    animation: _slow,
+    builder: (context, _) => _buildCinematicBackdrop(),
+  );
+
+  Widget _buildCinematicBackdrop() {
     final fanart = _fanartBytes;
     final art = model.art;
     final hasAlbum = art != null && !art.flat;
