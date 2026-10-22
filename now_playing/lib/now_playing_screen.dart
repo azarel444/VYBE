@@ -1343,6 +1343,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: CustomPaint(
                     painter: RingPainter(
                       sim: sim,
+                  style: settings.diagonalWaveStyle,
                       palette: _palette,
                       innerRadius: art * 0.66,
                       maxLen: art * 0.2,
@@ -2389,6 +2390,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: CustomPaint(
               painter: HalfRingPainter(
                 sim: sim,
+                  style: settings.diagonalWaveStyle,
                 palette: _palette,
                 innerRadius: r + 2,
                 maxLen: maxLen,
@@ -3116,6 +3118,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               child: CustomPaint(
                 painter: FullRingPainter(
                   sim: sim,
+                  style: settings.diagonalWaveStyle,
                   palette: p,
                   innerRadius: barsInner,
                   maxLen: barsMax,
