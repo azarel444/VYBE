@@ -92,7 +92,12 @@ class AppSettings extends ChangeNotifier {
     'FANART_PROJECT_KEY',
     defaultValue: 'a5663b830e451594869e3892dbaaa551',
   );
-  int fanartMode = 2; // 0 album, 1 artist, 2 auto
+  int fanartMode = 2; // Non-Cinematic artwork preference
+  int cinematicFallback = 0; // 0 animated template, 1 blurred album art
+  int cinematicPalette = 6; // Cosmic; independent from other themes
+  double cinematicDarkness = 0.30;
+  double cinematicBlur = 0.0;
+  double cinematicContrast = 1.0;
   String fanartApiKey = '';
   String fanartProjectKey = bundledFanartProjectKey;
   double sensitivity = 1.0; // 0.5 .. 1.5
@@ -221,6 +226,11 @@ class AppSettings extends ChangeNotifier {
     diagonalWaveStyle = _int(p, 'diagonalWaveStyle', 0, 0, 2);
     cinematicWaveStyle = _int(p, 'cinematicWaveStyle', 1, 0, 2);
     fanartMode = _int(p, 'fanartMode', 2, 0, 2);
+    cinematicFallback = _int(p, 'cinematicFallback', 0, 0, 1);
+    cinematicPalette = _int(p, 'cinematicPalette', 6, 1, accentNames.length - 1);
+    cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.30).clamp(0.0, 1.0).toDouble();
+    cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
+    cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
     // Ignore stale locally saved keys. All beta builds use the bundled key.
     fanartApiKey = '';
     fanartProjectKey = bundledFanartProjectKey;
@@ -361,6 +371,11 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('diagonalWaveStyle', diagonalWaveStyle);
     await p.setInt('cinematicWaveStyle', cinematicWaveStyle);
     await p.setInt('fanartMode', fanartMode);
+    await p.setInt('cinematicFallback', cinematicFallback);
+    await p.setInt('cinematicPalette', cinematicPalette);
+    await p.setDouble('cinematicDarkness', cinematicDarkness);
+    await p.setDouble('cinematicBlur', cinematicBlur);
+    await p.setDouble('cinematicContrast', cinematicContrast);
     await p.setDouble('sensitivity', sensitivity);
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('barCount', barCount);
