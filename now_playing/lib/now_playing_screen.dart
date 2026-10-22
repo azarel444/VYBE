@@ -480,8 +480,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   // The transparent Drive activity has its own Flutter engine.
                   // Never render a persisted normal theme (Focused, etc.) here.
                   layout = _driveLayout(w, h, narrow);
-                } else if ((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial)) {
+                } else if (settings.theme == AppSettings.tCinematic) {
                   layout = _cinematicLayout(w, h);
+                } else if (settings.theme == AppSettings.tEditorial) {
+                  layout = _editorialLayout(w, h);
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tFan) {
