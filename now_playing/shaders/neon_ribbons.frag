@@ -11,27 +11,36 @@ float hash21(vec2 p) {
   p+=dot(p,p+45.32);
   return fract(p.x*p.y);
 }
-float curve(float x,float t,float phase,float depth) {
-  return .20*sin(x*2.3+t*.44+phase)
-       + .11*sin(x*4.8-t*.29+phase*1.7)
-       + .07*sin(x*8.0+t*.23+phase*.63)
-       + depth*.13*sin(x*1.15-t*.17+phase);
+vec2 flow(vec2 p,float t) {
+  vec2 q=p;
+  for(int i=0;i<3;i++){
+    float fi=float(i);
+    float freq=2.6+fi*2.3;
+    vec2 d=vec2(
+      sin(q.y*freq+t*(.37+fi*.13)+fi*1.7)
+        +.55*cos(q.x*freq*.8-q.y*1.8-t*.29),
+      cos(q.x*freq*.9-t*(.32+fi*.11)+fi*2.1)
+        +.5*sin(q.y*freq*.8+q.x*2.1+t*.24));
+    q+=d*(.14/(1.+fi*.7));
+  }
+  return q;
 }
-vec3 ribbon(vec2 p,float t,float index,vec3 tint) {
-  float phase=index*1.37;
+vec3 filament(vec2 p,float t,float index,vec3 tint) {
+  float phase=index*1.618;
   float depth=mod(index,3.);
-  float y=curve(p.x,t*(.66+depth*.16),phase,depth)
-        + (index-5.5)*.048;
-  float dy=curve(p.x+.003,t*(.66+depth*.16),phase,depth)-curve(p.x-.003,t*(.66+depth*.16),phase,depth);
-  float dist=abs(p.y-y)/sqrt(1.+pow(dy/.006,2.));
-  float thickness=mix(.0018,.005,depth/2.);
-  float core=exp(-pow(dist/thickness,1.25));
-  float halo=exp(-dist*dist/(.028*.028));
-  float wide=exp(-dist*dist/(.085*.085));
-  float pulse=.70+.30*sin(t*.95+p.x*4.1+phase);
-  float perspective=.56+.44*exp(-pow(p.x-.18*sin(t*.14+phase),2.)*.6);
-  float opacity=(.58+.18*depth)*pulse*perspective;
-  return tint*(core*1.8+halo*.48+wide*.105)*opacity;
+  vec2 q=flow(p+vec2(.16*sin(phase),.13*cos(phase)),t+phase*.21);
+  float field=sin(q.x*(4.7+depth*.45)+phase)
+      +.85*cos(q.y*(5.2+depth*.65)-phase*.81)
+      +.42*sin((q.x+q.y)*7.3+t*.19+phase*.7);
+  float target=(index-5.5)*.17;
+  float d=abs(field-target);
+  float thickness=.024+.015*sin(q.x*2.6+q.y*3.2+t*.41+phase);
+  float fine=exp(-pow(d/max(thickness,.008),1.25));
+  float glow=exp(-pow(d/.15,2.));
+  float aura=exp(-pow(d/.42,2.));
+  float intensity=.73+.27*sin(q.x*4.1-q.y*3.5+t*.52+phase);
+  return tint*(fine*1.75+glow*.48+aura*.085)*intensity
+      *(.55+.22*depth);
 }
 void main() {
   vec2 uv=FlutterFragCoord().xy/uSize;
@@ -40,36 +49,26 @@ void main() {
   float t=uTime;
   vec3 a=normalize(uColorA+.001),b=normalize(uColorB+.001),c=normalize(uColorC+.001);
   vec3 col=mix(vec3(.0015,.002,.011),vec3(.008,.003,.026),smoothstep(-.45,.5,p.y));
-  // Backlight: distant illuminated atmosphere behind the ribbons.
-  float mist=.5+.5*sin(p.x*1.9+t*.16)*sin(p.y*4.1-t*.11);
-  col+=(a*.025+b*.021+c*.022)*mist*exp(-dot(p,p)*.9);
-  // Rear ribbons are dimmer and thinner, the near ribbons have hot cores.
-  for(int i=0;i<12;i++) {
+  // Shared flow coordinates deform the background illumination as well
+  // as the filaments: it is a liquid field, not independent moving lines.
+  vec2 q=flow(p,t*.78);
+  float depthLight=.5+.5*sin(q.x*3.1+t*.18)*cos(q.y*4.3-t*.16);
+  col+=(a*.055+b*.048+c*.052)*depthLight*exp(-dot(q,q)*.35);
+  for(int i=0;i<12;i++){
     float fi=float(i);
     vec3 tint=mod(fi,3.)<.5?a:(mod(fi,3.)<1.5?b:c);
-    float layer=fi<4.? .30 : (fi<8.? .65 : 1.);
-    col+=ribbon(p+vec2(0.,(1.-layer)*.04),t*(.52+layer*.45),fi,tint)*layer;
+    float layer=fi<4.? .34 : (fi<8.? .66 : 1.);
+    col+=filament(p,t*(.64+layer*.36),fi,tint)*layer;
   }
-  // Intermittent flowing glints chase the ribbons, like energized filaments.
-  for(int i=0;i<9;i++) {
-    float fi=float(i);
-    float phase=fi*1.37;
-    float x=mod(t*(.15+.018*mod(fi,3.))+hash21(vec2(fi,12.3))*2.5,2.8)-1.4;
-    float y=curve(x,t*(.66+mod(fi,3.)*.16),phase,mod(fi,3.))+(fi-5.5)*.048;
-    vec2 delta=p-vec2(x,y);
-    float sparkle=exp(-dot(delta,delta)*2200.);
-    vec3 tint=mod(fi,3.)<.5?a:(mod(fi,3.)<1.5?b:c);
-    col+=tint*sparkle*.82;
-  }
-  // Scattered tiny light motes create a further depth plane.
-  vec2 grid=uv*vec2(90.,46.);
-  grid.y-=t*.43;
-  vec2 cell=floor(grid);
-  vec2 local=fract(grid)-.5;
+  // Moving caustics and diffused light pools warp with the same fluid.
+  float caustic=pow(.5+.5*sin(q.x*8.5+t*.4)*cos(q.y*7.4-t*.32),5.);
+  col+=(a*.08+b*.06+c*.07)*caustic;
+  vec2 grid=(q+vec2(.6,.5))*vec2(75.,43.);
+  grid.y-=t*.28;
+  vec2 cell=floor(grid),local=fract(grid)-.5;
   vec2 jitter=vec2(hash21(cell+3.1),hash21(cell+8.7))-.5;
-  float star=exp(-dot(local-jitter*.7,local-jitter*.7)*175.);
-  float gate=step(.972,hash21(cell+17.));
-  col+=(a+b+c)*.21*star*gate;
+  float star=exp(-dot(local-jitter*.7,local-jitter*.7)*160.);
+  col+=(a+b+c)*.12*star*step(.985,hash21(cell+17.));
   // Filmic compression: bright neon cores without lifting the black stage.
   col=vec3(1.)-exp(-col*1.35);
   col=pow(max(col,vec3(0.)),vec3(.94));
