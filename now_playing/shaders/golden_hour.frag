@@ -32,32 +32,34 @@ void main() {
   float dist=length(d);
   float ang=atan(d.y,d.x);
   // Deep cinematic atmosphere with evolving smoke density.
-  float fog=fbm(p*2.7+vec2(t*.018,-t*.012));
-  float cloud=fbm(p*5.0+vec2(-t*.025,t*.014)+fog*.8);
+  float fog=fbm(p*2.7+vec2(t*.16,-t*.10));
+  float cloud=fbm(p*5.0+vec2(-t*.19,t*.12)+fog*.8);
   vec3 col=mix(vec3(.007,.009,.019),uAmber*.17, smoothstep(-.48,.43,p.y));
   col+=mix(uGold,uAccent,.25)*pow(max(cloud-.32,0.),2.)*.45;
   // Layered volumetric rays: radial angular turbulence, drifting shadow bands.
   float shafts=0.;
   for(int j=0;j<3;j++){
     float f=float(j);
-    float bands=noise2(vec2(ang*(13.+f*19.)+t*(.06+f*.025),f*19.));
+    float bands=noise2(vec2(ang*(13.+f*19.)+t*(.72+f*.24),f*19.));
     float narrow=pow(max(bands-.40,0.),2.0);
     shafts+=narrow*(.40+f*.20);
   }
   float radial=exp(-dist*.78);
-  float haze=fbm(vec2(ang*4.0,dist*1.3-t*.025));
-  col+=uAmber*shafts*radial*(.36+.55*haze);
+  float breathing=.72+.28*sin(t*1.35);
+  float sweeping=sin(ang*8.0-t*.82)*.5+.5;
+  float haze=fbm(vec2(ang*4.0+t*.22,dist*1.3-t*.28));
+  col+=uAmber*shafts*radial*(.36+.55*haze)*breathing*(.65+.65*sweeping);
   // Intense white-hot source and concentric diffused glow.
-  float core=exp(-dist*dist*95.);
-  float halo=exp(-dist*dist*5.8);
-  float haloWide=exp(-dist*dist*1.05);
+  float core=exp(-dist*dist*(82.+18.*sin(t*.9)));
+  float halo=exp(-dist*dist*(5.2+1.1*sin(t*.55)));
+  float haloWide=exp(-dist*dist*(.85+.20*sin(t*.42)));
   col+=uGold*haloWide*.18+uAmber*halo*.54+vec3(1.,.92,.70)*core*2.1;
   // Shimmering reflective horizon with perspective widening toward camera.
   float horizon=.24;
   float below=smoothstep(horizon-.01,horizon+.03,p.y);
   float depth=max(p.y-horizon,0.);
-  float ripple=sin(depth*220./(1.+depth*12.)+t*1.3+sin(p.x*17.)*.4);
-  float glint=pow(max(0.,sin(depth*145.+t*.8+noise2(vec2(p.x*12.,depth*30.))*6.)),10.);
+  float ripple=sin(depth*220./(1.+depth*12.)+t*4.2+sin(p.x*17.)*.4);
+  float glint=pow(max(0.,sin(depth*145.+t*3.1+noise2(vec2(p.x*12.,depth*30.))*6.)),10.);
   float reflection=exp(-abs(p.x)*3.8/(depth+.09)) * exp(-depth*2.8);
   col+=below*reflection*(uAmber*(.10+.13*ripple)+uGold*glint*.24);
   // Floating dust, several depth layers, with subtle drifting parallax.
