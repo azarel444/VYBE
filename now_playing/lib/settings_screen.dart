@@ -273,7 +273,7 @@ class SettingsScreen extends StatelessWidget {
       ], s.backgroundSource,
         (i) => s.update(() { s.backgroundSource = i; s.animatedTemplateBackground = i == 1; })),
       _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
-        s.bgOverlay, 0.0, 2.0,
+        s.bgOverlay, 0.0, 1.0,
         (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
       _slider('Background blur', '${s.bgBlur.round()}',
         s.bgBlur, 0.0, 18.0,
