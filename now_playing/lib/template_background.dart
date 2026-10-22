@@ -19,6 +19,13 @@ class TemplateBackgroundPainter extends CustomPainter {
     final c = [palette.a, palette.b, palette.c];
     final t = time * motion;
     canvas.drawRect(r, Paint()..color = const Color(0xFF050811));
+    // Soft animated light volumes extend outside the viewport.
+    for (var layer = 0; layer < 3; layer++) {
+      final x = w * (.12 + layer * .38 + math.sin(t * (.045 + layer * .012) + layer) * .12);
+      final y = h * (.25 + layer * .22 + math.cos(t * .04 + layer * 2) * .15);
+      glow(Offset(x, y), math.max(w, h) * (.45 + layer * .08),
+        c[layer], .095);
+    }
     void glow(Offset p, double radius, Color color, double alpha) {
       final bounds = Rect.fromCircle(center: p, radius: radius);
       canvas.drawCircle(p, radius, Paint()..shader = RadialGradient(colors: [
@@ -86,7 +93,7 @@ class TemplateBackgroundPainter extends CustomPainter {
         }
         break;
       case 2: // Sunset: layered glowing cloud banks
-        glow(Offset(w * .72, h * .42), w * .5, c[0], .27);
+        glow(Offset(w * .72, h * .42), w * .65, c[0], .42);
         for (var i = 0; i < 8; i++) {
           final y = h * (.35 + i * .085);
           final path = Path()..moveTo(0, y);
@@ -97,12 +104,12 @@ class TemplateBackgroundPainter extends CustomPainter {
           path.lineTo(w, h);
           path.lineTo(0, h);
           path.close();
-          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.025 + i * .007));
+          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.055 + i * .013));
         }
         break;
       case 3: // Ocean: refracted water and light caustics
         glow(Offset(w * .35, h * .25), w * .55, c[0], .18);
-        wave(vertical: false, count: 23, amp: .035, speed: .19, opacity: .12);
+        wave(vertical: false, count: 23, amp: .055, speed: .34, opacity: .20);
         for (var i = 0; i < 15; i++) {
           final x = noise(i, 5) * w;
           final y = noise(i, 6) * h;
@@ -140,9 +147,9 @@ class TemplateBackgroundPainter extends CustomPainter {
       case 6: // Cosmic: nebula clusters and stellar dust
         for (var i = 0; i < 7; i++) {
           glow(Offset(w * (.15 + noise(i, 16) * .7 + math.sin(t * .035 + i) * .04),
-            h * (.12 + noise(i, 17) * .75)), math.max(w, h) * (.15 + noise(i, 18) * .22), c[i % 3], .16);
+            h * (.12 + noise(i, 17) * .75)), math.max(w, h) * (.22 + noise(i, 18) * .24), c[i % 3], .24);
         }
-        stars(110);
+        stars(180);
         break;
       case 7: // Ember: layered fire tongues, floating glowing cinders
         glow(Offset(w * .5, h * 1.08), math.max(w, h) * .85, c[0], .33);
@@ -155,7 +162,7 @@ class TemplateBackgroundPainter extends CustomPainter {
               x + sway, h - height * (1 + .12 * math.sin(t * .38 + i)))
             ..quadraticBezierTo(x + w * .07 + sway, h - height * .35, x + w * .09, h)
             ..close();
-          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.07 + .035 * (i % 3)));
+          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.15 + .045 * (i % 3)));
         }
         for (var i = 0; i < 85; i++) {
           final rise = fract(noise(i, 20) + t * (.016 + noise(i, 21) * .032));
@@ -168,16 +175,16 @@ class TemplateBackgroundPainter extends CustomPainter {
             Paint()..color = c[i % 3].withOpacity(alpha * .8));
         }
         break;
-      case 8: // Aurora: vertical curtains with undulating veils
+      case 8: // Aurora: full-bleed luminous curtains
         for (var i = 0; i < 10; i++) {
           final path = Path();
-          for (var k = 0; k <= 60; k++) {
-            final y = h * k / 60;
+          for (var k = -10; k <= 70; k++) {
+            final y = h * k / 50;
             final x = w * (.06 + i * .1 + math.sin(y / h * 5 + t * .095 + i * .6) * .09);
-            if (k == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
+            if (k == -10) { path.moveTo(x, y); } else { path.lineTo(x, y); }
           }
-          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.065)
-            ..style = PaintingStyle.stroke..strokeWidth = w * .075);
+          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.16)
+            ..style = PaintingStyle.stroke..strokeWidth = w * .11);
         }
         break;
       case 9: // Rose Gold: orbiting metallic arcs and glints
@@ -221,24 +228,30 @@ class TemplateBackgroundPainter extends CustomPainter {
         for (var i = 0; i < 24; i++) {
           final x = w * noise(i, 38) + math.sin(t * .045 + i) * 10;
           final y = h * noise(i, 39) + math.cos(t * .04 + i) * 8;
-          final s = 10 + noise(i, 40) * 55;
+          final s = math.min(w, h) * (.045 + noise(i, 40) * .16);
           final path = Path()..moveTo(x, y - s)..lineTo(x + s * .65, y)
             ..lineTo(x, y + s)..lineTo(x - s * .65, y)..close();
-          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.035));
-          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.13)
+          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.09));
+          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.27)
             ..style = PaintingStyle.stroke..strokeWidth = .8);
         }
         break;
-      case 13: // Ruby: slow liquid red ribbons
+      case 13: // Ruby: full-bleed liquid ribbons
         for (var i = 0; i < 9; i++) {
           final path = Path();
-          for (var k = 0; k <= 60; k++) {
-            final y = h * k / 60;
-            final x = w * (.13 + i * .09 + math.sin(y / h * 5 + t * .08 + i * .65) * .11);
-            if (k == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
+          for (var k = -10; k <= 70; k++) {
+            final y = h * k / 50;
+            final x = w * (.02 + i * .125 +
+              math.sin(y / h * 4.6 + t * .20 + i * .65) * .15);
+            if (k == -10) { path.moveTo(x, y); } else { path.lineTo(x, y); }
           }
-          canvas.drawPath(path, Paint()..color = c[i % 3].withOpacity(.07)
-            ..style = PaintingStyle.stroke..strokeWidth = 10 + i * 2.0);
+          canvas.drawPath(path, Paint()
+            ..color = c[i % 3].withOpacity(.16)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = w * (.09 + (i % 2) * .03));
+          canvas.drawPath(path, Paint()
+            ..color = c[(i + 1) % 3].withOpacity(.21)
+            ..style = PaintingStyle.stroke..strokeWidth = w * .007);
         }
         break;
       case 14: // Golden Hour: sunbeams and airborne golden dust
