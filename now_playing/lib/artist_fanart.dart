@@ -11,6 +11,7 @@ class ArtistFanartCache {
   final Map<String, List<String>> _artistIds = {};
   String lastStatus = 'Not checked';
   static String diagnostics = 'No fanart lookup recorded yet';
+  final Map<String, String> _requestDetails = {};
 
   Future<Uint8List?> get(String artist, String projectKey, {String personalKey = ''}) {
     final key = artist.toLowerCase().trim();
@@ -75,7 +76,7 @@ class ArtistFanartCache {
           'fmt': 'json', 'limit': '15',
         });
         final result = await _json(search);
-        record('MusicBrainz lookup completed');
+        record('MusicBrainz lookup completed: ${_requestDetails['musicbrainz.org'] ?? 'unknown'}');
         final candidates = result['artists'];
         if (candidates is! List) {
           report('MusicBrainz lookup unavailable');
@@ -118,7 +119,7 @@ class ArtistFanartCache {
             'api_key': projectKey,
             if (personalKey.isNotEmpty) 'client_key': personalKey,
           }))));
-      record('Fanart.tv metadata completed (${responses.length} requests)');
+      record('Fanart.tv metadata completed (${responses.length} requests): ${_requestDetails['webservice.fanart.tv'] ?? 'unknown'}');
       Uint8List? bytes;
       var noBackground = 0;
       var lookupFailures = 0;
@@ -174,11 +175,17 @@ class ArtistFanartCache {
       final req = await client.getUrl(uri).timeout(const Duration(seconds: 6));
       req.headers.set(HttpHeaders.userAgentHeader, 'VYBE/1.9 (music artwork; contact via app publisher)');
       final res = await req.close().timeout(const Duration(seconds: 6));
+      _requestDetails[uri.host] = 'HTTP ${res.statusCode}';
       if (res.statusCode != 200) return {};
       final body = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
-      if (body.length > 500000) return {};
+      if (body.length > 500000) { _requestDetails[uri.host] = 'Response too large'; return {}; }
       final json = jsonDecode(body);
-      return json is Map<String, dynamic> ? json : {};
+      if (json is! Map<String, dynamic>) { _requestDetails[uri.host] = 'Unexpected JSON structure'; return {}; }
+      _requestDetails[uri.host] = 'HTTP 200, JSON parsed';
+      return json;
+    } catch (e) {
+      _requestDetails[uri.host] = '${e.runtimeType}: $e';
+      rethrow;
     } finally { client.close(force: true); }
   }
 
