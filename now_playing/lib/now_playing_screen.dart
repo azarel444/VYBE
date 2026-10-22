@@ -803,7 +803,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (settings.cinematicPalette == 14) {
       return GoldenHourBackground(
         time: _time,
-        motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+        motion: settings.cinematicAnimationSpeed,
         palette: palette,
       );
     }
