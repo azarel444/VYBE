@@ -35,28 +35,28 @@ void main() {
   float fog=fbm(p*2.7+vec2(t*.16,-t*.10));
   float cloud=fbm(p*5.0+vec2(-t*.19,t*.12)+fog*.8);
   vec3 col=mix(vec3(.002,.003,.008),vec3(.14,.03,.007),smoothstep(.12,.9,p.y));
-  col+=mix(uGold,uAccent,.25)*pow(max(cloud-.32,0.),2.)*.45;
+  col+=vec3(.72,.16,.018)*pow(max(cloud-.48,0.),2.)*.42;
   // Animated light rig: rotating shafts with traveling shadow patterns.
   // Beam direction and intensity are functions of time, not static rays.
   float radiusFade=exp(-dist*.72);
   float sweepAngle=ang-t*.28;
   float beams=pow(.5+.5*cos(sweepAngle*18.0
       +sin(ang*5.0-t*.52)*.65), 18.0);
-  float wideBeams=pow(.5+.5*cos(ang*9.0+t*.19), 9.0);
+  float wideBeams=pow(.5+.5*cos(ang*9.0+t*.38), 12.0);
   float turbulence=fbm(vec2(ang*7.0+t*.32,dist*2.5-t*.44));
-  float shadow=.35+.65*smoothstep(.28,.78,turbulence);
+  float shadow=.12+.88*smoothstep(.43,.74,turbulence);
   float breathing=.75+.25*sin(t*1.6);
-  col+=uGold*beams*radiusFade*shadow*1.45*breathing;
-  col+=uAmber*wideBeams*radiusFade*(.45+.5*turbulence)*.82;
+  col+=vec3(1.0,.81,.28)*beams*radiusFade*shadow*1.5*breathing;
+  col+=vec3(.95,.31,.025)*wideBeams*radiusFade*(.12+.88*turbulence)*.72;
   // Luminous moving clouds cross the beams, revealing their motion.
   float movingMist=fbm(p*3.7+vec2(t*.27,-t*.19));
-  float mistBand=smoothstep(.38,.72,movingMist);
-  col+=mix(uGold,uAmber,.55)*mistBand*exp(-dist*.9)*.38;
+  float mistBand=smoothstep(.52,.78,movingMist);
+  col+=vec3(.62,.12,.012)*mistBand*exp(-dist*.9)*.22;
   // Intense white-hot source and concentric diffused glow.
-  float core=exp(-dist*dist*(82.+18.*sin(t*.9)));
-  float halo=exp(-dist*dist*(5.2+1.1*sin(t*.55)));
-  float haloWide=exp(-dist*dist*(.85+.20*sin(t*.42)));
-  col+=uGold*haloWide*.18+uAmber*halo*.54+vec3(1.,.92,.70)*core*2.1;
+  float core=exp(-dist*dist*(175.+18.*sin(t*.9)));
+  float halo=exp(-dist*dist*(22.+2.*sin(t*.55)));
+  float haloWide=exp(-dist*dist*(5.5+.4*sin(t*.42)));
+  col+=vec3(.42,.075,.009)*haloWide*.15+vec3(1.,.36,.045)*halo*.48+vec3(1.,.96,.76)*core*2.3;
   // Shimmering reflective horizon with perspective widening toward camera.
   float horizon=.24;
   float below=smoothstep(horizon-.01,horizon+.03,p.y);
@@ -77,7 +77,7 @@ void main() {
   }
   col+=vec3(1.,.76,.39)*dust*.65;
   // Tonemap highlights without flattening the black atmosphere.
-  col=1.-exp(-col*1.32);
-  col=pow(max(col,vec3(0.)),vec3(.87));
+  col=1.-exp(-col*1.12);
+  col=pow(max(col,vec3(0.)),vec3(1.08));
   fragColor=vec4(col,1.);
 }
