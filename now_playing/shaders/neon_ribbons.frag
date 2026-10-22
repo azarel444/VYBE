@@ -50,6 +50,19 @@ vec3 filament(vec2 q,float t,float index,vec3 tint) {
   return tint*(core*1.48+rim*.54+bloom*.13+softBody)
       *depthGain*(.82+.18*sin(t*.37+phase));
 }
+// Smooth union makes nearby liquid pockets connect through a glowing neck,
+// rather than merely drawing two independent contours over one another.
+float smoothUnion(float a,float b,float k) {
+  float h=max(k-abs(a-b),0.)/k;
+  return min(a,b)-h*h*k*.25;
+}
+float pocket(vec2 q,vec2 center,vec2 radii,float t,float phase) {
+  vec2 v=(q-center)/radii;
+  float theta=atan(v.y,v.x);
+  float wobble=1.+.15*sin(theta*3.+t*.47+phase)
+                 +.10*cos(theta*5.-t*.33+phase);
+  return (length(v)-wobble)*min(radii.x,radii.y);
+}
 void main() {
   vec2 uv=FlutterFragCoord().xy/uSize;
   float aspect=uSize.x/uSize.y;
@@ -70,6 +83,42 @@ void main() {
     vec2 shifted=q+vec2(.045*sin(t*.18+fi),.055*cos(t*.14+fi));
     col+=filament(shifted,t*(.68+layer*.32),fi,tint)*layer;
   }
+  // Refracting oil pockets: distorted circular light pools grow, touch,
+  // merge into larger sheets, then pull apart as the flow changes.
+  vec3 pools=vec3(0.);
+  float joined=1.;
+  float closest=10.;
+  float second=10.;
+  for(int i=0;i<6;i++){
+    float fi=float(i);
+    float phase=fi*2.39996;
+    vec2 center=vec2(
+      .50*sin(phase*1.3+t*(.12+.02*mod(fi,3.))),
+      .38*cos(phase*.91-t*(.10+.017*mod(fi,2.))));
+    vec2 radii=vec2(.19+.10*sin(phase*.8+t*.29),
+                    .14+.065*cos(phase+t*.24));
+    float d=pocket(q,center,radii,t,phase);
+    closest=min(closest,d);
+    second=min(second,max(d,closest));
+    joined=smoothUnion(joined,d,.105);
+    float interior=1.-smoothstep(-.035,.10,d);
+    vec3 tint=mod(fi,3.)<.5?a:(mod(fi,3.)<1.5?b:c);
+    pools+=tint*interior*(.07+.08*sin(t*.24+phase)*sin(t*.24+phase));
+  }
+  // A smooth union forms a single lit boundary when pools intersect.
+  // The local joining region blooms as formerly separate edges converge.
+  float joinRim=exp(-pow(abs(joined)/.021,1.35));
+  float joinHalo=exp(-pow(abs(joined)/.105,1.6));
+  float contact=exp(-pow(abs(second-closest)/.095,2.));
+  float mergeGlow=contact*(.55+.45*sin(t*.35+q.x*2.));
+  col+=pools*.54;
+  col+=(a*.48+b*.39+c*.42)*joinRim*(.40+.65*mergeGlow);
+  col+=(a*.19+b*.16+c*.18)*joinHalo*(.22+.35*mergeGlow);
+  // Oil-like chromatic refraction: color bands shear on either side of
+  // the moving merged boundary, including broad luminous filled regions.
+  float refractBand=sin(joined*21.+q.x*3.7-q.y*2.8+t*.37);
+  float fill=smoothstep(.12,-.16,joined);
+  col+=mix(a,b,.5+.5*refractBand)*fill*(.035+.095*contact);
   // Moving caustics and diffused light pools warp with the same fluid.
   float caustic=pow(.5+.5*sin(q.x*8.5+t*.4)*cos(q.y*7.4-t*.32),5.);
   col+=(a*.08+b*.06+c*.07)*caustic;
