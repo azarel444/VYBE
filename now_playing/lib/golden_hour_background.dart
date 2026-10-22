@@ -23,7 +23,7 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
     with SingleTickerProviderStateMixin {
   late final Ticker _animationTicker;
   Duration? _lastFrame;
-  double _sceneTime = 0;
+  final ValueNotifier<double> _sceneClock = ValueNotifier<double>(0);
 
   void _onFrame(Duration elapsed) {
     final last = _lastFrame;
@@ -33,12 +33,15 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
     if (dt <= 0) return;
     // Premium scene keeps animating independently of the other background
     // motion/performance toggles, which previously could freeze its time.
-    setState(() => _sceneTime += dt.clamp(0.0, 0.1) * widget.motion);
+    if (widget.motion > 0) {
+      _sceneClock.value += dt.clamp(0.0, 0.1) * widget.motion;
+    }
   }
 
   @override
   void dispose() {
     _animationTicker.dispose();
+    _sceneClock.dispose();
     super.dispose();
   }
 
@@ -68,7 +71,7 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
     }
     return CustomPaint(
       painter: _GoldenHourPainter(
-        program: program, time: _sceneTime,
+        program: program, clock: _sceneClock,
         palette: widget.palette),
       child: const SizedBox.expand(),
     );
@@ -77,11 +80,11 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
 
 class _GoldenHourPainter extends CustomPainter {
   final ui.FragmentProgram program;
-  final double time;
+  final ValueNotifier<double> clock;
   final ArtPalette palette;
   _GoldenHourPainter({
-    required this.program, required this.time, required this.palette,
-  });
+    required this.program, required this.clock, required this.palette,
+  }) : super(repaint: clock);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -89,7 +92,7 @@ class _GoldenHourPainter extends CustomPainter {
     final shader = program.fragmentShader();
     shader.setFloat(0, size.width);
     shader.setFloat(1, size.height);
-    shader.setFloat(2, time);
+    shader.setFloat(2, clock.value);
     final colors = [palette.a, palette.b, palette.c];
     var index = 3;
     for (final color in colors) {
@@ -102,6 +105,6 @@ class _GoldenHourPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GoldenHourPainter old) =>
-      old.time != time || old.palette != palette ||
+      old.clock != clock || old.palette != palette ||
       old.program != program;
 }
