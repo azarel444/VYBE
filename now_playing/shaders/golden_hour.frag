@@ -34,7 +34,7 @@ void main() {
   // Deep cinematic atmosphere with evolving smoke density.
   float fog=fbm(p*2.7+vec2(t*.16,-t*.10));
   float cloud=fbm(p*5.0+vec2(-t*.19,t*.12)+fog*.8);
-  vec3 col=mix(vec3(.007,.009,.019),uAmber*.17, smoothstep(-.48,.43,p.y));
+  vec3 col=mix(vec3(.002,.003,.008),vec3(.14,.03,.007),smoothstep(.12,.9,p.y));
   col+=mix(uGold,uAccent,.25)*pow(max(cloud-.32,0.),2.)*.45;
   // Animated light rig: rotating shafts with traveling shadow patterns.
   // Beam direction and intensity are functions of time, not static rays.
