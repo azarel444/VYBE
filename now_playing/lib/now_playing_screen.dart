@@ -657,7 +657,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ? GoldenHourBackground(
               time: _time,
               motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-              palette: AppSettings.accents[settings.accent]!,
+              palette: settings.accent == 15 ? _palette : AppSettings.accents[14]!,
               shaderAsset: settings.accent == 15
                   ? 'shaders/neon_ribbons.frag' : 'shaders/golden_hour.frag')
           : CustomPaint(
@@ -801,7 +801,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// Cinematic fallback is independent of the palette and source used by
   /// every other theme. Each preset is drawn by the actual template painter.
   Widget _cinematicAnimatedFallback() {
-    final palette = AppSettings.accents[settings.cinematicPalette]!;
+    final palette = settings.cinematicPalette == 15
+        ? _palette : AppSettings.accents[settings.cinematicPalette]!;
     if (settings.cinematicPalette == 14 || settings.cinematicPalette == 15) {
       return GoldenHourBackground(
         time: _time,
