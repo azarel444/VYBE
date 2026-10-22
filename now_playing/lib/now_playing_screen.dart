@@ -799,14 +799,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (fanart != null) {
       image = Image.memory(fanart, fit: BoxFit.cover,
           alignment: Alignment.topCenter, gaplessPlayback: true);
-    } else if (hasAlbum) {
+    } else if (settings.backgroundSource == 0 && hasAlbum && settings.fanartMode == 0) {
       image = RawImage(image: art.tiny, fit: BoxFit.cover);
     } else {
       image = RepaintBoundary(child: CustomPaint(
         painter: IdleBackdropPainter(clock: fxClock, palette: _palette,
           animate: !settings.performance, repaint: _tick)));
     }
-    final bool hasImage = fanart != null || hasAlbum;
+    final bool hasImage = fanart != null || (settings.backgroundSource == 0 && hasAlbum && settings.fanartMode == 0);
     return Stack(fit: StackFit.expand, children: [
       // Same two-layer edge softening for fanart AND album-only fallback.
       if (hasImage)
@@ -881,11 +881,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         const SizedBox.shrink();
     return Stack(children: [
       if (portrait) ...[
+        if (_hasLyrics) Positioned(
+          left: w * 0.07, right: w * 0.07,
+          top: h * 0.32, height: h * 0.17,
+          child: _lyricBlock(h, Alignment.center, vhs: false)),
         Positioned(left: w * 0.06, right: w * 0.04,
           bottom: h * 0.205, child: info),
         Positioned(left: w * 0.02, right: w * 0.02,
           bottom: h * 0.035, height: waveHeight, child: wave),
       ] else ...[
+        if (_hasLyrics) Positioned(
+          left: w * 0.22, right: w * 0.22,
+          top: h * 0.31, height: h * 0.30,
+          child: _lyricBlock(h * 1.5, Alignment.center, vhs: false)),
         Positioned(left: swap ? null : w * 0.02,
           right: swap ? w * 0.02 : null,
           bottom: h * 0.035, child: info),
@@ -2406,8 +2414,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final r = _discR(d, h);
     final rcx = settings.layoutSwap ? d * 0.64 : w - d * 0.64;
     final cx = settings.layoutSwap
-        ? rcx + d / 2 + _discGap(d) - r
-        : rcx - d / 2 - _discGap(d) + r;
+        ? rcx + d / 2 + _discGap(d) - r * 1.35
+        : rcx - d / 2 - _discGap(d) + r * 1.35;
     final cy = h / 2;
     final maxLen = d * 0.16;
     return Stack(
