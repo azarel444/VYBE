@@ -10,9 +10,10 @@ class GoldenHourBackground extends StatefulWidget {
   final double time;
   final double motion;
   final ArtPalette palette;
+  final String shaderAsset;
   const GoldenHourBackground({
     super.key, required this.time, required this.motion,
-    required this.palette,
+    required this.palette, this.shaderAsset = 'shaders/golden_hour.frag',
   });
 
   @override
@@ -56,7 +57,7 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
   Future<void> _load() async {
     try {
       final program = await ui.FragmentProgram.fromAsset(
-          'shaders/golden_hour.frag');
+          widget.shaderAsset);
       if (mounted) setState(() => _program = program);
     } catch (error) {
       debugPrint('Golden Hour shader unavailable: $error');
