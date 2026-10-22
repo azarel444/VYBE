@@ -443,7 +443,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Uniform darkness for every theme and background source.
             // Applied once, after background rendering, before foreground FX/UI.
             Positioned.fill(child: IgnorePointer(child: ColoredBox(
-              color: Colors.black.withOpacity(settings.bgOverlay.clamp(0.0, 1.0))))),
+              color: Colors.black.withOpacity((settings.theme == AppSettings.tCinematic && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
             if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
@@ -790,49 +790,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  /// Cinematic fallback is independent of the palette and source used by
+  /// every other theme. Each preset is drawn by the actual template painter.
   Widget _cinematicAnimatedFallback() {
-    if (settings.backgroundSource == 1) {
-      return RepaintBoundary(child: AnimatedBuilder(
-        animation: _slow,
-        builder: (context, _) => CustomPaint(
-          painter: TemplateBackgroundPainter(
-            palette: _palette,
-            preset: settings.accent,
-            time: _time,
-            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: 0.0,
-          ),
-          child: const SizedBox.expand(),
-        ),
-      ));
-    }
-    if (settings.backgroundSource >= 2 && settings.backgroundSource <= 5) {
-      return RepaintBoundary(child: AnimatedBuilder(
-        animation: _slow,
-        builder: (context, _) => CustomPaint(
-          painter: settings.backgroundSource >= 4
-              ? LaserTunnelBackgroundPainter(
-                  palette: _clubPalette, time: _time,
-                  transparentStage: false,
-                  motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-                  darkness: 0.0)
-              : ClubBackgroundPainter(
-                  palette: _clubPalette, time: _time,
-                  transparentStage: false,
-                  motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-                  darkness: 0.0),
-          child: const SizedBox.expand(),
-        ),
-      ));
-    }
-    // Cinematic's fanart-first default uses the selected animated palette
-    // when artist imagery is unavailable, regardless of album art.
+    final palette = AppSettings.accents[settings.cinematicPalette]!;
     return RepaintBoundary(child: AnimatedBuilder(
       animation: _slow,
       builder: (context, _) => CustomPaint(
         painter: TemplateBackgroundPainter(
-          palette: _palette,
-          preset: settings.accent,
+          palette: palette,
+          preset: settings.cinematicPalette,
           time: _time,
           motion: settings.performance ? 0 : settings.templateBackgroundMotion,
           darkness: 0.0,
@@ -842,56 +809,39 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ));
   }
 
-  /// Cinematic ignores the global background source: artist imagery is first.
   Widget _cinematicBackdrop() {
     final fanart = _fanartBytes;
     final art = model.art;
-    final bool hasAlbum = art != null && !art.flat;
-    final Widget image;
-    if (fanart != null) {
-      image = Image.memory(fanart, fit: BoxFit.cover,
-          alignment: Alignment.topCenter, gaplessPlayback: true);
-    } else if (hasAlbum && (settings.fanartMode == 0 || settings.fanartMode == 2)) {
-      image = RawImage(image: art.tiny, fit: BoxFit.cover);
-    } else {
-      // Render the configured animated background, not the generic idle painter.
-      image = _cinematicAnimatedFallback();
-    }
-    final bool hasImage = fanart != null || (hasAlbum && (settings.fanartMode == 0 || settings.fanartMode == 2));
+    final hasAlbum = art != null && !art.flat;
+    final useAlbum = fanart == null && settings.cinematicFallback == 1 && hasAlbum;
+    final hasImage = fanart != null || useAlbum;
+    final Widget background = fanart != null
+        ? Image.memory(fanart, fit: BoxFit.cover,
+            alignment: Alignment.topCenter, gaplessPlayback: true)
+        : useAlbum
+            ? RawImage(image: art.tiny, fit: BoxFit.cover)
+            : _cinematicAnimatedFallback();
+    final image = hasImage
+        ? ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(
+              sigmaX: settings.cinematicBlur + (useAlbum ? 6.0 : 0.0),
+              sigmaY: settings.cinematicBlur + (useAlbum ? 6.0 : 0.0)),
+            child: ColorFiltered(
+              colorFilter: _contrastFilter(settings.cinematicContrast),
+              child: background))
+        : ColorFiltered(
+            colorFilter: _contrastFilter(settings.cinematicContrast),
+            child: background);
     return Stack(fit: StackFit.expand, children: [
-      // Same two-layer edge softening for fanart AND album-only fallback.
-      if (hasImage)
-        ImageFiltered(
-          imageFilter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: ColorFiltered(
-            colorFilter: _contrastFilter(settings.bgContrast),
-            child: image)),
-      AnimatedSwitcher(duration: const Duration(milliseconds: 700),
+      AnimatedSwitcher(
+        duration: const Duration(milliseconds: 700),
         child: SizedBox.expand(
           key: ValueKey(fanart != null ? 'fanart:${_fanartArtist}' :
-              hasAlbum ? 'album:${model.artist}:${model.album}' : 'palette'),
-          child: hasImage ? ShaderMask(
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (bounds) => const RadialGradient(
-              center: Alignment.center, radius: 0.95,
-              stops: [0.0, 0.48, 0.78, 1.0],
-              colors: [Colors.white, Colors.white,
-                Color(0xAAFFFFFF), Colors.transparent],
-            ).createShader(bounds),
-            child: ColorFiltered(
-              colorFilter: _contrastFilter(settings.bgContrast),
-              child: image)) : image)),
-      // Apply the same darkness range as the other artwork backgrounds.
-      // At 0 the image is untouched; at 2 the overlay reaches 60% black.
-      // Use an explicit full-size layer so the slider visibly affects fanart.
-
-      const DecoratedBox(decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          stops: [0, 0.32, 0.57, 0.79, 1],
-          colors: [Color(0x17000000), Color(0x00000000),
-                   Color(0x55000000), Color(0xAA000000),
-                   Color(0xF5000000)]))),
+              useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
+              'cinematic-template:${settings.cinematicPalette}'),
+          child: image)),
+      ColoredBox(color: Colors.black.withOpacity(
+        settings.cinematicDarkness.clamp(0.0, 1.0))),
     ]);
   }
 
