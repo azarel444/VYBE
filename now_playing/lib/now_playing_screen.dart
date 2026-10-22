@@ -858,6 +858,99 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ]);
   }
 
+  /// Editorial: an angled, recognizable album sleeve over full-bleed
+  /// artist photography. Both orientations have their own composition.
+  Widget _editorialLayout(double w, double h) {
+    final portrait = h > w * 1.1;
+    final cyan = _palette.a;
+    final art = model.art;
+    final hasCover = art != null && !art.flat;
+    final titleStyle = TextStyle(
+      color: Colors.white, fontSize: portrait ? w * .067 : h * .077,
+      fontWeight: FontWeight.w400, letterSpacing: .8,
+      shadows: const [Shadow(color: Colors.black, blurRadius: 9)]);
+    final subtitleStyle = TextStyle(
+      color: Colors.white, fontSize: portrait ? w * .046 : h * .051,
+      shadows: const [Shadow(color: Colors.black, blurRadius: 8)]);
+    final sleeveSize = portrait ? w * 1.03 : h * 1.22;
+    // Portrait sleeve hangs from the top; landscape sleeve enters from
+    // the left. The album cover itself remains uncropped inside the sleeve.
+    final sleeve = Transform.rotate(
+      angle: portrait ? -math.pi / 4 : math.pi / 4,
+      child: Container(
+        width: sleeveSize, height: sleeveSize,
+        decoration: BoxDecoration(
+          color: const Color(0xFF080C10),
+          border: Border.all(color: cyan.withOpacity(.88), width: 2),
+          boxShadow: [
+            BoxShadow(color: cyan.withOpacity(.35), blurRadius: 14),
+            const BoxShadow(color: Colors.black87, blurRadius: 20),
+          ],
+        ),
+        padding: EdgeInsets.all(sleeveSize * .035),
+        child: hasCover
+            ? Transform.rotate(
+                angle: portrait ? math.pi : 0,
+                child: RawImage(image: art.tiny, fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high))
+            : Center(child: Text('VYBE',
+                style: TextStyle(color: cyan, fontSize: sleeveSize * .11))),
+      ),
+    );
+    final sleevePanel = Positioned(
+      left: portrait ? -w * .015 : -sleeveSize * .62,
+      top: portrait ? -sleeveSize * .78 : h * .11 - sleeveSize * .25,
+      width: sleeveSize, height: sleeveSize,
+      child: GestureDetector(onTap: _openPlayer, child: sleeve),
+    );
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(model.artist.isEmpty ? 'ARTIST' : model.artist.toUpperCase(),
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: titleStyle),
+        Text(model.title.isEmpty ? 'Nothing playing' : model.title,
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: subtitleStyle),
+      ],
+    );
+    return Stack(fit: StackFit.expand, children: [
+      // The darkening is localized to the typography, never the whole photo.
+      if (portrait)
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .30,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.bottomCenter, end: Alignment.topCenter,
+              colors: [Color(0xE6000000), Color(0x00000000)])))),
+      sleevePanel,
+      if (portrait) ...[
+        Positioned(top: h * .22, left: 0, right: 0,
+          child: IgnorePointer(child: Container(height: 2,
+            color: cyan.withOpacity(.75)))),
+        Positioned(left: w * .075, right: w * .05, bottom: h * .07,
+          child: info),
+        if (_hasLyrics) Positioned(left: w * .08, right: w * .08,
+          top: h * .48, height: h * .19,
+          child: _lyricBlock(h, Alignment.center, vhs: false)),
+      ] else ...[
+        Positioned(top: h * .042, left: w * .23, right: w * .05,
+          child: info),
+        if (_hasLyrics) Positioned(left: w * .40, right: w * .06,
+          top: h * .38, height: h * .22,
+          child: _lyricBlock(h, Alignment.center, vhs: false)),
+      ],
+      if (settings.visualizer)
+        Positioned(
+          left: portrait ? w * .035 : w * .21,
+          right: w * .035,
+          bottom: portrait ? h * .028 : h * .085,
+          height: portrait ? h * .06 : h * .13,
+          child: IgnorePointer(child: CustomPaint(
+            painter: _CinematicWavePainter(
+              sim: sim, color: cyan, style: settings.cinematicWaveStyle,
+              gain: settings.sensitivity, repaint: _tick)))),
+    ]);
+  }
+
   Widget _cinematicLayout(double w, double h) {
     final portrait = h > w * 1.1;
     final coverSize = portrait ? math.min(w * 0.22, h * 0.15) :
