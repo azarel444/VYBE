@@ -92,6 +92,34 @@ class SpectrumSim {
 ///
 /// Cheaper than before: no glow pass (half the draw calls), and the angles
 /// and colors are worked out once instead of every frame.
+
+// Shared circular spectrum rendering: bars, continuous waveform, or dots.
+void _paintCircularSpectrum(Canvas canvas, Offset center, List<Offset> roots,
+    List<Offset> tips, List<Color> colors, double width, int style) {
+  if (style == 1) {
+    final path = Path();
+    for (var i = 0; i < tips.length; i++) {
+      if (i == 0) path.moveTo(tips[i].dx, tips[i].dy);
+      else path.lineTo(tips[i].dx, tips[i].dy);
+    }
+    canvas.drawPath(path, Paint()
+      ..color = colors[colors.length ~/ 2]
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round);
+  } else {
+    for (var i = 0; i < tips.length; i++) {
+      final paint = Paint()..color = colors[i]
+        ..strokeWidth = width..strokeCap = StrokeCap.round;
+      if (style == 2) {
+        canvas.drawCircle(tips[i], math.max(1.5, width * 0.43), paint);
+      } else {
+        canvas.drawLine(roots[i], tips[i], paint);
+      }
+    }
+  }
+}
 class RingPainter extends CustomPainter {
   final SpectrumSim sim;
   final ArtPalette palette;
@@ -99,6 +127,7 @@ class RingPainter extends CustomPainter {
   final double maxLen;
   final int count;
   final double gain;
+  final int style;
 
   List<double>? _cos;
   List<double>? _sin;
@@ -112,6 +141,7 @@ class RingPainter extends CustomPainter {
     required this.maxLen,
     required this.count,
     required this.gain,
+    this.style = 0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -151,16 +181,17 @@ class RingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = width;
 
+    final roots = <Offset>[];
+    final tips = <Offset>[];
+    final colors = <Color>[];
     for (int i = 0; i < count; i++) {
       final len = width + maxLen * sim.level(ix[i], gain);
       bar.color = cl[i];
-      canvas.drawLine(
-        Offset(c.dx + cs[i] * innerRadius, c.dy + sn[i] * innerRadius),
-        Offset(c.dx + cs[i] * (innerRadius + len),
-            c.dy + sn[i] * (innerRadius + len)),
-        bar,
-      );
+      roots.add(Offset(c.dx + cs[i] * innerRadius, c.dy + sn[i] * innerRadius));
+      tips.add(Offset(c.dx + cs[i] * (innerRadius + len));
+      colors.add(bar.color);
     }
+    _paintCircularSpectrum(canvas, c, roots, tips, colors, width, style);
   }
 
   @override
@@ -169,7 +200,7 @@ class RingPainter extends CustomPainter {
       old.innerRadius != innerRadius ||
       old.maxLen != maxLen ||
       old.count != count ||
-      old.gain != gain;
+      old.gain != gain || old.style != style;
 }
 
 /// Horizontal spectrum with a soft reflection underneath.
@@ -361,6 +392,7 @@ class FullRingPainter extends CustomPainter {
   final double maxLen;
   final int count;
   final double gain;
+  final int style;
 
   List<double>? _cos;
   List<double>? _sin;
@@ -374,6 +406,7 @@ class FullRingPainter extends CustomPainter {
     required this.maxLen,
     required this.count,
     required this.gain,
+    this.style = 0,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -409,16 +442,17 @@ class FullRingPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke
       ..strokeWidth = width;
+    final roots = <Offset>[];
+    final tips = <Offset>[];
+    final colors = <Color>[];
     for (int i = 0; i < count; i++) {
       final len = width + maxLen * sim.level(ix[i], gain);
       bar.color = cl[i];
-      canvas.drawLine(
-        Offset(c.dx + cs[i] * innerRadius, c.dy + sn[i] * innerRadius),
-        Offset(c.dx + cs[i] * (innerRadius + len),
-            c.dy + sn[i] * (innerRadius + len)),
-        bar,
-      );
+      roots.add(Offset(c.dx + cs[i] * innerRadius, c.dy + sn[i] * innerRadius));
+      tips.add(Offset(c.dx + cs[i] * (innerRadius + len));
+      colors.add(bar.color);
     }
+    _paintCircularSpectrum(canvas, c, roots, tips, colors, width, style);
   }
 
   @override
@@ -427,7 +461,7 @@ class FullRingPainter extends CustomPainter {
       old.innerRadius != innerRadius ||
       old.maxLen != maxLen ||
       old.count != count ||
-      old.gain != gain;
+      old.gain != gain || old.style != style;
 }
 
 /// Bars along the left half of a circle, growing outward (to the left).
@@ -439,6 +473,7 @@ class HalfRingPainter extends CustomPainter {
   final double maxLen;
   final int count;
   final double gain;
+  final int style;
 
   /// The direction the bars face, in radians (pi = left, pi / 2 = down), and
   /// how far the arc reaches to either side of that direction.
@@ -452,6 +487,7 @@ class HalfRingPainter extends CustomPainter {
     required this.maxLen,
     required this.count,
     required this.gain,
+    this.style = 0,
     required Listenable repaint,
     this.centerAngle = math.pi,
     this.span = math.pi / 2,
@@ -467,6 +503,9 @@ class HalfRingPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke
       ..strokeWidth = width;
+    final roots = <Offset>[];
+    final tips = <Offset>[];
+    final colors = <Color>[];
     for (int i = 0; i < n; i++) {
       final f = n > 1 ? i / (n - 1) : 0.5; // 0 = bottom end, 1 = top end
       final ang = centerAngle + (f - 0.5) * 2 * span;
@@ -475,12 +514,11 @@ class HalfRingPainter extends CustomPainter {
       final len = width + maxLen * sim.level(idx, gain);
       final cs = math.cos(ang), sn = math.sin(ang);
       bar.color = palette.at(1 - u);
-      canvas.drawLine(
-        Offset(c.dx + cs * innerRadius, c.dy + sn * innerRadius),
-        Offset(c.dx + cs * (innerRadius + len), c.dy + sn * (innerRadius + len)),
-        bar,
-      );
+      roots.add(Offset(c.dx + cs * innerRadius, c.dy + sn * innerRadius));
+      tips.add(Offset(c.dx + cs * (innerRadius + len));
+      colors.add(bar.color);
     }
+    _paintCircularSpectrum(canvas, c, roots, tips, colors, width, style);
   }
 
   @override
@@ -491,7 +529,7 @@ class HalfRingPainter extends CustomPainter {
       old.count != count ||
       old.centerAngle != centerAngle ||
       old.span != span ||
-      old.gain != gain;
+      old.gain != gain || old.style != style;
 }
 
 /// Bars standing on a straight line from [a] to [b], growing off it in the
