@@ -25,6 +25,28 @@ vec2 flow(vec2 p,float t) {
   }
   return q;
 }
+// Independent animated displacement map. Broad folds move whole sheets;
+// fine ripples shear their boundaries like colored light through oil.
+float displacementHeight(vec2 p,float t) {
+  float large=sin(p.x*2.7+t*.31)*cos(p.y*3.3-t*.27);
+  float medium=sin(p.x*6.8-p.y*3.1-t*.48)
+      *cos(p.y*6.1+p.x*2.4+t*.37);
+  float fine=sin(p.x*13.1+p.y*8.7+t*.67)
+      *sin(p.y*11.7-p.x*5.4-t*.53);
+  return large*.55+medium*.31+fine*.14;
+}
+vec2 oilDisplacement(vec2 p,float t) {
+  float e=.018;
+  float dx=displacementHeight(p+vec2(e,0.),t)
+          -displacementHeight(p-vec2(e,0.),t);
+  float dy=displacementHeight(p+vec2(0.,e),t)
+          -displacementHeight(p-vec2(0.,e),t);
+  vec2 gradient=vec2(dx,dy)/(2.*e);
+  // Curl drives swirling rather than simply sliding everything sideways.
+  vec2 curl=vec2(gradient.y,-gradient.x);
+  float amplitude=.035+.012*sin(t*.23);
+  return curl*amplitude;
+}
 // Signed liquid contours: each band has a broad translucent body, an
 // intensely lit irregular rim, and a narrow white-hot filament.
 vec3 filament(vec2 q,float t,float index,vec3 tint) {
@@ -72,7 +94,10 @@ void main() {
   vec3 col=mix(vec3(.0015,.002,.011),vec3(.008,.003,.026),smoothstep(-.45,.5,p.y));
   // Shared advected coordinates: every luminous sheet, boundary and
   // background pool bends through the same moving liquid.
-  vec2 q=flow(p,t*.78);
+  vec2 displaced=p+oilDisplacement(p,t);
+  vec2 q=flow(displaced,t*.78);
+  // A smaller second displacement bends already-deformed features.
+  q+=oilDisplacement(q,t*.71)*.28;
   float depthLight=.5+.5*sin(q.x*3.1+t*.18)*cos(q.y*4.3-t*.16);
   col+=(a*.046+b*.041+c*.045)*depthLight*exp(-dot(q,q)*.35);
   // Deep, middle and foreground contours with independent color shifts.
@@ -117,8 +142,14 @@ void main() {
   // Oil-like chromatic refraction: color bands shear on either side of
   // the moving merged boundary, including broad luminous filled regions.
   float refractBand=sin(joined*21.+q.x*3.7-q.y*2.8+t*.37);
-  float fill=smoothstep(.12,-.16,joined);
+  float fill=1.-smoothstep(-.16,.12,joined);
   col+=mix(a,b,.5+.5*refractBand)*fill*(.035+.095*contact);
+  // Dispersion is strongest at curved oil boundaries, where compressed
+  // filaments brighten and split into adjacent colored highlights.
+  float refractionStrength=exp(-pow(abs(joined)/.10,2.));
+  vec2 refracted=q+oilDisplacement(q,t+.37)*.45;
+  float spectral=sin(refracted.x*19.-refracted.y*13.+t*.51);
+  col+=mix(b,c,.5+.5*spectral)*refractionStrength*.095;
   // Moving caustics and diffused light pools warp with the same fluid.
   float caustic=pow(.5+.5*sin(q.x*8.5+t*.4)*cos(q.y*7.4-t*.32),5.);
   col+=(a*.08+b*.06+c*.07)*caustic;
