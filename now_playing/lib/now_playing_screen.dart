@@ -438,7 +438,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
-            if (!widget.driveHost && settings.theme == AppSettings.tCinematic &&
+            if (!widget.driveHost && false && settings.theme == AppSettings.tCinematic &&
                 settings.backgroundSource >= 2 && settings.backgroundSource <= 5)
               _cinematicLightShow(),
             // Uniform darkness for every theme and background source.
@@ -480,7 +480,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   // The transparent Drive activity has its own Flutter engine.
                   // Never render a persisted normal theme (Focused, etc.) here.
                   layout = _driveLayout(w, h, narrow);
-                } else if (settings.theme == AppSettings.tCinematic) {
+                } else if ((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial)) {
                   layout = _cinematicLayout(w, h);
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
@@ -593,7 +593,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
-    if ((settings.fanartMode == 0 && settings.theme != AppSettings.tCinematic) || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
+    if ((settings.fanartMode == 0 && settings.theme != AppSettings.tCinematic && settings.theme != AppSettings.tEditorial) || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
         _fanartArtist = ''; _fanartBytes = null;
       }
@@ -613,66 +613,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _background() {
-    if (!widget.driveHost && settings.theme == AppSettings.tCinematic) {
+    if (!widget.driveHost &&
+        (settings.theme == AppSettings.tCinematic ||
+         settings.theme == AppSettings.tEditorial)) {
       return _cinematicBackdrop();
     }
-    if (settings.backgroundSource >= 2 && settings.backgroundSource <= 5) {
-      return Stack(fit: StackFit.expand, children: [
-        if (settings.backgroundSource == 3 || settings.backgroundSource == 5) _albumBackdrop(),
-        RepaintBoundary(child: AnimatedBuilder(
-        animation: _slow,
-        builder: (context, _) => CustomPaint(
-          painter: settings.backgroundSource >= 4 ? LaserTunnelBackgroundPainter(
-            palette: _clubPalette, time: _time,
-            transparentStage: settings.backgroundSource == 5,
-            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: 0.0,
-            lightingBlend: const [
-              BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
-              BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
-              BlendMode.difference, BlendMode.exclusion,
-              BlendMode.colorDodge, BlendMode.hardLight,
-            ][settings.clubBlendMode.clamp(0, 9)],
-          ) : ClubBackgroundPainter(
-            palette: _clubPalette, time: _time,
-            transparentStage: settings.backgroundSource == 3,
-            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: 0.0,
-            lightingBlend: const [
-              BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
-              BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
-              BlendMode.difference, BlendMode.exclusion,
-              BlendMode.colorDodge, BlendMode.hardLight,
-            ][settings.clubBlendMode.clamp(0, 9)],
-          ),
-          child: const SizedBox.expand(),
-        ),
-      )),
-      ]);
-    }
-    if (settings.backgroundSource == 1) {
-      return RepaintBoundary(child: AnimatedBuilder(
-        animation: _slow,
-        builder: (context, _) => (settings.accent == 14 || settings.accent == 15)
-          ? GoldenHourBackground(
-              time: _time,
-              motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-              palette: settings.accent == 15 ? _palette : AppSettings.accents[14]!,
-              shaderAsset: settings.accent == 15
-                  ? 'shaders/neon_ribbons.frag' : 'shaders/golden_hour.frag')
-          : CustomPaint(
-          painter: TemplateBackgroundPainter(
-            palette: _palette,
-            preset: settings.accent,
-            time: _time,
-            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: 0.0,
-          ),
-          child: const SizedBox.expand(),
-        ),
-      ));
-    }
-    return _albumBackdrop();
+    // Premium animated scenes replace all retired color templates and
+    // decorative background modes. Album artwork drives their colors.
+    return RepaintBoundary(child: GoldenHourBackground(
+      time: _time,
+      motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+      palette: settings.cinematicPalette == 14
+          ? AppSettings.accents[14]! : _palette,
+      shaderAsset: settings.cinematicPalette == 14
+          ? 'shaders/golden_hour.frag' : 'shaders/neon_ribbons.frag',
+    ));
   }
 
   /// Keep Cinematic fanart visible beneath the optional club/laser lights.
@@ -798,31 +753,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// Cinematic fallback is independent of the palette and source used by
-  /// every other theme. Each preset is drawn by the actual template painter.
-  Widget _cinematicAnimatedFallback() {
-    final palette = settings.cinematicPalette == 15
-        ? _palette : AppSettings.accents[settings.cinematicPalette]!;
-    if (settings.cinematicPalette == 14 || settings.cinematicPalette == 15) {
-      return GoldenHourBackground(
-        time: _time,
-        motion: settings.cinematicAnimationSpeed,
-        palette: palette,
-        shaderAsset: settings.cinematicPalette == 15
-            ? 'shaders/neon_ribbons.frag' : 'shaders/golden_hour.frag',
-      );
-    }
-    return CustomPaint(
-      painter: TemplateBackgroundPainter(
-        palette: palette,
-        preset: settings.cinematicPalette,
-        time: _time,
-        motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-        darkness: 0.0,
-      ),
-      child: const SizedBox.expand(),
-    );
-  }
+  Widget _cinematicAnimatedFallback() => GoldenHourBackground(
+    time: _time,
+    motion: settings.cinematicAnimationSpeed,
+    palette: settings.cinematicPalette == 14
+        ? AppSettings.accents[14]! : _palette,
+    shaderAsset: settings.cinematicPalette == 14
+        ? 'shaders/golden_hour.frag' : 'shaders/neon_ribbons.frag',
+  );
 
   Widget _cinematicBackdrop() => AnimatedBuilder(
     animation: _slow,
