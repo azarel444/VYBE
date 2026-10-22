@@ -857,7 +857,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: image)),
       ColoredBox(color: Colors.black.withOpacity(
         settings.cinematicDarkness.clamp(0.0, 1.0))),
-      // Cinematic framing: soft dark side falloff and a stronger bottom
+      // Cinematic framing: strong side blur and a bottom
       // gradient beneath the album cover, title and artist information.
       // This sits above either fanart or the animated fallback.
       IgnorePointer(child: DecoratedBox(
@@ -874,21 +874,44 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         child: const SizedBox.expand(),
       )),
-      IgnorePointer(child: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            stops: [0.0, 0.16, 0.34, 0.66, 0.84, 1.0],
-            colors: [
-              Color(0x88000000), Color(0x38000000),
-              Color(0x00000000), Color(0x00000000),
-              Color(0x38000000), Color(0x88000000),
-            ],
+      // Blur the underlying image toward both side edges without tinting it.
+      // Three progressively stronger feathered bands produce the soft
+      // side-focus treatment; the center remains sharp.
+      IgnorePointer(child: LayoutBuilder(builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        return Stack(fit: StackFit.expand, children: [
+          Positioned(
+            left: 0, top: 0, bottom: 0, width: width * .29,
+            child: ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                begin: Alignment.centerLeft, end: Alignment.centerRight,
+                colors: [Colors.white, Colors.transparent],
+                stops: [0.0, 1.0],
+              ).createShader(bounds),
+              blendMode: BlendMode.dstIn,
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                child: const ColoredBox(color: Colors.transparent),
+              ),
+            ),
           ),
-        ),
-        child: const SizedBox.expand(),
-      )),
+          Positioned(
+            right: 0, top: 0, bottom: 0, width: width * .29,
+            child: ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                begin: Alignment.centerLeft, end: Alignment.centerRight,
+                colors: [Colors.transparent, Colors.white],
+                stops: [0.0, 1.0],
+              ).createShader(bounds),
+              blendMode: BlendMode.dstIn,
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                child: const ColoredBox(color: Colors.transparent),
+              ),
+            ),
+          ),
+        ]);
+      })),
     ]);
   }
 
