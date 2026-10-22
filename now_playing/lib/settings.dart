@@ -169,7 +169,7 @@ class AppSettings extends ChangeNotifier {
   bool avoidNav = true; // never open VYBE while navigation is active
   bool driveBubble = true; // floating "return to VYBE" button while VYBE is hidden
   double driveBarsH = 0.14; // Drive: visualizer height along the bottom, share of screen height
-  double bgOverlay = 1.0; // 0 clear, 1 original shading, 2 darker
+  double bgOverlay = 0.30; // direct black overlay opacity: 0% to 100%
   final Map<String, int> fxBlendMode = <String, int>{};
   final Map<String, double> fxSize = <String, double>{};
   final Map<String, double> fxBlendOpacity = <String, double>{};
@@ -316,7 +316,7 @@ class AppSettings extends ChangeNotifier {
     avoidNav = p.getBool('avoidNav') ?? true;
     driveBubble = p.getBool('driveBubble') ?? true;
     driveBarsH = (p.getDouble('driveBarsH') ?? 0.14).clamp(0.08, 0.26).toDouble();
-    bgOverlay = (p.getDouble('bgOverlay') ?? 1.0).clamp(0.0, 2.0).toDouble();
+    bgOverlay = (p.getDouble('bgOverlay') ?? 0.30).clamp(0.0, 1.0).toDouble();
     for (final n in allFxNames) {
       fxSize[n] = (p.getDouble('fxSize:$n') ?? 1.0).clamp(0.5, 2.5).toDouble();
       fxBlendMode[n] = (p.getInt('fxBlendMode:$n') ?? 0).clamp(0, 23);
