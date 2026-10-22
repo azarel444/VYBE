@@ -63,6 +63,40 @@ void main() {
   float halo=exp(-dist*dist*(22.+2.*sin(t*.55)));
   float haloWide=exp(-dist*dist*(5.5+.4*sin(t*.42)));
   col+=vec3(.42,.075,.009)*haloWide*.15+vec3(1.,.36,.045)*halo*.48+vec3(1.,.96,.76)*core*2.3;
+  // Golden volumetric bloom is concentrated around the light source.
+  // Keep the corners dark instead of applying a full-screen gold wash.
+  float warmBloom=exp(-dist*dist*3.8);
+  col+=mix(uAmber,uGold,.55)*warmBloom*(.10+.055*sin(t*.63));
+  // Foreground defocused amber motes drift independently of the tiny dust.
+  // Soft translucent discs overlap the beams, giving them real depth.
+  for(int i=0;i<9;i++){
+    float fi=float(i);
+    float seed=fi*2.39996323;
+    vec2 drift=vec2(.035*sin(t*(.12+fi*.007)+seed),
+                    -.018*t*(.42+mod(fi,3.)*.23));
+    vec2 center=vec2(
+      (hash21(vec2(fi,7.1))*1.36-.68)*aspect,
+      fract(hash21(vec2(fi,19.3))+drift.y)*1.35-.67
+    )+vec2(drift.x,0.);
+    float r=mix(.024,.095,hash21(vec2(fi,29.7)));
+    float rr=length(p-center)/r;
+    float soft=1.-smoothstep(.64,1.12,rr);
+    float inner=1.-smoothstep(.0,.8,rr);
+    float alpha=(.025+.055*hash21(vec2(fi,37.2)))*soft;
+    col+=mix(uAmber,uGold,.68)*alpha*(.58+.42*inner);
+  }
+  // A small number of brighter mid-depth golden discs float near the source.
+  for(int i=0;i<7;i++){
+    float fi=float(i);
+    float seed=fi*4.371;
+    vec2 center=vec2(
+      (hash21(vec2(fi,51.))*1.2-.6)*aspect+.018*sin(t*.22+seed),
+      fract(hash21(vec2(fi,61.))-t*(.004+fi*.0007))*1.2-.6);
+    float radius=mix(.008,.027,hash21(vec2(fi,71.)));
+    float rr=length(p-center)/radius;
+    float disc=1.-smoothstep(.55,1.2,rr);
+    col+=mix(uGold,vec3(1.,.83,.40),.3)*disc*.14;
+  }
   // Shimmering reflective horizon with perspective widening toward camera.
   float horizon=.24;
   float below=smoothstep(horizon-.01,horizon+.03,p.y);
