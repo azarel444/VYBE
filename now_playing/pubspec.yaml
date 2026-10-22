@@ -21,3 +21,4 @@ flutter:
   shaders:
     - shaders/vybe_refraction.frag
     - shaders/golden_hour.frag
+    - shaders/neon_ribbons.frag
