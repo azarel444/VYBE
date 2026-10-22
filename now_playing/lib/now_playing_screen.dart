@@ -862,93 +862,134 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Editorial: an angled, recognizable album sleeve over full-bleed
   /// artist photography. Both orientations have their own composition.
+  /// Editorial: full-bleed fanart, a grayscale album-art backing and a
+  /// separate rotated color sleeve. The two orientations are art-directed.
   Widget _editorialLayout(double w, double h) {
     final portrait = h > w * 1.1;
-    final cyan = _palette.a;
+    final accent = _palette.a;
     final art = model.art;
     final hasCover = art != null && !art.flat;
-    final titleStyle = TextStyle(
-      color: Colors.white, fontSize: portrait ? w * .067 : h * .077,
-      fontWeight: FontWeight.w400, letterSpacing: .8,
-      shadows: const [Shadow(color: Colors.black, blurRadius: 9)]);
-    final subtitleStyle = TextStyle(
-      color: Colors.white, fontSize: portrait ? w * .046 : h * .051,
-      shadows: const [Shadow(color: Colors.black, blurRadius: 8)]);
-    final sleeveSize = portrait ? w * 1.03 : h * 1.22;
-    // Portrait sleeve hangs from the top; landscape sleeve enters from
-    // the left. The album cover itself remains uncropped inside the sleeve.
+    final sleeveSize = portrait ? w * .89 : h * 1.02;
+    final sleeveCenterX = portrait ? w * .48 : w * .285 - sleeveSize * .707;
+    final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .50;
+    final cover = hasCover
+        ? RawImage(image: art.tiny, fit: BoxFit.cover,
+            filterQuality: FilterQuality.high)
+        : const ColoredBox(color: Color(0xFF101418));
+    // The enlarged monochrome album artwork is a SECOND visual layer behind
+    // the diagonal cover, not the artist fanart and not an empty black wedge.
+    final backing = Stack(fit: StackFit.expand, children: [
+      if (hasCover)
+        ColorFiltered(
+          colorFilter: const ColorFilter.matrix(<double>[
+            .2126,.7152,.0722,0,0,
+            .2126,.7152,.0722,0,0,
+            .2126,.7152,.0722,0,0,
+            0,0,0,1,0,
+          ]),
+          child: Transform.scale(
+            scale: 1.7,
+            child: RawImage(image: art.tiny, fit: BoxFit.cover,
+              filterQuality: FilterQuality.high))),
+      const ColoredBox(color: Color(0x44000000)),
+    ]);
     final sleeve = Transform.rotate(
       angle: portrait ? -math.pi / 4 : math.pi / 4,
       child: Container(
         width: sleeveSize, height: sleeveSize,
         decoration: BoxDecoration(
           color: const Color(0xFF080C10),
-          border: Border.all(color: cyan.withOpacity(.88), width: 2),
-          boxShadow: [
-            BoxShadow(color: cyan.withOpacity(.35), blurRadius: 14),
-            const BoxShadow(color: Colors.black87, blurRadius: 20),
-          ],
+          border: Border.all(color: accent.withOpacity(.85), width: 2),
+          boxShadow: [BoxShadow(color: accent.withOpacity(.25), blurRadius: 10),
+            const BoxShadow(color: Colors.black87, blurRadius: 16)],
         ),
-        padding: EdgeInsets.all(sleeveSize * .035),
-        child: hasCover
-            ? Transform.rotate(
-                angle: portrait ? math.pi : 0,
-                child: RawImage(image: art.tiny, fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high))
-            : Center(child: Text('VYBE',
-                style: TextStyle(color: cyan, fontSize: sleeveSize * .11))),
+        child: ClipRect(child: portrait
+            ? Transform.rotate(angle: math.pi, child: cover)
+            : cover),
       ),
     );
-    final sleevePanel = Positioned(
-      left: portrait ? -w * .015 : -sleeveSize * .62,
-      top: portrait ? -sleeveSize * .78 : h * .11 - sleeveSize * .25,
-      width: sleeveSize, height: sleeveSize,
-      child: GestureDetector(onTap: _openPlayer, child: sleeve),
-    );
-    final info = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(model.artist.isEmpty ? 'ARTIST' : model.artist.toUpperCase(),
-          maxLines: 1, overflow: TextOverflow.ellipsis, style: titleStyle),
-        Text(model.title.isEmpty ? 'Nothing playing' : model.title,
-          maxLines: 1, overflow: TextOverflow.ellipsis, style: subtitleStyle),
-      ],
-    );
+    final artist = model.artist.isEmpty ? 'ARTIST' : model.artist.toUpperCase();
+    final song = model.title.isEmpty ? 'Nothing playing' : model.title;
+    final titleStyle = TextStyle(
+      color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
+      fontWeight: FontWeight.w400, letterSpacing: .3,
+      shadows: const [Shadow(color: Colors.black, blurRadius: 9)]);
+    final songStyle = TextStyle(
+      color: Colors.white, fontSize: portrait ? w * .049 : h * .052,
+      shadows: const [Shadow(color: Colors.black, blurRadius: 8)]);
     return Stack(fit: StackFit.expand, children: [
-      // The darkening is localized to the typography, never the whole photo.
-      if (portrait)
-        Positioned(left: 0, right: 0, bottom: 0, height: h * .30,
-          child: const DecoratedBox(decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter, end: Alignment.topCenter,
-              colors: [Color(0xE6000000), Color(0x00000000)])))),
-      sleevePanel,
       if (portrait) ...[
-        Positioned(top: h * .22, left: 0, right: 0,
-          child: IgnorePointer(child: Container(height: 2,
-            color: cyan.withOpacity(.75)))),
-        Positioned(left: w * .075, right: w * .05, bottom: h * .07,
-          child: info),
-        if (_hasLyrics) Positioned(left: w * .08, right: w * .08,
-          top: h * .48, height: h * .19,
-          child: _lyricBlock(h, Alignment.center, vhs: false)),
+        Positioned(left: 0, right: 0, top: 0, height: h * .205,
+          child: ClipRect(child: backing)),
+        Positioned(left: 0, right: 0, top: h * .20,
+          child: Container(height: 2, color: accent.withOpacity(.88))),
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .22,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [Color(0xEE000000), Color(0x00000000)])))),
       ] else ...[
-        Positioned(top: h * .042, left: w * .23, right: w * .05,
-          child: info),
-        if (_hasLyrics) Positioned(left: w * .40, right: w * .06,
-          top: h * .38, height: h * .22,
-          child: _lyricBlock(h, Alignment.center, vhs: false)),
+        Positioned(left: 0, top: 0, bottom: 0, width: w * .20,
+          child: ClipRect(child: backing)),
+        Positioned(left: w * .198, top: 0, bottom: 0,
+          child: Container(width: 3, color: accent.withOpacity(.85))),
+        Positioned(left: w * .20, right: 0, top: 0, height: 2,
+          child: ColoredBox(color: accent.withOpacity(.75))),
+      ],
+      Positioned(
+        left: sleeveCenterX - sleeveSize * .5,
+        top: sleeveCenterY - sleeveSize * .5,
+        width: sleeveSize, height: sleeveSize,
+        child: GestureDetector(onTap: _openPlayer, child: sleeve)),
+      if (portrait) ...[
+        // Editorial mockup: artist and title together at the lower left;
+        // album title/secondary label sits separately on the lower right.
+        Positioned(left: w * .075, right: w * .055, bottom: h * .047,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min, children: [
+              Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: titleStyle),
+              Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Expanded(child: Text(song, maxLines: 1,
+                  overflow: TextOverflow.ellipsis, style: songStyle)),
+                SizedBox(width: w * .025),
+                Flexible(child: Text(model.album.isEmpty ? '' : model.album,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right, style: songStyle)),
+              ]),
+            ])),
+        if (_hasLyrics)
+          Positioned(left: w * .08, right: w * .08, top: h * .50,
+            height: h * .17,
+            child: _lyricBlock(h, Alignment.center, vhs: false)),
+      ] else ...[
+        Positioned(left: w * .235, top: h * .043, width: w * .51,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min, children: [
+              Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: titleStyle),
+              Text(song, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: songStyle),
+            ])),
+        if (model.album.isNotEmpty)
+          Positioned(right: w * .025, top: h * .055, width: w * .18,
+            child: Text(model.album, textAlign: TextAlign.right,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: songStyle)),
+        if (_hasLyrics)
+          Positioned(left: w * .37, right: w * .06, top: h * .43,
+            height: h * .19,
+            child: _lyricBlock(h, Alignment.center, vhs: false)),
       ],
       if (settings.visualizer)
         Positioned(
-          left: portrait ? w * .035 : w * .21,
+          left: portrait ? w * .035 : w * .20,
           right: w * .035,
-          bottom: portrait ? h * .028 : h * .085,
-          height: portrait ? h * .06 : h * .13,
+          bottom: portrait ? h * .028 : h * .07,
+          height: portrait ? h * .065 : h * .15,
           child: IgnorePointer(child: CustomPaint(
             painter: _CinematicWavePainter(
-              sim: sim, color: cyan, style: settings.cinematicWaveStyle,
+              sim: sim, color: accent, style: settings.cinematicWaveStyle,
               gain: settings.sensitivity, repaint: _tick)))),
     ]);
   }
