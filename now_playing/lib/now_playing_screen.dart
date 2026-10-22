@@ -923,11 +923,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: ClipRect(child: backing)),
         Positioned(left: 0, right: 0, top: h * .20,
           child: Container(height: 2, color: accent.withOpacity(.88))),
-        Positioned(left: 0, right: 0, bottom: 0, height: h * .22,
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .31,
           child: const DecoratedBox(decoration: BoxDecoration(
             gradient: LinearGradient(begin: Alignment.bottomCenter,
               end: Alignment.topCenter,
-              colors: [Color(0xEE000000), Color(0x00000000)])))),
+              colors: [Color(0xFF000000), Color(0x00000000)])))),
       ] else ...[
         Positioned(left: 0, top: 0, bottom: 0, width: w * .20,
           child: ClipRect(child: backing)),
@@ -944,7 +944,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (portrait) ...[
         // Editorial mockup: artist and title together at the lower left;
         // album title/secondary label sits separately on the lower right.
-        Positioned(left: w * .075, right: w * .055, bottom: h * .047,
+        Positioned(left: w * .075, right: w * .055, bottom: h * .045,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min, children: [
               Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -983,11 +983,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ],
       if (settings.visualizer)
         Positioned(
-          left: portrait ? w * .035 : w * .20,
-          right: w * .035,
-          bottom: portrait ? h * .028 : h * .07,
-          height: portrait ? h * .065 : h * .15,
-          child: IgnorePointer(child: CustomPaint(
+          left: portrait ? 0 : w * .20,
+          right: portrait ? 0 : w * .035,
+          top: portrait ? h * .20 : null,
+          bottom: portrait ? null : h * .07,
+          height: portrait ? h * .085 : h * .15,
+          child: IgnorePointer(child: portrait
+            ? Transform.scale(scaleY: -1, alignment: Alignment.topCenter,
+                child: CustomPaint(painter: _CinematicWavePainter(
+                    sim: sim, color: accent,
+                    style: settings.cinematicWaveStyle,
+                    gain: settings.sensitivity, repaint: _tick)))
+            : CustomPaint(
             painter: _CinematicWavePainter(
               sim: sim, color: accent, style: settings.cinematicWaveStyle,
               gain: settings.sensitivity, repaint: _tick)))),
