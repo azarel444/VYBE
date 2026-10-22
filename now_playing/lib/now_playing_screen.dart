@@ -1014,6 +1014,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     } else {
       // Mirrored Drive places its music panel on the opposite side.
       if (theme == 4) onRight = settings.driveSwap;
+      // Side by Side clock follows the text panel opposite the artwork.
+      if (theme == 1) onRight = !settings.layoutSwap;
       // Fan and Record Cut landscape have the artwork on the left/right.
       if (theme == 7 || theme == AppSettings.tTypo) onRight = false;
       // Follow the information panel when a theme swaps its art and text.
@@ -1437,6 +1439,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// with the bottom of the art, and the bar reflection lines up with the
   /// art reflection. Song info and lyrics sit above the bars.
   Widget _sideLayout(double w, double h, {required bool vhs}) {
+    final textAlignment = settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft;
+    final textCrossAlignment = settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final s = math.min(h * 0.62, w * 0.36);
     final u = s / 0.62; // text scale: equals h unless the screen is narrow
     final artTop = (h - s) / 2;
@@ -1460,19 +1464,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   top: artTop,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: textCrossAlignment,
                     children: [
-                      _artist(u * 0.032, Alignment.centerLeft, vhs),
+                      _artist(u * 0.032, textAlignment, vhs),
                       SizedBox(height: u * 0.012),
-                      _title(u * 0.085, Alignment.centerLeft, vhs),
+                      _title(u * 0.085, textAlignment, vhs),
                       if (model.album.isNotEmpty &&
                           model.album != model.title) ...[
                         SizedBox(height: u * 0.012),
-                        _shaded(_fit(_albumText(u * 0.028), Alignment.centerLeft)),
+                        _shaded(_fit(_albumText(u * 0.028), textAlignment)),
                       ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(u)),
-                        _lyricBlock(u, Alignment.centerLeft, vhs: vhs),
+                        _lyricBlock(u, textAlignment, vhs: vhs),
                       ],
                     ],
                   ),
