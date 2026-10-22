@@ -2476,6 +2476,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : rcx - d / 2 - _discGap(d) + r * 1.35;
     final cy = h / 2;
     final maxLen = d * 0.16;
+    // Keep metadata outside the vinyl's actual bounds, with a visible gutter
+    // in both normal and flipped landscape layouts.
+    final recordGutter = math.max(24.0, w * 0.035);
+    final metadataWidth = settings.layoutSwap
+        ? w - w * 0.06 - (rcx + d / 2) - recordGutter
+        : (rcx - d / 2) - w * 0.06 - recordGutter;
     return Stack(
       children: [
         ..._discStack(cx, cy, r, d, h, settings.layoutSwap ? 0 : math.pi),
@@ -2494,9 +2500,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(
           left: settings.layoutSwap ? null : w * 0.06,
           right: settings.layoutSwap ? w * 0.06 : null,
-          width: math.max(w * 0.2, settings.layoutSwap
-              ? w - (cx + r + maxLen) - w * 0.08
-              : cx - r - maxLen - w * 0.08),
+          width: math.max(1.0, metadataWidth),
           top: 0,
           bottom: 0,
           child: Column(
