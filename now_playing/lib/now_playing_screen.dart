@@ -890,6 +890,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// separate rotated color sleeve. The two orientations are art-directed.
   Widget _editorialLayout(double w, double h) {
     final portrait = h > w * 1.1;
+    final flipped = settings.layoutSwap && !portrait;
+    Widget readable(Widget child) => flipped
+        ? Transform(alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(-1, 1, 1), child: child)
+        : child;
     final accent = _palette.a;
     final art = model.art;
     final hasCover = art != null && !art.flat;
@@ -931,8 +936,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ]),
           child: Transform.scale(
             scale: 1.7,
-            child: RawImage(image: art.tiny, fit: BoxFit.cover,
-              filterQuality: FilterQuality.high))),
+            child: readable(RawImage(image: art.tiny, fit: BoxFit.cover,
+              filterQuality: FilterQuality.high)))),
       // Deepen only the grayscale backing, leaving the cover and fanart untouched.
       const ColoredBox(color: Color(0x99000000)),
     ]);
@@ -968,7 +973,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       color: Colors.white, fontSize: portrait ? w * .049 : h * .052,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
-    return Stack(fit: StackFit.expand, children: [
+    final composition = Stack(fit: StackFit.expand, children: [
       // Muzine shares Bigfan's fanart darkness slider. Zero adds no
       // overall dimming, but the theme's bottom readability fade remains.
       Positioned.fill(child: IgnorePointer(child: ColoredBox(
@@ -1044,22 +1049,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: _lyricBlock(h, Alignment.center, vhs: false)),
       ] else ...[
         Positioned(left: w * .235, top: h * .043, width: w * .47,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+          child: readable(Column(crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min, children: [
               Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: titleStyle),
               Text(song, maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: songStyle),
-            ])),
+            ]))),
         if (model.album.isNotEmpty)
           Positioned(right: w * .025, top: h * .043, width: w * .22,
-            child: Text(model.album, textAlign: TextAlign.right,
+            child: readable(Text(model.album, textAlign: TextAlign.right,
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: songStyle)),
+              style: songStyle))),
         if (_hasLyrics)
           Positioned(left: w * .37, right: w * .06, top: h * .43,
             height: h * .19,
-            child: _lyricBlock(h, Alignment.center, vhs: false)),
+            child: readable(_lyricBlock(h, Alignment.center, vhs: false))),
       ],
       // Same Record Cut disc and playback-driven inertia, layered behind
       // the diagonal sleeve. The Stack clips naturally at screen edges.
@@ -1089,8 +1094,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         left: sleeveCenterX - sleeveSize * .5,
         top: sleeveCenterY - sleeveSize * .5,
         width: sleeveSize, height: sleeveSize,
-        child: GestureDetector(onTap: _openPlayer, child: sleeve)),
+        child: GestureDetector(onTap: _openPlayer, child: readable(sleeve))),
     ]);
+    return flipped ? Transform(alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(-1, 1, 1), child: composition)
+        : composition;
   }
 
   Widget _cinematicLayout(double w, double h) {
