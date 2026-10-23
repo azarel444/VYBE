@@ -293,7 +293,7 @@ class SettingsScreen extends StatelessWidget {
         s.templateBackgroundMotion, 0.0, 1.0,
         (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
       _section('Fanart backgrounds'),
-      const Text('Cinematic and Editorial default to artist fanart, then album art, '
+      const Text('Bigfan and Muzine default to artist fanart, then album art, '
           'then the selected animated scene when artwork is unavailable.'),
       _choices('Fanart theme background',
         const ['Artist Fanart', 'Album Art', 'Animated Background'],
@@ -317,7 +317,7 @@ class SettingsScreen extends StatelessWidget {
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
       if (s.visualizer) ...[
-        _choices('Cinematic waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+        _choices('Bigfan waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i)),
         _choices('Visualizer shape (including circular layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
