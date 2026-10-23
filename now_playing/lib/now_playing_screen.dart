@@ -3843,9 +3843,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Confine the waveform shade to its own bounds. It fades upward
-          // from the bottom and tapers to transparency at both side edges.
-          Positioned.fill(
+          // Shade only the upright waveform, ending at its baseline.
+          // Keep the reflected bars below the baseline completely unshaded.
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            height: height * baseFrac,
             child: IgnorePointer(
               child: ShaderMask(
                 blendMode: BlendMode.dstIn,
