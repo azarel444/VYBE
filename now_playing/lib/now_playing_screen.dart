@@ -445,7 +445,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Uniform darkness for every theme and background source.
             // Applied once, after background rendering, before foreground FX/UI.
             Positioned.fill(child: IgnorePointer(child: ColoredBox(
-              color: Colors.black.withOpacity(settings.bgOverlay.clamp(0.0, 1.0))))),
+              color: Colors.black.withOpacity(((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial) && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
             if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
@@ -853,6 +853,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 : RawImage(image: art?.tiny, fit: BoxFit.cover)),
           ),
         )),
+      // Shared fanart darkness, independent of the intentional bottom fade.
+      ColoredBox(color: Colors.black.withOpacity(
+        settings.cinematicDarkness.clamp(0.0, 1.0))),
+      // Cinematic's deliberate bottom-to-transparent readability fade is
+      // independent of the user-controlled full-screen darkness overlay.
+      // Limit it to the lower portion so the rest of the fanart stays clear.
+      IgnorePointer(child: Align(
+        alignment: Alignment.bottomCenter,
+        child: FractionallySizedBox(
+          widthFactor: 1.0,
+          heightFactor: .42,
+          child: const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                stops: [0.0, .36, 1.0],
+                colors: [
+                  Color(0xFF000000),
+                  Color(0xB0000000),
+                  Color(0x00000000),
+                ],
+              ),
+            ),
+          ),
+        ),
+      )),
 
     ]);
   }
@@ -942,16 +969,49 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     return Stack(fit: StackFit.expand, children: [
+      // Muzine shares Bigfan's fanart darkness slider. Zero adds no
+      // overall dimming, but the theme's bottom readability fade remains.
+      Positioned.fill(child: IgnorePointer(child: ColoredBox(
+        color: Colors.black.withOpacity(
+          settings.cinematicDarkness.clamp(0.0, 1.0))))),
       if (portrait) ...[
         Positioned(left: 0, right: 0, top: 0, height: h * .20,
           child: ClipRect(child: backing)),
         Positioned(left: 0, right: 0, top: h * .20,
           child: Container(height: 2, color: accent.withOpacity(.88))),
+        // A black gradient falls away from the divider behind the portrait
+        // visualizer, preserving contrast without obscuring the lower fanart.
+        Positioned(left: 0, right: 0, top: h * .20, height: h * .145,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Color(0xB8000000), Color(0x65000000), Color(0x00000000)],
+              stops: [0.0, .38, 1.0]))))),
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .31,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [Color(0xFF000000), Color(0x00000000)])))),
       ] else ...[
         Positioned(left: 0, top: 0, bottom: 0, width: w * .20,
           child: ClipRect(child: backing)),
         Positioned(left: w * .198, top: 0, bottom: 0,
           child: Container(width: 3, color: accent.withOpacity(.85))),
+        // Musiczine landscape's intentional bottom readability fade.
+        // Independent of Background darkness, just like portrait.
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .36,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              stops: [0.0, .38, 1.0],
+              colors: [
+                Color(0xE6000000),
+                Color(0x96000000),
+                Color(0x00000000),
+              ],
+            )),
+          ))),
       ],
       if (portrait) ...[
         // Editorial mockup: artist and title together at the lower left;
