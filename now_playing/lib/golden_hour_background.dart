@@ -12,9 +12,10 @@ class GoldenHourBackground extends StatefulWidget {
   final ArtPalette palette;
   final String shaderAsset;
   final double bass;
+  final Offset? lightOrigin;
   const GoldenHourBackground({
     super.key, required this.time, required this.motion,
-    required this.palette, this.bass = 0.0,
+    required this.palette, this.bass = 0.0, this.lightOrigin,
     this.shaderAsset = 'shaders/golden_hour.frag',
   });
 
@@ -87,6 +88,7 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
       painter: _GoldenHourPainter(
         program: program, clock: _sceneClock,
         palette: widget.palette, bass: widget.bass,
+        lightOrigin: widget.lightOrigin,
         programAssetUsesBass: const [
           'shaders/club_stage.frag', 'shaders/lightstorm.frag',
           'shaders/rave.frag', 'shaders/neon_club.frag',
@@ -101,10 +103,12 @@ class _GoldenHourPainter extends CustomPainter {
   final ValueNotifier<double> clock;
   final ArtPalette palette;
   final double bass;
+  final Offset? lightOrigin;
   final bool programAssetUsesBass;
   _GoldenHourPainter({
     required this.program, required this.clock, required this.palette,
     required this.bass, required this.programAssetUsesBass,
+    required this.lightOrigin,
   }) : super(repaint: clock);
 
   @override
@@ -124,11 +128,19 @@ class _GoldenHourPainter extends CustomPainter {
     // All premium shaders share the first twelve floats; the four new
     // spatial scenes consume one additional music-reactive bass uniform.
     if (programAssetUsesBass) shader.setFloat(12, bass.clamp(0.0, 1.0));
+    if (!programAssetUsesBass && lightOrigin != null) {
+      shader.setFloat(12, lightOrigin!.dx);
+      shader.setFloat(13, lightOrigin!.dy);
+    } else if (!programAssetUsesBass) {
+      shader.setFloat(12, .515);
+      shader.setFloat(13, .69);
+    }
     canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
   }
 
   @override
   bool shouldRepaint(covariant _GoldenHourPainter old) =>
       old.clock != clock || old.palette != palette ||
-      old.program != program || old.bass != bass;
+      old.program != program || old.bass != bass ||
+      old.lightOrigin != lightOrigin;
 }
