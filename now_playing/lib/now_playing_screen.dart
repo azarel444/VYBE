@@ -869,7 +869,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final accent = _palette.a;
     final art = model.art;
     final hasCover = art != null && !art.flat;
-    final sleeveSize = portrait ? w * .89 : h * 1.02;
+    final sleeveSize = portrait ? w * .89 : h * .86;
     final sleeveCenterX = portrait ? w * .48 : w * .285 - sleeveSize * .707;
     final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .50;
     final cover = hasCover
@@ -899,11 +899,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         width: sleeveSize, height: sleeveSize,
         decoration: BoxDecoration(
           color: const Color(0xFF080C10),
+          borderRadius: BorderRadius.circular(sleeveSize * .017),
           border: Border.all(color: accent.withOpacity(.85), width: 2),
-          boxShadow: [BoxShadow(color: accent.withOpacity(.25), blurRadius: 10),
-            const BoxShadow(color: Colors.black87, blurRadius: 16)],
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(.83),
+              offset: Offset(portrait ? 0 : 12, portrait ? 12 : 11), blurRadius: 19),
+            BoxShadow(color: accent.withOpacity(.23),
+              offset: Offset(portrait ? 0 : 5, portrait ? 5 : 4), blurRadius: 9),
+          ],
         ),
-        child: ClipRect(child: portrait
+        child: ClipRRect(borderRadius: BorderRadius.circular(sleeveSize * .012),
+          child: portrait
             ? Transform.rotate(angle: math.pi, child: cover)
             : cover),
       ),
@@ -933,37 +939,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: ClipRect(child: backing)),
         Positioned(left: w * .198, top: 0, bottom: 0,
           child: Container(width: 3, color: accent.withOpacity(.85))),
-        Positioned(left: w * .20, right: 0, top: 0, height: 2,
-          child: ColoredBox(color: accent.withOpacity(.75))),
       ],
-      Positioned(
-        left: sleeveCenterX - sleeveSize * .5,
-        top: sleeveCenterY - sleeveSize * .5,
-        width: sleeveSize, height: sleeveSize,
-        child: GestureDetector(onTap: _openPlayer, child: sleeve)),
       if (portrait) ...[
         // Editorial mockup: artist and title together at the lower left;
         // album title/secondary label sits separately on the lower right.
-        Positioned(left: w * .075, right: w * .055, bottom: h * .045,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+        Positioned(left: w * .075, right: w * .075, bottom: h * .046,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min, children: [
-              Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: titleStyle),
-              Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Expanded(child: Text(song, maxLines: 1,
-                  overflow: TextOverflow.ellipsis, style: songStyle)),
-                SizedBox(width: w * .025),
-                Flexible(child: Text(model.album.isEmpty ? '' : model.album,
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right, style: songStyle)),
-              ]),
+              SizedBox(height: w * .095,
+                child: FittedBox(fit: BoxFit.fill,
+                  alignment: Alignment.centerLeft,
+                  child: Text(artist, maxLines: 1,
+                    softWrap: false, style: titleStyle))),
+              SizedBox(height: h * .005),
+              if (model.album.isEmpty)
+                Center(child: Text(song, maxLines: 1,
+                  overflow: TextOverflow.ellipsis, style: songStyle))
+              else
+                Row(children: [
+                  Expanded(child: Text(song, maxLines: 1,
+                    overflow: TextOverflow.ellipsis, style: songStyle)),
+                  SizedBox(width: w * .025),
+                  Expanded(child: Text(model.album, maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right, style: songStyle)),
+                ]),
             ])),
         if (_hasLyrics)
           Positioned(left: w * .08, right: w * .08, top: h * .50,
             height: h * .17,
             child: _lyricBlock(h, Alignment.center, vhs: false)),
       ] else ...[
-        Positioned(left: w * .235, top: h * .043, width: w * .51,
+        Positioned(left: w * .235, top: h * .043, width: w * .47,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min, children: [
               Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -972,7 +979,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 style: songStyle),
             ])),
         if (model.album.isNotEmpty)
-          Positioned(right: w * .025, top: h * .055, width: w * .18,
+          Positioned(right: w * .025, top: h * .043, width: w * .22,
             child: Text(model.album, textAlign: TextAlign.right,
               maxLines: 1, overflow: TextOverflow.ellipsis,
               style: songStyle)),
@@ -982,22 +989,28 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: _lyricBlock(h, Alignment.center, vhs: false)),
       ],
       if (settings.visualizer)
-        Positioned(
-          left: portrait ? 0 : w * .20,
-          right: portrait ? 0 : w * .035,
-          top: portrait ? h * .20 : null,
-          bottom: portrait ? null : h * .07,
-          height: portrait ? h * .085 : h * .15,
-          child: IgnorePointer(child: portrait
-            ? Transform.scale(scaleY: -1, alignment: Alignment.topCenter,
-                child: CustomPaint(painter: _CinematicWavePainter(
-                    sim: sim, color: accent,
-                    style: settings.cinematicWaveStyle,
-                    gain: settings.sensitivity, repaint: _tick)))
-            : CustomPaint(
-            painter: _CinematicWavePainter(
-              sim: sim, color: accent, style: settings.cinematicWaveStyle,
-              gain: settings.sensitivity, repaint: _tick)))),
+        if (portrait)
+          // The divider is the waveform's origin. Draw downward from it,
+          // beneath the angled sleeve and without any mirrored reflection.
+          Positioned(left: 0, right: 0, top: h * .20,
+            height: h * .087,
+            child: IgnorePointer(child: CustomPaint(
+              painter: _EditorialDividerWavePainter(
+                sim: sim, color: accent, gain: settings.sensitivity,
+                repaint: _tick))))
+        else
+          Positioned(left: w * .20, right: w * .035,
+            bottom: h * .07, height: h * .15,
+            child: IgnorePointer(child: CustomPaint(
+              painter: _CinematicWavePainter(
+                sim: sim, color: accent,
+                style: settings.cinematicWaveStyle,
+                gain: settings.sensitivity, repaint: _tick)))),
+      Positioned(
+        left: sleeveCenterX - sleeveSize * .5,
+        top: sleeveCenterY - sleeveSize * .5,
+        width: sleeveSize, height: sleeveSize,
+        child: GestureDetector(onTap: _openPlayer, child: sleeve)),
     ]);
   }
 
@@ -4565,6 +4578,43 @@ class _FxBlendPainter extends CustomPainter {
 
 
 /// Thin, smoothed audio-reactive waveform for Cinematic.
+/// Editorial portrait waveform: zero baseline at the grayscale divider,
+/// positive Y deformation only, with no reflected/mirrored duplicate.
+class _EditorialDividerWavePainter extends CustomPainter {
+  final SpectrumSim sim;
+  final Color color;
+  final double gain;
+  _EditorialDividerWavePainter({
+    required this.sim, required this.color, required this.gain,
+    required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    final path = Path()..moveTo(0, 0);
+    const samples = 64;
+    for (var i = 0; i < samples; i++) {
+      final x = i / (samples - 1);
+      final band = (x * (SpectrumSim.bars - 1)).round();
+      final energy = sim.level(band, gain).clamp(0.0, 1.0);
+      final y = size.height * (.10 + .66 * energy);
+      path.lineTo(x * size.width, y);
+    }
+    final paint = Paint()
+      ..color = color.withOpacity(.85)
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_EditorialDividerWavePainter old) =>
+      old.color != color || old.gain != gain;
+}
+
 class _CinematicWavePainter extends CustomPainter {
   final SpectrumSim sim;
   final Color color;
