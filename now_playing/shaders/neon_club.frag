@@ -175,20 +175,20 @@ vec3 renderScene(vec2 uv){
    vec3 sampleP=ro+rd*rayT;
    float along=dot(sampleP-origin,axis);
    float radial=length(sampleP-origin-axis*along);
-   float spread=.12+max(0.,along)*.28;
+   float spread=.065+max(0.,along)*.105;
    float cone=exp(-pow(radial/spread,2.)*1.7)*
      smoothstep(0.,.7,along)*(1.-smoothstep(5.8,7.4,along));
    vec3 tint=pal(fract(fi*.43+.11));
-   float mist=.75+.65*fog(sampleP,t*2.0);
-   col+=tint*cone*mist*(.85+.35*bass);
+   float mist=.38+.40*fog(sampleP,t*2.0);
+   col+=tint*cone*mist*(.46+.20*bass);
    vec3 fixture=normalize(origin-ro);
    float hot=gauss(length(rd-fixture),.015);
-   col+=tint*(hot*1.7+gauss(length(rd-fixture),.095)*.13);
+   col+=tint*(hot*1.15+gauss(length(rd-fixture),.045)*.06);
    if(face==1.&&nearT<1000.&&hit.z<-.05){
      float radius=length((hit-target).xz);
-     float pool=exp(-radius*radius*.24);
+     float pool=exp(-radius*radius*1.1);
      // Colored spot pools light the tile material and boost its glow.
-     col+=tint*pool*(.85+.35*bass)*distanceFade;
+     col+=tint*pool*(.19+.12*bass)*distanceFade;
    }
  }
 
@@ -208,8 +208,8 @@ void main(){
  vec2 centered=uv-.5;
  vec2 normalized=centered*2.;
  float radius=length(normalized);
- float edge=smoothstep(.42,1.08,radius);
- float strength=edge*edge;
+ float edge=smoothstep(.72,1.12,radius);
+ float strength=edge*edge*edge;
  float t=uTime;
  float bass=clamp(uBass,0.,1.);
  float a=atan(normalized.y,normalized.x);
@@ -224,14 +224,14 @@ void main(){
     tangent*(.023*sin(t*4.2+radius*21.+a*9.)+
              .025*turbulence));
  displacement*=1.+bass*.65;
- vec2 warped=uv+displacement;
+ vec2 warped=clamp(uv+displacement,vec2(0.),vec2(1.));
  // Chromatic split is directional, animated and deliberately pronounced
  // near corners; the center has no channel displacement.
  float split=(.006+.023*strength)*(1.+.7*bass)*strength;
  vec2 chromaDir=normalize(radial+.38*tangent*sin(t*2.7+a*6.));
- vec3 redSample=renderScene(warped+chromaDir*split);
+ vec3 redSample=renderScene(clamp(warped+chromaDir*split,vec2(0.),vec2(1.)));
  vec3 greenSample=renderScene(warped);
- vec3 blueSample=renderScene(warped-chromaDir*split);
+ vec3 blueSample=renderScene(clamp(warped-chromaDir*split,vec2(0.),vec2(1.)));
  fragColor=vec4(redSample.r,greenSample.g,blueSample.b,1.);
 #else
  fragColor=vec4(renderScene(uv),1.);
