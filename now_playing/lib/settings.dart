@@ -99,7 +99,7 @@ class AppSettings extends ChangeNotifier {
   int fanartThemeSource = 0; // 0 artist fanart, 1 album art, 2 animated scene
   bool animationUseAlbumColors = false; // false: scene default, true: artwork palette
   int cinematicPalette = 15; // 14 Golden Hour, 15 Neon Ribbons, 16 Club Stage, 17 Lightstorm, 18 Rave, 19 Neon Club
-  double cinematicDarkness = 0.30;
+  double cinematicDarkness = 0.0;
   double cinematicBlur = 0.0;
   double cinematicContrast = 1.0;
   double cinematicAnimationSpeed = 1.0; // premium shader playback multiplier
@@ -236,7 +236,7 @@ class AppSettings extends ChangeNotifier {
     animationUseAlbumColors = p.getBool('animationUseAlbumColors') ?? false;
     cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
     if (cinematicPalette < 14 || cinematicPalette > 19) cinematicPalette = 15;
-    cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.30).clamp(0.0, 1.0).toDouble();
+    cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.0).clamp(0.0, 1.0).toDouble();
     cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
     cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
     cinematicAnimationSpeed = (p.getDouble('cinematicAnimationSpeed') ?? 1.0).clamp(0.0, 3.0).toDouble();
