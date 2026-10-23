@@ -1077,11 +1077,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           // beneath the angled sleeve and without any mirrored reflection.
           Positioned(left: 0, right: 0, top: h * .20,
             height: h * .082,
-            child: IgnorePointer(child: CustomPaint(
-              painter: _EditorialDividerWavePainter(
-                sim: sim, color: accent, gain: settings.sensitivity,
-                style: settings.cinematicWaveStyle,
-                repaint: _tick))))
+            child: IgnorePointer(child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(1, -1, 1),
+              child: CustomPaint(
+                painter: BarsPainter(
+                  sim: sim, palette: _palette,
+                  count: settings.barCount,
+                  gain: settings.sensitivity,
+                  style: settings.cinematicWaveStyle,
+                  baseFrac: 1.0,
+                  repaint: _tick)))))
         else
           Positioned(left: w * .20, right: w * .035,
             bottom: h * .07, height: h * .15,
