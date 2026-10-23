@@ -2953,12 +2953,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           : SizedBox.expand(
               child: ColorFiltered(
                 colorFilter: _grayDark,
+                child: Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
                 child: Image.memory(
                   art.bytes,
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
                   filterQuality: FilterQuality.medium,
                 ),
+              ),
               ),
             ),
     );
@@ -3026,7 +3030,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bars,
           line,
           Positioned(
-              left: mid.dx - s / 2, top: mid.dy - s / 2, child: _front(s, false)),
+              left: mid.dx - s / 2, top: mid.dy - s / 2, child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
+            child: _front(s, false),
+          )),
           Positioned(
             left: w * 0.08,
             right: w * 0.08,
@@ -3072,7 +3080,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: 0, right: 0, bottom: 0, height: h * 0.18, child: _diagonalBottomFade()),
         bars,
         line,
-        Positioned(left: w * 0.046, top: (h - s) / 2, child: _front(s, false)),
+        Positioned(left: w * 0.046, top: (h - s) / 2, child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
+            child: _front(s, false),
+          )),
         Positioned(
           left: infoLeft,
           right: w * 0.05,
