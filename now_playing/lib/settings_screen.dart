@@ -268,15 +268,15 @@ class SettingsScreen extends StatelessWidget {
           'Rave', 'Neon Club'],
         (s.cinematicPalette - 14).clamp(0, 5),
         (i) => s.update(() => s.cinematicPalette = i + 14)),
-      _choices('Background source',
+      _choices('Theme background',
         const ['Album Art', 'Artist Fanart', 'Animated Background'],
         s.backgroundSource == 1 ? 2 : (s.backgroundSource == 6 ? 1 : 0),
         (i) => s.update(() {
           s.backgroundSource = i == 2 ? 1 : (i == 1 ? 6 : 0);
           s.fanartMode = i == 1 ? 1 : 0;
         })),
-      const Text('Choose which image or animation appears behind the theme. '
-          'Artist Fanart uses the fallback below when unavailable.'),
+      const Text('Standard themes default to blurred album art, then use the selected '
+          'animated scene when artwork is unavailable.'),
       _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
         s.bgOverlay, 0.0, 1.0,
         (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
@@ -290,13 +290,13 @@ class SettingsScreen extends StatelessWidget {
         s.templateBackgroundMotion, 0.0, 1.0,
         (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
       _section('Fanart backgrounds'),
-      const Text('Settings for the Cinematic and Editorial fanart themes.'),
-      _choices('When artist fanart is missing',
-        const ['Animated color theme', 'Blurred album artwork'],
-        s.cinematicFallback,
-        (i) => s.update(() => s.cinematicFallback = i)),
-      if (s.cinematicFallback == 0)
-        _slider('Fanart animation speed',
+      const Text('Cinematic and Editorial default to artist fanart, then album art, '
+          'then the selected animated scene when artwork is unavailable.'),
+      _choices('Fanart theme background',
+        const ['Artist Fanart', 'Album Art', 'Animated Background'],
+        s.fanartThemeSource,
+        (i) => s.update(() => s.fanartThemeSource = i)),
+      _slider('Fanart animation speed',
           '${(s.cinematicAnimationSpeed * 100).round()}%',
           s.cinematicAnimationSpeed, 0.0, 3.0,
           (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
