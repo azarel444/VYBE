@@ -19,53 +19,80 @@ void main(){
  float t=uTime, bass=clamp(uBass,0.,1.);
  vec3 col=vec3(.003,.004,.014);
 #if SCENE == 0 || SCENE == 2
- // Stage: fixed audience camera, grounded perspective floor and overhead rig.
- vec3 ro=vec3(0.,1.65,6.8),rd=normalize(vec3(p.x*1.6,p.y*-1.22,-2.25));
- float floorD=(-ro.y)/min(rd.y,-.0001);
- if(rd.y<-.02&&floorD>0.){
-  vec3 hit=ro+rd*floorD;
-  float grain=noise(hit.xz*4.);
-  float grid=pow(1.-smoothstep(.015,.035,min(fract(hit.x*.72),fract(hit.z*.72))),1.5);
-  col+=vec3(.014,.013,.027)+grain*.014+grid*.009;
+ // Club Stage: audience-facing camera, visible moving heads, volumetric
+ // light cones, and an illuminated reflective floor (no floating horizon line).
+ float aspect=uSize.x/uSize.y;
+ float stageWidth=clamp(aspect*.78,.60,1.70);
+ vec3 ro=vec3(0.,1.65,6.8);
+ vec3 rd=normalize(vec3(p.x*1.6,-p.y*1.22,-2.25));
+ float floorD=ro.y/max(-rd.y,.0001);
+ vec3 hit=ro+rd*floorD;
+ // Fade the floor into stage haze instead of drawing a hard horizontal seam.
+ float floorMask=smoothstep(.008,.105,p.y);
+ float floorGrain=noise(hit.xz*3.2);
+ if(rd.y<-.001){
+   vec2 tile=abs(fract(hit.xz*.55)-.5);
+   float joint=1.-smoothstep(.475,.50,max(tile.x,tile.y));
+   col+=floorMask*(vec3(.011,.012,.023)+floorGrain*.010+joint*.006);
  }
- // Distinct physical spot fixtures above the stage, panning independently.
+ // Subdued truss and atmospheric back wall establish a physical room.
+ float backHaze=gauss(p.y+.065,.24)*(1.-smoothstep(.45,1.40,abs(p.x)));
+ col+=pal(.40)*backHaze*(.028+.035*bass);
+ float rigY=-.322;
+ float rigExtent=1.-smoothstep(.74*stageWidth,1.10*stageWidth,abs(p.x));
+ col+=vec3(.042,.047,.065)*gauss(p.y-rigY,.006)*rigExtent;
+ col+=vec3(.025,.029,.044)*gauss(p.y-rigY+.018,.004)*rigExtent;
+ // Nine moving-head spots with unique pan phases and real floor targets.
  for(int i=0;i<9;i++){
-  float fi=float(i);
-  float x=(fi-4.)*.82;
-  float side=mod(fi,2.)<.5?1.:-1.;
-  vec3 origin=vec3(x,4.8,-3.2-.7*mod(fi,3.));
-  vec3 target=vec3(x*.35+side*sin(t*(.27+.035*fi)+fi)*2.6,
-                   .0,-3.7+cos(t*.22+fi*1.9)*1.6);
-  vec3 axis=normalize(target-origin);
-  // Closest approach of camera ray to a finite beam axis.
-  vec3 w=ro-origin;
-  float ab=dot(rd,axis),den=max(.0001,1.-ab*ab);
-  float rayT=max(0.,(ab*dot(w,axis)-dot(w,rd))/den);
-  vec3 sampleP=ro+rd*rayT;
-  float beamT=dot(sampleP-origin,axis);
-  float radial=length(sampleP-origin-axis*beamT);
-  float spread=.065+max(0.,beamT)*.16;
-  float within=smoothstep(0.,.45,beamT)*(1.-smoothstep(6.3,8.3,beamT));
-  float cone=exp(-pow(radial/spread,2.)*1.65)*within;
-  float mist=.32+.9*fog(sampleP,t);
-  float pulse=.68+.35*sin(t*.85+fi*1.4)+bass*.75;
-  vec3 tint=pal(fract(fi*.385));
-  col+=tint*cone*mist*pulse*.45;
-  // Fixture hot spots: lens glow and controlled bloom.
-  vec3 lightDir=normalize(origin-ro);
-  float sparkle=gauss(length(rd-lightDir),.018);
-  col+=tint*sparkle*1.8+vec3(1.)*pow(sparkle,3.)*.65;
-  // Floor pools respond to beam target rather than screen-space painting.
-  if(rd.y<-.02&&floorD>0.){
-    vec3 hit=ro+rd*floorD;
-    float dist=length((hit-target).xz);
-    float pool=exp(-dist*dist*.55)*(.35+.65*bass);
-    col+=tint*pool*.25;
-  }
+   float fi=float(i);
+   float x=(fi-4.)*1.0*stageWidth;
+   vec3 origin=vec3(x,3.7,-4.8-.12*mod(fi,3.));
+   float pan=sin(t*(.34+.017*fi)+fi*1.18);
+   vec3 target=vec3(x*.42+pan*1.45*stageWidth,
+                    .0,-4.35+cos(t*.25+fi*1.65)*1.1);
+   vec3 axis=normalize(target-origin);
+   // Distance between view ray and spotlight's finite central axis.
+   vec3 w=ro-origin;
+   float ab=dot(rd,axis);
+   float rayT=max(0.,(ab*dot(w,axis)-dot(w,rd))/max(.0001,1.-ab*ab));
+   vec3 sampleP=ro+rd*rayT;
+   float beamT=dot(sampleP-origin,axis);
+   float radial=length(sampleP-origin-axis*beamT);
+   float spread=.065+max(0.,beamT)*.112;
+   float lengthFade=smoothstep(0.,.34,beamT)*
+       (1.-smoothstep(4.9,6.8,beamT));
+   float beamCore=exp(-pow(radial/spread,2.)*2.1);
+   float beamHaze=exp(-pow(radial/(spread*2.25),2.)*2.0);
+   float mist=.44+.84*fog(sampleP,t);
+   float pulse=.82+.20*sin(t*.72+fi*1.5)+bass*.77;
+   vec3 tint=pal(fract(fi*.297));
+   col+=tint*(beamCore*.83+beamHaze*.16)*lengthFade*mist*pulse;
+   // Small visible housings and luminous lenses at the beam origins.
+   float cameraDepth=ro.z-origin.z;
+   vec2 lamp=vec2(origin.x/cameraDepth*(2.25/1.6),
+       -(origin.y-ro.y)/cameraDepth*(2.25/1.22));
+   float head=1.-smoothstep(.016,.024,length((p-lamp)*vec2(1.,1.28)));
+   col=mix(col,vec3(.015,.017,.030),head*.60);
+   float core=gauss(length(p-lamp),.013);
+   float halo=gauss(length(p-lamp),.058);
+   col+=tint*(core*1.65+halo*.22)*(1.+bass*.36);
+   col+=vec3(1.)*pow(core,3.)*.42;
+   // Broad pools at each target, plus broken glossy floor streaks.
+   if(rd.y<-.001){
+     vec2 d=hit.xz-target.xz;
+     float pool=exp(-dot(d,d)*.29);
+     float glint=pow(max(0.,sin(hit.z*7.2+
+         floorGrain*4.2+t*.20)),8.);
+     float stripe=exp(-pow(d.x/(.24+.09*abs(d.y)),2.))*
+         exp(-abs(d.y)*.27);
+     col+=floorMask*tint*(pool*(.28+.42*bass)+
+         pool*glint*.23+stripe*(.05+.10*glint));
+   }
  }
- // Atmospheric backdrop with stage edge.
- float stage=gauss(p.y+.14,.009)*smoothstep(.8,.35,abs(p.x));
- col+=pal(.46)*stage*.18;
+ // A faint stage edge beneath the distant lights, not a bright floating line.
+ float stageLip=gauss(p.y-.115,.012)*
+     (1.-smoothstep(.57*stageWidth,.92*stageWidth,abs(p.x)));
+ col+=pal(.46)*stageLip*.045;
 #if SCENE == 2
  // Rave: foreground crowd silhouettes at staggered depths, with heads,
  // shoulders and raised arms. They remain opaque against the stage.
