@@ -86,6 +86,7 @@ class ArtistFanartCache {
         // Rendez-Vous, while still requiring the full artist name.
         String normalize(String name) => name.toLowerCase().trim()
             .replaceAll(RegExp(r'[-‐‑‒–—_]'), ' ')
+            .replaceAll(RegExp(r'[.\u2018\u2019]'), '')
             .replaceAll(RegExp(r'\s+'), ' ')
             .replaceFirst(RegExp(r'^the '), '')
             .trim();
@@ -97,6 +98,36 @@ class ArtistFanartCache {
               normalize(candidateName) == normalize(cacheKey) &&
               !ids.contains(candidateId)) {
             ids.add(candidateId);
+          }
+        }
+        if (ids.isEmpty) {
+          // A quoted search for "Sheila E." may not return "Sheila E".
+          // Retry the punctuation-normalized spelling, but still require a
+          // complete normalized artist-name match before accepting an ID.
+          final alternative = normalize(artist);
+          if (alternative.isNotEmpty && alternative != artist.toLowerCase().trim()) {
+            try {
+              final retry = await _json(Uri.https('musicbrainz.org', '/ws/2/artist/', {
+                'query': 'artist:"${alternative.replaceAll('"', '')}"',
+                'fmt': 'json', 'limit': '15',
+              }));
+              final candidates = retry['artists'];
+              if (candidates is List) {
+                for (final entry in candidates) {
+                  if (entry is! Map) continue;
+                  final candidateName = entry['name']?.toString();
+                  final candidateId = entry['id']?.toString();
+                  if (candidateName != null && candidateId != null &&
+                      normalize(candidateName) == normalize(cacheKey) &&
+                      !ids.contains(candidateId)) {
+                    ids.add(candidateId);
+                  }
+                }
+              }
+              record('Normalized artist lookup completed');
+            } catch (e) {
+              record('Normalized artist lookup failed: $e');
+            }
           }
         }
         if (ids.isEmpty) {
