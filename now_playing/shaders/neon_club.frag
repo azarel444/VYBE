@@ -13,8 +13,7 @@ float fog(vec3 p,float t){return .50*noise(p.xz*.36+vec2(t*.045,-t*.022))+.3*noi
 float gauss(float x,float w){return exp(-x*x/(w*w));}
 vec3 pal(float x){return x<.34?mix(uA,uB,x*2.94):mix(uB,uC,(x-.34)*1.51);}
 vec3 tone(vec3 c){return pow(vec3(1.)-exp(-max(c,vec3(0.))*1.3),vec3(.88));}
-void main(){
- vec2 uv=FlutterFragCoord().xy/uSize;
+vec3 renderScene(vec2 uv){
  vec2 p=(uv-.5)*vec2(uSize.x/uSize.y,1.);
  float t=uTime, bass=clamp(uBass,0.,1.);
  vec3 col=vec3(.003,.004,.014);
@@ -194,8 +193,47 @@ void main(){
  }
 
 #endif
- // Filmic vignette, distant haze and highlight roll-off.
+#if SCENE != 3
+ // Existing cinematic shading for the other environments.
  float vignette=1.-.45*smoothstep(.3,1.7,dot(p,p));
  col*=vignette;
- fragColor=vec4(tone(col),1.);
+#endif
+ return tone(col);
+}
+void main(){
+ vec2 uv=FlutterFragCoord().xy/uSize;
+#if SCENE == 3
+ // The center remains optically clean. Turbulent edge lensing and
+ // RGB channel separation build rapidly beyond 55% of screen radius.
+ vec2 centered=uv-.5;
+ vec2 normalized=centered*2.;
+ float radius=length(normalized);
+ float edge=smoothstep(.42,1.08,radius);
+ float strength=edge*edge;
+ float t=uTime;
+ float bass=clamp(uBass,0.,1.);
+ float a=atan(normalized.y,normalized.x);
+ float swirl=sin(a*7.0+t*3.1+radius*12.)+
+             .65*sin(a*13.-t*2.4+radius*19.);
+ float turbulence=noise(normalized*vec2(5.,7.)+
+             vec2(t*.8,-t*.67))-.5;
+ vec2 radial=normalize(normalized+vec2(.00001));
+ vec2 tangent=vec2(-radial.y,radial.x);
+ vec2 displacement=strength*(
+    radial*(.034*swirl+.042*turbulence)+
+    tangent*(.023*sin(t*4.2+radius*21.+a*9.)+
+             .025*turbulence));
+ displacement*=1.+bass*.65;
+ vec2 warped=uv+displacement;
+ // Chromatic split is directional, animated and deliberately pronounced
+ // near corners; the center has no channel displacement.
+ float split=(.006+.023*strength)*(1.+.7*bass)*strength;
+ vec2 chromaDir=normalize(radial+.38*tangent*sin(t*2.7+a*6.));
+ vec3 redSample=renderScene(warped+chromaDir*split);
+ vec3 greenSample=renderScene(warped);
+ vec3 blueSample=renderScene(warped-chromaDir*split);
+ fragColor=vec4(redSample.r,greenSample.g,blueSample.b,1.);
+#else
+ fragColor=vec4(renderScene(uv),1.);
+#endif
 }
