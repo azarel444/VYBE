@@ -620,27 +620,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-  /// Keep spatial light emitters in the unobstructed portion of each layout.
-  /// Coordinates are normalized to the full display; the shader retains its
-  /// original source for themes without a predictable artwork obstruction.
-  Offset _visibleLightOrigin() {
+  /// Normalized Golden Hour environment light position. This is NOT the
+  /// origin for artwork-attached FX (rays, bass ripples or shockwaves).
+  /// Other premium scenes retain their own native lighting coordinates.
+  Offset _goldenHourLightOrigin() {
     final size = MediaQuery.sizeOf(context);
     final narrow = size.width < size.height * 1.3;
     final swapped = settings.layoutSwap;
     switch (settings.theme) {
+      case 4: // Drive: sun radiates from behind the record / cover.
+        return narrow ? const Offset(.50, .26)
+            : Offset(settings.driveSwap ? .74 : .26, .65);
+      case AppSettings.tTypo: // A little above the headline.
+        return narrow ? const Offset(.50, .20)
+            : Offset(swapped ? .72 : .28, .25);
+      case AppSettings.tRecord: // Vinyl/Record Cut: clear of large disc.
+        return narrow ? const Offset(.50, .82)
+            : Offset(swapped ? .84 : .16, .60);
       case 1: // Side by Side
       case 3: // Edge to Edge
-        return narrow ? const Offset(.5, .72)
+        return narrow ? const Offset(.50, .72)
             : Offset(swapped ? .27 : .73, .60);
-      case AppSettings.tEditorial: // Muzine: sleeve occupies one side
+      case AppSettings.tEditorial: // Muzine: away from the sleeve.
         return narrow ? const Offset(.50, .73)
             : Offset(swapped ? .27 : .73, .66);
-      case AppSettings.tRecord:
       case AppSettings.tFan:
-        return narrow ? const Offset(.5, .76)
-            : Offset(swapped ? .28 : .72, .66);
+        return narrow ? const Offset(.50, .70)
+            : Offset(swapped ? .30 : .70, .52);
       case AppSettings.tDiagonal:
-        return Offset(swapped ? .30 : .70, .66);
+        return narrow ? const Offset(.50, .66)
+            : Offset(swapped ? .30 : .70, .66);
       default:
         return const Offset(.515, .69);
     }
@@ -667,13 +676,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ArtPalette(Color(0xFFFF2C9E), Color(0xFF23CFFF), Color(0xFFFFCB4A)),
       ArtPalette(Color(0xFFFFB836), Color(0xFFE843EE), Color(0xFF18DEFF)),
     ];
+    // Use the decoded artwork's palette, regardless of the UI accent palette.
+    // Hold the last successful colors briefly across MediaSession track swaps.
+    final albumPalette = model.art?.palette ?? _lastArtPalette ?? ArtPalette.fallback;
     return RepaintBoundary(child: GoldenHourBackground(
       key: ValueKey(sceneAssets[sceneIndex]),
       time: _time,
       motion: settings.performance ? 0.0 : motion,
-      palette: settings.animationUseAlbumColors ? _palette : scenePalettes[sceneIndex],
+      palette: settings.animationUseAlbumColors ? albumPalette : scenePalettes[sceneIndex],
       bass: sim.bass,
-      lightOrigin: _visibleLightOrigin(),
+      // Read the live bass on every shader repaint, not a stale build-time value.
+      bassSample: () => model.playing ? sim.bass : 0.0,
+      lightOrigin: sceneIndex == 0 ? _goldenHourLightOrigin() : null,
       shaderAsset: sceneAssets[sceneIndex],
     ));
   }
@@ -3937,12 +3951,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              stops: [0.0, 0.38, 0.68, 1.0],
+              // Fan: keep the upper 68% fully clear so environmental rays
+              // and haze aren't darkened by the readability gradient.
+              stops: [0.0, 0.68, 0.88, 1.0],
               colors: [
                 Color(0x00000000),
                 Color(0x00000000),
-                Color(0x7A000000),
-                Color(0xF5000000),
+                Color(0x60000000),
+                Color(0xD9000000),
               ],
             ),
           ),
