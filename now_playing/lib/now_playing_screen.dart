@@ -595,7 +595,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
-    if ((settings.backgroundSource != 6 && settings.fanartMode == 0) || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
+    final isFanartTheme = settings.theme == AppSettings.tCinematic ||
+        settings.theme == AppSettings.tEditorial;
+    final needsFanart = isFanartTheme
+        ? settings.fanartThemeSource == 0
+        : settings.backgroundSource == 6;
+    if (!needsFanart || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
         _fanartArtist = ''; _fanartBytes = null;
       }
@@ -707,6 +712,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ]);
     }
     final art = model.art;
+    if (art == null || art.flat) {
+      return _premiumAnimatedBackground(settings.templateBackgroundMotion);
+    }
     final Widget child;
     // A flat placeholder picture (a logo on one color) counts as no cover.
     if (art == null || art.flat) {
@@ -792,12 +800,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final fanart = _fanartBytes;
     final art = model.art;
     final hasAlbum = art != null && !art.flat;
-    final wantsAnimation = settings.backgroundSource == 1;
-    final wantsAlbum = settings.backgroundSource == 0;
-    final wantsFanart = !wantsAnimation && !wantsAlbum;
-    final showFanart = wantsFanart && fanart != null;
-    final useAlbum = hasAlbum && (wantsAlbum ||
-        (wantsFanart && fanart == null && settings.cinematicFallback == 1));
+    final source = settings.fanartThemeSource;
+    final showFanart = source == 0 && fanart != null;
+    final useAlbum = hasAlbum && (source == 1 ||
+        (source == 0 && fanart == null));
     final hasImage = showFanart || useAlbum;
     final Widget background = showFanart
         ? Image.memory(fanart, fit: BoxFit.cover,
