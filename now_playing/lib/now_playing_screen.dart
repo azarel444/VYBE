@@ -620,6 +620,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
+  /// Keep spatial light emitters in the unobstructed portion of each layout.
+  /// Coordinates are normalized to the full display; the shader retains its
+  /// original source for themes without a predictable artwork obstruction.
+  Offset _visibleLightOrigin() {
+    final size = MediaQuery.sizeOf(context);
+    final narrow = size.width < size.height * 1.3;
+    final swapped = settings.layoutSwap;
+    switch (settings.theme) {
+      case 1: // Side by Side
+      case 3: // Edge to Edge
+        return narrow ? const Offset(.5, .72)
+            : Offset(swapped ? .27 : .73, .60);
+      case AppSettings.tEditorial: // Muzine: sleeve occupies one side
+        return narrow ? const Offset(.50, .73)
+            : Offset(swapped ? .27 : .73, .66);
+      case AppSettings.tRecord:
+      case AppSettings.tFan:
+        return narrow ? const Offset(.5, .76)
+            : Offset(swapped ? .28 : .72, .66);
+      case AppSettings.tDiagonal:
+        return Offset(swapped ? .30 : .70, .66);
+      default:
+        return const Offset(.515, .69);
+    }
+  }
+
   /// Six separate premium shader scenes with album-derived lighting.
   Widget _premiumAnimatedBackground(double motion) {
     const sceneAssets = <String>[
@@ -647,11 +673,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       motion: settings.performance ? 0.0 : motion,
       palette: settings.animationUseAlbumColors ? _palette : scenePalettes[sceneIndex],
       bass: sim.bass,
-      // Muzine portrait: the visible lower diamond tip of the album sleeve
-      // is the light emitter, not the shader's default lower-screen sun.
-      lightOrigin: settings.theme == AppSettings.tEditorial &&
-          MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width * 1.1
-          ? const Offset(.48, .275) : null,
+      lightOrigin: _visibleLightOrigin(),
       shaderAsset: sceneAssets[sceneIndex],
     ));
   }
