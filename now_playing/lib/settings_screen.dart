@@ -1,4 +1,5 @@
 import 'vybe_link_settings.dart';
+import 'integration_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'native_preferences.dart';
@@ -28,6 +29,7 @@ class SettingsScreen extends StatelessWidget {
     'Navigation',
     'Permissions',
     'VYBE Link',
+    'Integrations',
   ];
 
   @override
@@ -90,6 +92,7 @@ class SettingsScreen extends StatelessWidget {
                       _page(_navigation(context)),
                       _page(_permissions(context)),
                       const VybeLinkSettings(),
+                      const IntegrationDiagnostics(),
                     ],
                   ),
                 ),
