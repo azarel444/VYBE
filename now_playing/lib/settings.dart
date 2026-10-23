@@ -19,6 +19,7 @@ class AppSettings extends ChangeNotifier {
     'Typo',
     'Orbit',
     'Cinematic',
+    'Musiczine',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
@@ -28,13 +29,14 @@ class AppSettings extends ChangeNotifier {
   static const int tTypo = 8;
   static const int tOrbit = 9;
   static const int tCinematic = 10;
+  static const int tEditorial = 11;
 
   /// Number 2 was the VHS theme. It is now an effect, so it is no longer
   /// offered as a theme; the other numbers stay as they were.
   static const int tRemovedVhs = 2;
 
   /// The themes that can be picked, in order.
-  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10];
+  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11];
   static const accentNames = [
     'Auto (from art)',
     'Vaporwave',
@@ -51,7 +53,7 @@ class AppSettings extends ChangeNotifier {
     'Ice',
     'Ruby',
     'Golden Hour',
-    'Ultraviolet',
+    'Neon Ribbons',
     'Monochrome',
   ];
 
@@ -92,11 +94,19 @@ class AppSettings extends ChangeNotifier {
     'FANART_PROJECT_KEY',
     defaultValue: 'a5663b830e451594869e3892dbaaa551',
   );
-  int fanartMode = 2; // 0 album, 1 artist, 2 auto
+  int fanartMode = 2; // Non-Cinematic artwork preference
+  int cinematicFallback = 1; // Legacy preference (fanart now falls back album then animation)
+  int fanartThemeSource = 0; // 0 artist fanart, 1 album art, 2 animated scene
+  bool animationUseAlbumColors = false; // false: scene default, true: artwork palette
+  int cinematicPalette = 15; // 14 Golden Hour, 15 Neon Ribbons, 16 Club Stage, 17 Lightstorm, 18 Rave, 19 Neon Club
+  double cinematicDarkness = 0.30;
+  double cinematicBlur = 0.0;
+  double cinematicContrast = 1.0;
+  double cinematicAnimationSpeed = 1.0; // premium shader playback multiplier
   String fanartApiKey = '';
   String fanartProjectKey = bundledFanartProjectKey;
   double sensitivity = 1.0; // 0.5 .. 1.5
-  int vizStyle = 0; // Focused theme: 0 ring, 1 bars
+  int vizStyle = 1; // Focused theme: 0 ring, 1 bars; bars by default
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
@@ -169,7 +179,7 @@ class AppSettings extends ChangeNotifier {
   bool avoidNav = true; // never open VYBE while navigation is active
   bool driveBubble = true; // floating "return to VYBE" button while VYBE is hidden
   double driveBarsH = 0.14; // Drive: visualizer height along the bottom, share of screen height
-  double bgOverlay = 1.0; // 0 clear, 1 original shading, 2 darker
+  double bgOverlay = 0.30; // direct black overlay opacity: 0% to 100%
   final Map<String, int> fxBlendMode = <String, int>{};
   final Map<String, double> fxSize = <String, double>{};
   final Map<String, double> fxBlendOpacity = <String, double>{};
@@ -221,14 +231,23 @@ class AppSettings extends ChangeNotifier {
     diagonalWaveStyle = _int(p, 'diagonalWaveStyle', 0, 0, 2);
     cinematicWaveStyle = _int(p, 'cinematicWaveStyle', 1, 0, 2);
     fanartMode = _int(p, 'fanartMode', 2, 0, 2);
+    cinematicFallback = _int(p, 'cinematicFallback', 1, 0, 1);
+    fanartThemeSource = _int(p, 'fanartThemeSource', 0, 0, 2);
+    animationUseAlbumColors = p.getBool('animationUseAlbumColors') ?? false;
+    cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
+    if (cinematicPalette < 14 || cinematicPalette > 19) cinematicPalette = 15;
+    cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.30).clamp(0.0, 1.0).toDouble();
+    cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
+    cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
+    cinematicAnimationSpeed = (p.getDouble('cinematicAnimationSpeed') ?? 1.0).clamp(0.0, 3.0).toDouble();
     // Ignore stale locally saved keys. All beta builds use the bundled key.
     fanartApiKey = '';
     fanartProjectKey = bundledFanartProjectKey;
     sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
-    vizStyle = _int(p, 'vizStyle', 0, 0, 1);
+    vizStyle = _int(p, 'vizStyle', 1, 0, 1);
     final bc = p.getInt('barCount') ?? 96;
     barCount = barCounts.contains(bc) ? bc : 96;
-    accent = _int(p, 'accent', 0, 0, accents.length - 1);
+    accent = 0; // Album-art colors replace the retired manual color palettes.
     final oldFx = p.getDouble('effects') ?? 0.7;
     // Older versions had one slider; start the VHS one at that value.
     vhsEffects =
@@ -245,7 +264,7 @@ class AppSettings extends ChangeNotifier {
     kMotion = k('kMotion', 1.0);
     animatedTemplateBackground = p.getBool('animatedTemplateBackground') ?? false;
     clubBlendMode = (p.getInt('clubBlendMode') ?? 0).clamp(0, 9).toInt();
-    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 5).toInt();
+    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 6).toInt();
     templateBackgroundMotion = (p.getDouble('templateBackgroundMotion') ?? 0.65).clamp(0.0, 1.0).toDouble();
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;
@@ -316,7 +335,7 @@ class AppSettings extends ChangeNotifier {
     avoidNav = p.getBool('avoidNav') ?? true;
     driveBubble = p.getBool('driveBubble') ?? true;
     driveBarsH = (p.getDouble('driveBarsH') ?? 0.14).clamp(0.08, 0.26).toDouble();
-    bgOverlay = (p.getDouble('bgOverlay') ?? 1.0).clamp(0.0, 2.0).toDouble();
+    bgOverlay = (p.getDouble('bgOverlay') ?? 0.30).clamp(0.0, 1.0).toDouble();
     for (final n in allFxNames) {
       fxSize[n] = (p.getDouble('fxSize:$n') ?? 1.0).clamp(0.5, 2.5).toDouble();
       fxBlendMode[n] = (p.getInt('fxBlendMode:$n') ?? 0).clamp(0, 23);
@@ -361,6 +380,14 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('diagonalWaveStyle', diagonalWaveStyle);
     await p.setInt('cinematicWaveStyle', cinematicWaveStyle);
     await p.setInt('fanartMode', fanartMode);
+    await p.setInt('cinematicFallback', cinematicFallback);
+    await p.setInt('fanartThemeSource', fanartThemeSource);
+    await p.setBool('animationUseAlbumColors', animationUseAlbumColors);
+    await p.setInt('cinematicPalette', cinematicPalette);
+    await p.setDouble('cinematicDarkness', cinematicDarkness);
+    await p.setDouble('cinematicBlur', cinematicBlur);
+    await p.setDouble('cinematicContrast', cinematicContrast);
+    await p.setDouble('cinematicAnimationSpeed', cinematicAnimationSpeed);
     await p.setDouble('sensitivity', sensitivity);
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('barCount', barCount);

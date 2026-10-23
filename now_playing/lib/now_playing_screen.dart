@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'effects.dart';
+import 'golden_hour_background.dart';
 import 'refraction_shader.dart';
 import 'fx_adaptive.dart';
 import 'fx_profile.dart';
@@ -340,11 +341,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _stepGlitch();
     fxClock.t = _time;
     fxClock.bass = bass;
-    ripples.update(_time, bass, settings.fxRipples && model.playing);
+    ripples.update(_time, bass, model.playing, liveAudio: model.realActive && model.fft != null);
 
     // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.
-    if (settings.theme == AppSettings.tRecord || settings.theme == 4) {
+    if (settings.theme == AppSettings.tRecord ||
+        settings.theme == AppSettings.tEditorial || settings.theme == 4) {
       const full = 1 / 1.8;
       final target = model.playing ? full : 0.0;
       if (_recSpeed < target) {
@@ -437,9 +439,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fit: StackFit.expand,
           children: [
             _background(),
-            if (!widget.driveHost && settings.theme == AppSettings.tCinematic &&
+            if (!widget.driveHost && false && settings.theme == AppSettings.tCinematic &&
                 settings.backgroundSource >= 2 && settings.backgroundSource <= 5)
               _cinematicLightShow(),
+            // Uniform darkness for every theme and background source.
+            // Applied once, after background rendering, before foreground FX/UI.
+            Positioned.fill(child: IgnorePointer(child: ColoredBox(
+              color: Colors.black.withOpacity((settings.theme == AppSettings.tCinematic && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
             if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
@@ -477,6 +483,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   layout = _driveLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tCinematic) {
                   layout = _cinematicLayout(w, h);
+                } else if (settings.theme == AppSettings.tEditorial) {
+                  layout = _editorialLayout(w, h);
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tFan) {
@@ -588,7 +596,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
-    if ((settings.fanartMode == 0 && settings.theme != AppSettings.tCinematic) || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
+    final isFanartTheme = settings.theme == AppSettings.tCinematic ||
+        settings.theme == AppSettings.tEditorial;
+    final needsFanart = isFanartTheme
+        ? settings.fanartThemeSource == 0
+        : settings.backgroundSource == 6;
+    if (!needsFanart || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
         _fanartArtist = ''; _fanartBytes = null;
       }
@@ -607,58 +620,45 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
+  /// Six separate premium shader scenes with album-derived lighting.
+  Widget _premiumAnimatedBackground(double motion) {
+    const sceneAssets = <String>[
+      'shaders/golden_hour.frag',
+      'shaders/neon_ribbons.frag',
+      'shaders/club_stage.frag',
+      'shaders/lightstorm.frag',
+      'shaders/rave.frag',
+      'shaders/neon_club.frag',
+    ];
+    final sceneIndex = (settings.cinematicPalette - 14).clamp(0, 5);
+    // Give each environment its own lighting identity. Album colors previously
+    // made all four venues look like the same gold-lit room.
+    const scenePalettes = <ArtPalette>[
+      ArtPalette(Color(0xFFFFC76B), Color(0xFFFF8A35), Color(0xFFFFE0A1)),
+      ArtPalette(Color(0xFF00E7FF), Color(0xFFFF36A8), Color(0xFF665CFF)),
+      ArtPalette(Color(0xFF00AFFF), Color(0xFFFF2B70), Color(0xFF83E9FF)),
+      ArtPalette(Color(0xFF436BFF), Color(0xFFFF214F), Color(0xFFAD4CFF)),
+      ArtPalette(Color(0xFFFF2C9E), Color(0xFF23CFFF), Color(0xFFFFCB4A)),
+      ArtPalette(Color(0xFFFFB836), Color(0xFFE843EE), Color(0xFF18DEFF)),
+    ];
+    return RepaintBoundary(child: GoldenHourBackground(
+      key: ValueKey(sceneAssets[sceneIndex]),
+      time: _time,
+      motion: settings.performance ? 0.0 : motion,
+      palette: settings.animationUseAlbumColors ? _palette : scenePalettes[sceneIndex],
+      bass: sim.bass,
+      shaderAsset: sceneAssets[sceneIndex],
+    ));
+  }
+
   Widget _background() {
-    if (!widget.driveHost && settings.theme == AppSettings.tCinematic) {
+    if (!widget.driveHost &&
+        (settings.theme == AppSettings.tCinematic ||
+         settings.theme == AppSettings.tEditorial)) {
       return _cinematicBackdrop();
     }
-    if (settings.backgroundSource >= 2 && settings.backgroundSource <= 5) {
-      return Stack(fit: StackFit.expand, children: [
-        if (settings.backgroundSource == 3 || settings.backgroundSource == 5) _albumBackdrop(),
-        RepaintBoundary(child: AnimatedBuilder(
-        animation: _slow,
-        builder: (context, _) => CustomPaint(
-          painter: settings.backgroundSource >= 4 ? LaserTunnelBackgroundPainter(
-            palette: _clubPalette, time: _time,
-            transparentStage: settings.backgroundSource == 5,
-            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: settings.bgOverlay,
-            lightingBlend: const [
-              BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
-              BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
-              BlendMode.difference, BlendMode.exclusion,
-              BlendMode.colorDodge, BlendMode.hardLight,
-            ][settings.clubBlendMode.clamp(0, 9)],
-          ) : ClubBackgroundPainter(
-            palette: _clubPalette, time: _time,
-            transparentStage: settings.backgroundSource == 3,
-            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: settings.bgOverlay,
-            lightingBlend: const [
-              BlendMode.srcOver, BlendMode.plus, BlendMode.screen,
-              BlendMode.lighten, BlendMode.overlay, BlendMode.softLight,
-              BlendMode.difference, BlendMode.exclusion,
-              BlendMode.colorDodge, BlendMode.hardLight,
-            ][settings.clubBlendMode.clamp(0, 9)],
-          ),
-          child: const SizedBox.expand(),
-        ),
-      )),
-      ]);
-    }
     if (settings.backgroundSource == 1) {
-      return RepaintBoundary(child: AnimatedBuilder(
-        animation: _slow,
-        builder: (context, _) => CustomPaint(
-          painter: TemplateBackgroundPainter(
-            palette: _palette,
-            preset: settings.accent,
-            time: _time,
-            motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-            darkness: settings.bgOverlay,
-          ),
-          child: const SizedBox.expand(),
-        ),
-      ));
+      return _premiumAnimatedBackground(settings.templateBackgroundMotion);
     }
     return _albumBackdrop();
   }
@@ -680,13 +680,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 palette: _clubPalette, time: _time,
                 transparentStage: true,
                 motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-                darkness: settings.bgOverlay,
+                darkness: 0.0,
                 lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)])
             : ClubBackgroundPainter(
                 palette: _clubPalette, time: _time,
                 transparentStage: true,
                 motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-                darkness: settings.bgOverlay,
+                darkness: 0.0,
                 lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)]),
           child: const SizedBox.expand(),
         ),
@@ -695,7 +695,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _albumBackdrop() {
-    if (settings.fanartMode != 0 && _fanartBytes != null) {
+    if (settings.backgroundSource == 6 && _fanartBytes != null) {
       return Stack(fit: StackFit.expand, children: [
         // Fanart was unblurred before this setting. Keep that original look
         // at the default value while allowing additional softening.
@@ -709,11 +709,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         // A single darkness layer controlled entirely by Background darkness.
         // Zero means no dimming for artist photos, just like album covers.
-        ColoredBox(color: Colors.black.withOpacity(
-          (settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
+
       ]);
     }
     final art = model.art;
+    if (art == null || art.flat) {
+      return _premiumAnimatedBackground(settings.templateBackgroundMotion);
+    }
     final Widget child;
     // A flat placeholder picture (a logo on one color) counts as no cover.
     if (art == null || art.flat) {
@@ -758,8 +760,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           children: [
             blurred,
             // Same single user-controlled darkness layer as fanart.
-            ColoredBox(color: Colors.black.withOpacity(
-              (settings.bgOverlay * 0.30).clamp(0.0, 0.85))),
+
           ],
         ),
       );
@@ -788,59 +789,277 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// Cinematic ignores the global background source: artist imagery is first.
-  Widget _cinematicBackdrop() {
+  Widget _cinematicAnimatedFallback() =>
+      _premiumAnimatedBackground(settings.cinematicAnimationSpeed);
+
+  Widget _cinematicBackdrop() => AnimatedBuilder(
+    animation: _slow,
+    builder: (context, _) => _buildCinematicBackdrop(),
+  );
+
+  Widget _buildCinematicBackdrop() {
     final fanart = _fanartBytes;
     final art = model.art;
-    final bool hasAlbum = art != null && !art.flat;
-    final Widget image;
-    if (fanart != null) {
-      image = Image.memory(fanart, fit: BoxFit.cover,
-          alignment: Alignment.topCenter, gaplessPlayback: true);
-    } else if (hasAlbum) {
-      image = RawImage(image: art.tiny, fit: BoxFit.cover);
-    } else {
-      image = RepaintBoundary(child: CustomPaint(
-        painter: IdleBackdropPainter(clock: fxClock, palette: _palette,
-          animate: !settings.performance, repaint: _tick)));
-    }
-    final bool hasImage = fanart != null || hasAlbum;
-    return Stack(fit: StackFit.expand, children: [
-      // Same two-layer edge softening for fanart AND album-only fallback.
-      if (hasImage)
-        ImageFiltered(
-          imageFilter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: ColorFiltered(
-            colorFilter: _contrastFilter(settings.bgContrast),
-            child: image)),
-      AnimatedSwitcher(duration: const Duration(milliseconds: 700),
-        child: SizedBox.expand(
-          key: ValueKey(fanart != null ? 'fanart:${_fanartArtist}' :
-              hasAlbum ? 'album:${model.artist}:${model.album}' : 'palette'),
-          child: hasImage ? ShaderMask(
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (bounds) => const RadialGradient(
-              center: Alignment.center, radius: 0.95,
-              stops: [0.0, 0.48, 0.78, 1.0],
-              colors: [Colors.white, Colors.white,
-                Color(0xAAFFFFFF), Colors.transparent],
-            ).createShader(bounds),
+    final hasAlbum = art != null && !art.flat;
+    final source = settings.fanartThemeSource;
+    final showFanart = source == 0 && fanart != null;
+    final useAlbum = hasAlbum && (source == 1 ||
+        (source == 0 && fanart == null));
+    final hasImage = showFanart || useAlbum;
+    final Widget background = showFanart
+        ? Image.memory(fanart, fit: BoxFit.cover,
+            alignment: Alignment.topCenter, gaplessPlayback: true)
+        : useAlbum
+            ? RawImage(image: art.tiny, fit: BoxFit.cover)
+            : _cinematicAnimatedFallback();
+    final image = hasImage
+        ? ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(
+              sigmaX: settings.cinematicBlur + (useAlbum ? 6.0 : 0.0),
+              sigmaY: settings.cinematicBlur + (useAlbum ? 6.0 : 0.0)),
             child: ColorFiltered(
-              colorFilter: _contrastFilter(settings.bgContrast),
-              child: image)) : image)),
-      // Apply the same darkness range as the other artwork backgrounds.
-      // At 0 the image is untouched; at 2 the overlay reaches 60% black.
-      // Use an explicit full-size layer so the slider visibly affects fanart.
-      Positioned.fill(child: IgnorePointer(child: ColoredBox(
-        color: Colors.black.withOpacity(
-          (settings.bgOverlay * 0.30).clamp(0.0, 0.85))))),
-      const DecoratedBox(decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          stops: [0, 0.32, 0.57, 0.79, 1],
-          colors: [Color(0x17000000), Color(0x00000000),
-                   Color(0x55000000), Color(0xAA000000),
-                   Color(0xF5000000)]))),
+              colorFilter: _contrastFilter(settings.cinematicContrast),
+              child: background))
+        : ColorFiltered(
+            colorFilter: _contrastFilter(settings.cinematicContrast),
+            child: background);
+    return Stack(fit: StackFit.expand, children: [
+      AnimatedSwitcher(
+        duration: const Duration(milliseconds: 700),
+        child: SizedBox.expand(
+          key: ValueKey(showFanart ? 'fanart:${_fanartArtist}' :
+              useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
+              'cinematic-template:${settings.cinematicPalette}'),
+          child: image)),
+      // A blurred copy of the artwork, masked to the outer edges.
+      // The middle stays sharp and the blur fades inward smoothly.
+      if (hasImage)
+        IgnorePointer(child: ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (bounds) => const LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            stops: [0.0, .22, .35, .65, .78, 1.0],
+            colors: [Colors.white, Colors.transparent, Colors.transparent,
+              Colors.transparent, Colors.transparent, Colors.white],
+          ).createShader(bounds),
+          child: ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: SizedBox.expand(child: showFanart
+                ? Image.memory(fanart, fit: BoxFit.cover,
+                    alignment: Alignment.topCenter, gaplessPlayback: true)
+                : RawImage(image: art?.tiny, fit: BoxFit.cover)),
+          ),
+        )),
+      ColoredBox(color: Colors.black.withOpacity(
+        settings.cinematicDarkness.clamp(0.0, 1.0))),
+      // Cinematic framing: strong side blur and a bottom
+      // gradient beneath the album cover, title and artist information.
+      // This sits above either fanart or the animated fallback.
+      IgnorePointer(child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            stops: [0.0, 0.22, 0.48, 0.72],
+            colors: [
+              Color(0xE6000000), Color(0xAD000000),
+              Color(0x33000000), Color(0x00000000),
+            ],
+          ),
+        ),
+        child: const SizedBox.expand(),
+      )),
+
+    ]);
+  }
+
+  /// Editorial: an angled, recognizable album sleeve over full-bleed
+  /// artist photography. Both orientations have their own composition.
+  /// Editorial: full-bleed fanart, a grayscale album-art backing and a
+  /// separate rotated color sleeve. The two orientations are art-directed.
+  Widget _editorialLayout(double w, double h) {
+    final portrait = h > w * 1.1;
+    final accent = _palette.a;
+    final art = model.art;
+    final hasCover = art != null && !art.flat;
+    final sleeveSize = portrait ? w * .89 : h * .86;
+    final sleeveCenterX = portrait ? w * .48 : w * .235 - sleeveSize * .707;
+    // The landscape sleeve's right-hand diamond tip sits just ABOVE the
+    // visualizer (which begins at h * .78). It is not anchored mid-screen.
+    final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .72;
+    final musiczineVinylSize = portrait ? sleeveSize * .83 : sleeveSize * .76;
+    // Center the vinyl on the MIDPOINT of the appropriate diamond edge,
+    // not toward a corner. The sleeve is rotated 45 degrees, so the
+    // midpoints of its diagonal edges are at (+/- .3536, +/- .3536)
+    // times the original square side. Pull the record center slightly
+    // inside the sleeve so its label stays covered, leaving roughly
+    // half the disc exposed. Natural screen clipping is intentional.
+    // Landscape: upper-right edge. Portrait: lower-left edge.
+    const vinylEdgeInset = .055;
+    final vinylEdgeOffset = .3535533905932738 - vinylEdgeInset;
+    final musiczineVinylCenterX =
+        sleeveCenterX + sleeveSize * (portrait ? -vinylEdgeOffset : vinylEdgeOffset);
+    final musiczineVinylCenterY =
+        sleeveCenterY + sleeveSize * (portrait ? vinylEdgeOffset : -vinylEdgeOffset);
+    final musiczineVinylX = musiczineVinylCenterX - musiczineVinylSize * .5;
+    final musiczineVinylY = musiczineVinylCenterY - musiczineVinylSize * .5;
+    final cover = hasCover
+        ? RawImage(image: art.tiny, fit: BoxFit.cover,
+            filterQuality: FilterQuality.high)
+        : const ColoredBox(color: Color(0xFF101418));
+    // The enlarged monochrome album artwork is a SECOND visual layer behind
+    // the diagonal cover, not the artist fanart and not an empty black wedge.
+    final backing = Stack(fit: StackFit.expand, children: [
+      if (hasCover)
+        ColorFiltered(
+          colorFilter: const ColorFilter.matrix(<double>[
+            .2126,.7152,.0722,0,0,
+            .2126,.7152,.0722,0,0,
+            .2126,.7152,.0722,0,0,
+            0,0,0,1,0,
+          ]),
+          child: Transform.scale(
+            scale: 1.7,
+            child: RawImage(image: art.tiny, fit: BoxFit.cover,
+              filterQuality: FilterQuality.high))),
+      // Deepen only the grayscale backing, leaving the cover and fanart untouched.
+      const ColoredBox(color: Color(0x99000000)),
+    ]);
+    final sleeve = Transform.rotate(
+      angle: portrait ? -math.pi / 4 : math.pi / 4,
+      child: Container(
+        width: sleeveSize, height: sleeveSize,
+        decoration: BoxDecoration(
+          color: const Color(0xFF080C10),
+          borderRadius: BorderRadius.circular(sleeveSize * .065),
+          border: Border.all(color: accent.withOpacity(.85), width: 2),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(.83),
+              offset: Offset(portrait ? 0 : 12, portrait ? 12 : 11), blurRadius: 19),
+            BoxShadow(color: accent.withOpacity(.23),
+              offset: Offset(portrait ? 0 : 5, portrait ? 5 : 4), blurRadius: 9),
+          ],
+        ),
+        child: ClipRRect(borderRadius: BorderRadius.circular(sleeveSize * .061),
+          child: portrait
+            ? Transform.rotate(angle: math.pi, child: cover)
+            : cover),
+      ),
+    );
+    final artist = model.artist.isEmpty ? 'ARTIST' : model.artist.toUpperCase();
+    final song = model.title.isEmpty ? 'Nothing playing' : model.title;
+    final titleStyle = TextStyle(
+      color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
+      fontWeight: FontWeight.w400, letterSpacing: .3,
+      shadows: const [Shadow(color: Colors.black, blurRadius: 9),
+        Shadow(color: Colors.black, blurRadius: 17, offset: Offset(1, 2))]);
+    final songStyle = TextStyle(
+      color: Colors.white, fontSize: portrait ? w * .049 : h * .052,
+      shadows: const [Shadow(color: Colors.black, blurRadius: 8),
+        Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
+    return Stack(fit: StackFit.expand, children: [
+      if (portrait) ...[
+        Positioned(left: 0, right: 0, top: 0, height: h * .20,
+          child: ClipRect(child: backing)),
+        Positioned(left: 0, right: 0, top: h * .20,
+          child: Container(height: 2, color: accent.withOpacity(.88))),
+        // A black gradient falls away from the divider behind the portrait
+        // visualizer, preserving contrast without obscuring the lower fanart.
+        Positioned(left: 0, right: 0, top: h * .20, height: h * .145,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Color(0xB8000000), Color(0x65000000), Color(0x00000000)],
+              stops: [0.0, .38, 1.0]))))),
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .31,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [Color(0xFF000000), Color(0x00000000)])))),
+      ] else ...[
+        Positioned(left: 0, top: 0, bottom: 0, width: w * .20,
+          child: ClipRect(child: backing)),
+        Positioned(left: w * .198, top: 0, bottom: 0,
+          child: Container(width: 3, color: accent.withOpacity(.85))),
+      ],
+      if (portrait) ...[
+        // Editorial mockup: artist and title together at the lower left;
+        // album title/secondary label sits separately on the lower right.
+        Positioned(left: w * .075, right: w * .075, bottom: h * .046,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min, children: [
+              SizedBox(height: w * .095,
+                child: FittedBox(fit: BoxFit.fill,
+                  alignment: Alignment.centerLeft,
+                  child: Text(artist, maxLines: 1,
+                    softWrap: false, style: titleStyle))),
+              SizedBox(height: h * .005),
+              if (model.album.isEmpty)
+                Center(child: Text(song, maxLines: 1,
+                  overflow: TextOverflow.ellipsis, style: songStyle))
+              else
+                Row(children: [
+                  Expanded(child: Text(song, maxLines: 1,
+                    overflow: TextOverflow.ellipsis, style: songStyle)),
+                  SizedBox(width: w * .025),
+                  Expanded(child: Text(model.album, maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right, style: songStyle)),
+                ]),
+            ])),
+        if (_hasLyrics)
+          Positioned(left: w * .08, right: w * .08, top: h * .50,
+            height: h * .17,
+            child: _lyricBlock(h, Alignment.center, vhs: false)),
+      ] else ...[
+        Positioned(left: w * .235, top: h * .043, width: w * .47,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min, children: [
+              Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: titleStyle),
+              Text(song, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: songStyle),
+            ])),
+        if (model.album.isNotEmpty)
+          Positioned(right: w * .025, top: h * .043, width: w * .22,
+            child: Text(model.album, textAlign: TextAlign.right,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: songStyle)),
+        if (_hasLyrics)
+          Positioned(left: w * .37, right: w * .06, top: h * .43,
+            height: h * .19,
+            child: _lyricBlock(h, Alignment.center, vhs: false)),
+      ],
+      // Same Record Cut disc and playback-driven inertia, layered behind
+      // the diagonal sleeve. The Stack clips naturally at screen edges.
+      Positioned(left: musiczineVinylX, top: musiczineVinylY,
+        width: musiczineVinylSize, height: musiczineVinylSize,
+        child: IgnorePointer(child: _vinyl(musiczineVinylSize))),
+      if (settings.visualizer)
+        if (portrait)
+          // The divider is the waveform's origin. Draw downward from it,
+          // beneath the angled sleeve and without any mirrored reflection.
+          Positioned(left: 0, right: 0, top: h * .20,
+            height: h * .082,
+            child: IgnorePointer(child: CustomPaint(
+              painter: _EditorialDividerWavePainter(
+                sim: sim, color: accent, gain: settings.sensitivity,
+                style: settings.cinematicWaveStyle,
+                repaint: _tick))))
+        else
+          Positioned(left: w * .20, right: w * .035,
+            bottom: h * .07, height: h * .15,
+            child: IgnorePointer(child: CustomPaint(
+              painter: _CinematicWavePainter(
+                sim: sim, color: accent,
+                style: settings.cinematicWaveStyle,
+                gain: settings.sensitivity, repaint: _tick)))),
+      Positioned(
+        left: sleeveCenterX - sleeveSize * .5,
+        top: sleeveCenterY - sleeveSize * .5,
+        width: sleeveSize, height: sleeveSize,
+        child: GestureDetector(onTap: _openPlayer, child: sleeve)),
     ]);
   }
 
@@ -850,42 +1069,55 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         math.min(h * 0.22, w * 0.16);
     final textWidth = portrait ? w * 0.57 : w * 0.34;
     final titleSize = portrait ? w * 0.052 : h * 0.065;
+    final swap = settings.layoutSwap && !portrait;
+    final textAlign = swap ? Alignment.centerRight : Alignment.centerLeft;
+    final details = SizedBox(width: textWidth, child: Column(
+      crossAxisAlignment: swap ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min, children: [
+        _artist(titleSize * 0.65, textAlign, false),
+        SizedBox(height: h * 0.008),
+        _title(titleSize, textAlign, false),
+        SizedBox(height: h * 0.008),
+        Text(model.album.isEmpty ? '' : model.album,
+          textAlign: swap ? TextAlign.right : TextAlign.left,
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Colors.white70,
+            fontSize: titleSize * 0.7)),
+      ]));
+    final cover = GestureDetector(
+      key: _artKey,
+      behavior: HitTestBehavior.opaque,
+      onTap: _openPlayer, child: _artCard(coverSize));
+    final spacing = SizedBox(width: portrait ? w * 0.025 : w * 0.018);
     final info = Row(mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center, children: [
-        GestureDetector(behavior: HitTestBehavior.opaque,
-          onTap: _openPlayer, child: _artCard(coverSize)),
-        SizedBox(width: portrait ? w * 0.025 : w * 0.018),
-        SizedBox(width: textWidth, child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min, children: [
-            _artist(titleSize * 0.65, Alignment.centerLeft, false),
-            SizedBox(height: h * 0.008),
-            _title(titleSize, Alignment.centerLeft, false),
-            SizedBox(height: h * 0.008),
-            Text(model.album.isEmpty ? '' : model.album,
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white70,
-                fontSize: titleSize * 0.7)),
-          ])),
-      ]);
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: swap ? [details, spacing, cover] : [cover, spacing, details]);
     final waveHeight = portrait ? h * 0.14 : h * 0.25;
     final wave = settings.visualizer ? IgnorePointer(child: CustomPaint(
       painter: _CinematicWavePainter(sim: sim, color: _palette.a,
         style: settings.cinematicWaveStyle,
         gain: settings.sensitivity, repaint: _tick))) :
         const SizedBox.shrink();
-    final swap = settings.layoutSwap;
     return Stack(children: [
       if (portrait) ...[
+        if (_hasLyrics) Positioned(
+          left: w * 0.07, right: w * 0.07,
+          top: h * 0.32, height: h * 0.17,
+          child: _lyricBlock(h, Alignment.center, vhs: false)),
         Positioned(left: w * 0.06, right: w * 0.04,
           bottom: h * 0.205, child: info),
         Positioned(left: w * 0.02, right: w * 0.02,
           bottom: h * 0.035, height: waveHeight, child: wave),
       ] else ...[
-        Positioned(left: swap ? w * 0.51 : w * 0.02,
+        if (_hasLyrics) Positioned(
+          left: w * 0.22, right: w * 0.22,
+          top: h * 0.31, height: h * 0.30,
+          child: _lyricBlock(h * 1.5, Alignment.center, vhs: false)),
+        Positioned(left: swap ? null : w * 0.02,
+          right: swap ? w * 0.02 : null,
           bottom: h * 0.035, child: info),
         Positioned(left: swap ? w * 0.025 : w * 0.43,
-          right: swap ? w * 0.57 : w * 0.025,
+          right: swap ? w * 0.43 : w * 0.025,
           bottom: h * 0.035, height: waveHeight, child: wave),
       ],
     ]);
@@ -913,7 +1145,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // upper-left, clear of the artwork. Other landscape themes retain sides.
     final typoLyricsCentered = !portrait &&
         theme == AppSettings.tTypo && _hasLyrics;
-    final centered = portrait || typoLyricsCentered;
+    // Cinematic landscape clock belongs at the top center, independent
+    // of the mirrored music-information layout.
+    final centered = (portrait && theme != AppSettings.tEditorial) || typoLyricsCentered ||
+        (!portrait && (theme == AppSettings.tCinematic || theme == 0));
     bool onRight = true;
     double topInset = portrait ? h * 0.055 : 18.0;
     double? bottomInset;
@@ -935,6 +1170,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 8: // Typo: clock gets its own camera-safe header above the title.
           topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
+        case 11: // Editorial: upper-right pocket beside the angled sleeve.
+          topInset = h * .162;
+          break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
           break;
@@ -947,11 +1185,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     } else {
       // Mirrored Drive places its music panel on the opposite side.
       if (theme == 4) onRight = settings.driveSwap;
+      // Side by Side clock follows the text panel opposite the artwork.
+      if (theme == 1) onRight = !settings.layoutSwap;
       // Fan and Record Cut landscape have the artwork on the left/right.
       if (theme == 7 || theme == AppSettings.tTypo) onRight = false;
       // Follow the information panel when a theme swaps its art and text.
       if (settings.layoutSwap && (theme == 5 || theme == 7 || theme == 9 || theme == 6 || theme == 8)) onRight = !onRight;
       if (theme == 9) onRight = !settings.layoutSwap; // Orbit clock follows text side, opposite the ring.
+      if (theme == AppSettings.tEditorial) onRight = false;
       // Typo uses upper-center when lyrics actually display, upper-left
       // when the right pane contains artwork (including disabled lyrics).
     }
@@ -963,10 +1204,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       topInset = math.max(topInset, cameraSafeTop + 14.0);
     }
     if (typoLyricsCentered) topInset = 22.0;
-    final inset = portrait ? 18.0 : 30.0;
+    final inset = theme == AppSettings.tEditorial && !portrait
+        ? w * .022 : (portrait ? 18.0 : 30.0);
+    if (theme == AppSettings.tEditorial && !portrait) topInset = h * .055;
+    // Editorial landscape: anchor the clock's RIGHT edge just before the
+    // grayscale backing divider (x = 19.8% of screen). Do not anchor its
+    // left edge to the screen: that pushes it underneath the diagonal sleeve.
+    final editorialLandscape = theme == AppSettings.tEditorial && !portrait;
     return Positioned(
-      left: centered ? 0 : (onRight ? null : inset),
-      right: centered ? 0 : (onRight ? inset : null),
+      left: centered ? 0 : (editorialLandscape ? null : (onRight ? null : inset)),
+      right: centered ? 0 : (editorialLandscape
+          ? w * .81
+          : (onRight ? inset : null)),
       top: bottomInset == null ? topInset : null,
       bottom: bottomInset,
       child: IgnorePointer(
@@ -1059,6 +1308,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             artKey: i == 1 ? _artKey : null,
             layerKey: i == 1 ? _shockLayerKey : null,
+            bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: i == 1 ? _shockLayerKey : null),
       if (settings.fxNebula)
@@ -1274,6 +1524,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: CustomPaint(
                     painter: RingPainter(
                       sim: sim,
+                  style: settings.diagonalWaveStyle,
                       palette: _palette,
                       innerRadius: art * 0.66,
                       maxLen: art * 0.2,
@@ -1316,10 +1567,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
 
     if (portrait) {
-      final content = Padding(
-        padding: EdgeInsets.only(top: h * 0.075),
-        child: _portraitStack(h * 0.925, top, text),
-      );
+      // Focused: lower the album/ring assembly and let its reflection extend
+      // behind the song labels. Draw text last so it stays on top.
+      final content = Stack(clipBehavior: Clip.none, children: [
+        Positioned(
+          left: 0, right: 0, top: h * 0.19,
+          child: Center(child: FittedBox(
+            fit: BoxFit.scaleDown, child: top)),
+        ),
+        Positioned(
+          left: 0, right: 0, top: h * 0.69,
+          child: Center(child: FittedBox(
+            fit: BoxFit.scaleDown, child: text)),
+        ),
+      ]);
       if (!barsMode || !settings.visualizer) return content;
       final edge = w * 0.07;
       return Stack(children: [
@@ -1331,18 +1592,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ]);
     }
 
-    final centered = Center(
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: SizedBox(
-          width: w,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [top, SizedBox(height: h * 0.03), text],
-          ),
-        ),
+    // Landscape Focused: leave a clear header for the centered clock.
+    // Keep the album reflection behind (rather than above) the song info.
+    // Paint the text last so it remains legible over the reflection.
+    final centered = Stack(clipBehavior: Clip.none, children: [
+      Positioned(
+        top: h * 0.14, left: 0, right: 0,
+        child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: top)),
       ),
-    );
+      Positioned(
+        bottom: h * 0.035, left: 0, right: 0,
+        child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: text)),
+      ),
+    ]);
     if (!barsMode || !settings.visualizer) return centered;
     final edge = w * 0.105;
     return Stack(children: [
@@ -1359,6 +1621,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// with the bottom of the art, and the bar reflection lines up with the
   /// art reflection. Song info and lyrics sit above the bars.
   Widget _sideLayout(double w, double h, {required bool vhs}) {
+    final textAlignment = settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft;
+    final textCrossAlignment = settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final s = math.min(h * 0.62, w * 0.36);
     final u = s / 0.62; // text scale: equals h unless the screen is narrow
     final artTop = (h - s) / 2;
@@ -1382,19 +1646,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   top: artTop,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: textCrossAlignment,
                     children: [
-                      _artist(u * 0.032, Alignment.centerLeft, vhs),
+                      _artist(u * 0.032, textAlignment, vhs),
                       SizedBox(height: u * 0.012),
-                      _title(u * 0.085, Alignment.centerLeft, vhs),
+                      _title(u * 0.085, textAlignment, vhs),
                       if (model.album.isNotEmpty &&
                           model.album != model.title) ...[
                         SizedBox(height: u * 0.012),
-                        _shaded(_fit(_albumText(u * 0.028), Alignment.centerLeft)),
+                        _shaded(_fit(_albumText(u * 0.028), textAlignment)),
                       ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(u)),
-                        _lyricBlock(u, Alignment.centerLeft, vhs: vhs),
+                        _lyricBlock(u, textAlignment, vhs: vhs),
                       ],
                     ],
                   ),
@@ -2166,11 +2430,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // layout. An opaque disc here used to hide it behind a hard circular
     // boundary. With artist fanart active, keep the disc's subdued styling
     // but let the *same continuous background* show through its surface.
-    final showFanartThroughDisc = settings.fanartMode != 0 &&
-        _fanartBytes != null &&
-        (settings.backgroundSource == 0 ||
-         settings.backgroundSource == 3 ||
-         settings.backgroundSource == 5);
+    final showFanartThroughDisc = false; // Keep grayscale artwork visible behind the record.
     if (showFanartThroughDisc) {
       return RepaintBoundary(
         child: Container(
@@ -2307,6 +2567,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: CustomPaint(
               painter: HalfRingPainter(
                 sim: sim,
+                  style: settings.diagonalWaveStyle,
                 palette: _palette,
                 innerRadius: r + 2,
                 maxLen: maxLen,
@@ -2387,10 +2648,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final r = _discR(d, h);
     final rcx = settings.layoutSwap ? d * 0.64 : w - d * 0.64;
     final cx = settings.layoutSwap
-        ? rcx + d / 2 + _discGap(d) - r
-        : rcx - d / 2 - _discGap(d) + r;
+        ? rcx + d / 2 + _discGap(d) - r * 1.35
+        : rcx - d / 2 - _discGap(d) + r * 1.35;
     final cy = h / 2;
     final maxLen = d * 0.16;
+    // Keep metadata outside the vinyl's actual bounds, with a visible gutter
+    // in both normal and flipped landscape layouts.
+    final recordGutter = math.max(24.0, w * 0.035);
+    final metadataWidth = settings.layoutSwap
+        ? w - w * 0.06 - (rcx + d / 2) - recordGutter
+        : (rcx - d / 2) - w * 0.06 - recordGutter;
     return Stack(
       children: [
         ..._discStack(cx, cy, r, d, h, settings.layoutSwap ? 0 : math.pi),
@@ -2409,25 +2676,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(
           left: settings.layoutSwap ? null : w * 0.06,
           right: settings.layoutSwap ? w * 0.06 : null,
-          width: math.max(w * 0.2, settings.layoutSwap
-              ? w - (cx + r + maxLen) - w * 0.08
-              : cx - r - maxLen - w * 0.08),
+          width: math.max(1.0, metadataWidth),
           top: 0,
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.start : CrossAxisAlignment.end,
             children: [
-              _artist(h * 0.032, Alignment.centerLeft, false),
+              _artist(h * 0.032, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, Alignment.centerLeft, false),
+              _title(h * 0.085, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.028), settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, vhs: false),
               ],
             ],
           ),
@@ -2595,18 +2860,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              _artist(h * 0.032, Alignment.centerLeft, false),
+              _artist(h * 0.032, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, Alignment.centerLeft, false),
+              _title(h * 0.085, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.028), settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, vhs: false),
               ],
             ],
           ),
@@ -2788,18 +3053,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
             child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: counterFlipText ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              _artist(h * 0.032, Alignment.centerLeft, false),
+              _artist(h * 0.032, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, Alignment.centerLeft, false),
+              _title(h * 0.085, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.028), counterFlipText ? Alignment.centerRight : Alignment.centerLeft)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, vhs: false),
               ],
             ],
           ),
@@ -2973,7 +3238,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             )),
           )),
         ),
-      if ((settings.backgroundSource == 0 || settings.backgroundSource == 3 || settings.backgroundSource == 5) && !(settings.fanartMode != 0 && _fanartBytes != null)) _orbitGhost(w, h, narrow),
+      if (settings.backgroundSource != 1 && settings.backgroundSource != 6) _orbitGhost(w, h, narrow),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.
@@ -3034,6 +3299,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               child: CustomPaint(
                 painter: FullRingPainter(
                   sim: sim,
+                  style: settings.diagonalWaveStyle,
                   palette: p,
                   innerRadius: barsInner,
                   maxLen: barsMax,
@@ -3058,7 +3324,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           key: _artKey,
           behavior: HitTestBehavior.opaque,
           onTap: _openPlayer,
-          child: _pulse(_orbitArt(artR * 2)),
+          child: _orbitArt(artR * 2),
         ),
       ),
     ];
@@ -3130,19 +3396,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              _artist(h * 0.024, Alignment.centerLeft, false),
+              _artist(h * 0.024, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
               SizedBox(height: h * 0.014),
-              _title(h * 0.06, Alignment.centerLeft, false),
+              _title(h * 0.06, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.014),
-                _shaded(_fit(_albumText(h * 0.022), Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.022), settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft)),
               ],
               SizedBox(height: h * 0.035),
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h) * 1.2),
-                _lyricBlock(h, Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, vhs: false),
               ],
             ],
           ),
@@ -3584,14 +3850,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// Keep this wrapper for existing theme call sites; it draws no backdrop.
   Widget _shaded(Widget child) => child;
 
-  // Switch only for largely near-white, low-saturation art, not bright colors.
-  // Evaluated from the already decoded 96px artwork, never per frame.
-  bool get _nearWhiteText => (model.art?.nearWhiteTextCoverage ?? 0) >= 0.46;
-  Color _readableText(double opacity) =>
-      (_nearWhiteText ? Colors.black : Colors.white).withOpacity(opacity);
-  List<Shadow> get _cleanTextShadows => [
-    Shadow(color: _nearWhiteText ? const Color(0x88FFFFFF) : const Color(0x55000000),
-        offset: const Offset(0, 1), blurRadius: 2.5),
+  // Stable white typography across all artwork and fanart backgrounds.
+  // Do not switch foreground text to black based on album-cover pixels.
+  bool get _nearWhiteText => false;
+  Color _readableText(double opacity) => Colors.white.withOpacity(opacity);
+  List<Shadow> get _cleanTextShadows => const [
+    Shadow(color: Color(0xB0000000), offset: Offset(0, 1), blurRadius: 3.5),
+    Shadow(color: Color(0x77000000), offset: Offset(0, 2), blurRadius: 8),
   ];
 
   /// Compositional fade (not a text backdrop), placed beneath foreground art.
@@ -3830,27 +4095,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  /// Small scale-up on bass hits. Only moves a cached layer.
-  Widget _pulse(Widget child) {
-    if (!settings.bgEffects) return child;
-    return AnimatedBuilder(
-      animation: _tick,
-      child: child,
-      builder: (context, c) {
-        final b = ((sim.bass - 0.15) / 0.6).clamp(0.0, 1.0).toDouble();
-        return Transform.scale(
-            scale: 1.0 + 0.03 * b * settings.kMotion, child: c);
-      },
-    );
-  }
-
   /// Tapping the cover opens the player app that is playing.
   Widget _front(double s, bool vhs) => GestureDetector(
         key: _artKey,
         behavior: HitTestBehavior.opaque,
         onTap: _openPlayer,
-        child: _pulse(
-          Stack(
+        child: Stack(
             clipBehavior: Clip.none,
             children: [
               if (settings.fxBloom && !settings.performance)
@@ -3860,7 +4110,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               (vhs || _vhsOn) ? _splitArt(s) : _artCard(s),
             ],
           ),
-        ),
       );
 
   /// Soft glow: a blurred, slightly larger copy of the cover behind it.
@@ -4380,6 +4629,71 @@ class _FxBlendPainter extends CustomPainter {
 
 
 /// Thin, smoothed audio-reactive waveform for Cinematic.
+/// Editorial portrait waveform: zero baseline at the grayscale divider,
+/// positive Y deformation only, with no reflected/mirrored duplicate.
+class _EditorialDividerWavePainter extends CustomPainter {
+  final SpectrumSim sim;
+  final Color color;
+  final double gain;
+  final int style;
+  _EditorialDividerWavePainter({
+    required this.sim, required this.color, required this.gain,
+    required this.style, required Listenable repaint,
+  }) : super(repaint: repaint);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    const samples = 96;
+    final points = <Offset>[];
+    for (var i = 0; i < samples; i++) {
+      final x = i / (samples - 1);
+      final band = (x * (SpectrumSim.bars - 1)).round();
+      final raw = sim.level(band, gain).clamp(0.0, 1.0);
+      final energy = math.pow(raw, 0.58).toDouble();
+      points.add(Offset(x * size.width, size.height * .84 * energy));
+    }
+    final fade = LinearGradient(
+      colors: [color.withOpacity(0), color.withOpacity(.85),
+        color.withOpacity(.85), color.withOpacity(0)],
+      stops: const [0, .13, .87, 1],
+    ).createShader(Offset.zero & size);
+    if (style == 0) {
+      // Bars follow the divider, with dense samples rather than widely
+      // spaced strokes stretched across the screen.
+      final paint = Paint()..shader = fade
+        ..strokeWidth = (size.width / samples * .52).clamp(1.2, 4.0)
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < points.length; i++) {
+        canvas.drawLine(Offset(points[i].dx, 0), points[i], paint);
+      }
+    } else if (style == 2) {
+      for (final point in points) {
+        final opacity = (.85 * (1 - (point.dx / size.width * 2 - 1).abs()))
+            .clamp(0.0, 1.0);
+        canvas.drawCircle(point, 1.7, Paint()..color = color.withOpacity(opacity));
+      }
+    } else {
+      final path = Path()..moveTo(points.first.dx, points.first.dy);
+      for (var i = 1; i < points.length - 1; i++) {
+        final mid = Offset((points[i].dx + points[i + 1].dx) / 2,
+            (points[i].dy + points[i + 1].dy) / 2);
+        path.quadraticBezierTo(points[i].dx, points[i].dy, mid.dx, mid.dy);
+      }
+      path.lineTo(points.last.dx, points.last.dy);
+      canvas.drawPath(path, Paint()..shader = fade
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_EditorialDividerWavePainter old) =>
+      old.color != color || old.gain != gain || old.style != style;
+}
+
 class _CinematicWavePainter extends CustomPainter {
   final SpectrumSim sim;
   final Color color;
@@ -4391,13 +4705,16 @@ class _CinematicWavePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-    const samples = 48;
+    const samples = 96;
     final points = <Offset>[];
     for (var i = 0; i < samples; i++) {
       final x = i / (samples - 1);
       final band = (i * (SpectrumSim.bars - 1) / (samples - 1)).round();
-      final energy = sim.level(band, gain);
-      final y = size.height * (0.55 - 0.36 * energy);
+      // Expand quieter live-audio peaks without clipping the louder ones.
+      // Preserve the relative spectral differences instead of flattening bars.
+      final raw = sim.level(band, gain).clamp(0.0, 1.0);
+      final energy = math.pow(raw, 0.58).toDouble();
+      final y = size.height * (0.55 - 0.44 * energy);
       points.add(Offset(x * size.width, y));
     }
     final path = Path()..moveTo(points.first.dx, points.first.dy);
@@ -4419,7 +4736,8 @@ class _CinematicWavePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     if (style == 0) {
-      for (var i = 0; i < points.length; i += 2) {
+      paint.strokeWidth = (size.width / samples * .55).clamp(1.2, 4.0);
+      for (var i = 0; i < points.length; i++) {
         canvas.drawLine(Offset(points[i].dx, size.height * 0.60),
           points[i], paint);
       }
@@ -4449,7 +4767,7 @@ class _CinematicWavePainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round);
     } else if (style == 0) {
       final rp = Paint()..shader = reflection..strokeWidth = 1.8;
-      for (var i = 0; i < points.length; i += 2) {
+      for (var i = 0; i < points.length; i++) {
         canvas.drawLine(Offset(points[i].dx, size.height * 0.60), points[i], rp);
       }
     } else {

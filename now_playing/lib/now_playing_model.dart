@@ -469,8 +469,26 @@ class NowPlayingModel extends ChangeNotifier {
     // Generic music-player placeholders are not usable album artwork.
     art = (loaded != null && !loaded.flat) ? loaded : null;
     if (art == null) {
-      artworkFailure = 'Received image was empty, invalid, or a placeholder';
-      if (artworkSource == 'Android media session') sessionArtworkStatus = 'Received but unusable';
+      // Keep a previously verified cover only when new media-session bytes
+      // cannot be decoded at all.
+      final previousAlbumCover = _albumArtCache[albumCacheKey];
+      if (previousAlbumCover != null && !listEquals(previousAlbumCover, bytes)) {
+        final restored = await ArtAssets.load(previousAlbumCover);
+        if (token != _artToken) return;
+        if (restored != null && !restored.flat) {
+          art = restored;
+          artworkSource = 'Album memory cache';
+          artworkLookupState = 'Restored valid album cover';
+        }
+      }
+      if (art == null) {
+        artworkFailure = loaded == null
+            ? 'Media-session image could not be decoded'
+            : 'Media-session image unavailable';
+        if (artworkSource == 'Android media session') {
+          sessionArtworkStatus = 'Received but unusable';
+        }
+      }
     } else {
       artworkFailure = 'None';
       artworkLookupState = 'Artwork displayed';

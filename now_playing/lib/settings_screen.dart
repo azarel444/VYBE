@@ -9,6 +9,7 @@ import 'onboarding.dart';
 import 'settings.dart';
 import 'fx_library.dart';
 import 'media_cache.dart';
+import 'artist_fanart.dart';
 
 const _cyan = Color(0xFF00E5FF);
 
@@ -199,6 +200,17 @@ class SettingsScreen extends StatelessWidget {
           }),
       Text(model.artworkDiagnostics,
           style: const TextStyle(fontSize: 13, color: Colors.white70)),
+      _section('Fanart diagnostics'),
+      _action('Copy fanart diagnostics',
+          'Timing of cache, MusicBrainz, Fanart.tv and image downloads',
+          'Copy Fanart Diagnostics', () async {
+            await Clipboard.setData(
+              ClipboardData(text: ArtistFanartCache.diagnostics));
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Fanart diagnostics copied')));
+          }),
+      Text(ArtistFanartCache.diagnostics,
+          style: const TextStyle(fontSize: 13, color: Colors.white70)),
       _section('Offline media cache'),
       _action('Clear cached artwork and lyrics',
           'Delete downloaded artwork and synced lyrics stored on this device',
@@ -245,23 +257,31 @@ class SettingsScreen extends StatelessWidget {
   List<Widget> _visuals(BuildContext context) {
     final s = settings;
     return [
-      _section('Theme & palette'),
-      _choices('Now Playing theme',
-        AppSettings.pickable.map((i) => AppSettings.themeNames[i]).toList(),
-        AppSettings.pickable.indexOf(s.theme).clamp(0, AppSettings.pickable.length - 1).toInt(),
-        (i) => s.update(() => s.theme = AppSettings.pickable[i])),
-      _choices('Accent color template', AppSettings.accentNames, s.accent,
-        (i) => s.update(() => s.accent = i)),
-      _section('Background'),
-      _choices('Artwork background image', const ['Album Art', 'Artist Fanart', 'Auto (fanart then album)'], s.fanartMode,
-        (i) => s.update(() => s.fanartMode = i)),
-      _choices('Background source', const [
-        'Blurred album art', 'Animated color template', 'Club Light Show',
-        'Album Art + Club Light Show', 'Laser Tunnel', 'Album Art + Laser Tunnel',
-      ], s.backgroundSource,
-        (i) => s.update(() { s.backgroundSource = i; s.animatedTemplateBackground = i == 1; })),
+      _section('Themes & backgrounds'),
+      _themePreviewSelector(s),
+      const Text('Choose a premium animated scene. Each scene has its own designed color palette.'),
+      _choices('Animated background',
+        const ['Golden Hour', 'Neon Ribbons', 'Club Stage', 'Lightstorm',
+          'Rave', 'Neon Club'],
+        (s.cinematicPalette - 14).clamp(0, 5),
+        (i) => s.update(() => s.cinematicPalette = i + 14)),
+      _choices('Animation colors',
+        const ['Default', 'Use album colors'],
+        s.animationUseAlbumColors ? 1 : 0,
+        (i) => s.update(() => s.animationUseAlbumColors = i == 1)),
+      const Text('Default keeps each animated scene\'s original colors. '
+          'Use album colors applies the current album artwork palette.'),
+      _choices('Theme background',
+        const ['Album Art', 'Artist Fanart', 'Animated Background'],
+        s.backgroundSource == 1 ? 2 : (s.backgroundSource == 6 ? 1 : 0),
+        (i) => s.update(() {
+          s.backgroundSource = i == 2 ? 1 : (i == 1 ? 6 : 0);
+          s.fanartMode = i == 1 ? 1 : 0;
+        })),
+      const Text('Standard themes default to blurred album art, then use the selected '
+          'animated scene when artwork is unavailable.'),
       _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
-        s.bgOverlay, 0.0, 2.0,
+        s.bgOverlay, 0.0, 1.0,
         (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
       _slider('Background blur', '${s.bgBlur.round()}',
         s.bgBlur, 0.0, 18.0,
@@ -269,23 +289,37 @@ class SettingsScreen extends StatelessWidget {
       _slider('Background contrast', '${(s.bgContrast * 100).round()}%',
         s.bgContrast, 1.0, 2.0,
         (v) => s.update(() => s.bgContrast = v, persist: false), s.save),
-      if (s.backgroundSource != 0)
-        _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
-          s.templateBackgroundMotion, 0.0, 1.0,
-          (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
-      if (s.backgroundSource >= 2 && s.backgroundSource <= 5)
-        _choices('Lighting blend mode', const [
-          'Normal', 'Add / Plus', 'Screen', 'Lighten', 'Overlay',
-          'Soft Light', 'Difference (Negative)', 'Exclusion',
-          'Color Dodge', 'Hard Light',
-        ], s.clubBlendMode, (i) => s.update(() => s.clubBlendMode = i)),
+      _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
+        s.templateBackgroundMotion, 0.0, 1.0,
+        (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
+      _section('Fanart backgrounds'),
+      const Text('Cinematic and Editorial default to artist fanart, then album art, '
+          'then the selected animated scene when artwork is unavailable.'),
+      _choices('Fanart theme background',
+        const ['Artist Fanart', 'Album Art', 'Animated Background'],
+        s.fanartThemeSource,
+        (i) => s.update(() => s.fanartThemeSource = i)),
+      _slider('Fanart animation speed',
+          '${(s.cinematicAnimationSpeed * 100).round()}%',
+          s.cinematicAnimationSpeed, 0.0, 3.0,
+          (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
+          s.save),
+      _slider('Fanart darkness', '${(s.cinematicDarkness * 100).round()}%',
+        s.cinematicDarkness, 0.0, 1.0,
+        (v) => s.update(() => s.cinematicDarkness = v, persist: false), s.save),
+      _slider('Fanart blur', '${s.cinematicBlur.round()}',
+        s.cinematicBlur, 0.0, 18.0,
+        (v) => s.update(() => s.cinematicBlur = v, persist: false), s.save),
+      _slider('Fanart contrast', '${(s.cinematicContrast * 100).round()}%',
+        s.cinematicContrast, 1.0, 2.0,
+        (v) => s.update(() => s.cinematicContrast = v, persist: false), s.save),
       _section('Visualizer'),
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
       if (s.visualizer) ...[
         _choices('Cinematic waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i)),
-        _choices('Visualizer shape (compatible layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+        _choices('Visualizer shape (including circular layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
         _slider('Sensitivity', '${(s.sensitivity * 100).round()}%',
           s.sensitivity, 0.5, 1.5,
@@ -576,6 +610,58 @@ class SettingsScreen extends StatelessWidget {
           ],
         ),
       );
+
+  static const Map<int, String> _previewNames = {
+    0: 'focused', 1: 'side_by_side', 3: 'edge_to_edge',
+    4: 'drive', 5: 'fan', 6: 'diagonal', 7: 'record_cut',
+    8: 'typo', 9: 'orbit', 10: 'cinematic', 11: 'musiczine',
+  };
+
+  Widget _themePreviewSelector(AppSettings s) {
+    final selected = s.theme;
+    final name = _previewNames[selected];
+    Widget preview(String orientation) {
+      if (name == null) return const SizedBox.shrink();
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(9),
+        child: Image.asset(
+          'assets/theme_previews/${name}_${orientation}.jpg',
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            color: const Color(0xFF111B26),
+            alignment: Alignment.center,
+            child: const Text('Preview pending',
+              style: TextStyle(color: Colors.white54, fontSize: 13)),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Now Playing theme', style: TextStyle(fontSize: 20)),
+        const SizedBox(height: 8),
+        _choices('Select theme',
+          AppSettings.pickable.map((i) => AppSettings.themeNames[i]).toList(),
+          AppSettings.pickable.indexOf(selected).clamp(0, AppSettings.pickable.length - 1),
+          (i) => s.update(() => s.theme = AppSettings.pickable[i])),
+        const SizedBox(height: 8),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(flex: 3, child: Column(children: [
+            AspectRatio(aspectRatio: 16 / 9, child: preview('landscape')),
+            const SizedBox(height: 5),
+            const Text('Landscape', style: TextStyle(color: Colors.white60, fontSize: 12)),
+          ])),
+          const SizedBox(width: 10),
+          Expanded(flex: 2, child: Column(children: [
+            AspectRatio(aspectRatio: 9 / 16, child: preview('portrait')),
+            const SizedBox(height: 5),
+            const Text('Portrait', style: TextStyle(color: Colors.white60, fontSize: 12)),
+          ])),
+        ]),
+      ]),
+    );
+  }
 
   /// Compact, scroll-friendly selector. Preserves the exact stored integer values.
   Widget _choices(String title, List<String> labels, int selected,

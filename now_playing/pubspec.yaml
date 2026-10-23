@@ -20,3 +20,9 @@ flutter:
     - assets/theme_previews/
   shaders:
     - shaders/vybe_refraction.frag
+    - shaders/golden_hour.frag
+    - shaders/neon_ribbons.frag
+    - shaders/club_stage.frag
+    - shaders/lightstorm.frag
+    - shaders/rave.frag
+    - shaders/neon_club.frag
