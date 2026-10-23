@@ -625,12 +625,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       'shaders/neon_club.frag',
     ];
     final sceneIndex = (settings.cinematicPalette - 14).clamp(0, 5);
-    final isGoldenHour = sceneIndex == 0;
+    // Give each environment its own lighting identity. Album colors previously
+    // made all four venues look like the same gold-lit room.
+    const scenePalettes = <ArtPalette>[
+      ArtPalette(Color(0xFFFFC76B), Color(0xFFFF8A35), Color(0xFFFFE0A1)),
+      ArtPalette(Color(0xFF00E7FF), Color(0xFFFF36A8), Color(0xFF665CFF)),
+      ArtPalette(Color(0xFF00AFFF), Color(0xFFFF2B70), Color(0xFF83E9FF)),
+      ArtPalette(Color(0xFF436BFF), Color(0xFFFF214F), Color(0xFFAD4CFF)),
+      ArtPalette(Color(0xFFFF2C9E), Color(0xFF23CFFF), Color(0xFFFFCB4A)),
+      ArtPalette(Color(0xFFFFB836), Color(0xFFE843EE), Color(0xFF18DEFF)),
+    ];
     return RepaintBoundary(child: GoldenHourBackground(
       key: ValueKey(sceneAssets[sceneIndex]),
       time: _time,
       motion: settings.performance ? 0.0 : motion,
-      palette: isGoldenHour ? AppSettings.accents[14]! : _palette,
+      palette: scenePalettes[sceneIndex],
       bass: sim.bass,
       shaderAsset: sceneAssets[sceneIndex],
     ));
