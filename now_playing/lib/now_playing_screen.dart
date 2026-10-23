@@ -3823,14 +3823,39 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Soft black oval behind the bars, faded on every side so it never
-          // reads as a rectangle.
-          Positioned(
-            left: -height * 0.9,
-            right: -height * 0.9,
-            top: -height * 0.35,
-            bottom: -height * 0.15,
-            child: IgnorePointer(child: _softShade()),
+          // Confine the waveform shade to its own bounds. It fades upward
+          // from the bottom and tapers to transparency at both side edges.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (rect) => const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Colors.transparent,
+                    Colors.white,
+                    Colors.white,
+                    Colors.transparent,
+                  ],
+                  stops: [0.0, 0.12, 0.88, 1.0],
+                ).createShader(rect),
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Color(0xA6000000),
+                        Color(0x70000000),
+                        Colors.transparent,
+                      ],
+                      stops: [0.0, 0.35, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
           Positioned.fill(
             child: RepaintBoundary(
