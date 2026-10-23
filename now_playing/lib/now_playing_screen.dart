@@ -1011,6 +1011,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: IgnorePointer(child: CustomPaint(
               painter: _EditorialDividerWavePainter(
                 sim: sim, color: accent, gain: settings.sensitivity,
+                style: settings.cinematicWaveStyle,
                 repaint: _tick))))
         else
           Positioned(left: w * .20, right: w * .035,
