@@ -1086,8 +1086,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           Positioned(left: w * .20, right: w * .035,
             bottom: h * .07, height: h * .15,
             child: IgnorePointer(child: CustomPaint(
-              painter: _CinematicWavePainter(
-                sim: sim, color: accent,
+              painter: BarsPainter(
+                sim: sim, palette: _palette,
+                count: settings.barCount,
                 style: settings.cinematicWaveStyle,
                 gain: settings.sensitivity, repaint: _tick)))),
       Positioned(
@@ -1132,7 +1133,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       children: swap ? [details, spacing, cover] : [cover, spacing, details]);
     final waveHeight = portrait ? h * 0.14 : h * 0.25;
     final wave = settings.visualizer ? IgnorePointer(child: CustomPaint(
-      painter: _CinematicWavePainter(sim: sim, color: _palette.a,
+      painter: BarsPainter(sim: sim, palette: _palette,
+        count: settings.barCount,
         style: settings.cinematicWaveStyle,
         gain: settings.sensitivity, repaint: _tick))) :
         const SizedBox.shrink();
