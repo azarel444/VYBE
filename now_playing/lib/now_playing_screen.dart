@@ -933,16 +933,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final titleStyle = TextStyle(
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
       fontWeight: FontWeight.w400, letterSpacing: .3,
-      shadows: const [Shadow(color: Colors.black, blurRadius: 9)]);
+      shadows: const [Shadow(color: Colors.black, blurRadius: 9),
+        Shadow(color: Colors.black, blurRadius: 17, offset: Offset(1, 2))]);
     final songStyle = TextStyle(
       color: Colors.white, fontSize: portrait ? w * .049 : h * .052,
-      shadows: const [Shadow(color: Colors.black, blurRadius: 8)]);
+      shadows: const [Shadow(color: Colors.black, blurRadius: 8),
+        Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     return Stack(fit: StackFit.expand, children: [
       if (portrait) ...[
         Positioned(left: 0, right: 0, top: 0, height: h * .20,
           child: ClipRect(child: backing)),
         Positioned(left: 0, right: 0, top: h * .20,
           child: Container(height: 2, color: accent.withOpacity(.88))),
+        // A black gradient falls away from the divider behind the portrait
+        // visualizer, preserving contrast without obscuring the lower fanart.
+        Positioned(left: 0, right: 0, top: h * .20, height: h * .145,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Color(0xB8000000), Color(0x65000000), Color(0x00000000)],
+              stops: [0.0, .38, 1.0]))))),
         Positioned(left: 0, right: 0, bottom: 0, height: h * .31,
           child: const DecoratedBox(decoration: BoxDecoration(
             gradient: LinearGradient(begin: Alignment.bottomCenter,
