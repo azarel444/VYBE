@@ -887,9 +887,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final sleeveCenterX = portrait ? w * .48 : w * .235 - sleeveSize * .707;
     final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .62;
     // Exposed spinning vinyl sits behind the sleeve, never over its artwork.
-    final musiczineVinylSize = portrait ? w * .72 : h * .68;
-    final musiczineVinylX = portrait ? -w * .24 : w * .015;
-    final musiczineVinylY = portrait ? h * .23 : -h * .17;
+    final musiczineVinylSize = portrait ? sleeveSize * .83 : sleeveSize * .76;
+    // Anchor the disc to the rotated sleeve, not to screen coordinates.
+    // Portrait: emerge from the lower-left diagonal; landscape: upper edge.
+    final musiczineVinylCenterX = sleeveCenterX +
+        (portrait ? -sleeveSize * .37 : sleeveSize * .30);
+    final musiczineVinylCenterY = sleeveCenterY +
+        (portrait ? sleeveSize * .32 : -sleeveSize * .31);
+    final musiczineVinylX = musiczineVinylCenterX - musiczineVinylSize * .5;
+    final musiczineVinylY = musiczineVinylCenterY - musiczineVinylSize * .5;
     final cover = hasCover
         ? RawImage(image: art.tiny, fit: BoxFit.cover,
             filterQuality: FilterQuality.high)
@@ -1017,6 +1023,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             height: h * .19,
             child: _lyricBlock(h, Alignment.center, vhs: false)),
       ],
+      // Same Record Cut disc and playback-driven inertia, layered behind
+      // the diagonal sleeve. The Stack clips naturally at screen edges.
+      Positioned(left: musiczineVinylX, top: musiczineVinylY,
+        width: musiczineVinylSize, height: musiczineVinylSize,
+        child: IgnorePointer(child: _vinyl(musiczineVinylSize))),
       if (settings.visualizer)
         if (portrait)
           // The divider is the waveform's origin. Draw downward from it,
@@ -1036,11 +1047,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 sim: sim, color: accent,
                 style: settings.cinematicWaveStyle,
                 gain: settings.sensitivity, repaint: _tick)))),
-      // Same Record Cut disc and playback-driven inertia, layered behind
-      // the diagonal sleeve. The Stack clips naturally at screen edges.
-      Positioned(left: musiczineVinylX, top: musiczineVinylY,
-        width: musiczineVinylSize, height: musiczineVinylSize,
-        child: IgnorePointer(child: _vinyl(musiczineVinylSize))),
       Positioned(
         left: sleeveCenterX - sleeveSize * .5,
         top: sleeveCenterY - sleeveSize * .5,
