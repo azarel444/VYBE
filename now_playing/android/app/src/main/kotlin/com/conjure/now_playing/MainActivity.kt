@@ -344,7 +344,6 @@ open class MainActivity : FlutterActivity() {
     // queue is NOT proof of playlist browsing or arbitrary track playback.
     private fun integrationDiagnostics(service: String): Map<String, Any?> {
         val target = when (service) {
-            "spotify" -> "com.spotify.music"
             "youtube_music" -> "com.google.android.apps.youtube.music"
             else -> return mapOf("error" to "Unknown integration")
         }
@@ -371,7 +370,7 @@ open class MainActivity : FlutterActivity() {
             val seek = actions and PlaybackState.ACTION_SEEK_TO != 0L
             val playFromId = actions and PlaybackState.ACTION_PLAY_FROM_MEDIA_ID != 0L
             val playFromSearch = actions and PlaybackState.ACTION_PLAY_FROM_SEARCH != 0L
-            val tracks = queue?.take(30)?.mapIndexed { index, item ->
+            val tracks = queue?.take(100)?.mapIndexed { index, item ->
                 mapOf(
                     "index" to index, "queueId" to item.queueId,
                     "title" to item.description.title?.toString(),
@@ -387,6 +386,11 @@ open class MainActivity : FlutterActivity() {
                 "service" to service, "package" to target, "access" to true,
                 "sessionFound" to true, "sessionCount" to matches.size,
                 "playbackState" to (st?.state ?: -1),
+                "scanTimeMs" to System.currentTimeMillis(),
+                "activeQueueItemId" to (st?.activeQueueItemId ?: -1L),
+                "playbackPositionMs" to (st?.position ?: -1L),
+                "playbackActionsMask" to actions,
+                "playbackExtrasKeys" to (st?.extras?.keySet()?.toList() ?: emptyList<String>()),
                 "metadata" to mapOf(
                     "title" to md?.getString(MediaMetadata.METADATA_KEY_TITLE),
                     "artist" to md?.getString(MediaMetadata.METADATA_KEY_ARTIST),
@@ -402,9 +406,12 @@ open class MainActivity : FlutterActivity() {
                     "keys" to (md?.keySet()?.toList() ?: emptyList<String>())
                 ),
                 "queueTitle" to c.queueTitle?.toString(),
+                "queueIds" to (queue?.map { it.queueId } ?: emptyList<Long>()),
+                "queueArtworkUrlCount" to (queue?.count { it.description.iconUri != null } ?: 0),
+                "queueMediaIdCount" to (queue?.count { it.description.mediaId != null } ?: 0),
                 "queuePublished" to (queue != null),
                 "queueLength" to (queue?.size ?: 0),
-                "queueTruncated" to ((queue?.size ?: 0) > 30),
+                "queueTruncated" to ((queue?.size ?: 0) > 100),
                 "queue" to tracks,
                 "sessionFlags" to flags,
                 "actions" to mapOf(
@@ -423,6 +430,7 @@ open class MainActivity : FlutterActivity() {
                     else -> "Queue entries available for inspection. Up Next may be possible. Track jumping requires skipToQueueItem support and a real playback test; full playlist browsing is not established."
                 },
                 "upNextCandidate" to (queue != null && queue.size > 1),
+                "activeItemInQueue" to (queue?.any { it.queueId == st?.activeQueueItemId } ?: false),
                 "queueJumpCandidate" to (queue != null && queue.isNotEmpty() && skipToQueue),
                 "fullPlaylistBrowsingVerified" to false,
                 "prefetchCandidate" to (queue != null && queue.size > 1),
