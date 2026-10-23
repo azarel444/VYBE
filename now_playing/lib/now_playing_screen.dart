@@ -4600,41 +4600,63 @@ class _EditorialDividerWavePainter extends CustomPainter {
   final SpectrumSim sim;
   final Color color;
   final double gain;
+  final int style;
   _EditorialDividerWavePainter({
     required this.sim, required this.color, required this.gain,
-    required Listenable repaint,
+    required this.style, required Listenable repaint,
   }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-    final path = Path();
-    const samples = 64;
+    const samples = 96;
+    final points = <Offset>[];
     for (var i = 0; i < samples; i++) {
       final x = i / (samples - 1);
       final band = (x * (SpectrumSim.bars - 1)).round();
       final raw = sim.level(band, gain).clamp(0.0, 1.0);
       final energy = math.pow(raw, 0.58).toDouble();
-      final y = size.height * (.84 * energy);
-      if (i == 0) { path.moveTo(x * size.width, y); }
-      else { path.lineTo(x * size.width, y); }
+      points.add(Offset(x * size.width, size.height * .84 * energy));
     }
-    final paint = Paint()
-      ..shader = LinearGradient(
-        colors: [color.withOpacity(0), color.withOpacity(.85),
-          color.withOpacity(.85), color.withOpacity(0)],
-        stops: const [0, .13, .87, 1],
-      ).createShader(Offset.zero & size)
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-    canvas.drawPath(path, paint);
+    final fade = LinearGradient(
+      colors: [color.withOpacity(0), color.withOpacity(.85),
+        color.withOpacity(.85), color.withOpacity(0)],
+      stops: const [0, .13, .87, 1],
+    ).createShader(Offset.zero & size);
+    if (style == 0) {
+      // Bars follow the divider, with dense samples rather than widely
+      // spaced strokes stretched across the screen.
+      final paint = Paint()..shader = fade
+        ..strokeWidth = (size.width / samples * .52).clamp(1.2, 4.0)
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < points.length; i++) {
+        canvas.drawLine(Offset(points[i].dx, 0), points[i], paint);
+      }
+    } else if (style == 2) {
+      for (final point in points) {
+        final opacity = (.85 * (1 - (point.dx / size.width * 2 - 1).abs()))
+            .clamp(0.0, 1.0);
+        canvas.drawCircle(point, 1.7, Paint()..color = color.withOpacity(opacity));
+      }
+    } else {
+      final path = Path()..moveTo(points.first.dx, points.first.dy);
+      for (var i = 1; i < points.length - 1; i++) {
+        final mid = Offset((points[i].dx + points[i + 1].dx) / 2,
+            (points[i].dy + points[i + 1].dy) / 2);
+        path.quadraticBezierTo(points[i].dx, points[i].dy, mid.dx, mid.dy);
+      }
+      path.lineTo(points.last.dx, points.last.dy);
+      canvas.drawPath(path, Paint()..shader = fade
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke);
+    }
   }
 
   @override
   bool shouldRepaint(_EditorialDividerWavePainter old) =>
-      old.color != color || old.gain != gain;
+      old.color != color || old.gain != gain || old.style != style;
 }
 
 class _CinematicWavePainter extends CustomPainter {
