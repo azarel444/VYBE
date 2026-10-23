@@ -19,7 +19,7 @@ class AppSettings extends ChangeNotifier {
     'Typo',
     'Orbit',
     'Cinematic',
-    'Editorial',
+    'Musiczine',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
