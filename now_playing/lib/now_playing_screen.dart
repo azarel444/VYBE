@@ -445,7 +445,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Uniform darkness for every theme and background source.
             // Applied once, after background rendering, before foreground FX/UI.
             Positioned.fill(child: IgnorePointer(child: ColoredBox(
-              color: Colors.black.withOpacity((settings.theme == AppSettings.tCinematic && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
+              color: Colors.black.withOpacity(((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial) && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
             if (heavy) _shaderFxLayer(),
             if (heavy) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
@@ -856,6 +856,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 : RawImage(image: art?.tiny, fit: BoxFit.cover)),
           ),
         )),
+      // Shared fanart darkness, independent of the intentional bottom fade.
       ColoredBox(color: Colors.black.withOpacity(
         settings.cinematicDarkness.clamp(0.0, 1.0))),
       // Cinematic's deliberate bottom-to-transparent readability fade is
@@ -865,7 +866,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         alignment: Alignment.bottomCenter,
         child: FractionallySizedBox(
           widthFactor: 1.0,
-          heightFactor: .38,
+          heightFactor: .42,
           child: const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -873,8 +874,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 end: Alignment.topCenter,
                 stops: [0.0, .36, 1.0],
                 colors: [
-                  Color(0xE6000000),
-                  Color(0x90000000),
+                  Color(0xFF000000),
+                  Color(0xB0000000),
                   Color(0x00000000),
                 ],
               ),
@@ -971,6 +972,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     return Stack(fit: StackFit.expand, children: [
+      // Muzine shares Bigfan's fanart darkness slider. Zero adds no
+      // overall dimming, but the theme's bottom readability fade remains.
+      Positioned.fill(child: IgnorePointer(child: ColoredBox(
+        color: Colors.black.withOpacity(
+          settings.cinematicDarkness.clamp(0.0, 1.0))))),
       if (portrait) ...[
         Positioned(left: 0, right: 0, top: 0, height: h * .20,
           child: ClipRect(child: backing)),
