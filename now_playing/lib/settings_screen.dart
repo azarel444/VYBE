@@ -258,10 +258,7 @@ class SettingsScreen extends StatelessWidget {
     final s = settings;
     return [
       _section('Themes & backgrounds'),
-      _choices('Now Playing theme',
-        AppSettings.pickable.map((i) => AppSettings.themeNames[i]).toList(),
-        AppSettings.pickable.indexOf(s.theme).clamp(0, AppSettings.pickable.length - 1).toInt(),
-        (i) => s.update(() => s.theme = AppSettings.pickable[i])),
+      _themePreviewSelector(s),
       const Text('Choose a premium animated scene. Each scene has its own designed color palette.'),
       _choices('Animated background',
         const ['Golden Hour', 'Neon Ribbons', 'Club Stage', 'Lightstorm',
@@ -613,6 +610,58 @@ class SettingsScreen extends StatelessWidget {
           ],
         ),
       );
+
+  static const Map<int, String> _previewNames = {
+    0: 'focused', 1: 'side_by_side', 3: 'edge_to_edge',
+    4: 'drive', 5: 'fan', 6: 'diagonal', 7: 'record_cut',
+    8: 'typo', 9: 'orbit', 10: 'cinematic', 11: 'musiczine',
+  };
+
+  Widget _themePreviewSelector(AppSettings s) {
+    final selected = s.theme;
+    final name = _previewNames[selected];
+    Widget preview(String orientation) {
+      if (name == null) return const SizedBox.shrink();
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(9),
+        child: Image.asset(
+          'assets/theme_previews/${name}_${orientation}.jpg',
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            color: const Color(0xFF111B26),
+            alignment: Alignment.center,
+            child: const Text('Preview pending',
+              style: TextStyle(color: Colors.white54, fontSize: 13)),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Now Playing theme', style: TextStyle(fontSize: 20)),
+        const SizedBox(height: 8),
+        _choices('Select theme',
+          AppSettings.pickable.map((i) => AppSettings.themeNames[i]).toList(),
+          AppSettings.pickable.indexOf(selected).clamp(0, AppSettings.pickable.length - 1),
+          (i) => s.update(() => s.theme = AppSettings.pickable[i])),
+        const SizedBox(height: 8),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(flex: 3, child: Column(children: [
+            AspectRatio(aspectRatio: 16 / 9, child: preview('landscape')),
+            const SizedBox(height: 5),
+            const Text('Landscape', style: TextStyle(color: Colors.white60, fontSize: 12)),
+          ])),
+          const SizedBox(width: 10),
+          Expanded(flex: 2, child: Column(children: [
+            AspectRatio(aspectRatio: 9 / 16, child: preview('portrait')),
+            const SizedBox(height: 5),
+            const Text('Portrait', style: TextStyle(color: Colors.white60, fontSize: 12)),
+          ])),
+        ]),
+      ]),
+    );
+  }
 
   /// Compact, scroll-friendly selector. Preserves the exact stored integer values.
   Widget _choices(String title, List<String> labels, int selected,
