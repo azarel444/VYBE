@@ -885,15 +885,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final hasCover = art != null && !art.flat;
     final sleeveSize = portrait ? w * .89 : h * .86;
     final sleeveCenterX = portrait ? w * .48 : w * .235 - sleeveSize * .707;
-    final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .62;
-    // Exposed spinning vinyl sits behind the sleeve, never over its artwork.
+    // The landscape sleeve's right-hand diamond tip sits just ABOVE the
+    // visualizer (which begins at h * .78). It is not anchored mid-screen.
+    final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .72;
     final musiczineVinylSize = portrait ? sleeveSize * .83 : sleeveSize * .76;
-    // Anchor the disc to the rotated sleeve, not to screen coordinates.
-    // Portrait: emerge from the lower-left diagonal; landscape: upper edge.
+    // The record CENTER must be inside the rotated cover silhouette so its
+    // small label is hidden by the cover. Only the outer vinyl emerges.
+    // For a 45-degree sleeve the diagonal boundary is
+    // abs(dx) + abs(dy) = sleeveSize / sqrt(2).
+    // Landscape: emerge above its upper-right diagonal, near the right tip.
+    // Portrait: emerge to the lower-left, toward the bottom diamond tip.
     final musiczineVinylCenterX = sleeveCenterX +
-        (portrait ? -sleeveSize * .37 : sleeveSize * .30);
+        sleeveSize * (portrait ? -.20 : .48);
     final musiczineVinylCenterY = sleeveCenterY +
-        (portrait ? sleeveSize * .32 : -sleeveSize * .31);
+        sleeveSize * (portrait ? .42 : -.13);
     final musiczineVinylX = musiczineVinylCenterX - musiczineVinylSize * .5;
     final musiczineVinylY = musiczineVinylCenterY - musiczineVinylSize * .5;
     final cover = hasCover
