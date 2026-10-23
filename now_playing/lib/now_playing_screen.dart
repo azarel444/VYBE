@@ -614,31 +614,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-  /// Four premium scenes, all using the current album-art color palette.
+  /// Six separate premium shader scenes with album-derived lighting.
   Widget _premiumAnimatedBackground(double motion) {
-    final speed = settings.performance ? 0.0 : motion;
-    if (settings.cinematicPalette == 16 || settings.cinematicPalette == 17) {
-      return RepaintBoundary(child: AnimatedBuilder(
-        animation: _slow,
-        builder: (context, _) => CustomPaint(
-          painter: settings.cinematicPalette == 16
-              ? ClubBackgroundPainter(
-                  palette: _palette, time: _time, motion: speed,
-                  darkness: 0.0)
-              : LaserTunnelBackgroundPainter(
-                  palette: _palette, time: _time, motion: speed,
-                  darkness: 0.0),
-          size: Size.infinite,
-        ),
-      ));
-    }
+    const sceneAssets = <String>[
+      'shaders/golden_hour.frag',
+      'shaders/neon_ribbons.frag',
+      'shaders/club_stage.frag',
+      'shaders/lightstorm.frag',
+      'shaders/rave.frag',
+      'shaders/neon_club.frag',
+    ];
+    final sceneIndex = (settings.cinematicPalette - 14).clamp(0, 5);
+    final isGoldenHour = sceneIndex == 0;
     return RepaintBoundary(child: GoldenHourBackground(
+      key: ValueKey(sceneAssets[sceneIndex]),
       time: _time,
-      motion: speed,
-      palette: settings.cinematicPalette == 14
-          ? AppSettings.accents[14]! : _palette,
-      shaderAsset: settings.cinematicPalette == 14
-          ? 'shaders/golden_hour.frag' : 'shaders/neon_ribbons.frag',
+      motion: settings.performance ? 0.0 : motion,
+      palette: isGoldenHour ? AppSettings.accents[14]! : _palette,
+      bass: sim.bass,
+      shaderAsset: sceneAssets[sceneIndex],
     ));
   }
 
