@@ -18,7 +18,77 @@ void main(){
  vec2 p=(uv-.5)*vec2(uSize.x/uSize.y,1.);
  float t=uTime, bass=clamp(uBass,0.,1.);
  vec3 col=vec3(.003,.004,.014);
-#if SCENE == 0 || SCENE == 2
+#if SCENE == 2
+ // Rave: crowd-facing, deep concert hall. Unlike Club Stage this is not an empty floor.
+ // Backlit stage washes, sweeping laser fans and silhouetted audience at three depths.
+ vec2 horizon=vec2(.0,-.10);
+ float depthHaze=exp(-pow((p.y+.12)/.31,2.));
+ col+=mix(uA,uB,.45)*depthHaze*(.13+.20*bass);
+ // Far stage: large luminous color volumes, not a floor grid.
+ for(int i=0;i<7;i++){
+   float fi=float(i);
+   float sx=(fi-3.)*.31;
+   float sway=.11*sin(t*.29+fi*1.7);
+   vec2 src=vec2(sx+sway,-.18+.035*sin(t*.4+fi));
+   vec3 tint=pal(fract(fi*.27+t*.012));
+   float d=length((p-src)*vec2(1.,1.35));
+   col+=tint*gauss(d,.17)*(.48+.55*bass);
+   col+=tint*gauss(d,.028)*(.8+.5*bass);
+   // Fans of volumetric lasers, diverging upward into the venue.
+   for(int j=0;j<5;j++){
+     float fj=float(j);
+     vec2 dir=normalize(vec2((fj-2.)*.43+.17*sin(t*.45+fi),-.9));
+     vec2 v=p-src;
+     float along=dot(v,dir);
+     float perp=abs(v.x*dir.y-v.y*dir.x);
+     float width=.008+max(along,0.)*.012;
+     float beam=exp(-pow(perp/width,2.))*
+       smoothstep(.0,.15,along)*(1.-smoothstep(1.1,2.2,along));
+     col+=tint*beam*(.20+.24*fog(vec3(p*3.,fi),t))*(.7+.4*bass);
+   }
+ }
+ // Distant truss and hanging lights convey the width of a real venue.
+ float truss=gauss(p.y+.49,.008)*(1.-smoothstep(.85,1.3,abs(p.x)));
+ col+=vec3(.035,.032,.05)*truss;
+ for(int i=0;i<17;i++){
+   float fi=float(i);
+   vec2 lamp=vec2((fi-8.)*.14,-.49);
+   col+=pal(fract(fi*.37))*gauss(length(p-lamp),.018)*.8;
+ }
+ // Multiple layers of people, with anatomically proportioned heads, shoulders
+ // and occasionally raised arms. Distant layers are softened for depth of field.
+ for(int layer=0;layer<3;layer++){
+   float lf=float(layer);
+   float scale=1.-lf*.19;
+   float baseline=.48+lf*.095;
+   for(int i=0;i<24;i++){
+     float fi=float(i);
+     float seed=hash(vec2(fi,lf*13.+2.));
+     float x=(fi-11.5)*.105+(.5-seed)*.07;
+     float headY=baseline-(.18+.085*seed)*scale;
+     vec2 headP=vec2(x,headY+.012*sin(t*.43+fi*.83));
+     float head=length((p-headP)/vec2(.038,.050)* (1.+lf*.14));
+     float shoulders=length((p-vec2(x,baseline+.035))/
+                       vec2(.085*scale,.16*scale));
+     float mask=max(1.-smoothstep(.83,1.15,head),
+                    1.-smoothstep(.77,1.2,shoulders));
+     if(mod(fi+lf,5.)<1.){
+       vec2 hand=headP+vec2(.065*scale,-.16*scale+
+                              .025*sin(t*.8+fi));
+       vec2 ab=hand-vec2(x+.035*scale,baseline-.035);
+       vec2 ap=p-vec2(x+.035*scale,baseline-.035);
+       float seg=clamp(dot(ap,ab)/max(dot(ab,ab),.0001),0.,1.);
+       float arm=length(ap-ab*seg);
+       mask=max(mask,1.-smoothstep(.012,.025,arm));
+     }
+     // Back rows retain some haze; nearest rows are nearly black.
+     vec3 silhouette=mix(vec3(.009,.006,.019),vec3(.001,.001,.005),1.-lf*.22);
+     col=mix(col,silhouette,mask*(.91+.025*lf));
+   }
+ }
+ // Soft near-camera colored lens bloom: restrained to keep text readable.
+ col+=(uA+uB)*.025*gauss(length(p-vec2(-.8,.32)),.36);
+#elif SCENE == 0
  // Stage: fixed audience camera, grounded perspective floor and overhead rig.
  vec3 ro=vec3(0.,1.65,6.8),rd=normalize(vec3(p.x*1.6,p.y*-1.22,-2.25));
  float floorD=(-ro.y)/min(rd.y,-.0001);
