@@ -4352,7 +4352,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
                 if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
-                    const [1, 3, 4, 5, 6, 7, 8, 9, 10].contains(settings.theme))
+                    const [1, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(settings.theme))
                   btn(Icons.swap_horiz_rounded, 36, () {
                     settings.update(() {
                       if (settings.theme == 4) {
