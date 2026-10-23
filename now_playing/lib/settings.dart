@@ -96,7 +96,7 @@ class AppSettings extends ChangeNotifier {
   );
   int fanartMode = 2; // Non-Cinematic artwork preference
   int cinematicFallback = 0; // 0 animated template, 1 blurred album art
-  int cinematicPalette = 15; // Background: 14 Golden Hour, 15 Neon Ribbons, 16 Club Lights, 17 Neon Tunnel
+  int cinematicPalette = 15; // 14 Golden Hour, 15 Neon Ribbons, 16 Club Stage, 17 Lightstorm, 18 Rave, 19 Neon Club
   double cinematicDarkness = 0.30;
   double cinematicBlur = 0.0;
   double cinematicContrast = 1.0;
@@ -230,8 +230,8 @@ class AppSettings extends ChangeNotifier {
     cinematicWaveStyle = _int(p, 'cinematicWaveStyle', 1, 0, 2);
     fanartMode = _int(p, 'fanartMode', 2, 0, 2);
     cinematicFallback = _int(p, 'cinematicFallback', 0, 0, 1);
-    cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 17);
-    if (cinematicPalette < 14 || cinematicPalette > 17) cinematicPalette = 15;
+    cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
+    if (cinematicPalette < 14 || cinematicPalette > 19) cinematicPalette = 15;
     cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.30).clamp(0.0, 1.0).toDouble();
     cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
     cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
