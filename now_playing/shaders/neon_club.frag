@@ -115,14 +115,14 @@ void main(){
 #elif SCENE == 3
  // Neon Club: open black ceiling, large luminous dance-floor panels,
  // scattered variable-size wall fixtures and overhead moving spotlights.
- vec3 ro=vec3(0.,1.72,0.);
+ vec3 ro=vec3(0.,1.72,-mod(t*1.45,24.));
  vec3 rd=normalize(vec3(p.x*1.7,-p.y*1.22,-1.9));
  float nearT=1000.;vec3 hit=vec3(0.);float face=0.;
  if(rd.y<-.0001){float d=-ro.y/rd.y;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=1.;}}
  if(rd.x<-.0001){float d=(-3.8-ro.x)/rd.x;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=3.;}}
  if(rd.x>.0001){float d=(3.8-ro.x)/rd.x;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=4.;}}
  // Ceiling deliberately has no surface: overhead fixtures float in darkness.
- float distanceFade=exp(-max(0.,nearT-1.5)*.105);
+ float distanceFade=exp(-max(0.,nearT-1.5)*.075);
  if(nearT<1000.&&hit.z<-.05){
    if(face==1.){
      // Larger physical floor tiles, no scrolling grid: light animates in place.
@@ -132,15 +132,16 @@ void main(){
      float panel=1.-smoothstep(.425,.485,border);
      float bloom=exp(-pow(max(0.,border-.33)/.26,2.));
      float seed=hash(cell+vec2(9.,2.));
-     float phase=t*2.4+cell.x*.83+cell.y*.39;
+     float phase=t*3.6+cell.x*2.17+cell.y*1.63;
      float pulse=.48+.52*sin(phase+1.2*sin(t*.85+cell.y*.7));
      vec3 tint=pal(fract(seed*.83+.11*sin(t*.11)));
-     float chase=.5+.5*sin(t*1.65-cell.y*.85+cell.x*.32);
-     float lit=step(.13,seed)*(.16+.48*pulse+.36*pow(chase,3.));
+     float chase=.5+.5*sin(t*3.7-cell.y*1.65+cell.x*2.2);
+     float randomGate=hash(cell+floor(t*2.8)*vec2(17.3,39.7));
+     float lit=step(.72,randomGate)*step(.20,seed)*(.35+.65*pulse)*(.5+.5*pow(chase,2.));
      col+=vec3(.004,.005,.012)*distanceFade;
-     col+=tint*(panel*.92+bloom*.42)*lit*distanceFade;
+     col+=tint*(panel*1.65+bloom*.95)*lit*distanceFade;
      // Soft chromatic spill over neighboring dark grout.
-     col+=tint*exp(-pow(max(0.,border-.46)/.30,2.))*.11*lit*distanceFade;
+     col+=tint*exp(-pow(max(0.,border-.46)/.38,2.))*.32*lit*distanceFade;
    }else{
      // Sparse, staggered wall fixtures with multiple rectangular proportions.
      vec2 coord=vec2(-hit.z*.92,hit.y*1.35);
@@ -164,9 +165,9 @@ void main(){
  // Physically related spotlight cones and pools: beam and floor share targets.
  for(int i=0;i<3;i++){
    float fi=float(i);
-   vec3 origin=vec3((fi-1.)*1.8,4.0,-3.8-fi*.9);
+   vec3 origin=ro+vec3((fi-1.)*1.8,3.8,-4.0-fi*.9);
    vec3 target=vec3(1.7*sin(t*(.65+fi*.085)+fi*2.1),
-                    0.,-4.5+2.0*cos(t*.55+fi*1.9));
+                    0.,ro.z-4.5+2.0*cos(t*.55+fi*1.9));
    vec3 axis=normalize(target-origin);
    vec3 w=ro-origin;
    float ab=dot(rd,axis);
@@ -175,20 +176,20 @@ void main(){
    vec3 sampleP=ro+rd*rayT;
    float along=dot(sampleP-origin,axis);
    float radial=length(sampleP-origin-axis*along);
-   float spread=.075+max(0.,along)*.20;
+   float spread=.12+max(0.,along)*.28;
    float cone=exp(-pow(radial/spread,2.)*1.7)*
      smoothstep(0.,.7,along)*(1.-smoothstep(5.8,7.4,along));
    vec3 tint=pal(fract(fi*.43+.11));
-   float mist=.28+.58*fog(sampleP,t*2.0);
-   col+=tint*cone*mist*(.22+.13*bass);
+   float mist=.75+.65*fog(sampleP,t*2.0);
+   col+=tint*cone*mist*(.85+.35*bass);
    vec3 fixture=normalize(origin-ro);
    float hot=gauss(length(rd-fixture),.015);
    col+=tint*(hot*1.7+gauss(length(rd-fixture),.095)*.13);
    if(face==1.&&nearT<1000.&&hit.z<-.05){
      float radius=length((hit-target).xz);
-     float pool=exp(-radius*radius*.33);
+     float pool=exp(-radius*radius*.24);
      // Colored spot pools light the tile material and boost its glow.
-     col+=tint*pool*(.40+.24*bass)*distanceFade;
+     col+=tint*pool*(.85+.35*bass)*distanceFade;
    }
  }
 
