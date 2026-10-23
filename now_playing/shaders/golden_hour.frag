@@ -4,6 +4,7 @@ uniform float uTime;
 uniform vec3 uGold;
 uniform vec3 uAmber;
 uniform vec3 uAccent;
+uniform vec2 uLightOrigin;
 out vec4 fragColor;
 
 float hash21(vec2 p) {
@@ -27,7 +28,7 @@ void main() {
   float aspect=uSize.x/uSize.y;
   vec2 p=vec2((uv.x-.5)*aspect,uv.y-.5);
   float t=uTime;
-  vec2 sun=vec2(.015, .19);
+  vec2 sun=vec2((uLightOrigin.x-.5)*aspect,uLightOrigin.y-.5);
   vec2 d=p-sun;
   float dist=length(d);
   float ang=atan(d.y,d.x);
