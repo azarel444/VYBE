@@ -1130,7 +1130,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
         case 11: // Editorial: upper-right pocket beside the angled sleeve.
-          topInset = h * .145;
+          topInset = h * .162;
           break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
@@ -1164,7 +1164,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     if (typoLyricsCentered) topInset = 22.0;
     final inset = theme == AppSettings.tEditorial && !portrait
-        ? w * .042 : (portrait ? 18.0 : 30.0);
+        ? w * .022 : (portrait ? 18.0 : 30.0);
     if (theme == AppSettings.tEditorial && !portrait) topInset = h * .055;
     return Positioned(
       left: centered ? 0 : (onRight ? null : inset),
