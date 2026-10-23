@@ -36,18 +36,18 @@ void main() {
   float cloud=fbm(p*5.0+vec2(-t*.19,t*.12)+fog*.8);
   vec3 col=mix(vec3(.002,.003,.008),vec3(.14,.03,.007),smoothstep(.12,.9,p.y));
   col+=vec3(.72,.16,.018)*pow(max(cloud-.48,0.),2.)*.42;
-  // Animated light rig: rotating shafts with traveling shadow patterns.
-  // Beam direction and intensity are functions of time, not static rays.
-  float radiusFade=exp(-dist*.72);
-  float sweepAngle=ang-t*.28;
-  float beams=pow(.5+.5*cos(sweepAngle*18.0
-      +sin(ang*5.0-t*.52)*.65), 18.0);
-  float wideBeams=pow(.5+.5*cos(ang*9.0+t*.38), 12.0);
-  float turbulence=fbm(vec2(ang*7.0+t*.32,dist*2.5-t*.44));
-  float shadow=.12+.88*smoothstep(.43,.74,turbulence);
-  float breathing=.75+.25*sin(t*1.6);
-  col+=vec3(1.0,.81,.28)*beams*radiusFade*shadow*1.5*breathing;
-  col+=vec3(.95,.31,.025)*wideBeams*radiusFade*(.12+.88*turbulence)*.72;
+  // Golden Hour is atmospheric sunlight, not neon contour lines.
+  // Broad irregular shafts pass through slowly evolving cloud occlusion.
+  float radiusFade=exp(-dist*.82);
+  float shaftNoise=fbm(vec2(ang*2.4 + .35*sin(t*.045),
+                            dist*.85 - t*.018));
+  float shaftMask=smoothstep(.39,.72,shaftNoise);
+  float softShafts=pow(.5+.5*cos(ang*5.2+.12*sin(t*.09)),3.);
+  float cloudShadow=1.-.65*smoothstep(.43,.73,
+      fbm(p*2.1+vec2(t*.025,-t*.018)));
+  col+=vec3(.98,.54,.12)*softShafts*shaftMask*
+      cloudShadow*radiusFade*.55;
+  col+=vec3(.67,.25,.025)*shaftMask*radiusFade*.13;
   // Luminous moving clouds cross the beams, revealing their motion.
   float movingMist=fbm(p*3.7+vec2(t*.27,-t*.19));
   float mistBand=smoothstep(.52,.78,movingMist);
@@ -65,11 +65,13 @@ void main() {
   col+=vec3(.42,.075,.009)*haloWide*.15+vec3(1.,.36,.045)*halo*.48+vec3(1.,.96,.76)*core*2.3;
   // Golden volumetric bloom is concentrated around the light source.
   // Keep the corners dark instead of applying a full-screen gold wash.
-  float warmBloom=exp(-dist*dist*3.8);
-  col+=mix(uAmber,uGold,.55)*warmBloom*(.10+.055*sin(t*.63));
+  float warmBloom=exp(-dist*dist*5.6);
+  col+=mix(uAmber,uGold,.55)*warmBloom*(.055+.018*sin(t*.3));
+  // Cinematic lens bokeh: broad defocused foreground lights and distinct
+  // smaller midground discs, rather than repeated thin neon curves.
   // Foreground defocused amber motes drift independently of the tiny dust.
   // Soft translucent discs overlap the beams, giving them real depth.
-  for(int i=0;i<9;i++){
+  for(int i=0;i<15;i++){
     float fi=float(i);
     float seed=fi*2.39996323;
     vec2 drift=vec2(.035*sin(t*(.12+fi*.007)+seed),
@@ -78,24 +80,24 @@ void main() {
       (hash21(vec2(fi,7.1))*1.36-.68)*aspect,
       fract(hash21(vec2(fi,19.3))+drift.y)*1.35-.67
     )+vec2(drift.x,0.);
-    float r=mix(.024,.095,hash21(vec2(fi,29.7)));
+    float r=mix(.045,.19,hash21(vec2(fi,29.7)));
     float rr=length(p-center)/r;
     float soft=1.-smoothstep(.64,1.12,rr);
     float inner=1.-smoothstep(.0,.8,rr);
-    float alpha=(.025+.055*hash21(vec2(fi,37.2)))*soft;
+    float alpha=(.055+.17*hash21(vec2(fi,37.2)))*soft;
     col+=mix(uAmber,uGold,.68)*alpha*(.58+.42*inner);
   }
   // A small number of brighter mid-depth golden discs float near the source.
-  for(int i=0;i<7;i++){
+  for(int i=0;i<11;i++){
     float fi=float(i);
     float seed=fi*4.371;
     vec2 center=vec2(
       (hash21(vec2(fi,51.))*1.2-.6)*aspect+.018*sin(t*.22+seed),
       fract(hash21(vec2(fi,61.))-t*(.004+fi*.0007))*1.2-.6);
-    float radius=mix(.008,.027,hash21(vec2(fi,71.)));
+    float radius=mix(.010,.038,hash21(vec2(fi,71.)));
     float rr=length(p-center)/radius;
     float disc=1.-smoothstep(.55,1.2,rr);
-    col+=mix(uGold,vec3(1.,.83,.40),.3)*disc*.14;
+    col+=mix(uGold,vec3(1.,.83,.40),.3)*disc*.19;
   }
   // Shimmering reflective horizon with perspective widening toward camera.
   float horizon=.24;
