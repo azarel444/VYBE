@@ -194,6 +194,7 @@ open class MainActivity : FlutterActivity() {
                 "previous" -> { controller?.transportControls?.skipToPrevious(); result.success(null) }
                 "refresh" -> { refresh(); result.success(null) }
                 "recheckArtwork" -> { push(true); result.success(null) }
+                "integrationDiagnostics" -> result.success(integrationDiagnostics(call.argument<String>("service") ?: ""))
                 "startVisualizer" -> result.success(startVisualizer())
                 "stopVisualizer" -> { stopVisualizer(); result.success(null) }
                 "openAccessSettings" -> { openAccessSettings(); result.success(null) }
@@ -335,6 +336,101 @@ open class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+
+    // Read-only inspection of the Android media-session contract. A published
+    // queue is NOT proof of playlist browsing or arbitrary track playback.
+    private fun integrationDiagnostics(service: String): Map<String, Any?> {
+        val target = when (service) {
+            "spotify" -> "com.spotify.music"
+            "youtube_music" -> "com.google.android.apps.youtube.music"
+            else -> return mapOf("error" to "Unknown integration")
+        }
+        if (!hasAccess()) return mapOf(
+            "service" to service, "access" to false,
+            "assessment" to "Enable Notification Access for VYBE, then retry.")
+        return try {
+            val mgr = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val cn = ComponentName(this, MediaListenerService::class.java)
+            val sessions = mgr.getActiveSessions(cn)
+            val matches = sessions.filter { it.packageName == target }
+            val c = matches.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+                ?: matches.firstOrNull()
+            if (c == null) return mapOf(
+                "service" to service, "access" to true, "sessionFound" to false,
+                "activePackages" to sessions.map { it.packageName },
+                "assessment" to "No active media session for this app. Start playlist playback in the app and scan again.")
+            val md = c.metadata
+            val st = c.playbackState
+            val queue = try { c.queue } catch (_: Exception) { null }
+            val actions = st?.actions ?: 0L
+            val skipToQueue = actions and PlaybackState.ACTION_SKIP_TO_QUEUE_ITEM != 0L
+            val next = actions and PlaybackState.ACTION_SKIP_TO_NEXT != 0L
+            val seek = actions and PlaybackState.ACTION_SEEK_TO != 0L
+            val playFromId = actions and PlaybackState.ACTION_PLAY_FROM_MEDIA_ID != 0L
+            val playFromSearch = actions and PlaybackState.ACTION_PLAY_FROM_SEARCH != 0L
+            val tracks = queue?.take(30)?.mapIndexed { index, item ->
+                mapOf(
+                    "index" to index, "queueId" to item.queueId,
+                    "title" to item.description.title?.toString(),
+                    "subtitle" to item.description.subtitle?.toString(),
+                    "mediaId" to item.description.mediaId,
+                    "artworkUri" to item.description.iconUri?.toString(),
+                    "mediaUri" to item.description.mediaUri?.toString(),
+                    "extrasKeys" to (item.description.extras?.keySet()?.toList() ?: emptyList<String>())
+                )
+            } ?: emptyList()
+            val flags = c.flags
+            mapOf(
+                "service" to service, "package" to target, "access" to true,
+                "sessionFound" to true, "sessionCount" to matches.size,
+                "playbackState" to (st?.state ?: -1),
+                "metadata" to mapOf(
+                    "title" to md?.getString(MediaMetadata.METADATA_KEY_TITLE),
+                    "artist" to md?.getString(MediaMetadata.METADATA_KEY_ARTIST),
+                    "album" to md?.getString(MediaMetadata.METADATA_KEY_ALBUM),
+                    "albumArtist" to md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST),
+                    "mediaId" to md?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID),
+                    "artUri" to md?.getString(MediaMetadata.METADATA_KEY_ART_URI),
+                    "albumArtUri" to md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI),
+                    "displayIconUri" to md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
+                    "durationMs" to md?.getLong(MediaMetadata.METADATA_KEY_DURATION),
+                    "hasEmbeddedArt" to (md?.getBitmap(MediaMetadata.METADATA_KEY_ART) != null),
+                    "hasEmbeddedAlbumArt" to (md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) != null),
+                    "keys" to (md?.keySet()?.toList() ?: emptyList<String>())
+                ),
+                "queueTitle" to c.queueTitle?.toString(),
+                "queuePublished" to (queue != null),
+                "queueLength" to (queue?.size ?: 0),
+                "queueTruncated" to ((queue?.size ?: 0) > 30),
+                "queue" to tracks,
+                "sessionFlags" to flags,
+                "actions" to mapOf(
+                    "skipNext" to next, "skipPrevious" to
+                        (actions and PlaybackState.ACTION_SKIP_TO_PREVIOUS != 0L),
+                    "skipToQueueItem" to skipToQueue, "seek" to seek,
+                    "playFromMediaId" to playFromId, "playFromSearch" to playFromSearch,
+                    "play" to (actions and PlaybackState.ACTION_PLAY != 0L),
+                    "pause" to (actions and PlaybackState.ACTION_PAUSE != 0L)
+                ),
+                "customActions" to (st?.customActions?.map { it.action } ?: emptyList<String>()),
+                "sessionExtrasKeys" to (c.extras?.keySet()?.toList() ?: emptyList<String>()),
+                "assessment" to when {
+                    queue == null -> "Queue not published. Cannot confirm Up Next or playlist browsing from this session."
+                    queue.isEmpty() -> "Queue is published but empty. No upcoming track data available."
+                    else -> "Queue entries available for inspection. Up Next may be possible. Track jumping requires skipToQueueItem support and a real playback test; full playlist browsing is not established."
+                },
+                "upNextCandidate" to (queue != null && queue.size > 1),
+                "queueJumpCandidate" to (queue != null && queue.isNotEmpty() && skipToQueue),
+                "fullPlaylistBrowsingVerified" to false,
+                "prefetchCandidate" to (queue != null && queue.size > 1),
+                "limitations" to "Android session queues may be partial, shuffled or different from playlists. No streaming API access is tested here."
+            )
+        } catch (e: Exception) {
+            mapOf("service" to service, "access" to true,
+                "error" to (e.javaClass.simpleName + ": " + (e.message ?: "unknown")))
         }
     }
 
