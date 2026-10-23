@@ -1175,9 +1175,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final inset = theme == AppSettings.tEditorial && !portrait
         ? w * .022 : (portrait ? 18.0 : 30.0);
     if (theme == AppSettings.tEditorial && !portrait) topInset = h * .055;
+    // Editorial landscape: anchor the clock's RIGHT edge just before the
+    // grayscale backing divider (x = 19.8% of screen). Do not anchor its
+    // left edge to the screen: that pushes it underneath the diagonal sleeve.
+    final editorialLandscape = theme == AppSettings.tEditorial && !portrait;
     return Positioned(
-      left: centered ? 0 : (onRight ? null : inset),
-      right: centered ? 0 : (onRight ? inset : null),
+      left: centered ? 0 : (editorialLandscape ? null : (onRight ? null : inset)),
+      right: centered ? 0 : (editorialLandscape
+          ? w * .81
+          : (onRight ? inset : null)),
       top: bottomInset == null ? topInset : null,
       bottom: bottomInset,
       child: IgnorePointer(
