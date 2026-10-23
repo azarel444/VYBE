@@ -135,8 +135,8 @@ class AppSettings extends ChangeNotifier {
   double kMotion = 1.0; // slow drift and beat pulse
   bool performance = false;
   int night = 1; // 0 off, 1 auto (8pm-6am), 2 always
-  int fxPerformanceMode = 0; // 0 auto, 1 performance, 2 maximum visuals
-  bool autoFxQuality = true; // live frame-time based shader quality governor
+  int fxPerformanceMode = 2; // 0 auto, 1 performance, 2 maximum visuals
+  bool autoFxQuality = false; // opt-in live frame-time quality governor
   bool burnIn = true;
   bool artLookup = true; // search online when a player sends no cover
   bool lyrics = false; // synced lyrics from LRCLIB
@@ -277,8 +277,8 @@ class AppSettings extends ChangeNotifier {
     showClock = p.getBool('showClock') ?? true;
     clock24h = p.getBool('clock24h') ?? false;
     performance = p.getBool('performance') ?? false;
-    autoFxQuality = p.getBool('autoFxQuality') ?? true;
-    fxPerformanceMode = _int(p, 'fxPerformanceMode', 0, 0, 2);
+    autoFxQuality = p.getBool('autoFxQuality') ?? false;
+    fxPerformanceMode = _int(p, 'fxPerformanceMode', 2, 0, 2);
     night = _int(p, 'night', 1, 0, 2);
     burnIn = p.getBool('burnIn') ?? true;
     artLookup = p.getBool('artLookup') ?? true;
