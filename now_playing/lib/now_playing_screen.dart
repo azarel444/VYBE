@@ -1084,17 +1084,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             height: h * .17,
             child: _lyricBlock(h, Alignment.center, vhs: false)),
       ] else ...[
+        // Keep the mirrored artist/title group anchored to its right edge,
+        // including the shorter song title. Counter-mirroring its glyphs
+        // alone does not correct the group's horizontal alignment.
         Positioned(left: w * .235, top: h * .043, width: w * .47,
-          child: readable(Column(crossAxisAlignment: CrossAxisAlignment.start,
+          child: readable(Column(
+            crossAxisAlignment: flipped
+                ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min, children: [
-              Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+              Text(artist,
+                textAlign: flipped ? TextAlign.right : TextAlign.left,
+                maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: titleStyle),
-              Text(song, maxLines: 1, overflow: TextOverflow.ellipsis,
+              Text(song,
+                textAlign: flipped ? TextAlign.right : TextAlign.left,
+                maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: songStyle),
             ]))),
+        // The album label should be at the far left after mirroring, just
+        // as it is at the far right in the standard composition.
         if (model.album.isNotEmpty)
           Positioned(right: w * .025, top: h * .043, width: w * .22,
-            child: readable(Text(model.album, textAlign: TextAlign.right,
+            child: readable(Text(model.album,
+              textAlign: flipped ? TextAlign.left : TextAlign.right,
               maxLines: 1, overflow: TextOverflow.ellipsis,
               style: songStyle))),
         if (_hasLyrics)
@@ -1289,14 +1301,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final inset = theme == AppSettings.tEditorial && !portrait
         ? w * .022 : (portrait ? 18.0 : 30.0);
     if (theme == AppSettings.tEditorial && !portrait) topInset = h * .055;
-    // Editorial landscape: anchor the clock's RIGHT edge just before the
-    // grayscale backing divider (x = 19.8% of screen). Do not anchor its
-    // left edge to the screen: that pushes it underneath the diagonal sleeve.
+    // Muzine's clock stays in the grayscale strip above the record.
+    // Unlike the composition, this clock is rendered OUTSIDE the mirroring
+    // transform: mirror its own anchor when the sleeve is on the right.
     final editorialLandscape = theme == AppSettings.tEditorial && !portrait;
+    final editorialFlipped = editorialLandscape && settings.layoutSwap;
     return Positioned(
-      left: centered ? 0 : (editorialLandscape ? null : (onRight ? null : inset)),
+      left: centered ? 0 : (editorialLandscape
+          ? (editorialFlipped ? w * .81 : null)
+          : (onRight ? null : inset)),
       right: centered ? 0 : (editorialLandscape
-          ? w * .81
+          ? (editorialFlipped ? null : w * .81)
           : (onRight ? inset : null)),
       top: bottomInset == null ? topInset : null,
       bottom: bottomInset,
