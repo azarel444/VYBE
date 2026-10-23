@@ -4670,7 +4670,7 @@ class _CinematicWavePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-    const samples = 48;
+    const samples = 96;
     final points = <Offset>[];
     for (var i = 0; i < samples; i++) {
       final x = i / (samples - 1);
@@ -4701,7 +4701,8 @@ class _CinematicWavePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     if (style == 0) {
-      for (var i = 0; i < points.length; i += 2) {
+      paint.strokeWidth = (size.width / samples * .55).clamp(1.2, 4.0);
+      for (var i = 0; i < points.length; i++) {
         canvas.drawLine(Offset(points[i].dx, size.height * 0.60),
           points[i], paint);
       }
@@ -4731,7 +4732,7 @@ class _CinematicWavePainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round);
     } else if (style == 0) {
       final rp = Paint()..shader = reflection..strokeWidth = 1.8;
-      for (var i = 0; i < points.length; i += 2) {
+      for (var i = 0; i < points.length; i++) {
         canvas.drawLine(Offset(points[i].dx, size.height * 0.60), points[i], rp);
       }
     } else {
