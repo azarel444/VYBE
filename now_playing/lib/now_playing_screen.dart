@@ -847,7 +847,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: SizedBox.expand(child: showFanart
                 ? Image.memory(fanart, fit: BoxFit.cover,
                     alignment: Alignment.topCenter, gaplessPlayback: true)
-                : RawImage(image: art.tiny, fit: BoxFit.cover)),
+                : RawImage(image: art?.tiny, fit: BoxFit.cover)),
           ),
         )),
       ColoredBox(color: Colors.black.withOpacity(
