@@ -113,45 +113,83 @@ void main(){
   col+=pal(fract(fi*.37))*(core*3.+halo*.18+cross*.26)*(1.+bass*.9);
  }
 #elif SCENE == 3
- // Neon Club: ray-plane intersection for 3D floor, side walls and ceiling.
- vec3 ro=vec3(0.,1.7,0.);
+ // Neon Club: open black ceiling, large luminous dance-floor panels,
+ // scattered variable-size wall fixtures and overhead moving spotlights.
+ vec3 ro=vec3(0.,1.72,0.);
  vec3 rd=normalize(vec3(p.x*1.7,-p.y*1.22,-1.9));
  float nearT=1000.;vec3 hit=vec3(0.);float face=0.;
  if(rd.y<-.0001){float d=-ro.y/rd.y;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=1.;}}
- if(rd.y>.0001){float d=(4.-ro.y)/rd.y;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=2.;}}
  if(rd.x<-.0001){float d=(-3.8-ro.x)/rd.x;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=3.;}}
  if(rd.x>.0001){float d=(3.8-ro.x)/rd.x;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=4.;}}
- if(nearT<1000.&&hit.z<-.1){
-   vec2 tile=face<2.5?vec2(hit.x,hit.z):vec2(hit.z,hit.y);
-   float forward=-tile.y+t*.62;
-   vec2 cell=floor(vec2(tile.x*2.2,forward*1.6));
-   vec2 edge=abs(fract(vec2(tile.x*2.2,forward*1.6))-.5);
-   float panel=1.-smoothstep(.43,.49,max(edge.x,edge.y));
-   float seed=hash(cell);
-   float wave=.5+.5*sin(t*1.1+cell.x*.9+cell.y*.45);
-   vec3 light=pal(fract(seed*.8+floor(t*.12)*.07));
-   float focus=abs(nearT-6.);
-   // Depth-aware lens approximation: distance attenuates and softens panels.
-   float dof=clamp(focus*.026,0.,.25);
-   float softPanel=1.-smoothstep(.36-dof,.48+dof,max(edge.x,edge.y));
-   float brightness=(.16+.72*wave+bass*.55)*step(.22,seed);
-   col+=light*softPanel*brightness*(face==1.? .72:.42);
-   col+=vec3(.008,.009,.018);
-   col+=light*panel*.045;
-   float fogAmt=exp(-nearT*.055);
-   col*=fogAmt;
+ // Ceiling deliberately has no surface: overhead fixtures float in darkness.
+ float distanceFade=exp(-max(0.,nearT-1.5)*.105);
+ if(nearT<1000.&&hit.z<-.05){
+   if(face==1.){
+     // Larger physical floor tiles, no scrolling grid: light animates in place.
+     vec2 coord=vec2(hit.x*.78,hit.z*.78);
+     vec2 cell=floor(coord),local=abs(fract(coord)-.5);
+     float border=max(local.x,local.y);
+     float panel=1.-smoothstep(.425,.485,border);
+     float bloom=exp(-pow(max(0.,border-.33)/.26,2.));
+     float seed=hash(cell+vec2(9.,2.));
+     float phase=t*.72+cell.x*.83+cell.y*.39;
+     float pulse=.52+.48*sin(phase);
+     vec3 tint=pal(fract(seed*.83+.11*sin(t*.11)));
+     float lit=step(.13,seed)*(.36+.64*pulse);
+     col+=vec3(.004,.005,.012)*distanceFade;
+     col+=tint*(panel*.92+bloom*.42)*lit*distanceFade;
+     // Soft chromatic spill over neighboring dark grout.
+     col+=tint*exp(-pow(max(0.,border-.46)/.30,2.))*.11*lit*distanceFade;
+   }else{
+     // Sparse, staggered wall fixtures with multiple rectangular proportions.
+     vec2 coord=vec2(-hit.z*.92,hit.y*1.35);
+     vec2 cell=floor(coord),local=abs(fract(coord)-.5);
+     float seed=hash(cell+vec2(face*7.,13.));
+     float active=step(.70,seed);
+     float variant=hash(cell+vec2(2.,19.));
+     vec2 halfSize=variant<.33?vec2(.37,.055):
+                   (variant<.67?vec2(.085,.34):vec2(.22,.20));
+     vec2 delta=max(local-halfSize,vec2(0.));
+     float dist=length(delta);
+     float panel=1.-smoothstep(.006,.055,dist);
+     float glow=exp(-dist*dist*42.);
+     float pulse=.62+.38*sin(t*.83+seed*11.);
+     vec3 tint=pal(fract(seed*1.7+t*.025));
+     col+=vec3(.003,.004,.009)*distanceFade;
+     col+=tint*(panel*1.45+glow*.56)*active*pulse*distanceFade;
+   }
  }
- // Far tunnel lights and cross-beams through the center.
- for(int i=0;i<7;i++){
+ // Physically related spotlight cones and pools: beam and floor share targets.
+ for(int i=0;i<3;i++){
    float fi=float(i);
-   vec2 pos=vec2(.48*sin(fi*1.9+t*.19),-.2+.28*cos(fi*2.1+t*.23));
-   float d=length(p-pos);
-   float halo=gauss(d,.19),core=gauss(d,.022);
-   vec3 tint=pal(fract(fi*.37));
-   col+=tint*(halo*.13+core*1.45)*(1.+bass*.6);
-   float beam=gauss(p.x-pos.x-.3*(p.y-pos.y),.045)*gauss(p.y-pos.y,.36);
-   col+=tint*beam*.16;
+   vec3 origin=vec3((fi-1.)*1.8,4.0,-3.8-fi*.9);
+   vec3 target=vec3(1.7*sin(t*(.19+fi*.035)+fi*2.1),
+                    0.,-4.5+2.0*cos(t*.17+fi*1.9));
+   vec3 axis=normalize(target-origin);
+   vec3 w=ro-origin;
+   float ab=dot(rd,axis);
+   float denom=max(.0001,1.-ab*ab);
+   float rayT=max(0.,(ab*dot(w,axis)-dot(w,rd))/denom);
+   vec3 sampleP=ro+rd*rayT;
+   float along=dot(sampleP-origin,axis);
+   float radial=length(sampleP-origin-axis*along);
+   float spread=.075+max(0.,along)*.20;
+   float cone=exp(-pow(radial/spread,2.)*1.7)*
+     smoothstep(0.,.7,along)*(1.-smoothstep(5.8,7.4,along));
+   vec3 tint=pal(fract(fi*.43+.11));
+   float mist=.28+.58*fog(sampleP,t);
+   col+=tint*cone*mist*(.22+.13*bass);
+   vec3 fixture=normalize(origin-ro);
+   float hot=gauss(length(rd-fixture),.015);
+   col+=tint*(hot*1.7+gauss(length(rd-fixture),.095)*.13);
+   if(face==1.&&nearT<1000.&&hit.z<-.05){
+     float radius=length((hit-target).xz);
+     float pool=exp(-radius*radius*.33);
+     // Colored spot pools light the tile material and boost its glow.
+     col+=tint*pool*(.40+.24*bass)*distanceFade;
+   }
  }
+
 #endif
  // Filmic vignette, distant haze and highlight roll-off.
  float vignette=1.-.45*smoothstep(.3,1.7,dot(p,p));
