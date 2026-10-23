@@ -132,10 +132,11 @@ void main(){
      float panel=1.-smoothstep(.425,.485,border);
      float bloom=exp(-pow(max(0.,border-.33)/.26,2.));
      float seed=hash(cell+vec2(9.,2.));
-     float phase=t*.72+cell.x*.83+cell.y*.39;
-     float pulse=.52+.48*sin(phase);
+     float phase=t*2.4+cell.x*.83+cell.y*.39;
+     float pulse=.48+.52*sin(phase+1.2*sin(t*.85+cell.y*.7));
      vec3 tint=pal(fract(seed*.83+.11*sin(t*.11)));
-     float lit=step(.13,seed)*(.36+.64*pulse);
+     float chase=.5+.5*sin(t*1.65-cell.y*.85+cell.x*.32);
+     float lit=step(.13,seed)*(.16+.48*pulse+.36*pow(chase,3.));
      col+=vec3(.004,.005,.012)*distanceFade;
      col+=tint*(panel*.92+bloom*.42)*lit*distanceFade;
      // Soft chromatic spill over neighboring dark grout.
@@ -146,6 +147,7 @@ void main(){
      vec2 cell=floor(coord),local=abs(fract(coord)-.5);
      float seed=hash(cell+vec2(face*7.,13.));
      float fixtureEnabled=step(.70,seed);
+     float wallChase=.55+.45*sin(t*1.8+cell.x*.72+face);
      float variant=hash(cell+vec2(2.,19.));
      vec2 halfSize=variant<.33?vec2(.37,.055):
                    (variant<.67?vec2(.085,.34):vec2(.22,.20));
@@ -153,18 +155,18 @@ void main(){
      float dist=length(delta);
      float panel=1.-smoothstep(.006,.055,dist);
      float glow=exp(-dist*dist*42.);
-     float pulse=.62+.38*sin(t*.83+seed*11.);
+     float pulse=.42+.58*sin(t*2.1+seed*11.+.8*sin(t*.65+cell.x));
      vec3 tint=pal(fract(seed*1.7+t*.025));
      col+=vec3(.003,.004,.009)*distanceFade;
-     col+=tint*(panel*1.45+glow*.56)*fixtureEnabled*pulse*distanceFade;
+     col+=tint*(panel*1.45+glow*.56)*fixtureEnabled*(.35+.65*wallChase)*pulse*distanceFade;
    }
  }
  // Physically related spotlight cones and pools: beam and floor share targets.
  for(int i=0;i<3;i++){
    float fi=float(i);
    vec3 origin=vec3((fi-1.)*1.8,4.0,-3.8-fi*.9);
-   vec3 target=vec3(1.7*sin(t*(.19+fi*.035)+fi*2.1),
-                    0.,-4.5+2.0*cos(t*.17+fi*1.9));
+   vec3 target=vec3(1.7*sin(t*(.65+fi*.085)+fi*2.1),
+                    0.,-4.5+2.0*cos(t*.55+fi*1.9));
    vec3 axis=normalize(target-origin);
    vec3 w=ro-origin;
    float ab=dot(rd,axis);
@@ -177,7 +179,7 @@ void main(){
    float cone=exp(-pow(radial/spread,2.)*1.7)*
      smoothstep(0.,.7,along)*(1.-smoothstep(5.8,7.4,along));
    vec3 tint=pal(fract(fi*.43+.11));
-   float mist=.28+.58*fog(sampleP,t);
+   float mist=.28+.58*fog(sampleP,t*2.0);
    col+=tint*cone*mist*(.22+.13*bass);
    vec3 fixture=normalize(origin-ro);
    float hot=gauss(length(rd-fixture),.015);
