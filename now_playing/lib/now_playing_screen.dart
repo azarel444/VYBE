@@ -989,6 +989,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: ClipRect(child: backing)),
         Positioned(left: w * .198, top: 0, bottom: 0,
           child: Container(width: 3, color: accent.withOpacity(.85))),
+        // Musiczine landscape's intentional bottom readability fade.
+        // Independent of Background darkness, just like portrait.
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .36,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              stops: [0.0, .38, 1.0],
+              colors: [
+                Color(0xE6000000),
+                Color(0x96000000),
+                Color(0x00000000),
+              ],
+            )),
+          ))),
       ],
       if (portrait) ...[
         // Editorial mockup: artist and title together at the lower left;
