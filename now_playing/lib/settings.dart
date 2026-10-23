@@ -18,8 +18,8 @@ class AppSettings extends ChangeNotifier {
     'Record Cut',
     'Typo',
     'Orbit',
-    'Cinematic',
-    'Musiczine',
+    'Bigfan',
+    'Muzine',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
