@@ -595,7 +595,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
-    if ((settings.fanartMode == 0 && settings.theme != AppSettings.tCinematic && settings.theme != AppSettings.tEditorial) || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
+    if ((settings.backgroundSource != 6 && settings.fanartMode == 0) || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
         _fanartArtist = ''; _fanartBytes = null;
       }
@@ -651,7 +651,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
          settings.theme == AppSettings.tEditorial)) {
       return _cinematicBackdrop();
     }
-    return _premiumAnimatedBackground(settings.templateBackgroundMotion);
+    if (settings.backgroundSource == 1) {
+      return _premiumAnimatedBackground(settings.templateBackgroundMotion);
+    }
+    return _albumBackdrop();
   }
 
   /// Keep Cinematic fanart visible beneath the optional club/laser lights.
@@ -686,7 +689,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _albumBackdrop() {
-    if (settings.fanartMode != 0 && _fanartBytes != null) {
+    if (settings.backgroundSource == 6 && _fanartBytes != null) {
       return Stack(fit: StackFit.expand, children: [
         // Fanart was unblurred before this setting. Keep that original look
         // at the default value while allowing additional softening.
@@ -789,9 +792,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final fanart = _fanartBytes;
     final art = model.art;
     final hasAlbum = art != null && !art.flat;
-    final useAlbum = fanart == null && settings.cinematicFallback == 1 && hasAlbum;
-    final hasImage = fanart != null || useAlbum;
-    final Widget background = fanart != null
+    final wantsAnimation = settings.backgroundSource == 1;
+    final wantsAlbum = settings.backgroundSource == 0;
+    final wantsFanart = !wantsAnimation && !wantsAlbum;
+    final showFanart = wantsFanart && fanart != null;
+    final useAlbum = hasAlbum && (wantsAlbum ||
+        (wantsFanart && fanart == null && settings.cinematicFallback == 1));
+    final hasImage = showFanart || useAlbum;
+    final Widget background = showFanart
         ? Image.memory(fanart, fit: BoxFit.cover,
             alignment: Alignment.topCenter, gaplessPlayback: true)
         : useAlbum
@@ -812,7 +820,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       AnimatedSwitcher(
         duration: const Duration(milliseconds: 700),
         child: SizedBox.expand(
-          key: ValueKey(fanart != null ? 'fanart:${_fanartArtist}' :
+          key: ValueKey(showFanart ? 'fanart:${_fanartArtist}' :
               useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
               'cinematic-template:${settings.cinematicPalette}'),
           child: image)),
@@ -2398,11 +2406,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // layout. An opaque disc here used to hide it behind a hard circular
     // boundary. With artist fanart active, keep the disc's subdued styling
     // but let the *same continuous background* show through its surface.
-    final showFanartThroughDisc = settings.fanartMode != 0 &&
-        _fanartBytes != null &&
-        (settings.backgroundSource == 0 ||
-         settings.backgroundSource == 3 ||
-         settings.backgroundSource == 5);
+    final showFanartThroughDisc = false; // Keep grayscale artwork visible behind the record.
     if (showFanartThroughDisc) {
       return RepaintBoundary(
         child: Container(
@@ -3210,7 +3214,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             )),
           )),
         ),
-      if ((settings.backgroundSource == 0 || settings.backgroundSource == 3 || settings.backgroundSource == 5) && !(settings.fanartMode != 0 && _fanartBytes != null)) _orbitGhost(w, h, narrow),
+      if (settings.backgroundSource != 1 && settings.backgroundSource != 6) _orbitGhost(w, h, narrow),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.
