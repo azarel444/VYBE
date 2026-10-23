@@ -877,7 +877,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final art = model.art;
     final hasCover = art != null && !art.flat;
     final sleeveSize = portrait ? w * .89 : h * .86;
-    final sleeveCenterX = portrait ? w * .48 : w * .285 - sleeveSize * .707;
+    final sleeveCenterX = portrait ? w * .48 : w * .235 - sleeveSize * .707;
     final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .50;
     final cover = hasCover
         ? RawImage(image: art.tiny, fit: BoxFit.cover,
@@ -906,7 +906,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         width: sleeveSize, height: sleeveSize,
         decoration: BoxDecoration(
           color: const Color(0xFF080C10),
-          borderRadius: BorderRadius.circular(sleeveSize * .017),
+          borderRadius: BorderRadius.circular(sleeveSize * .065),
           border: Border.all(color: accent.withOpacity(.85), width: 2),
           boxShadow: [
             BoxShadow(color: Colors.black.withOpacity(.83),
@@ -915,7 +915,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               offset: Offset(portrait ? 0 : 5, portrait ? 5 : 4), blurRadius: 9),
           ],
         ),
-        child: ClipRRect(borderRadius: BorderRadius.circular(sleeveSize * .012),
+        child: ClipRRect(borderRadius: BorderRadius.circular(sleeveSize * .061),
           child: portrait
             ? Transform.rotate(angle: math.pi, child: cover)
             : cover),
@@ -932,9 +932,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       shadows: const [Shadow(color: Colors.black, blurRadius: 8)]);
     return Stack(fit: StackFit.expand, children: [
       if (portrait) ...[
-        Positioned(left: 0, right: 0, top: 0, height: h * .205,
+        Positioned(left: 0, right: 0, top: 0, height: h * .275,
           child: ClipRect(child: backing)),
-        Positioned(left: 0, right: 0, top: h * .20,
+        Positioned(left: 0, right: 0, top: h * .275,
           child: Container(height: 2, color: accent.withOpacity(.88))),
         Positioned(left: 0, right: 0, bottom: 0, height: h * .31,
           child: const DecoratedBox(decoration: BoxDecoration(
@@ -999,8 +999,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (portrait)
           // The divider is the waveform's origin. Draw downward from it,
           // beneath the angled sleeve and without any mirrored reflection.
-          Positioned(left: 0, right: 0, top: h * .20,
-            height: h * .087,
+          Positioned(left: 0, right: 0, top: h * .287,
+            height: h * .082,
             child: IgnorePointer(child: CustomPaint(
               painter: _EditorialDividerWavePainter(
                 sim: sim, color: accent, gain: settings.sensitivity,
@@ -1129,7 +1129,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
         case 11: // Editorial: upper-right pocket beside the angled sleeve.
-          topInset = h * .145;
+          topInset = h * .208;
           break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
@@ -4599,17 +4599,22 @@ class _EditorialDividerWavePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-    final path = Path()..moveTo(0, 0);
+    final path = Path();
     const samples = 64;
     for (var i = 0; i < samples; i++) {
       final x = i / (samples - 1);
       final band = (x * (SpectrumSim.bars - 1)).round();
       final energy = sim.level(band, gain).clamp(0.0, 1.0);
-      final y = size.height * (.10 + .66 * energy);
-      path.lineTo(x * size.width, y);
+      final y = size.height * (.18 + .60 * energy);
+      if (i == 0) { path.moveTo(x * size.width, y); }
+      else { path.lineTo(x * size.width, y); }
     }
     final paint = Paint()
-      ..color = color.withOpacity(.85)
+      ..shader = LinearGradient(
+        colors: [color.withOpacity(0), color.withOpacity(.85),
+          color.withOpacity(.85), color.withOpacity(0)],
+        stops: const [0, .13, .87, 1],
+      ).createShader(Offset.zero & size)
       ..strokeWidth = 2.2
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
