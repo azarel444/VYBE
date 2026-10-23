@@ -11,9 +11,11 @@ class GoldenHourBackground extends StatefulWidget {
   final double motion;
   final ArtPalette palette;
   final String shaderAsset;
+  final double bass;
   const GoldenHourBackground({
     super.key, required this.time, required this.motion,
-    required this.palette, this.shaderAsset = 'shaders/golden_hour.frag',
+    required this.palette, this.bass = 0.0,
+    this.shaderAsset = 'shaders/golden_hour.frag',
   });
 
   @override
@@ -54,11 +56,22 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
     _load();
   }
 
+  @override
+  void didUpdateWidget(covariant GoldenHourBackground oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.shaderAsset != widget.shaderAsset) {
+      _program = null;
+      _load();
+    }
+  }
+
   Future<void> _load() async {
+    final requested = widget.shaderAsset;
     try {
-      final program = await ui.FragmentProgram.fromAsset(
-          widget.shaderAsset);
-      if (mounted) setState(() => _program = program);
+      final program = await ui.FragmentProgram.fromAsset(requested);
+      if (mounted && widget.shaderAsset == requested) {
+        setState(() => _program = program);
+      }
     } catch (error) {
       debugPrint('Golden Hour shader unavailable: $error');
     }
@@ -73,7 +86,11 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
     return CustomPaint(
       painter: _GoldenHourPainter(
         program: program, clock: _sceneClock,
-        palette: widget.palette),
+        palette: widget.palette, bass: widget.bass,
+        programAssetUsesBass: const [
+          'shaders/club_stage.frag', 'shaders/lightstorm.frag',
+          'shaders/rave.frag', 'shaders/neon_club.frag',
+        ].contains(widget.shaderAsset)),
       child: const SizedBox.expand(),
     );
   }
@@ -83,8 +100,11 @@ class _GoldenHourPainter extends CustomPainter {
   final ui.FragmentProgram program;
   final ValueNotifier<double> clock;
   final ArtPalette palette;
+  final double bass;
+  final bool programAssetUsesBass;
   _GoldenHourPainter({
     required this.program, required this.clock, required this.palette,
+    required this.bass, required this.programAssetUsesBass,
   }) : super(repaint: clock);
 
   @override
@@ -101,11 +121,14 @@ class _GoldenHourPainter extends CustomPainter {
       shader.setFloat(index++, color.green / 255.0);
       shader.setFloat(index++, color.blue / 255.0);
     }
+    // All premium shaders share the first twelve floats; the four new
+    // spatial scenes consume one additional music-reactive bass uniform.
+    if (programAssetUsesBass) shader.setFloat(12, bass.clamp(0.0, 1.0));
     canvas.drawRect(Offset.zero & size, Paint()..shader = shader);
   }
 
   @override
   bool shouldRepaint(covariant _GoldenHourPainter old) =>
       old.clock != clock || old.palette != palette ||
-      old.program != program;
+      old.program != program || old.bass != bass;
 }
