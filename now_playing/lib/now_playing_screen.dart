@@ -647,6 +647,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       motion: settings.performance ? 0.0 : motion,
       palette: settings.animationUseAlbumColors ? _palette : scenePalettes[sceneIndex],
       bass: sim.bass,
+      // Muzine portrait: the visible lower diamond tip of the album sleeve
+      // is the light emitter, not the shader's default lower-screen sun.
+      lightOrigin: settings.theme == AppSettings.tEditorial &&
+          MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width * 1.1
+          ? const Offset(.48, .275) : null,
       shaderAsset: sceneAssets[sceneIndex],
     ));
   }
