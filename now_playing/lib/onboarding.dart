@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'native_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'native.dart';
 import 'settings.dart';
@@ -43,9 +43,6 @@ class SplashScreen extends StatelessWidget {
 /// for it. Optional ones can be skipped; the tour can be replayed from
 /// Settings.
 class OnboardingScreen extends StatefulWidget {
-  // One-time in-process handoff prevents stale preference reads at launch.
-  static Map<String, bool>? launchSelections;
-
   final VoidCallback onDone;
 
   /// Given when replayed from Settings, so changes go through the same
@@ -71,10 +68,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _art = true;
   bool _lyrics = false;
   bool _boot = false;
-  bool _music = true;
+  bool _music = false;
   Timer? _poll;
   Future<void> _pendingChoiceWrite = Future<void>.value();
-  bool _choicesTouched = false;
 
   @override
   void initState() {
@@ -99,14 +95,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   Future<void> _loadChoices() async {
     final p = await SharedPreferences.getInstance();
-    await p.reload();
     if (!mounted) return;
-    if (_choicesTouched) return;
     setState(() {
       _art = p.getBool('artLookup') ?? true;
       _lyrics = p.getBool('lyrics') ?? false;
       _boot = p.getBool('bootStart') ?? false;
-      _music = p.getBool('musicStart') ?? true;
+      _music = p.getBool('musicStart') ?? false;
     });
   }
 
@@ -132,44 +126,38 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Future<void> _saveChoice(String key, bool v) async {
-    // Commit each onboarding selection directly to the same preferences store
-    // read by AppSettings.load. Avoid a full-settings save from an instance
-    // whose other fields may still contain defaults.
-    await AppSettings.persistContentChoice(key, v);
-    final settings = widget.settings;
-    if (settings != null) {
-      switch (key) {
-        case 'artLookup': settings.artLookup = v; break;
-        case 'lyrics': settings.lyrics = v; break;
-        case 'bootStart': settings.bootStart = v; break;
-        case 'musicStart': settings.musicStart = v; break;
-      }
-      settings.notifyListeners();
+    final s = widget.settings;
+    if (s != null) {
+      s.update(() {
+        switch (key) {
+          case 'artLookup':
+            s.artLookup = v;
+            break;
+          case 'lyrics':
+            s.lyrics = v;
+            break;
+          case 'bootStart':
+            s.bootStart = v;
+            break;
+          case 'musicStart':
+            s.musicStart = v;
+            break;
+        }
+      });
+      return;
     }
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(key, v);
   }
 
   bool _granted(String k) => _perm[k] == true;
 
   Future<void> _next() async {
     if (_step >= _lastStep) {
-      OnboardingScreen.launchSelections = {
-        'artLookup': _art, 'lyrics': _lyrics,
-        'bootStart': _boot, 'musicStart': _music,
-      };
-      // Commit selected values before opening the player. The handoff map
-      // also applies them to the newly created player settings instance.
-      try {
-        await _pendingChoiceWrite.timeout(const Duration(seconds: 3));
-        await Future.wait([
-          AppSettings.persistContentChoice('artLookup', _art),
-          AppSettings.persistContentChoice('lyrics', _lyrics),
-          AppSettings.persistContentChoice('bootStart', _boot),
-          AppSettings.persistContentChoice('musicStart', _music),
-        ]).timeout(const Duration(seconds: 5));
-      } catch (e) {
-        debugPrint('VYBE onboarding preference commit: $e');
-      }
-      if (mounted) widget.onDone();
+      // Do not gate entry into VYBE on a potentially stalled preference write.
+      // The selected values are captured from UI state and committed by the
+      // root before its main screen is shown.
+      widget.onDone();
     } else {
       setState(() => _step++);
     }
@@ -228,26 +216,24 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         ),
       );
 
-  Widget _permissionRow(String title, String explanation, String key,
-      String buttonLabel, VoidCallback action) {
+  Widget _permissionRow(String title, String detail, String key,
+      String action, VoidCallback request) {
     final granted = _granted(key);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
+      padding: const EdgeInsets.only(bottom: 18),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Icon(granted ? Icons.check_circle : Icons.radio_button_unchecked,
-              color: granted ? Colors.greenAccent : Colors.white54, size: 21),
-          const SizedBox(width: 9),
+              color: granted ? Colors.greenAccent : Colors.white54, size: 22),
+          const SizedBox(width: 10),
           Expanded(child: Text(title,
               style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600))),
-          OutlinedButton(onPressed: granted ? null : action,
-              child: Text(granted ? 'Allowed' : buttonLabel)),
         ]),
-        Padding(
-          padding: const EdgeInsets.only(left: 30),
-          child: Text(explanation,
-              style: const TextStyle(fontSize: 15, color: Colors.white70)),
-        ),
+        const SizedBox(height: 4),
+        Text(detail, style: const TextStyle(fontSize: 15, color: Colors.white70)),
+        if (!granted)
+          Align(alignment: Alignment.centerRight,
+            child: TextButton(onPressed: request, child: Text(action))),
       ]),
     );
   }
@@ -256,63 +242,48 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     switch (_step) {
       case 0:
         return _page(
-          icon: Icons.tune,
-          title: 'Set up VYBE',
-          body: 'Three quick steps. Allow what you need; optional access can be skipped.',
+          icon: Icons.security_outlined,
+          title: 'Permissions',
+          body: 'Allow the features you want. You can change these later in Settings.',
           extra: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _permissionRow('Music access · Required',
-                'Read the current song and control playback. Also detects navigation to avoid covering maps.',
-                'notification', 'Allow', Native.openAccessSettings),
-            _permissionRow('Live audio visualizer · Optional',
-                'Android requests audio permission for sound visualization. VYBE does not record audio; without access it uses simulated motion.',
-                'audio', 'Allow', () async {
-                  await Native.requestAudio();
-                  _refresh();
-                }),
-            _permissionRow('Display over apps · Optional',
-                'Auto-open with music and show Drive mode over navigation.',
-                'overlay', 'Allow', Native.openOverlaySettings),
+            _permissionRow('Music notifications', 'Detect songs, artwork and playback controls. Also checks navigation notifications for Drive features.', 'notification',
+                'Enable', Native.openAccessSettings),
+            _permissionRow('Audio access · Optional', 'Live visualizer. VYBE does not record microphone audio; without access, a simulated visualizer is used.', 'audio',
+                'Enable', () async { await Native.requestAudio(); _refresh(); }),
+            _permissionRow('Display over apps · Optional', 'Auto-open VYBE with music and show Drive overlays.', 'overlay',
+                'Enable', Native.openOverlaySettings),
           ]),
         );
       case 1:
         return _page(
-          icon: Icons.settings_outlined,
-          title: 'Your preferences',
-          body: 'Choose how VYBE starts and which online features to use. Change these anytime in Settings.',
+          icon: Icons.tune,
+          title: 'Quick setup',
+          body: 'Choose what VYBE does. Change any option later in Settings. Online artwork and lyrics searches send song title and artist to their providers.',
           extra: Column(children: [
             _switchRow('Find missing album art', _art, (v) {
-              setState(() { _choicesTouched = true; _art = v; });
+              setState(() => _art = v);
               _put('artLookup', v);
             }),
-            _switchRow('Synced lyrics', _lyrics, (v) {
-              setState(() { _choicesTouched = true; _lyrics = v; });
+            _switchRow('Show synced lyrics', _lyrics, (v) {
+              setState(() => _lyrics = v);
               _put('lyrics', v);
             }),
-            _switchRow('Open when device starts', _boot, (v) {
-              setState(() { _choicesTouched = true; _boot = v; });
-              _put('bootStart', v);
-            }),
             _switchRow('Open when music starts', _music, (v) {
-              setState(() { _choicesTouched = true; _music = v; });
+              setState(() => _music = v);
               _put('musicStart', v);
             }),
-            const Padding(
-              padding: EdgeInsets.only(top: 12),
-              child: Text('Artwork search and lyrics use the internet and send song title and artist to their providers.',
-                  style: TextStyle(fontSize: 14, color: Colors.white60)),
-            ),
+            _switchRow('Open when device starts', _boot, (v) {
+              setState(() => _boot = v);
+              _put('bootStart', v);
+            }),
           ]),
         );
       default:
         return _page(
-          icon: Icons.check_circle_outline,
-          title: 'Ready to VYBE',
-          body: 'Play music to get started. Tap the player for controls. Permissions, visuals and this guide are available in Settings.',
-          extra: Column(children: [
-            _summaryRow('Music access', _granted('notification')),
-            _summaryRow('Live audio visualizer', _granted('audio')),
-            _summaryRow('Display over apps', _granted('overlay')),
-          ]),
+          icon: Icons.touch_app_outlined,
+          title: 'Your VYBE controls',
+          body: 'Tap the player to show the toolbar. Here are the controls for both modes.',
+          extra: const ToolbarGuide(),
         );
     }
   }
@@ -435,18 +406,45 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   Widget _buttons() {
     return Row(children: [
       if (_step > 0)
-        TextButton(onPressed: _back, child: const Text('Back')),
+        TextButton(onPressed: _back,
+            child: const Text('Back', style: TextStyle(fontSize: 18))),
       const Spacer(),
-      ElevatedButton(
+      Flexible(child: ElevatedButton(
         onPressed: _next,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Text(_step == _lastStep ? 'Launch VYBE' : 'Continue',
-              style: const TextStyle(fontSize: 18)),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 19)),
         ),
-      ),
+      )),
     ]);
   }
+
+}
+
+/// Read-only guide using the same icons and ordering as the expanded player
+/// toolbar. Both variants remain visible without needing to activate Drive.
+class ToolbarGuide extends StatelessWidget {
+  const ToolbarGuide({super.key});
+
+  static const _normal = <_GuideControl>[
+    _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
+    _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.navigation_rounded, 'Drive', 'Open the Drive map experience'),
+    _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
+    _GuideControl(Icons.play_circle_filled, 'Play / Pause', 'Control music playback'),
+    _GuideControl(Icons.skip_next_rounded, 'Next', 'Skip to the next track'),
+  ];
+  static const _drive = <_GuideControl>[
+    _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
+    _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.map_outlined, 'Show Map', 'Return to the map while Drive stays active'),
+    _GuideControl(Icons.close_rounded, 'Close Drive', 'Exit the Drive overlay'),
+    _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
+    _GuideControl(Icons.play_circle_filled, 'Play / Pause', 'Control music playback'),
+    _GuideControl(Icons.skip_next_rounded, 'Next', 'Skip to the next track'),
+  ];
 
   Widget _section(String title, List<_GuideControl> controls) => Padding(
     padding: const EdgeInsets.only(top: 20),
