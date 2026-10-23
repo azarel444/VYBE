@@ -898,7 +898,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             scale: 1.7,
             child: RawImage(image: art.tiny, fit: BoxFit.cover,
               filterQuality: FilterQuality.high))),
-      const ColoredBox(color: Color(0x44000000)),
+      // Deepen only the grayscale backing, leaving the cover and fanart untouched.
+      const ColoredBox(color: Color(0x99000000)),
     ]);
     final sleeve = Transform.rotate(
       angle: portrait ? -math.pi / 4 : math.pi / 4,
