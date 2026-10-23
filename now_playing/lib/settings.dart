@@ -95,7 +95,8 @@ class AppSettings extends ChangeNotifier {
     defaultValue: 'a5663b830e451594869e3892dbaaa551',
   );
   int fanartMode = 2; // Non-Cinematic artwork preference
-  int cinematicFallback = 0; // 0 animated template, 1 blurred album art
+  int cinematicFallback = 1; // Legacy preference (fanart now falls back album then animation)
+  int fanartThemeSource = 0; // 0 artist fanart, 1 album art, 2 animated scene
   int cinematicPalette = 15; // 14 Golden Hour, 15 Neon Ribbons, 16 Club Stage, 17 Lightstorm, 18 Rave, 19 Neon Club
   double cinematicDarkness = 0.30;
   double cinematicBlur = 0.0;
@@ -229,7 +230,8 @@ class AppSettings extends ChangeNotifier {
     diagonalWaveStyle = _int(p, 'diagonalWaveStyle', 0, 0, 2);
     cinematicWaveStyle = _int(p, 'cinematicWaveStyle', 1, 0, 2);
     fanartMode = _int(p, 'fanartMode', 2, 0, 2);
-    cinematicFallback = _int(p, 'cinematicFallback', 0, 0, 1);
+    cinematicFallback = _int(p, 'cinematicFallback', 1, 0, 1);
+    fanartThemeSource = _int(p, 'fanartThemeSource', 0, 0, 2);
     cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
     if (cinematicPalette < 14 || cinematicPalette > 19) cinematicPalette = 15;
     cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.30).clamp(0.0, 1.0).toDouble();
@@ -377,6 +379,7 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('cinematicWaveStyle', cinematicWaveStyle);
     await p.setInt('fanartMode', fanartMode);
     await p.setInt('cinematicFallback', cinematicFallback);
+    await p.setInt('fanartThemeSource', fanartThemeSource);
     await p.setInt('cinematicPalette', cinematicPalette);
     await p.setDouble('cinematicDarkness', cinematicDarkness);
     await p.setDouble('cinematicBlur', cinematicBlur);
