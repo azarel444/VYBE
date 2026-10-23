@@ -416,15 +416,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         TextButton(onPressed: _back,
             child: const Text('Back', style: TextStyle(fontSize: 18))),
       const Spacer(),
-      Flexible(child: ElevatedButton(
+      ElevatedButton(
         onPressed: _next,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           child: Text(_step == _lastStep ? 'Launch VYBE' : 'Continue',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 19)),
+              softWrap: false,
+              style: const TextStyle(fontSize: 17)),
         ),
-      )),
+      ),
     ]);
   }
 
@@ -438,6 +438,7 @@ class ToolbarGuide extends StatelessWidget {
   static const _normal = <_GuideControl>[
     _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
     _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.swap_horiz_rounded, 'Flip layout', 'Swap sides in supported landscape themes'),
     _GuideControl(Icons.navigation_rounded, 'Drive', 'Open the Drive map experience'),
     _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
     _GuideControl(Icons.play_circle_filled, 'Play / Pause', 'Control music playback'),
@@ -512,6 +513,7 @@ class ToolbarGuide extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       _section('Standard', _normal),
+      const Padding(padding: EdgeInsets.only(top: 6), child: Text('Flip layout appears in supported landscape themes only.', style: TextStyle(color: Colors.white70, fontSize: 14))),
       _section('Drive Theme Activated', _drive),
       const SizedBox(height: 16),
       const Text('Tap the screen to show the toolbar. The seek bar at the top '
