@@ -145,7 +145,7 @@ void main(){
      vec2 coord=vec2(-hit.z*.92,hit.y*1.35);
      vec2 cell=floor(coord),local=abs(fract(coord)-.5);
      float seed=hash(cell+vec2(face*7.,13.));
-     float active=step(.70,seed);
+     float fixtureEnabled=step(.70,seed);
      float variant=hash(cell+vec2(2.,19.));
      vec2 halfSize=variant<.33?vec2(.37,.055):
                    (variant<.67?vec2(.085,.34):vec2(.22,.20));
@@ -156,7 +156,7 @@ void main(){
      float pulse=.62+.38*sin(t*.83+seed*11.);
      vec3 tint=pal(fract(seed*1.7+t*.025));
      col+=vec3(.003,.004,.009)*distanceFade;
-     col+=tint*(panel*1.45+glow*.56)*active*pulse*distanceFade;
+     col+=tint*(panel*1.45+glow*.56)*fixtureEnabled*pulse*distanceFade;
    }
  }
  // Physically related spotlight cones and pools: beam and floor share targets.
