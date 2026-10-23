@@ -718,9 +718,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ]);
     }
     final art = model.art;
-    if (art == null || art.flat) {
-      return _premiumAnimatedBackground(settings.templateBackgroundMotion);
-    }
     final Widget child;
     // A flat placeholder picture (a logo on one color) counts as no cover.
     if (art == null || art.flat) {
