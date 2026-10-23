@@ -853,28 +853,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         )),
       ColoredBox(color: Colors.black.withOpacity(
         settings.cinematicDarkness.clamp(0.0, 1.0))),
-      // Cinematic framing: strong side blur and a bottom
-      // gradient beneath the album cover, title and artist information.
-      // This sits above either fanart or the animated fallback.
-      // This framing fade must respect the darkness slider. At 0% there
-      // must be no hidden black overlay on fanart or animated scenes.
-      if (settings.cinematicDarkness > 0)
-        IgnorePointer(child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              stops: const [0.0, 0.22, 0.48, 0.72],
-              colors: [
-                Colors.black.withOpacity(settings.cinematicDarkness * .90),
-                Colors.black.withOpacity(settings.cinematicDarkness * .68),
-                Colors.black.withOpacity(settings.cinematicDarkness * .20),
-                Colors.transparent,
-              ],
+      // Cinematic's deliberate bottom-to-transparent readability fade is
+      // independent of the user-controlled full-screen darkness overlay.
+      // Limit it to the lower portion so the rest of the fanart stays clear.
+      IgnorePointer(child: Align(
+        alignment: Alignment.bottomCenter,
+        child: FractionallySizedBox(
+          widthFactor: 1.0,
+          heightFactor: .38,
+          child: const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                stops: [0.0, .36, 1.0],
+                colors: [
+                  Color(0xE6000000),
+                  Color(0x90000000),
+                  Color(0x00000000),
+                ],
+              ),
             ),
           ),
-          child: const SizedBox.expand(),
-        )),
+        ),
+      )),
 
     ]);
   }
