@@ -978,7 +978,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       const ColoredBox(color: Color(0x99000000)),
     ]);
     final sleeve = Transform.rotate(
-      angle: portrait ? -math.pi / 4 : math.pi / 4,
+      // The flipped composition counter-mirrors the artwork to keep album
+      // typography readable. Its rotation must also reverse so the sleeve's
+      // top edge angles toward the record on the mirrored side.
+      angle: (portrait || flipped) ? -math.pi / 4 : math.pi / 4,
       child: Container(
         width: sleeveSize, height: sleeveSize,
         decoration: BoxDecoration(
