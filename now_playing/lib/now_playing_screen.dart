@@ -932,9 +932,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       shadows: const [Shadow(color: Colors.black, blurRadius: 8)]);
     return Stack(fit: StackFit.expand, children: [
       if (portrait) ...[
-        Positioned(left: 0, right: 0, top: 0, height: h * .275,
+        Positioned(left: 0, right: 0, top: 0, height: h * .20,
           child: ClipRect(child: backing)),
-        Positioned(left: 0, right: 0, top: h * .275,
+        Positioned(left: 0, right: 0, top: h * .20,
           child: Container(height: 2, color: accent.withOpacity(.88))),
         Positioned(left: 0, right: 0, bottom: 0, height: h * .31,
           child: const DecoratedBox(decoration: BoxDecoration(
@@ -999,7 +999,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (portrait)
           // The divider is the waveform's origin. Draw downward from it,
           // beneath the angled sleeve and without any mirrored reflection.
-          Positioned(left: 0, right: 0, top: h * .287,
+          Positioned(left: 0, right: 0, top: h * .20,
             height: h * .082,
             child: IgnorePointer(child: CustomPaint(
               painter: _EditorialDividerWavePainter(
@@ -1129,7 +1129,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
         case 11: // Editorial: upper-right pocket beside the angled sleeve.
-          topInset = h * .208;
+          topInset = h * .145;
           break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
@@ -1163,7 +1163,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     if (typoLyricsCentered) topInset = 22.0;
     final inset = theme == AppSettings.tEditorial && !portrait
-        ? w * .085 : (portrait ? 18.0 : 30.0);
+        ? w * .042 : (portrait ? 18.0 : 30.0);
     if (theme == AppSettings.tEditorial && !portrait) topInset = h * .055;
     return Positioned(
       left: centered ? 0 : (onRight ? null : inset),
@@ -4605,7 +4605,7 @@ class _EditorialDividerWavePainter extends CustomPainter {
       final x = i / (samples - 1);
       final band = (x * (SpectrumSim.bars - 1)).round();
       final energy = sim.level(band, gain).clamp(0.0, 1.0);
-      final y = size.height * (.18 + .60 * energy);
+      final y = size.height * (.72 * energy);
       if (i == 0) { path.moveTo(x * size.width, y); }
       else { path.lineTo(x * size.width, y); }
     }
