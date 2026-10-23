@@ -3022,7 +3022,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         fit: StackFit.expand,
         children: [
           gray,
-          Positioned.fill(child: _bottomArtworkFade()),
+          Positioned(left: 0, right: 0, bottom: 0, height: h * 0.18, child: _diagonalBottomFade()),
           bars,
           line,
           Positioned(
@@ -3069,7 +3069,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       fit: StackFit.expand,
       children: [
         gray,
-        Positioned.fill(child: _bottomArtworkFade()),
+        Positioned(left: 0, right: 0, bottom: 0, height: h * 0.18, child: _diagonalBottomFade()),
         bars,
         line,
         Positioned(left: w * 0.046, top: (h - s) / 2, child: _front(s, false)),
@@ -3928,6 +3928,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 Color(0x7A000000),
                 Color(0xF5000000),
               ],
+            ),
+          ),
+        ),
+      );
+
+  /// A short bottom-edge fade for Diagonal only; transparent above the
+  /// bottom 18% so it cannot darken the central background or waveform.
+  Widget _diagonalBottomFade() => const IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [Color(0x8C000000), Colors.transparent],
             ),
           ),
         ),
