@@ -40,14 +40,16 @@ void main() {
   // Golden Hour is atmospheric sunlight, not neon contour lines.
   // Broad irregular shafts pass through slowly evolving cloud occlusion.
   float radiusFade=exp(-dist*.82);
-  float shaftNoise=fbm(vec2(ang*2.4 + .35*sin(t*.045),
+  float shaftNoise=fbm(vec2(ang*2.4 + .68*sin(t*.24) + .17*sin(t*.51),
                             dist*.85 - t*.018));
   float shaftMask=smoothstep(.39,.72,shaftNoise);
-  float softShafts=pow(.5+.5*cos(ang*5.2+.12*sin(t*.09)),3.);
+  float softShafts=pow(.5+.5*cos(ang*5.2+.46*sin(t*.27)+.16*sin(t*.53+ang*2.)),3.);
+  float secondaryShafts=pow(.5+.5*cos(ang*8.3-.35*sin(t*.19)+t*.045),5.);
   float cloudShadow=1.-.65*smoothstep(.43,.73,
       fbm(p*2.1+vec2(t*.025,-t*.018)));
   col+=vec3(.98,.54,.12)*softShafts*shaftMask*
-      cloudShadow*radiusFade*.55;
+      cloudShadow*radiusFade*(.65+.12*sin(t*.37));
+  col+=vec3(.95,.42,.075)*secondaryShafts*radiusFade*.19*cloudShadow;
   col+=vec3(.67,.25,.025)*shaftMask*radiusFade*.13;
   // Luminous moving clouds cross the beams, revealing their motion.
   float movingMist=fbm(p*3.7+vec2(t*.27,-t*.19));
@@ -55,15 +57,21 @@ void main() {
   col+=vec3(.62,.12,.012)*mistBand*exp(-dist*.9)*.22;
   // Independent foreground haze moves faster than the distant clouds.
   // Its dark occlusion adds depth without painting the entire scene gold.
-  float nearHaze=fbm(p*8.0+vec2(t*.19,-t*.14));
+  float nearHaze=fbm(p*8.0+vec2(t*.37,-t*.24));
   float nearVeil=smoothstep(.58,.81,nearHaze);
   col*=1.0-nearVeil*.48;
   col+=vec3(.38,.055,.006)*nearVeil*.075;
   // Intense white-hot source and concentric diffused glow.
-  float core=exp(-dist*dist*(175.+18.*sin(t*.9)));
+  float core=exp(-dist*dist*(175.+25.*sin(t*.9)));
   float halo=exp(-dist*dist*(22.+2.*sin(t*.55)));
   float haloWide=exp(-dist*dist*(5.5+.4*sin(t*.42)));
   col+=vec3(.42,.075,.009)*haloWide*.15+vec3(1.,.36,.045)*halo*.48+vec3(1.,.96,.76)*core*2.3;
+  // Soft anamorphic glint and drifting flare ghosts, tied to the source.
+  float flareLine=exp(-abs(d.y)*170.)*exp(-abs(d.x)*2.8);
+  col+=vec3(1.,.48,.13)*flareLine*(.055+.025*sin(t*.7));
+  vec2 ghostPos=sun+vec2(.18*sin(t*.16),-.11*cos(t*.13));
+  float ghost=exp(-length(p-ghostPos)*length(p-ghostPos)*190.);
+  col+=vec3(.65,.32,.09)*ghost*.075;
   // Golden volumetric bloom is concentrated around the light source.
   // Keep the corners dark instead of applying a full-screen gold wash.
   float warmBloom=exp(-dist*dist*5.6);
@@ -76,17 +84,20 @@ void main() {
     float fi=float(i);
     float seed=fi*2.39996323;
     vec2 drift=vec2(.035*sin(t*(.12+fi*.007)+seed),
-                    -.018*t*(.42+mod(fi,3.)*.23));
+                    -.065*t*(.42+mod(fi,3.)*.23));
     vec2 center=vec2(
       (hash21(vec2(fi,7.1))*1.36-.68)*aspect,
       fract(hash21(vec2(fi,19.3))+drift.y)*1.35-.67
     )+vec2(drift.x,0.);
-    float r=mix(.045,.19,hash21(vec2(fi,29.7)));
+    float r=mix(.035,.15,hash21(vec2(fi,29.7)));
     float rr=length(p-center)/r;
     float soft=1.-smoothstep(.64,1.12,rr);
     float inner=1.-smoothstep(.0,.8,rr);
-    float alpha=(.055+.17*hash21(vec2(fi,37.2)))*soft;
+    float alpha=(.09+.27*hash21(vec2(fi,37.2)))*soft;
     col+=mix(uAmber,uGold,.68)*alpha*(.58+.42*inner);
+    // Bright drifting near-camera glints provide visible foreground motion.
+    float sparkle=pow(max(0.,1.-rr),3.)*(.5+.5*sin(t*(.8+fi*.13)+seed));
+    col+=vec3(1.,.79,.43)*sparkle*.085;
   }
   // A small number of brighter mid-depth golden discs float near the source.
   for(int i=0;i<11;i++){
