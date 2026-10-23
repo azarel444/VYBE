@@ -89,6 +89,7 @@ class _GoldenHourBackgroundState extends State<GoldenHourBackground>
         program: program, clock: _sceneClock,
         palette: widget.palette, bass: widget.bass,
         lightOrigin: widget.lightOrigin,
+        programAssetUsesLightOrigin: widget.shaderAsset == 'shaders/golden_hour.frag',
         programAssetUsesBass: const [
           'shaders/club_stage.frag', 'shaders/lightstorm.frag',
           'shaders/rave.frag', 'shaders/neon_club.frag',
@@ -105,9 +106,11 @@ class _GoldenHourPainter extends CustomPainter {
   final double bass;
   final Offset? lightOrigin;
   final bool programAssetUsesBass;
+  final bool programAssetUsesLightOrigin;
   _GoldenHourPainter({
     required this.program, required this.clock, required this.palette,
     required this.bass, required this.programAssetUsesBass,
+    required this.programAssetUsesLightOrigin,
     required this.lightOrigin,
   }) : super(repaint: clock);
 
@@ -128,10 +131,10 @@ class _GoldenHourPainter extends CustomPainter {
     // All premium shaders share the first twelve floats; the four new
     // spatial scenes consume one additional music-reactive bass uniform.
     if (programAssetUsesBass) shader.setFloat(12, bass.clamp(0.0, 1.0));
-    if (!programAssetUsesBass && lightOrigin != null) {
+    if (!programAssetUsesBass && lightOrigin != null && programAssetUsesLightOrigin) {
       shader.setFloat(12, lightOrigin!.dx);
       shader.setFloat(13, lightOrigin!.dy);
-    } else if (!programAssetUsesBass) {
+    } else if (!programAssetUsesBass && programAssetUsesLightOrigin) {
       shader.setFloat(12, .515);
       shader.setFloat(13, .69);
     }
