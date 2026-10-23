@@ -889,16 +889,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // visualizer (which begins at h * .78). It is not anchored mid-screen.
     final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .72;
     final musiczineVinylSize = portrait ? sleeveSize * .83 : sleeveSize * .76;
-    // The record CENTER must be inside the rotated cover silhouette so its
-    // small label is hidden by the cover. Only the outer vinyl emerges.
-    // For a 45-degree sleeve the diagonal boundary is
-    // abs(dx) + abs(dy) = sleeveSize / sqrt(2).
-    // Landscape: emerge above its upper-right diagonal, near the right tip.
-    // Portrait: emerge to the lower-left, toward the bottom diamond tip.
-    final musiczineVinylCenterX = sleeveCenterX +
-        sleeveSize * (portrait ? -.20 : .48);
-    final musiczineVinylCenterY = sleeveCenterY +
-        sleeveSize * (portrait ? .42 : -.13);
+    // Center the vinyl on the MIDPOINT of the appropriate diamond edge,
+    // not toward a corner. The sleeve is rotated 45 degrees, so the
+    // midpoints of its diagonal edges are at (+/- .3536, +/- .3536)
+    // times the original square side. Pull the record center slightly
+    // inside the sleeve so its label stays covered, leaving roughly
+    // half the disc exposed. Natural screen clipping is intentional.
+    // Landscape: upper-right edge. Portrait: lower-left edge.
+    const vinylEdgeInset = .055;
+    final vinylEdgeOffset = .3535533905932738 - vinylEdgeInset;
+    final musiczineVinylCenterX =
+        sleeveCenterX + sleeveSize * (portrait ? -vinylEdgeOffset : vinylEdgeOffset);
+    final musiczineVinylCenterY =
+        sleeveCenterY + sleeveSize * (portrait ? vinylEdgeOffset : -vinylEdgeOffset);
     final musiczineVinylX = musiczineVinylCenterX - musiczineVinylSize * .5;
     final musiczineVinylY = musiczineVinylCenterY - musiczineVinylSize * .5;
     final cover = hasCover
