@@ -102,7 +102,7 @@ class _IntegrationDiagnosticsState extends State<IntegrationDiagnostics> {
           const Text('YouTube Music integration diagnostics',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w500)),
           const SizedBox(height: 10),
-          const Text('Start a playlist in YouTube Music, then scan 
+          const Text('Start a playlist in YouTube Music, then scan '
               'while it is playing. These diagnostics inspect what Android '
               'actually exposes to VYBE: track metadata, artwork references, '
               'queue entries and playback actions. They do not access the '
