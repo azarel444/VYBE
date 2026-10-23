@@ -614,22 +614,41 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
+  /// Four premium scenes, all using the current album-art color palette.
+  Widget _premiumAnimatedBackground(double motion) {
+    final speed = settings.performance ? 0.0 : motion;
+    if (settings.cinematicPalette == 16 || settings.cinematicPalette == 17) {
+      return RepaintBoundary(child: AnimatedBuilder(
+        animation: _slow,
+        builder: (context, _) => CustomPaint(
+          painter: settings.cinematicPalette == 16
+              ? ClubBackgroundPainter(
+                  palette: _palette, time: _time, motion: speed,
+                  darkness: 0.0)
+              : LaserTunnelBackgroundPainter(
+                  palette: _palette, time: _time, motion: speed,
+                  darkness: 0.0),
+          size: Size.infinite,
+        ),
+      ));
+    }
+    return RepaintBoundary(child: GoldenHourBackground(
+      time: _time,
+      motion: speed,
+      palette: settings.cinematicPalette == 14
+          ? AppSettings.accents[14]! : _palette,
+      shaderAsset: settings.cinematicPalette == 14
+          ? 'shaders/golden_hour.frag' : 'shaders/neon_ribbons.frag',
+    ));
+  }
+
   Widget _background() {
     if (!widget.driveHost &&
         (settings.theme == AppSettings.tCinematic ||
          settings.theme == AppSettings.tEditorial)) {
       return _cinematicBackdrop();
     }
-    // Premium animated scenes replace all retired color templates and
-    // decorative background modes. Album artwork drives their colors.
-    return RepaintBoundary(child: GoldenHourBackground(
-      time: _time,
-      motion: settings.performance ? 0 : settings.templateBackgroundMotion,
-      palette: settings.cinematicPalette == 14
-          ? AppSettings.accents[14]! : _palette,
-      shaderAsset: settings.cinematicPalette == 14
-          ? 'shaders/golden_hour.frag' : 'shaders/neon_ribbons.frag',
-    ));
+    return _premiumAnimatedBackground(settings.templateBackgroundMotion);
   }
 
   /// Keep Cinematic fanart visible beneath the optional club/laser lights.
@@ -755,14 +774,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  Widget _cinematicAnimatedFallback() => GoldenHourBackground(
-    time: _time,
-    motion: settings.cinematicAnimationSpeed,
-    palette: settings.cinematicPalette == 14
-        ? AppSettings.accents[14]! : _palette,
-    shaderAsset: settings.cinematicPalette == 14
-        ? 'shaders/golden_hour.frag' : 'shaders/neon_ribbons.frag',
-  );
+  Widget _cinematicAnimatedFallback() =>
+      _premiumAnimatedBackground(settings.cinematicAnimationSpeed);
 
   Widget _cinematicBackdrop() => AnimatedBuilder(
     animation: _slow,
