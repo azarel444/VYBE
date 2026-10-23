@@ -260,7 +260,7 @@ class AppSettings extends ChangeNotifier {
     kMotion = k('kMotion', 1.0);
     animatedTemplateBackground = p.getBool('animatedTemplateBackground') ?? false;
     clubBlendMode = (p.getInt('clubBlendMode') ?? 0).clamp(0, 9).toInt();
-    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 5).toInt();
+    backgroundSource = (p.getInt('backgroundSource') ?? (animatedTemplateBackground ? 1 : 0)).clamp(0, 6).toInt();
     templateBackgroundMotion = (p.getDouble('templateBackgroundMotion') ?? 0.65).clamp(0.0, 1.0).toDouble();
     bgEffects = p.getBool('bgEffects') ?? true;
     particles = p.getBool('particles') ?? false;
