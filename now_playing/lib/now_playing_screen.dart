@@ -644,7 +644,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       key: ValueKey(sceneAssets[sceneIndex]),
       time: _time,
       motion: settings.performance ? 0.0 : motion,
-      palette: scenePalettes[sceneIndex],
+      palette: settings.animationUseAlbumColors ? _palette : scenePalettes[sceneIndex],
       bass: sim.bass,
       shaderAsset: sceneAssets[sceneIndex],
     ));
