@@ -4624,8 +4624,9 @@ class _EditorialDividerWavePainter extends CustomPainter {
     for (var i = 0; i < samples; i++) {
       final x = i / (samples - 1);
       final band = (x * (SpectrumSim.bars - 1)).round();
-      final energy = sim.level(band, gain).clamp(0.0, 1.0);
-      final y = size.height * (.72 * energy);
+      final raw = sim.level(band, gain).clamp(0.0, 1.0);
+      final energy = math.pow(raw, 0.58).toDouble();
+      final y = size.height * (.84 * energy);
       if (i == 0) { path.moveTo(x * size.width, y); }
       else { path.lineTo(x * size.width, y); }
     }
@@ -4663,8 +4664,11 @@ class _CinematicWavePainter extends CustomPainter {
     for (var i = 0; i < samples; i++) {
       final x = i / (samples - 1);
       final band = (i * (SpectrumSim.bars - 1) / (samples - 1)).round();
-      final energy = sim.level(band, gain);
-      final y = size.height * (0.55 - 0.36 * energy);
+      // Expand quieter live-audio peaks without clipping the louder ones.
+      // Preserve the relative spectral differences instead of flattening bars.
+      final raw = sim.level(band, gain).clamp(0.0, 1.0);
+      final energy = math.pow(raw, 0.58).toDouble();
+      final y = size.height * (0.55 - 0.44 * energy);
       points.add(Offset(x * size.width, y));
     }
     final path = Path()..moveTo(points.first.dx, points.first.dy);
