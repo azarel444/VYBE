@@ -345,7 +345,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.
-    if (settings.theme == AppSettings.tRecord || settings.theme == 4) {
+    if (settings.theme == AppSettings.tRecord ||
+        settings.theme == AppSettings.tEditorial || settings.theme == 4) {
       const full = 1 / 1.8;
       final target = model.playing ? full : 0.0;
       if (_recSpeed < target) {
@@ -884,7 +885,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final hasCover = art != null && !art.flat;
     final sleeveSize = portrait ? w * .89 : h * .86;
     final sleeveCenterX = portrait ? w * .48 : w * .235 - sleeveSize * .707;
-    final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .50;
+    final sleeveCenterY = portrait ? h * .275 - sleeveSize * .707 : h * .62;
+    // Exposed spinning vinyl sits behind the sleeve, never over its artwork.
+    final musiczineVinylSize = portrait ? w * .72 : h * .68;
+    final musiczineVinylX = portrait ? -w * .24 : w * .015;
+    final musiczineVinylY = portrait ? h * .23 : -h * .17;
     final cover = hasCover
         ? RawImage(image: art.tiny, fit: BoxFit.cover,
             filterQuality: FilterQuality.high)
@@ -1031,6 +1036,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 sim: sim, color: accent,
                 style: settings.cinematicWaveStyle,
                 gain: settings.sensitivity, repaint: _tick)))),
+      // Same Record Cut disc and playback-driven inertia, layered behind
+      // the diagonal sleeve. The Stack clips naturally at screen edges.
+      Positioned(left: musiczineVinylX, top: musiczineVinylY,
+        width: musiczineVinylSize, height: musiczineVinylSize,
+        child: IgnorePointer(child: _vinyl(musiczineVinylSize))),
       Positioned(
         left: sleeveCenterX - sleeveSize * .5,
         top: sleeveCenterY - sleeveSize * .5,
