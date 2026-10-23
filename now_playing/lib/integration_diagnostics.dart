@@ -99,17 +99,18 @@ class _IntegrationDiagnosticsState extends State<IntegrationDiagnostics> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
         children: [
-          const Text('Streaming integrations',
+          const Text('YouTube Music integration diagnostics',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w500)),
           const SizedBox(height: 10),
-          const Text('Start a playlist in Spotify or YouTube Music, then scan '
+          const Text('Start a playlist in YouTube Music, then scan 
               'while it is playing. These diagnostics inspect what Android '
               'actually exposes to VYBE: track metadata, artwork references, '
               'queue entries and playback actions. They do not access the '
               'streaming service\'s private playlist library.'),
           const SizedBox(height: 12),
-          _service('spotify', 'Spotify'),
           _service('youtube_music', 'YouTube Music'),
+          const SizedBox(height: 8),
+          const Text('For later compatibility testing: scan once, skip to the next song and scan again. Repeat after shuffle or switching playlists. Compare activeQueueItemId, queueIds, queue artwork and track ordering. No playback commands are sent by this diagnostic.', style: TextStyle(color: Colors.white70)),
           if (_error != null) Text(_error!,
               style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 10),
