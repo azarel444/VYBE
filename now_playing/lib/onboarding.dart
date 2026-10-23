@@ -60,7 +60,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen>
     with WidgetsBindingObserver {
-  static const _lastStep = 7;
+  static const _lastStep = 2;
 
   int _step = 0;
   Map<String, bool> _perm = const {
@@ -228,158 +228,91 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         ),
       );
 
+  Widget _permissionRow(String title, String explanation, String key,
+      String buttonLabel, VoidCallback action) {
+    final granted = _granted(key);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(granted ? Icons.check_circle : Icons.radio_button_unchecked,
+              color: granted ? Colors.greenAccent : Colors.white54, size: 21),
+          const SizedBox(width: 9),
+          Expanded(child: Text(title,
+              style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600))),
+          OutlinedButton(onPressed: granted ? null : action,
+              child: Text(granted ? 'Allowed' : buttonLabel)),
+        ]),
+        Padding(
+          padding: const EdgeInsets.only(left: 30),
+          child: Text(explanation,
+              style: const TextStyle(fontSize: 15, color: Colors.white70)),
+        ),
+      ]),
+    );
+  }
+
   Widget _content() {
     switch (_step) {
       case 0:
         return _page(
-          icon: null,
-          title: 'Welcome to VYBE',
-          body: 'VYBE turns your head unit into a now playing screen with '
-              'album art, a live visualizer and lyrics.\n\n'
-              'Before it asks for anything, the next screens explain what each '
-              'permission is for and what VYBE does with it. Everything stays '
-              'on your device, except two optional online features that you '
-              'choose below.',
-          logo: true,
+          icon: Icons.tune,
+          title: 'Set up VYBE',
+          body: 'Three quick steps. Allow what you need; optional access can be skipped.',
+          extra: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _permissionRow('Music access · Required',
+                'Read the current song and control playback. Also detects navigation to avoid covering maps.',
+                'notification', 'Allow', Native.openAccessSettings),
+            _permissionRow('Live audio visualizer · Optional',
+                'Android requests audio permission for sound visualization. VYBE does not record audio; without access it uses simulated motion.',
+                'audio', 'Allow', () async {
+                  await Native.requestAudio();
+                  _refresh();
+                }),
+            _permissionRow('Display over apps · Optional',
+                'Auto-open with music and show Drive mode over navigation.',
+                'overlay', 'Allow', Native.openOverlaySettings),
+          ]),
         );
       case 1:
         return _page(
-          icon: Icons.notifications_active_outlined,
-          title: 'Notification access',
-          tag: 'Required',
-          status: _granted('notification'),
-          body: 'This is how Android lets an app see what is playing. VYBE '
-              'reads only the title, artist, album and cover of the current '
-              'song, and lets you pause and skip.\n\n'
-              'It also checks whether a navigation app is guiding, so VYBE '
-              'does not open over your map. In the optional Drive mode it '
-              'reads the text of the navigation notification (the next turn) '
-              'to show it on screen. Nothing else is read.\n\n'
-              'VYBE does not read your messages, and nothing it sees leaves '
-              'your device.',
-        );
-      case 2:
-        return _page(
-          icon: Icons.graphic_eq,
-          title: 'Audio access',
-          tag: 'Optional',
-          status: _granted('audio'),
-          body: 'The live visualizer analyzes the sound your player is '
-              'outputting, and Android protects that behind its microphone '
-              'permission. That is the only reason it is requested.\n\n'
-              'VYBE does not use the microphone. It never records, stores or '
-              'sends audio.\n\n'
-              'If you skip this, the visualizer still works from a simulated '
-              'pattern that moves with the music.',
-        );
-      case 3:
-        return _page(
-          icon: Icons.cloud_outlined,
-          title: 'Online features',
-          tag: 'Optional',
-          body: 'Two features use the internet. Android grants the internet '
-              'permission automatically, so these switches are the real '
-              'choice.\n\n'
-              'Album art search finds a cover when your player does not send '
-              'one (iTunes Search). Synced lyrics come from LRCLIB. Both '
-              'send only the song title and artist.\n\n'
-              'Without them VYBE works fully offline.',
-          extra: Column(
-            children: [
-              _switchRow(
-                'Find missing album art',
-                _art,
-                (v) {
-                  setState(() { _choicesTouched = true; _art = v; });
-                  _put('artLookup', v);
-                },
-              ),
-              _switchRow(
-                'Show synced lyrics',
-                _lyrics,
-                (v) {
-                  setState(() { _choicesTouched = true; _lyrics = v; });
-                  _put('lyrics', v);
-                },
-              ),
-            ],
-          ),
-        );
-      case 4:
-        return _page(
-          icon: Icons.open_in_new,
-          title: 'Display over other apps',
-          tag: 'Optional',
-          status: _granted('overlay'),
-          body: 'Newer versions of Android do not let an app open itself '
-              'while another app is on screen, unless this is allowed. '
-              'It is what lets VYBE open when your music starts.\n\n'
-              'It is also what lets the optional Drive mode draw album art and '
-              'song info over your map app, and a small "return to VYBE" button '
-              'while VYBE is hidden so you can get back to it (it can be '
-              'turned off in settings). VYBE draws nothing over other apps '
-              'unless you start Drive. If you skip this, VYBE can still be '
-              'opened by hand, and auto-open may not work on your unit.',
-        );
-      case 5:
-        return _page(
-          icon: Icons.play_circle_outline,
-          title: 'Opening by itself',
-          tag: 'Optional',
-          body: 'VYBE opens when you start or change a song in a music player. It '
-              'does not open when a song just ends and the next one plays by '
-              'itself. It stays out of the way for video, navigation voice and '
-              'phone calls, and it does not open while navigation is guiding.\n\n'
-              'Some head units have their own auto-start manager, which must '
-              'also allow VYBE.',
-          extra: Column(
-            children: [
-              _switchRow(
-                'Open when the unit starts',
-                _boot,
-                (v) {
-                  setState(() { _choicesTouched = true; _boot = v; });
-                  _put('bootStart', v);
-                },
-              ),
-              _switchRow(
-                'Open when music starts',
-                _music,
-                (v) {
-                  setState(() { _choicesTouched = true; _music = v; });
-                  _put('musicStart', v);
-                },
-              ),
-            ],
-          ),
-        );
-      case 6:
-        return _page(
-          icon: Icons.check_circle_outline,
-          title: 'You are set',
-          body: 'You can review every permission and change any choice later '
-              'in Settings, on the Permissions tab. You can also '
-              'replay this tour from there.',
-          extra: Column(
-            children: [
-              _summaryRow('Notification access', _granted('notification')),
-              _summaryRow('Audio access (live visualizer)', _granted('audio')),
-              _summaryRow('Display over other apps', _granted('overlay')),
-              _summaryRow('Album art search', _art),
-              _summaryRow('Synced lyrics', _lyrics),
-              _summaryRow('Open when the unit starts', _boot),
-              _summaryRow('Open when music starts', _music),
-            ],
-          ),
+          icon: Icons.settings_outlined,
+          title: 'Your preferences',
+          body: 'Choose how VYBE starts and which online features to use. Change these anytime in Settings.',
+          extra: Column(children: [
+            _switchRow('Find missing album art', _art, (v) {
+              setState(() { _choicesTouched = true; _art = v; });
+              _put('artLookup', v);
+            }),
+            _switchRow('Synced lyrics', _lyrics, (v) {
+              setState(() { _choicesTouched = true; _lyrics = v; });
+              _put('lyrics', v);
+            }),
+            _switchRow('Open when device starts', _boot, (v) {
+              setState(() { _choicesTouched = true; _boot = v; });
+              _put('bootStart', v);
+            }),
+            _switchRow('Open when music starts', _music, (v) {
+              setState(() { _choicesTouched = true; _music = v; });
+              _put('musicStart', v);
+            }),
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text('Artwork search and lyrics use the internet and send song title and artist to their providers.',
+                  style: TextStyle(fontSize: 14, color: Colors.white60)),
+            ),
+          ]),
         );
       default:
         return _page(
-          icon: Icons.touch_app_outlined,
-          title: 'Your VYBE controls',
-          body: 'The floating toolbar appears when you tap the player. '
-              'These are the expanded controls in both modes. '
-              'No guessing or tapping around required.',
-          extra: const ToolbarGuide(),
+          icon: Icons.check_circle_outline,
+          title: 'Ready to VYBE',
+          body: 'Play music to get started. Tap the player for controls. Permissions, visuals and this guide are available in Settings.',
+          extra: Column(children: [
+            _summaryRow('Music access', _granted('notification')),
+            _summaryRow('Live audio visualizer', _granted('audio')),
+            _summaryRow('Display over apps', _granted('overlay')),
+          ]),
         );
     }
   }
@@ -500,109 +433,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       );
 
   Widget _buttons() {
-    final optional = _step == 2 || _step == 4;
-    final isRequired = _step == 1;
-    String label;
-    VoidCallback onPressed;
-
-    if (_step == 0) {
-      label = 'Get started';
-      onPressed = _next;
-    } else if (_step == _lastStep) {
-      label = 'Launch VYBE';
-      onPressed = _next;
-    } else if (isRequired && !_granted('notification')) {
-      label = 'Open notification settings';
-      onPressed = Native.openAccessSettings;
-    } else if (_step == 2 && !_granted('audio')) {
-      label = 'Allow audio access';
-      onPressed = () async {
-        await Native.requestAudio();
-        _refresh();
-      };
-    } else if (_step == 4 && !_granted('overlay')) {
-      label = 'Open settings';
-      onPressed = Native.openOverlaySettings;
-    } else {
-      label = 'Continue';
-      onPressed = _next;
-    }
-
-    final showSkip = (optional && !_granted(_step == 2 ? 'audio' : 'overlay')) ||
-        (isRequired && !_granted('notification'));
-
-    // A Wrap instead of a Row, so a long label drops to its own line
-    // instead of running off the edge of the screen.
-    return LayoutBuilder(builder: (context, box) {
-      return Wrap(
-        alignment: WrapAlignment.end,
-        runAlignment: WrapAlignment.end,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 12,
-        runSpacing: 8,
-        children: [
-          if (_step > 0)
-            TextButton(
-              onPressed: _back,
-              child: const Padding(
-                padding: EdgeInsets.all(8),
-                child: Text('Back', style: TextStyle(fontSize: 18)),
-              ),
-            ),
-          if (showSkip)
-            TextButton(
-              onPressed: _next,
-              child: const Padding(
-                padding: EdgeInsets.all(8),
-                child: Text('Skip for now',
-                    style: TextStyle(fontSize: 18, color: Colors.white60)),
-              ),
-            ),
-          ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: box.maxWidth),
-            child: ElevatedButton(
-              onPressed: onPressed,
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 19),
-                ),
-              ),
-            ),
-          ),
-        ],
-      );
-    });
+    return Row(children: [
+      if (_step > 0)
+        TextButton(onPressed: _back, child: const Text('Back')),
+      const Spacer(),
+      ElevatedButton(
+        onPressed: _next,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Text(_step == _lastStep ? 'Launch VYBE' : 'Continue',
+              style: const TextStyle(fontSize: 18)),
+        ),
+      ),
+    ]);
   }
-}
-
-/// Read-only guide using the same icons and ordering as the expanded player
-/// toolbar. Both variants remain visible without needing to activate Drive.
-class ToolbarGuide extends StatelessWidget {
-  const ToolbarGuide({super.key});
-
-  static const _normal = <_GuideControl>[
-    _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
-    _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
-    _GuideControl(Icons.swap_horiz_rounded, 'Swap layout', 'Switch artwork and visualizer positions in supported landscape themes'),
-    _GuideControl(Icons.navigation_rounded, 'Drive', 'Open the Drive map experience'),
-    _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
-    _GuideControl(Icons.play_circle_filled, 'Play / Pause', 'Control music playback'),
-    _GuideControl(Icons.skip_next_rounded, 'Next', 'Skip to the next track'),
-  ];
-  static const _drive = <_GuideControl>[
-    _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
-    _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
-    _GuideControl(Icons.swap_horiz_rounded, 'Swap layout', 'Switch artwork and visualizer positions in supported landscape themes'),
-    _GuideControl(Icons.map_outlined, 'Show Map', 'Return to the map while Drive stays active'),
-    _GuideControl(Icons.close_rounded, 'Close Drive', 'Exit the Drive overlay'),
-    _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
-    _GuideControl(Icons.play_circle_filled, 'Play / Pause', 'Control music playback'),
-    _GuideControl(Icons.skip_next_rounded, 'Next', 'Skip to the next track'),
-  ];
 
   Widget _section(String title, List<_GuideControl> controls) => Padding(
     padding: const EdgeInsets.only(top: 20),
