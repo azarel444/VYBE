@@ -264,17 +264,9 @@ class MediaListenerService : NotificationListenerService() {
             endedAt[pkg] = now
             return
         }
-        userChangeAt[pkg] = now
-        val st = c.playbackState?.state
-        val going = st == PlaybackState.STATE_PLAYING ||
-            st == PlaybackState.STATE_BUFFERING ||
-            st == PlaybackState.STATE_CONNECTING ||
-            st == PlaybackState.STATE_SKIPPING_TO_NEXT ||
-            st == PlaybackState.STATE_SKIPPING_TO_PREVIOUS ||
-            st == PlaybackState.STATE_SKIPPING_TO_QUEUE_ITEM
-        if (going) launchVybe(c)
-        // Otherwise the state is still paused or stopped. The change to
-        // "playing" that follows will open VYBE, see onStart.
+        // Metadata changes alone cannot distinguish automatic playlist
+        // progression from a deliberate skip. Never foreground VYBE here.
+        // A genuine playback start is handled separately in onStart.
     }
 
     /**
@@ -321,11 +313,7 @@ class MediaListenerService : NotificationListenerService() {
         val pkg = c.packageName
         val now = SystemClock.elapsedRealtime()
 
-        // The person just picked or skipped to a track: always counts.
-        val user = userChangeAt[pkg]
-        val byPerson = user != null && now - user < 10000L
-
-        if (!byPerson) {
+        {
             // The player rolling from one track to the next by itself.
             val e = endedAt[pkg]
             if (e != null && now - e < 8000L) return
