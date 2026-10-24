@@ -198,6 +198,9 @@ class AppSettings extends ChangeNotifier {
   // intentionally stay global.
   static const String _appearanceProfilesKey = 'themeAppearancesV1';
   final Map<int, Map<String, dynamic>> _appearanceProfiles = {};
+  // Only modified themes are written, so the separate Drive engine cannot
+  // overwrite other themes' newer appearance profiles with stale copies.
+  final Set<int> _dirtyAppearanceThemes = <int>{};
   int? _activeAppearanceTheme;
   int _persistedTheme = 0;
 
@@ -360,23 +363,55 @@ class AppSettings extends ChangeNotifier {
     return result;
   }
 
-  String _encodeAppearances() => jsonEncode({
-    for (final entry in _appearanceProfiles.entries)
-      entry.key.toString(): entry.value,
-  });
+  Future<void> _saveAppearanceProfiles(SharedPreferences preferences) async {
+    if (_dirtyAppearanceThemes.isEmpty) return;
+    // Read the latest profiles instead of replacing another Flutter engine's
+    // changes to unrelated themes with this window's stale in-memory copy.
+    final merged = _decodeAppearances(
+        preferences.getString(_appearanceProfilesKey));
+    final snapshots = <int, String>{};
+    for (final id in _dirtyAppearanceThemes) {
+      final current = _appearanceProfiles[id];
+      if (current == null) continue;
+      merged[id] = current;
+      snapshots[id] = jsonEncode(current);
+    }
+    await preferences.setString(_appearanceProfilesKey, jsonEncode({
+      for (final entry in merged.entries) entry.key.toString(): entry.value,
+    }));
+    // A save can be in flight while a slider moves. Only clear a dirty flag
+    // if the stored snapshot is still equal to the theme's latest settings.
+    for (final entry in snapshots.entries) {
+      if (jsonEncode(_appearanceProfiles[entry.key]) == entry.value) {
+        _dirtyAppearanceThemes.remove(entry.key);
+      }
+    }
+    // Retain newer profiles learned from the other activity without
+    // overwriting any locally customized theme.
+    for (final entry in merged.entries) {
+      _appearanceProfiles.putIfAbsent(entry.key, () => entry.value);
+    }
+  }
 
   void _rememberAppearance() {
     final selected = _activeAppearanceTheme;
-    if (selected != null) _appearanceProfiles[selected] = _captureAppearance();
+    if (selected == null) return;
+    final snapshot = _captureAppearance();
+    if (jsonEncode(snapshot) != jsonEncode(_appearanceProfiles[selected])) {
+      _appearanceProfiles[selected] = snapshot;
+      _dirtyAppearanceThemes.add(selected);
+    }
   }
 
   void _switchAppearance(int selectedTheme) {
     if (_activeAppearanceTheme == selectedTheme) return;
     _rememberAppearance();
     _activeAppearanceTheme = selectedTheme;
-    final profile = _appearanceProfiles.putIfAbsent(
-      selectedTheme, _freshAppearance);
-    _applyAppearance(profile);
+    if (!_appearanceProfiles.containsKey(selectedTheme)) {
+      _appearanceProfiles[selectedTheme] = _freshAppearance();
+      _dirtyAppearanceThemes.add(selectedTheme);
+    }
+    _applyAppearance(_appearanceProfiles[selectedTheme]!);
   }
 
   // Migrate once: the user's previous global appearance becomes their active
@@ -386,14 +421,17 @@ class AppSettings extends ChangeNotifier {
       ..clear()
       ..addAll(_decodeAppearances(
           preferences.getString(_appearanceProfilesKey)));
+    _dirtyAppearanceThemes.clear();
     _activeAppearanceTheme = theme;
     _persistedTheme = theme;
     if (_appearanceProfiles.isEmpty) {
       _appearanceProfiles[theme] = _captureAppearance();
+      _dirtyAppearanceThemes.add(theme);
       return true;
     }
     if (!_appearanceProfiles.containsKey(theme)) {
       _appearanceProfiles[theme] = _freshAppearance();
+      _dirtyAppearanceThemes.add(theme);
       _applyAppearance(_appearanceProfiles[theme]!);
       return true;
     }
@@ -583,12 +621,11 @@ class AppSettings extends ChangeNotifier {
     _rememberAppearance();
     final selected = theme;
     _persistedTheme = selected;
-    final snapshot = _encodeAppearances();
     final next = _pendingSave.catchError((Object error) {
       debugPrint('VYBE previous settings save failed: $error');
     }).then((_) async {
       final p = await SharedPreferences.getInstance();
-      await p.setString(_appearanceProfilesKey, snapshot);
+      await _saveAppearanceProfiles(p);
       await p.setInt('theme', selected);
     });
     _pendingSave = next;
@@ -609,7 +646,7 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> _saveToDisk() async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_appearanceProfilesKey, _encodeAppearances());
+    await _saveAppearanceProfiles(p);
     // A transient Drive-window theme must not replace the user's preferred
     // theme in the normal full-screen window.
     await p.setInt('theme', _persistedTheme);
