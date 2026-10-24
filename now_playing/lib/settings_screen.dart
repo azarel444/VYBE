@@ -262,6 +262,7 @@ class SettingsScreen extends StatelessWidget {
     return [
       _section('Themes & backgrounds'),
       _themePreviewSelector(s),
+      const Text('Backgrounds and visual effects are saved separately for each theme. Switching back restores that theme\'s custom look.'),
       const Text('Choose a premium animated scene. Each scene has its own designed color palette.'),
       _choices('Animated background',
         AppSettings.premiumSceneNames,
