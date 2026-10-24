@@ -96,7 +96,12 @@ class AppSettings extends ChangeNotifier {
   );
   int fanartMode = 2; // Non-Cinematic artwork preference
   int cinematicFallback = 1; // Legacy preference (fanart now falls back album then animation)
-  int fanartThemeSource = 0; // 0 artist fanart, 1 album art, 2 animated scene
+  // Bigfan/Muzine use artist fanart automatically. When unavailable the user
+  // chooses album artwork or an animated scene. Override skips fanart entirely.
+  int fanartFallbackSource = 0; // 0 album art, 1 animated scene
+  bool fanartOverride = false;
+  // Legacy storage key; used only to migrate existing per-theme selections.
+  int fanartThemeSource = 0; // 0 auto fanart, 1 forced album, 2 forced animation
   bool animationUseAlbumColors = false; // false: scene default, true: artwork palette
   // Stable stored IDs: the retired Rave scene (18) stays unused so removing
   // it does not renumber existing users' saved animated backgrounds.
@@ -207,7 +212,8 @@ class AppSettings extends ChangeNotifier {
   Map<String, dynamic> _captureAppearance() => <String, dynamic>{
     'backgroundSource': backgroundSource,
     'fanartMode': fanartMode,
-    'fanartThemeSource': fanartThemeSource,
+    'fanartFallbackSource': fanartFallbackSource,
+    'fanartOverride': fanartOverride,
     'cinematicFallback': cinematicFallback,
     'animationUseAlbumColors': animationUseAlbumColors,
     'cinematicPalette': cinematicPalette,
@@ -280,7 +286,13 @@ class AppSettings extends ChangeNotifier {
     backgroundSource = integer('backgroundSource', 0, 0, 6);
     animatedTemplateBackground = backgroundSource == 1;
     fanartMode = integer('fanartMode', 2, 0, 2);
-    fanartThemeSource = integer('fanartThemeSource', 0, 0, 2);
+    // Old profiles used a three-way source selector. Keep a previously
+    // explicitly forced Album Art/Animation view as an override, but migrate
+    // the old default Fanart choice to automatic fanart with album fallback.
+    final oldFanartSource = integer('fanartThemeSource', 0, 0, 2);
+    fanartFallbackSource = integer('fanartFallbackSource',
+        oldFanartSource == 2 ? 1 : 0, 0, 1);
+    fanartOverride = flag('fanartOverride', oldFanartSource != 0);
     cinematicFallback = integer('cinematicFallback', 1, 0, 2);
     animationUseAlbumColors = flag('animationUseAlbumColors', false);
     cinematicPalette = integer('cinematicPalette', 15, 14, 19);
@@ -486,6 +498,10 @@ class AppSettings extends ChangeNotifier {
     fanartMode = _int(p, 'fanartMode', 2, 0, 2);
     cinematicFallback = _int(p, 'cinematicFallback', 1, 0, 1);
     fanartThemeSource = _int(p, 'fanartThemeSource', 0, 0, 2);
+    fanartFallbackSource = _int(p, 'fanartFallbackSource',
+        fanartThemeSource == 2 ? 1 : 0, 0, 1);
+    fanartOverride = p.getBool('fanartOverride') ??
+        (fanartThemeSource != 0);
     animationUseAlbumColors = p.getBool('animationUseAlbumColors') ?? false;
     cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
     // Users who previously selected Rave land on Club Stage rather than
@@ -655,7 +671,11 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('cinematicWaveStyle', cinematicWaveStyle);
     await p.setInt('fanartMode', fanartMode);
     await p.setInt('cinematicFallback', cinematicFallback);
-    await p.setInt('fanartThemeSource', fanartThemeSource);
+    await p.setInt('fanartFallbackSource', fanartFallbackSource);
+    await p.setBool('fanartOverride', fanartOverride);
+    // Keep the old key meaningful for users upgrading from older builds.
+    await p.setInt('fanartThemeSource',
+        fanartOverride ? (fanartFallbackSource == 1 ? 2 : 1) : 0);
     await p.setBool('animationUseAlbumColors', animationUseAlbumColors);
     await p.setInt('cinematicPalette', cinematicPalette);
     await p.setDouble('cinematicDarkness', cinematicDarkness);
