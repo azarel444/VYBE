@@ -655,25 +655,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-  /// Six separate premium shader scenes with album-derived lighting.
+  /// Active premium scenes with stable selection IDs. Rave was retired:
+  /// preserve Neon Club's ID (19) instead of shifting all saved choices.
   Widget _premiumAnimatedBackground(double motion) {
     const sceneAssets = <String>[
       'shaders/golden_hour.frag',
       'shaders/neon_ribbons.frag',
       'shaders/club_stage.frag',
       'shaders/lightstorm.frag',
-      'shaders/rave.frag',
       'shaders/neon_club.frag',
     ];
-    final sceneIndex = (settings.cinematicPalette - 14).clamp(0, 5);
-    // Give each environment its own lighting identity. Album colors previously
-    // made all four venues look like the same gold-lit room.
+    final selected = AppSettings.premiumSceneIds.indexOf(settings.cinematicPalette);
+    final sceneIndex = selected < 0 ? 2 : selected;
+    // Give each environment its own lighting identity.
     const scenePalettes = <ArtPalette>[
       ArtPalette(Color(0xFFFFC76B), Color(0xFFFF8A35), Color(0xFFFFE0A1)),
       ArtPalette(Color(0xFF00E7FF), Color(0xFFFF36A8), Color(0xFF665CFF)),
       ArtPalette(Color(0xFF00AFFF), Color(0xFFFF2B70), Color(0xFF83E9FF)),
       ArtPalette(Color(0xFF436BFF), Color(0xFFFF214F), Color(0xFFAD4CFF)),
-      ArtPalette(Color(0xFFFF2C9E), Color(0xFF23CFFF), Color(0xFFFFCB4A)),
       ArtPalette(Color(0xFFFFB836), Color(0xFFE843EE), Color(0xFF18DEFF)),
     ];
     // Use the decoded artwork's palette, regardless of the UI accent palette.
