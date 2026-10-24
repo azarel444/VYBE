@@ -843,7 +843,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _cinematicAnimatedFallback() =>
-      _premiumAnimatedBackground(settings.cinematicAnimationSpeed);
+      SizedBox.expand(child: RepaintBoundary(child: CustomPaint(
+        painter: IdleBackdropPainter(
+          clock: fxClock, palette: _palette,
+          animate: !settings.performance, repaint: _tick,
+        ),
+      )));
 
   Widget _cinematicBackdrop() => AnimatedBuilder(
     animation: _slow,
