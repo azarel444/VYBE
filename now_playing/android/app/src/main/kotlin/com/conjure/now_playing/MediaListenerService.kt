@@ -313,15 +313,13 @@ class MediaListenerService : NotificationListenerService() {
         val pkg = c.packageName
         val now = SystemClock.elapsedRealtime()
 
-        {
-            // The player rolling from one track to the next by itself.
+        // The player rolling from one track to the next by itself.
             val e = endedAt[pkg]
             if (e != null && now - e < 8000L) return
             // A short pause followed by play, such as after a voice prompt.
             val graceMs = prefs.getInt("graceSec", 0) * 1000L
             val last = pausedAt[pkg]
             if (last != null && now - last < graceMs) return
-        }
         launchVybe(c)
     }
 
