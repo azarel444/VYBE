@@ -259,6 +259,8 @@ class SettingsScreen extends StatelessWidget {
 
   List<Widget> _visuals(BuildContext context) {
     final s = settings;
+    final isFanartTheme = s.theme == AppSettings.tCinematic ||
+        s.theme == AppSettings.tEditorial;
     return [
       _section('Themes & backgrounds'),
       _themePreviewSelector(s),
@@ -275,15 +277,16 @@ class SettingsScreen extends StatelessWidget {
         (i) => s.update(() => s.animationUseAlbumColors = i == 1)),
       const Text('Default keeps each animated scene\'s original colors. '
           'Use album colors applies the current album artwork palette.'),
-      _choices('Theme background',
-        const ['Album Art', 'Artist Fanart', 'Animated Background'],
-        s.backgroundSource == 1 ? 2 : (s.backgroundSource == 6 ? 1 : 0),
-        (i) => s.update(() {
-          s.backgroundSource = i == 2 ? 1 : (i == 1 ? 6 : 0);
-          s.fanartMode = i == 1 ? 1 : 0;
-        })),
-      const Text('Standard themes default to blurred album art, then use the selected '
-          'animated scene when artwork is unavailable.'),
+      if (!isFanartTheme) ...[
+        _choices('Theme background',
+          const ['Album Art', 'Artist Fanart', 'Animated Background'],
+          s.backgroundSource == 1 ? 2 : (s.backgroundSource == 6 ? 1 : 0),
+          (i) => s.update(() {
+            s.backgroundSource = i == 2 ? 1 : (i == 1 ? 6 : 0);
+            s.fanartMode = i == 1 ? 1 : 0;
+          })),
+        const Text('Standard themes use the selected background.'),
+      ],
       _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
         s.bgOverlay, 0.0, 1.0,
         (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
@@ -296,27 +299,35 @@ class SettingsScreen extends StatelessWidget {
       _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
         s.templateBackgroundMotion, 0.0, 1.0,
         (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
-      _section('Fanart backgrounds'),
-      const Text('Bigfan and Muzine default to artist fanart, then album art, '
-          'then the selected animated scene when artwork is unavailable.'),
-      _choices('Fanart theme background',
-        const ['Artist Fanart', 'Album Art', 'Animated Background'],
-        s.fanartThemeSource,
-        (i) => s.update(() => s.fanartThemeSource = i)),
-      _slider('Fanart animation speed',
-          '${(s.cinematicAnimationSpeed * 100).round()}%',
-          s.cinematicAnimationSpeed, 0.0, 3.0,
-          (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
-          s.save),
-      _slider('Fanart darkness', '${(s.cinematicDarkness * 100).round()}%',
-        s.cinematicDarkness, 0.0, 1.0,
-        (v) => s.update(() => s.cinematicDarkness = v, persist: false), s.save),
-      _slider('Fanart blur', '${s.cinematicBlur.round()}',
-        s.cinematicBlur, 0.0, 18.0,
-        (v) => s.update(() => s.cinematicBlur = v, persist: false), s.save),
-      _slider('Fanart contrast', '${(s.cinematicContrast * 100).round()}%',
-        s.cinematicContrast, 1.0, 2.0,
-        (v) => s.update(() => s.cinematicContrast = v, persist: false), s.save),
+      if (isFanartTheme) ...[
+        _section('Fanart backgrounds'),
+        const Text('Bigfan and Muzine display artist fanart whenever it is '
+            'available. Select what to show when it is unavailable.'),
+        _choices('If fanart is unavailable',
+          const ['Album Art', 'Animated Background'],
+          s.fanartFallbackSource,
+          (i) => s.update(() => s.fanartFallbackSource = i)),
+        _switch('Override fanart',
+          'Always show the selected background, even when artist fanart exists.',
+          s.fanartOverride,
+          (v) => s.update(() => s.fanartOverride = v)),
+        const Text('If Album Art is selected but no usable cover exists, '
+            'the selected animated background is used instead.'),
+        _slider('Fanart animation speed',
+            '${(s.cinematicAnimationSpeed * 100).round()}%',
+            s.cinematicAnimationSpeed, 0.0, 3.0,
+            (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
+            s.save),
+        _slider('Fanart darkness', '${(s.cinematicDarkness * 100).round()}%',
+          s.cinematicDarkness, 0.0, 1.0,
+          (v) => s.update(() => s.cinematicDarkness = v, persist: false), s.save),
+        _slider('Fanart blur', '${s.cinematicBlur.round()}',
+          s.cinematicBlur, 0.0, 18.0,
+          (v) => s.update(() => s.cinematicBlur = v, persist: false), s.save),
+        _slider('Fanart contrast', '${(s.cinematicContrast * 100).round()}%',
+          s.cinematicContrast, 1.0, 2.0,
+          (v) => s.update(() => s.cinematicContrast = v, persist: false), s.save),
+      ],
       _section('Visualizer'),
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
