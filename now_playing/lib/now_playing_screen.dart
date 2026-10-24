@@ -612,8 +612,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final artist = model.artist.trim();
     final isFanartTheme = settings.theme == AppSettings.tCinematic ||
         settings.theme == AppSettings.tEditorial;
+    // For Bigfan and Muzine artist fanart is always the preferred image;
+    // a user-selected override intentionally skips the network lookup.
     final needsFanart = isFanartTheme
-        ? settings.fanartThemeSource == 0
+        ? !settings.fanartOverride
         : settings.backgroundSource == 6;
     if (!needsFanart || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
@@ -852,10 +854,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final fanart = _fanartBytes;
     final art = model.art;
     final hasAlbum = art != null && !art.flat;
-    final source = settings.fanartThemeSource;
-    final showFanart = source == 0 && fanart != null;
-    final useAlbum = hasAlbum && (source == 1 ||
-        (source == 0 && fanart == null));
+    // Fanart first unless explicitly overridden. The two options below are
+    // FALLBACKS when fanart is missing, not competing fanart sources.
+    final showFanart = !settings.fanartOverride && fanart != null;
+    final useAlbum = !showFanart &&
+        settings.fanartFallbackSource == 0 && hasAlbum;
     final hasImage = showFanart || useAlbum;
     final Widget background = showFanart
         ? Image.memory(fanart, fit: BoxFit.cover,
