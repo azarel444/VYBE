@@ -3361,8 +3361,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft,
               end: settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight,
-              colors: const [Color(0x99000000), Color(0x66000000), Color(0x00000000)],
-              stops: const [0.0, 0.48, 1.0],
+              colors: const [Color(0xFF000000), Color(0xFF000000), Color(0x00000000)],
+              stops: const [0.0, 0.38, 1.0],
             )),
           )),
         ),
