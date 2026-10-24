@@ -218,7 +218,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) _fxGovernor.enabled = false;
     if (state == AppLifecycleState.resumed) {
-      _fxGovernor.enabled = settings.autoFxQuality && settings.fxPerformanceMode != 2 && !settings.performance;
+      _fxGovernor.enabled = settings.fxPerformanceMode == 0 && !settings.performance;
       model.refresh();
       // The Drive window may have changed the theme while VYBE was away.
       // Avoid racing an in-flight settings write with a stale preference reload.
@@ -1404,7 +1404,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (mode < 0 || !ui.ImageFilter.isShaderFilterSupported) {
       return const SizedBox.shrink();
     }
-    final tier = settings.fxPerformanceMode == 2 ? 2 : settings.fxPerformanceMode == 1 ? 0 : (settings.autoFxQuality ? _fxTier : 2);
+    final tier = settings.fxPerformanceMode == 2 ? 2 : settings.fxPerformanceMode == 1 ? 0 : _fxTier;
     if (tier == 0) return const SizedBox.shrink();
     final intensity = (settings.extraStrength[name] ?? 0.8) *
       (tier == 1 ? 0.45 : 1.0);
@@ -1444,7 +1444,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             )),
           ));
     }
-    return [
+    // Budget optional layers without changing the user's saved FX choices.
+    // Auto responds to observed frame timings; Performance always uses the
+    // conservative budget. Maximum preserves every selected layer.
+    final tier = settings.fxPerformanceMode == 2 ? 2
+        : settings.fxPerformanceMode == 1 ? 0 : _fxTier;
+    final maxLayers = tier == 0 ? 2 : tier == 1 ? 4 : 100;
+    final layers = <Widget>[
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
         if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
             // Distortion-only FX are rendered by the GPU backdrop shader.
@@ -1496,6 +1502,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         layer('Water Shimmer', WaterPainter(
             clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),
     ];
+    return layers.take(maxLayers).toList();
   }
 
   List<Widget> _vhsBackdrop(double fx) => [
