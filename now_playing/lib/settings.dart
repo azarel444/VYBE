@@ -98,7 +98,13 @@ class AppSettings extends ChangeNotifier {
   int cinematicFallback = 1; // Legacy preference (fanart now falls back album then animation)
   int fanartThemeSource = 0; // 0 artist fanart, 1 album art, 2 animated scene
   bool animationUseAlbumColors = false; // false: scene default, true: artwork palette
-  int cinematicPalette = 15; // 14 Golden Hour, 15 Neon Ribbons, 16 Club Stage, 17 Lightstorm, 18 Rave, 19 Neon Club
+  // Stable stored IDs: the retired Rave scene (18) stays unused so removing
+  // it does not renumber existing users' saved animated backgrounds.
+  static const premiumSceneIds = <int>[14, 15, 16, 17, 19];
+  static const premiumSceneNames = <String>[
+    'Golden Hour', 'Neon Ribbons', 'Club Stage', 'Lightstorm', 'Neon Club',
+  ];
+  int cinematicPalette = 15;
   double cinematicDarkness = 0.0;
   double cinematicBlur = 0.0;
   double cinematicContrast = 1.0;
@@ -235,7 +241,10 @@ class AppSettings extends ChangeNotifier {
     fanartThemeSource = _int(p, 'fanartThemeSource', 0, 0, 2);
     animationUseAlbumColors = p.getBool('animationUseAlbumColors') ?? false;
     cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
-    if (cinematicPalette < 14 || cinematicPalette > 19) cinematicPalette = 15;
+    // Users who previously selected Rave land on Club Stage rather than
+    // silently showing an unrelated scene or retaining a hidden option.
+    if (cinematicPalette == 18) cinematicPalette = 16;
+    if (!premiumSceneIds.contains(cinematicPalette)) cinematicPalette = 15;
     cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.0).clamp(0.0, 1.0).toDouble();
     cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
     cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
