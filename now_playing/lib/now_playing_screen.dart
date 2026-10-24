@@ -153,7 +153,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     model.addListener(_onModel);
     settings.addListener(_onSettings);
     model.start();
-    if (!widget.driveHost) VybeLink.instance.initialize(model);
+    if (!widget.driveHost) {
+      VybeLink.instance.addListener(_onLinkFanart);
+      VybeLink.instance.initialize(model);
+    }
     _ticker = createTicker(_onTick)..start();
     if (widget.driveHost) {
       _dirTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
@@ -197,6 +200,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     WidgetsBinding.instance.removeObserver(this);
     _fxGovernor.stop();
     _fxProfiler.stop();
+    if (!widget.driveHost) VybeLink.instance.removeListener(_onLinkFanart);
     model.removeListener(_onModel);
     settings.removeListener(_onSettings);
     _ticker.dispose();
@@ -227,6 +231,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           settings.update(() => settings.theme = 4, persist: false);
         }
       });
+    }
+  }
+
+  void _onLinkFanart() {
+    if (!mounted || VybeLink.instance.role != 'receiver') return;
+    final link = VybeLink.instance;
+    if (link.receivedFanartArtist != model.artist) return;
+    final incoming = link.receivedFanart;
+    if (!identical(incoming, _fanartBytes)) {
+      _fanartArtist = model.artist;
+      _fanartBytes = incoming;
+      setState(() {});
     }
   }
 
@@ -610,6 +626,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
+    final link = VybeLink.instance;
+    if (!widget.driveHost && link.enabled && link.role == 'receiver') {
+      if (link.receivedFanartArtist == artist) _onLinkFanart();
+      return; // Receiver uses transferred fanart; no duplicate API lookup.
+    }
     final isFanartTheme = settings.theme == AppSettings.tCinematic ||
         settings.theme == AppSettings.tEditorial;
     // For Bigfan and Muzine artist fanart is always the preferred image;
@@ -623,7 +644,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       }
       return;
     }
-    if (_fanartArtist == artist && _fanartBytes != null) return;
+    if (_fanartArtist == artist && _fanartBytes != null) {
+      if (!widget.driveHost) link.sendFanart(artist, _fanartBytes);
+      return;
+    }
     if (_fanartArtist == artist && _fanartLastFailure != null &&
         DateTime.now().difference(_fanartLastFailure!) < const Duration(seconds: 25)) return;
     _fanartArtist = artist;
@@ -633,6 +657,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (mounted && request == _fanartRequest && _fanartArtist == artist) {
       _fanartLastFailure = bytes == null ? DateTime.now() : null;
       setState(() => _fanartBytes = bytes);
+      if (!widget.driveHost && bytes != null) link.sendFanart(artist, bytes);
     }
   }
 
