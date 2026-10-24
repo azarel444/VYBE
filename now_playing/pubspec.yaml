@@ -24,5 +24,4 @@ flutter:
     - shaders/neon_ribbons.frag
     - shaders/club_stage.frag
     - shaders/lightstorm.frag
-    - shaders/rave.frag
     - shaders/neon_club.frag
