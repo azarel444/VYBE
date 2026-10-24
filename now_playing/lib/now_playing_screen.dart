@@ -220,7 +220,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Avoid racing an in-flight settings write with a stale preference reload.
       // The Drive engine never writes launch/content preferences.
       // Reload on resume so switches reflect the persisted user choices.
-      settings.load();
+      // Drive uses a separate Flutter engine: restore its own appearance
+      // after loading the normal window's last selected theme.
+      settings.load().then((_) {
+        if (mounted && widget.driveHost) {
+          settings.update(() => settings.theme = 4, persist: false);
+        }
+      });
     }
   }
 
