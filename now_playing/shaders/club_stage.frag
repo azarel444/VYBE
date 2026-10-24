@@ -85,12 +85,17 @@ void main() {
   vec2 uv=FlutterFragCoord().xy/uSize;
   float aspect=uSize.x/max(uSize.y,1.);
   vec2 p=(uv-.5)*vec2(aspect,1.);
+  // Portrait views need a much deeper light field: the original screen-space
+  // spotlight targets ended behind the cover, leaving the lower half empty.
+  float tall=1.-smoothstep(.72,1.10,aspect);
   float t=uTime;
   float bass=clamp(uBass,0.,1.);
 
   // Layers are rendered back-to-front. Stage art remains responsive to the
   // same portrait/landscape camera; no orientation-specific bitmap scaling.
   vec3 col=vec3(.002,.002,.008);
+  // Keep the LED tunnel behind the stage, but extend its distant depth in
+  // portrait instead of restricting it to a narrow overhead strip.
   col+=neonBackdrop(p,aspect,t,bass);
 
   // Distant concert-hall haze separates the geometric LED wall from the
@@ -103,9 +108,10 @@ void main() {
   for(int i=0;i<7;i++) {
     float fi=float(i);
     float side=(fi-3.)/3.;
-    vec2 src=vec2(side*aspect*.39,-.355);
+    vec2 src=vec2(side*aspect*.39,mix(-.355,-.425,tall));
     vec2 dst=vec2(side*aspect*.20+
-        sin(t*(.33+.025*fi)+fi*1.48)*aspect*.21,.28);
+        sin(t*(.33+.025*fi)+fi*1.48)*aspect*.21,
+        mix(.28,.70,tall));
     vec3 tint=stageColor(fi*.273+.11);
     float core=lightCone(p,src,dst,.010,.065,1.30);
     float halo=lightCone(p,src,dst,.034,.125,1.36);
@@ -120,10 +126,11 @@ void main() {
   for(int i=0;i<6;i++) {
     float fi=float(i);
     float side=(fi-2.5)/2.5;
-    vec2 src=vec2(side*aspect*.48,-.305+.015*sin(fi*2.3));
+    vec2 src=vec2(side*aspect*.48,
+        mix(-.305,-.405,tall)+.015*sin(fi*2.3));
     float pan=sin(t*(.42+.022*fi)+fi*1.57);
     vec2 dst=vec2(side*aspect*.12+pan*aspect*.36,
-                  .48+.035*cos(t*.29+fi));
+        mix(.48,.85,tall)+.035*cos(t*.29+fi));
     vec3 tint=stageColor(fi*.297+.24);
     float shaft=lightCone(p,src,dst,.018,.092,1.34);
     float atmosphere=lightCone(p,src,dst,.075,.190,1.40);
@@ -139,7 +146,9 @@ void main() {
   // Physical dark stage floor. A gently curved/hazy join marks where the
   // LED wall meets the deck, while receding rectangular seams and grazing
   // reflections create a readable ground plane, including in portrait.
-  float horizon=.105;
+  // Bring the actual floor forward in tall screens; the stage must remain
+  // visible behind/below the album cover rather than ending halfway down.
+  float horizon=mix(.105,-.035,tall);
   float floorMask=smoothstep(horizon-.018,horizon+.078,p.y);
   float depth=max(p.y-horizon,0.);
   float perspective=1./max(depth+.064,.064);
@@ -151,7 +160,8 @@ void main() {
   float detail=noise2(ground*1.1+vec2(t*.004,0.));
   float distanceFade=smoothstep(.015,.25,depth);
   float seams=(lineX*.028+lineZ*.045)*distanceFade;
-  vec3 floorColor=vec3(.012,.013,.026)*
+  vec3 floorColor=mix(vec3(.012,.013,.026),
+                       vec3(.019,.020,.034),tall)*
       (1.+.15*detail)+vec3(.025,.026,.045)*seams;
 
   // Soft light pools stay localized and never create a solid pastel overlay.
@@ -162,11 +172,12 @@ void main() {
     float pan=sin(t*(.42+.022*fi)+fi*1.57);
     float targetX=side*aspect*.12+pan*aspect*.36;
     float width=.07+depth*.55;
-    float pool=gauss(p.x-targetX,width)*exp(-depth*3.5);
+    float pool=gauss(p.x-targetX,width)*
+        exp(-depth*mix(3.5,2.25,tall));
     float micro=pow(max(0.,sin(ground.y*2.4+
         detail*3.8+fi*1.4+t*.24)),10.);
     vec3 tint=stageColor(fi*.297+.24);
-    floorColor+=tint*pool*(.065+.055*micro+.028*bass);
+    floorColor+=tint*pool*(.065+.065*micro+.025*bass);
   }
   // Leave a visible stage lip at the back without a line across the sky.
   float lip=gauss(p.y-horizon,.008)*
@@ -175,22 +186,38 @@ void main() {
   // Ground is largely opaque: foreground beams can still cross it because
   // their camera-pass layer remains above this stage surface.
   col=mix(col,floorColor,floorMask*.98);
-  // CLOSE CAMERA PASS: wide beams originate just above/outside the frame.
-  // They sweep across the viewer, overlapping and partially leaving the
-  // screen, while smaller lights stay visible further back.
-  for(int i=0;i<4;i++) {
+  // NEAR CAMERA PASS: shallow-angle sweeps start at/outside the stage's
+  // edges and run past the viewer. In portrait they extend below the album
+  // art all the way toward the bottom, while retaining colored beam cores.
+  for(int i=0;i<5;i++) {
     float fi=float(i);
     float signX=mod(fi,2.)<.5 ? -1. : 1.;
-    vec2 src=vec2(signX*(aspect*.57+.09),
-                  -.61+.07*floor(fi*.50));
-    float sweep=sin(t*(.25+.057*fi)+fi*1.90);
-    vec2 dst=vec2(sweep*aspect*.56-signX*aspect*.16,
-                  .55+.18*sin(t*.18+fi*1.34));
+    float lane=floor(fi*.50);
+    vec2 src=vec2(signX*(aspect*.54+.055),
+        mix(-.59,-.42,tall)+lane*.095);
+    float sweep=sin(t*(.34+.049*fi)+fi*1.83);
+    vec2 dst=vec2(sweep*aspect*.58-signX*aspect*.12,
+        mix(.62,1.05,tall)+.13*sin(t*.27+fi*1.34));
     vec3 tint=stageColor(fi*.292+.39);
-    float pass=lightCone(p,src,dst,.095,.24,1.45);
-    float nearMist=lightCone(p,src,dst,.19,.40,1.55);
-    // Large near beams never bleach the scene white.
-    col+=tint*(pass*.17+nearMist*.022)*(.75+.12*bass);
+    float pass=lightCone(p,src,dst,.037,.095,1.55);
+    float nearMist=lightCone(p,src,dst,.115,.23,1.62);
+    col+=tint*(pass*.30+nearMist*.027)*(.72+.13*bass);
+  }
+  // A second, much closer pair grazes the camera at the sides. One cone
+  // sweeps from the left and the other from the right; small bright shafts
+  // and restrained glows provide parallax without washing out the UI.
+  for(int i=0;i<2;i++) {
+    float fi=float(i);
+    float side=i==0 ? -1. : 1.;
+    float phase=t*(.21+.047*fi)+fi*2.7;
+    vec2 src=vec2(side*(aspect*.71+.055),
+        mix(-.44,-.17,tall));
+    vec2 dst=vec2(-side*aspect*(.12+.46*sin(phase)),
+        mix(.70,1.16,tall));
+    vec3 tint=stageColor(.19+fi*.46);
+    float shaft=lightCone(p,src,dst,.055,.10,1.58);
+    float veil=lightCone(p,src,dst,.13,.21,1.65);
+    col+=tint*(shaft*.27+veil*.025)*(.83+.10*bass);
   }
 
   // Filmic vignette frames the stage without crushing center neon detail.
