@@ -263,7 +263,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Leaving Drive is coordinated by _pickTheme, after its awaited save.
       // Exiting here races SharedPreferences writes across Flutter engines.
     } else if (_themeReady) {
-      if (settings.theme == 4 && _prevTheme != 4) _startDrive();
+      if (settings.theme == 4 && _prevTheme != 4) {
+        // Commit the selected theme/profile before launching the separate
+        // Drive Flutter engine, which loads preferences on its first frame.
+        settings.saveTheme().then((_) {
+          if (mounted && settings.theme == 4) _startDrive();
+        }).catchError((Object error) {
+          debugPrint('VYBE could not persist Drive theme: $error');
+        });
+      }
       _prevTheme = settings.theme;
     }
     setState(() {});
