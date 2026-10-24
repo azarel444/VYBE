@@ -63,12 +63,22 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
         widget.settings.vizStyle = _focusedStyleChoice ?? widget.settings.vizStyle;
       }
     }, persist: false);
-    // Persist only the changed theme: writing every setting from the Drive
-    // engine could overwrite newer values from the normal player engine.
-    // Close immediately after applying; persistence must not hold the dialog open.
-    if (mounted) Navigator.of(context).pop(id);
-    await widget.settings.saveTheme();
-    if (id == 0) await widget.settings.saveFocusedStyle();
+    // Save the chosen theme and its visual profile before closing this dialog.
+    // When leaving the separate Drive activity, popping first can terminate
+    // its Flutter engine before the asynchronous preference write completes.
+    try {
+      await widget.settings.saveTheme();
+      if (id == 0) await widget.settings.saveFocusedStyle();
+      if (mounted) Navigator.of(context).pop(id);
+    } catch (error) {
+      debugPrint('VYBE theme/profile save failed: $error');
+      _applying = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not save this theme. Please try again.'),
+        ));
+      }
+    }
   }
 
   @override
