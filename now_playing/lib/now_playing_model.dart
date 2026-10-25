@@ -79,8 +79,8 @@ class NowPlayingModel extends ChangeNotifier {
     final owner = '${artist.trim().toLowerCase()}|${album.trim().toLowerCase()}';
     final owners = _sessionArtOwners.putIfAbsent(hash, () => <String>{});
     owners.add(owner);
-    if (owners.length >= 3 &&
-        owners.map((x) => x.split('|').first).toSet().length >= 3) {
+    if (owners.length >= 2 &&
+        owners.map((x) => x.split('|').first).toSet().length >= 2) {
       _sharedSessionImages.add(hash);
     }
     if (_sessionArtOwners.length > 150) _sessionArtOwners.remove(_sessionArtOwners.keys.first);
@@ -270,6 +270,9 @@ class NowPlayingModel extends ChangeNotifier {
       sessionArtworkStatus = 'Rejected repeated image across unrelated artists';
       artworkSource = 'None';
       artworkStatus = 'Shared player placeholder or playlist cover rejected';
+      artworkLookupState = 'Looking up original track artwork';
+      artworkFailure = 'Identical player artwork seen for multiple artists';
+      _albumArtCache.remove(cacheAlbumKey);
       art = null;
       _artToken++;
       _netTimer?.cancel();
