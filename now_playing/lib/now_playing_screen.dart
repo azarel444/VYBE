@@ -3,6 +3,7 @@ import 'vybe_link.dart';
 import 'dart:async';
 import 'dart:typed_data';
 import 'artist_fanart.dart';
+import 'local_artwork.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -638,7 +639,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final needsFanart = isFanartTheme
         ? !settings.fanartOverride
         : settings.backgroundSource == 6;
-    if (!needsFanart || settings.fanartProjectKey.isEmpty || artist.isEmpty) {
+    if (!needsFanart || artist.isEmpty) {
       if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
         _fanartArtist = ''; _fanartBytes = null;
       }
@@ -653,7 +654,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fanartArtist = artist;
     _fanartBytes = null;
     final request = ++_fanartRequest;
-    final bytes = await _fanart.get(artist, settings.fanartProjectKey, personalKey: settings.fanartApiKey);
+    final localBytes = await LocalArtwork.instance.fanart(artist);
+    final bytes = localBytes ?? (settings.fanartProjectKey.isEmpty ? null :
+        await _fanart.get(artist, settings.fanartProjectKey, personalKey: settings.fanartApiKey));
     if (mounted && request == _fanartRequest && _fanartArtist == artist) {
       _fanartLastFailure = bytes == null ? DateTime.now() : null;
       setState(() => _fanartBytes = bytes);
