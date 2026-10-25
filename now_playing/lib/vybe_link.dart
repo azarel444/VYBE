@@ -50,6 +50,7 @@ class VybeLink extends ChangeNotifier {
   Uint8List? receivedFanart;
   String receivedFanartArtist = '';
   String _sentFanartArtist = '';
+  String _currentSenderArtist = '';
   int _sentFanartHash = 0;
   int _fanartGeneration = 0;
 
@@ -254,7 +255,8 @@ class VybeLink extends ChangeNotifier {
     await _server?.close(); _server = null;
     _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0;
     _artGeneration++; _rxGeneration++;
-    _sentFanartArtist = ''; _sentFanartHash = 0; _fanartGeneration++;
+    _sentFanartArtist = ''; _currentSenderArtist = '';
+    _sentFanartHash = 0; _fanartGeneration++;
     receivedFanart = null; receivedFanartArtist = '';
     _lastMetadataSentAt = 0; _lastMetadataState = '';
 
@@ -475,8 +477,18 @@ class VybeLink extends ChangeNotifier {
     } catch (e) { artworkStatus = 'Sender artwork error: $e'; notifyListeners(); }
   }
 
+  /// Invalidate older artist encodes even while the new image downloads.
+  void setFanartArtist(String artist) {
+    if (role != 'sender' || !enabled || _currentSenderArtist == artist) return;
+    _currentSenderArtist = artist;
+    _sentFanartArtist = '';
+    _sentFanartHash = 0;
+    ++_fanartGeneration;
+  }
+
   void sendFanart(String artist, Uint8List? bytes) {
     final socket = _socket;
+    if (artist != _currentSenderArtist) return;
     if (socket == null || !enabled || role != 'sender' || artist.isEmpty) return;
     if (bytes == null || bytes.isEmpty) return;
     final hash = Object.hash(bytes.length, bytes[0], bytes[bytes.length ~/ 2], bytes.last);

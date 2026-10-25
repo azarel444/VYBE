@@ -48,6 +48,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final _fanart = ArtistFanartCache();
   Uint8List? _fanartBytes;
   String _fanartArtist = '';
+  String _fanartLoadingArtist = '';
   int _fanartRequest = 0;
   DateTime? _fanartLastFailure;
   final particles = ParticleField();
@@ -631,37 +632,57 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final link = VybeLink.instance;
     if (!widget.driveHost && link.enabled && link.role == 'receiver') {
       if (link.receivedFanartArtist == artist) _onLinkFanart();
-      return; // Receiver uses transferred fanart; no duplicate API lookup.
+      return;
     }
+    // Keep fetching artist backgrounds for the head unit even when the
+    // sender's current theme uses album art or an animated scene.
+    final linkSender = !widget.driveHost && link.enabled && link.role == 'sender';
+    if (linkSender) link.setFanartArtist(artist);
     final isFanartTheme = settings.theme == AppSettings.tCinematic ||
         settings.theme == AppSettings.tEditorial;
-    // For Bigfan and Muzine artist fanart is always the preferred image;
-    // a user-selected override intentionally skips the network lookup.
-    final needsFanart = isFanartTheme
+    final needsLocalFanart = isFanartTheme
         ? !settings.fanartOverride
         : settings.backgroundSource == 6;
+    final needsFanart = needsLocalFanart || linkSender;
     if (!needsFanart || artist.isEmpty) {
-      if (_fanartBytes != null || _fanartArtist.isNotEmpty) {
-        _fanartArtist = ''; _fanartBytes = null;
+      if (_fanartArtist.isNotEmpty || _fanartBytes != null) {
+        ++_fanartRequest;
+        _fanartArtist = '';
+        _fanartBytes = null;
+        _fanartLoadingArtist = '';
       }
       return;
     }
     if (_fanartArtist == artist && _fanartBytes != null) {
-      if (!widget.driveHost) link.sendFanart(artist, _fanartBytes);
+      if (linkSender) link.sendFanart(artist, _fanartBytes);
       return;
     }
+    if (_fanartLoadingArtist == artist) return;
     if (_fanartArtist == artist && _fanartLastFailure != null &&
-        DateTime.now().difference(_fanartLastFailure!) < const Duration(seconds: 25)) return;
+        DateTime.now().difference(_fanartLastFailure!) <
+            const Duration(seconds: 25)) return;
     _fanartArtist = artist;
     _fanartBytes = null;
+    _fanartLoadingArtist = artist;
     final request = ++_fanartRequest;
-    final localBytes = await LocalArtwork.instance.fanart(artist);
-    final bytes = localBytes ?? (settings.fanartProjectKey.isEmpty ? null :
-        await _fanart.get(artist, settings.fanartProjectKey, personalKey: settings.fanartApiKey));
-    if (mounted && request == _fanartRequest && _fanartArtist == artist) {
-      _fanartLastFailure = bytes == null ? DateTime.now() : null;
-      setState(() => _fanartBytes = bytes);
-      if (!widget.driveHost && bytes != null) link.sendFanart(artist, bytes);
+    try {
+      final localBytes = await LocalArtwork.instance.fanart(artist);
+      final bytes = localBytes ?? (settings.fanartProjectKey.isEmpty ? null :
+          await _fanart.get(artist, settings.fanartProjectKey,
+              personalKey: settings.fanartApiKey));
+      if (mounted && request == _fanartRequest && _fanartArtist == artist) {
+        _fanartLastFailure = bytes == null ? DateTime.now() : null;
+        setState(() => _fanartBytes = bytes);
+        if (linkSender && bytes != null) link.sendFanart(artist, bytes);
+      }
+    } catch (e) {
+      if (mounted && request == _fanartRequest && _fanartArtist == artist) {
+        _fanartLastFailure = DateTime.now();
+        setState(() => _fanartBytes = null);
+        debugPrint('VYBE fanart lookup failed for $artist: $e');
+      }
+    } finally {
+      if (_fanartLoadingArtist == artist) _fanartLoadingArtist = '';
     }
   }
 

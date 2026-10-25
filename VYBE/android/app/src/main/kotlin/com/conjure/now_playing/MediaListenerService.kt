@@ -12,6 +12,7 @@ import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
@@ -80,6 +81,31 @@ class MediaListenerService : NotificationListenerService() {
     private val sessionsListener =
         MediaSessionManager.OnActiveSessionsChangedListener { list -> attach(list) }
 
+    // Some music players skip tracks without a metadata-change callback.
+    // Check the current media sessions while VYBE is off screen.
+    private val missedTrackCheck = object : Runnable {
+        override fun run() {
+            if (instance !== this@MediaListenerService) return
+            if (!MainActivity.visible) {
+                try {
+                    val component = ComponentName(
+                        this@MediaListenerService, MediaListenerService::class.java)
+                    manager?.getActiveSessions(component)?.let { attach(it) }
+                    for (watch in watches.toList()) {
+                        val c = watch.c
+                        handleMetadata(c, c.metadata)
+                        val state = c.playbackState
+                        trackState(c, state)
+                        handleState(c, state, false)
+                    }
+                } catch (e: Exception) {
+                    Log.w("VYBE", "Missed-track check unavailable", e)
+                }
+            }
+            main.postDelayed(this, 1800L)
+        }
+    }
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         instance = this
@@ -95,10 +121,13 @@ class MediaListenerService : NotificationListenerService() {
             attach(m.getActiveSessions(cn))
         } catch (_: Exception) {
         }
+        main.removeCallbacks(missedTrackCheck)
+        main.postDelayed(missedTrackCheck, 1800L)
     }
 
     override fun onListenerDisconnected() {
         instance = null
+        main.removeCallbacks(missedTrackCheck)
         main.removeCallbacks(autoClose)
         bubble?.hide()
         bubble = null
@@ -312,7 +341,7 @@ class MediaListenerService : NotificationListenerService() {
             st == PlaybackState.STATE_SKIPPING_TO_NEXT ||
             st == PlaybackState.STATE_SKIPPING_TO_PREVIOUS ||
             st == PlaybackState.STATE_SKIPPING_TO_QUEUE_ITEM
-        if (going) launchVybe(c)
+        if (going || prev.isPlaying) launchVybe(c)
         // When still paused, the next PLAYING event handles the launch.
     }
 
@@ -392,13 +421,14 @@ class MediaListenerService : NotificationListenerService() {
         if (prefs.getBoolean("avoidNav", true) && navigationActive(prefs)) return
         if (inCall()) return
         if (now - lastLaunch < 3000L) return
-        lastLaunch = now
-        userChangeAt.remove(pkg)
         try {
             val i = Intent(this, MainActivity::class.java)
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             startActivity(i)
-        } catch (_: Exception) {
+            lastLaunch = now
+            userChangeAt.remove(pkg)
+        } catch (error: Exception) {
+            Log.w("VYBE", "Automatic launch rejected for $pkg", error)
         }
     }
 

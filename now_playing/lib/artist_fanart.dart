@@ -29,7 +29,7 @@ class ArtistFanartCache {
     void record(String stage) => stages.add('$stage: ${watch.elapsedMilliseconds} ms elapsed');
     void report(String status) {
       lastStatus = status;
-      diagnostics = 'Artist: $artist\\nStatus: $status\\n${stages.join('\\n')}\\nTotal: ${watch.elapsedMilliseconds} ms';
+      diagnostics = 'Artist: $artist\nStatus: $status\n${stages.join('\n')}\nTotal: ${watch.elapsedMilliseconds} ms';
     }
     final cacheKey = artist.toLowerCase().trim();
     if (projectKey.trim().isEmpty) { report('Missing project API key'); return null; }
@@ -75,7 +75,19 @@ class ArtistFanartCache {
           'query': 'artist:"${artist.replaceAll('"', '')}"',
           'fmt': 'json', 'limit': '15',
         });
-        final result = await _json(search);
+        Map<String, dynamic> result;
+        try {
+          result = await _json(search);
+        } catch (error) {
+          record('MusicBrainz first attempt failed: $error');
+          await Future<void>.delayed(const Duration(milliseconds: 450));
+          try {
+            result = await _json(search);
+          } catch (retryError) {
+            report('MusicBrainz lookup failed after retry: $retryError');
+            return null;
+          }
+        }
         record('MusicBrainz lookup completed: ${_requestDetails['musicbrainz.org'] ?? 'unknown'}');
         final candidates = result['artists'];
         if (candidates is! List) {
@@ -145,11 +157,18 @@ class ArtistFanartCache {
       record('Matched ${ids.length} MusicBrainz artist IDs');
       // Fanart.tv artist records are independent: query both candidates in
       // parallel instead of waiting for a timeout before trying the second.
-      final responses = await Future.wait(ids.take(2).map((mbid) =>
-          _json(Uri.https('webservice.fanart.tv', '/v3/music/$mbid', {
+      final responses = await Future.wait(ids.take(2).map((mbid) async {
+        try {
+          return await _json(Uri.https('webservice.fanart.tv',
+              '/v3/music/$mbid', {
             'api_key': projectKey,
             if (personalKey.isNotEmpty) 'client_key': personalKey,
-          }))));
+          }));
+        } catch (error) {
+          record('Fanart.tv request for $mbid failed: $error');
+          return <String, dynamic>{};
+        }
+      }));
       record('Fanart.tv metadata completed (${responses.length} requests): ${_requestDetails['webservice.fanart.tv'] ?? 'unknown'}');
       Uint8List? bytes;
       var noBackground = 0;
