@@ -34,6 +34,64 @@ import kotlin.math.pow
 
 open class MainActivity : FlutterActivity() {
 
+    private var artworkFolderResult: MethodChannel.Result? = null
+    private val artworkRequestCode = 8943
+
+    @Deprecated("Legacy activity result used for Android 9 compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != artworkRequestCode) return
+        val pending = artworkFolderResult ?: return
+        artworkFolderResult = null
+        val uri = data?.data
+        if (resultCode != android.app.Activity.RESULT_OK || uri == null) {
+            pending.success(false)
+            return
+        }
+        try {
+            contentResolver.takePersistableUriPermission(uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE).edit()
+                .putString("tree", uri.toString()).apply()
+            pending.success(true)
+        } catch (e: Exception) { pending.error("folder", e.message, null) }
+    }
+
+    private fun scanArtworkTree(): List<Map<String, String>> {
+        val tree = getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE)
+            .getString("tree", null) ?: return emptyList()
+        val uri = Uri.parse(tree)
+        val authority = android.provider.DocumentsContract.getTreeDocumentId(uri)
+        val root = android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, authority)
+        val entries = mutableListOf<Map<String, String>>()
+        val queue = java.util.ArrayDeque<Pair<Uri, String>>()
+        queue.add(root to "")
+        while (!queue.isEmpty() && entries.size < 25000) {
+            val (folder, parent) = queue.removeFirst()
+            val id = android.provider.DocumentsContract.getDocumentId(folder)
+            val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(uri, id)
+            val columns = arrayOf(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE)
+            contentResolver.query(children, columns, null, null, null)?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val childId = cursor.getString(0)
+                    val name = cursor.getString(1) ?: continue
+                    val mime = cursor.getString(2) ?: ""
+                    val child = android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, childId)
+                    if (mime == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                        if (parent.count { it == '/' } < 12) queue.add(child to "$parent/$name")
+                    } else if (name.lowercase().matches(Regex(".*\\.(jpg|jpeg|png|webp)$"))) {
+                        entries.add(mapOf("uri" to child.toString(), "name" to name,
+                            "folder" to parent))
+                    }
+                }
+            }
+        }
+        return entries
+    }
+
     private var vybeDirect: VybeDirect? = null
     private var sink: EventChannel.EventSink? = null
     private var manager: MediaSessionManager? = null
@@ -63,6 +121,39 @@ open class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
 
+        MethodChannel(messenger, "vybe/local_art").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "chooseFolder" -> {
+                    if (artworkFolderResult != null) result.error("busy", "Folder chooser active", null)
+                    else {
+                        artworkFolderResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                        }
+                        startActivityForResult(intent, artworkRequestCode)
+                    }
+                }
+                "scan" -> Thread {
+                    try {
+                        val found = scanArtworkTree()
+                        runOnUiThread { result.success(found) }
+                    } catch (e: Exception) {
+                        runOnUiThread { result.error("scan", e.message, null) }
+                    }
+                }.start()
+                "read" -> Thread {
+                    try {
+                        val uri = Uri.parse(call.argument<String>("uri"))
+                        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        runOnUiThread { result.success(bytes) }
+                    } catch (e: Exception) {
+                        runOnUiThread { result.error("read", e.message, null) }
+                    }
+                }.start()
+                else -> result.notImplemented()
+            }
+        }
         // Dedicated, synchronously committed onboarding state. Avoid relying
         // solely on SharedPreferences' per-engine Dart cache.
         MethodChannel(messenger, "vybe/window_brightness").setMethodCallHandler { call, result ->
