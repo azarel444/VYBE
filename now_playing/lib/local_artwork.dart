@@ -18,9 +18,9 @@ class LocalArtwork {
     const aliases = <String, String>{
       'p!nk': 'pink', 'ac/dc': 'acdc', 'guns n roses': 'guns n roses',
     };
-    text = text.replaceAll(RegExp(r'[\\u0300-\\u036f]'), '');
+    text = text.replaceAll(RegExp(r'[\u0300-\u036f]'), '');
     text = text.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
-    text = text.replaceAll(RegExp(r'\\s+'), ' ');
+    text = text.replaceAll(RegExp(r'\s+'), ' ');
     return aliases[text] ?? text;
   }
 
@@ -67,7 +67,7 @@ class LocalArtwork {
     // cover from an artist's album folder.
     for (final entry in _files) {
       final file = normalize((entry['name'] ?? '').replaceFirst(
-        RegExp(r'\\.(jpg|jpeg|png|webp)$', caseSensitive: false), ''));
+        RegExp(r'\.(jpg|jpeg|png|webp)$', caseSensitive: false), ''));
       final folder = normalize((entry['folder'] ?? '').split('/').last);
       final named = file == key || file == '${key} fanart' ||
           file == '${key} background' || file == '${key} artist';
@@ -85,7 +85,7 @@ class LocalArtwork {
     for (final entry in _files) {
       final path = normalize(entry['folder'] ?? '');
       final file = normalize((entry['name'] ?? '').replaceFirst(
-        RegExp(r'\\.(jpg|jpeg|png|webp)$', caseSensitive: false), ''));
+        RegExp(r'\.(jpg|jpeg|png|webp)$', caseSensitive: false), ''));
       // Require both artist and album to prevent generic compilation
       // and playlist covers from being applied to unrelated tracks.
       if (path.contains(a) && path.contains(b) &&
