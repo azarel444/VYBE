@@ -138,6 +138,18 @@ class MediaListenerService : NotificationListenerService() {
             }
             val cb = object : MediaController.Callback() {
                 override fun onPlaybackStateChanged(state: PlaybackState?) {
+                    // Some players announce a skip explicitly; others only
+                    // change their metadata while remaining in PLAYING.
+                    when (state?.state) {
+                        PlaybackState.STATE_SKIPPING_TO_NEXT,
+                        PlaybackState.STATE_SKIPPING_TO_PREVIOUS,
+                        PlaybackState.STATE_SKIPPING_TO_QUEUE_ITEM ->
+                            userChangeAt[c.packageName] = SystemClock.elapsedRealtime()
+                    }
+                    // Read metadata before the new playback position overwrites
+                    // the old track's end-position evidence. Also covers players
+                    // that don't deliver a separate metadata callback.
+                    handleMetadata(c, c.metadata)
                     trackState(c, state)
                     handleState(c, state, true)
                     if (drive?.running == true) pushOverlay()
@@ -231,9 +243,12 @@ class MediaListenerService : NotificationListenerService() {
         if (st == null) return
         val now = SystemClock.elapsedRealtime()
         val newPos = st.position
-        if (s.durationMs > 0) {
+        val explicitSkip = userChangeAt[c.packageName]?.let {
+            now - it in 0L..4000L
+        } == true
+        if (s.durationMs > 0 && s.isPlaying && newPos >= 0L && !explicitSkip) {
             val est = s.estimate(now)
-            if (est >= s.durationMs - END_WINDOW_MS && newPos in 0L until (est - 5000L)) {
+            if (est >= s.durationMs - END_WINDOW_MS && newPos < est - 5000L) {
                 s.endedNaturally = true
                 endedAt[c.packageName] = now
             }
@@ -264,8 +279,16 @@ class MediaListenerService : NotificationListenerService() {
             if (dur > 0) prev.durationMs = dur // the length often arrives late
             return
         }
-        val ended = prev.endedNaturally ||
-            (prev.durationMs > 0 && prev.estimate(now) >= prev.durationMs - END_WINDOW_MS)
+        // A published SKIPPING state is stronger evidence of a deliberate
+        // change than proximity to the previous song's end.
+        val explicitSkip = userChangeAt[pkg]?.let {
+            now - it in 0L..4000L
+        } == true
+        val ended = !explicitSkip && (
+            prev.endedNaturally ||
+                (prev.isPlaying && prev.durationMs > 0 &&
+                    prev.estimate(now) >= prev.durationMs - END_WINDOW_MS)
+            )
         prev.key = key
         prev.durationMs = dur
         prev.posMs = 0L
@@ -273,11 +296,24 @@ class MediaListenerService : NotificationListenerService() {
         prev.endedNaturally = false
         if (ended) {
             endedAt[pkg] = now
+            userChangeAt.remove(pkg)
             return
         }
-        // Metadata changes alone cannot distinguish automatic playlist
-        // progression from a deliberate skip. Never foreground VYBE here.
-        // A genuine playback start is handled separately in onStart.
+
+        // Deliberate selection/skip in players such as Samsung Music does
+        // not necessarily change the PLAYING state. The changed track is
+        // therefore the launch event, not a subsequent PLAYING transition.
+        endedAt.remove(pkg)
+        userChangeAt[pkg] = now
+        val st = c.playbackState?.state
+        val going = st == PlaybackState.STATE_PLAYING ||
+            st == PlaybackState.STATE_BUFFERING ||
+            st == PlaybackState.STATE_CONNECTING ||
+            st == PlaybackState.STATE_SKIPPING_TO_NEXT ||
+            st == PlaybackState.STATE_SKIPPING_TO_PREVIOUS ||
+            st == PlaybackState.STATE_SKIPPING_TO_QUEUE_ITEM
+        if (going) launchVybe(c)
+        // When still paused, the next PLAYING event handles the launch.
     }
 
     /**
@@ -332,13 +368,16 @@ class MediaListenerService : NotificationListenerService() {
         val pkg = c.packageName
         val now = SystemClock.elapsedRealtime()
 
-        // The player rolling from one track to the next by itself.
+        // A deliberate selection overrides stale natural-end / pause
+        // suppression from the previous track.
+        val byPerson = userChangeAt[pkg]?.let { now - it in 0L..10000L } == true
+        if (!byPerson) {
             val e = endedAt[pkg]
             if (e != null && now - e < 8000L) return
-            // A short pause followed by play, such as after a voice prompt.
             val graceMs = prefs.getInt("graceSec", 0) * 1000L
             val last = pausedAt[pkg]
             if (last != null && now - last < graceMs) return
+        }
         launchVybe(c)
     }
 
