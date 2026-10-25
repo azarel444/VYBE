@@ -1,19 +1,28 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'now_playing_model.dart';
+import 'vybe_link_discovery.dart';
 
-/// Local-network beta: receiver hosts a TCP socket; sender connects by IP.
-/// Does not claim to create Wi-Fi Direct groups or share Android Auto's network.
+/// Local-network beta. Pair a receiver once, then rediscover its IP across
+/// sessions. A reachable IP network is still required (LAN, Wi-Fi Direct or
+/// USB tethering); this code does not establish that underlying network.
 class VybeLink extends ChangeNotifier {
   VybeLink._();
   static final VybeLink instance = VybeLink._();
   static const port = 38927;
+  String localDeviceId = '';
+  String pairedReceiverId = '';
+  List<LinkReceiver> receivers = [];
+  bool searchingReceivers = false;
+  LinkDiscoveryResponder? _responder;
+  Timer? _helloTimer;
   bool enabled = false;
   String role = 'sender';
   bool autoConnect = true;
@@ -131,11 +140,53 @@ class VybeLink extends ChangeNotifier {
     role = p.getString('link_role') ?? 'sender';
     autoConnect = p.getBool('link_auto') ?? true;
     receiverAddress = p.getString('link_address') ?? '';
+    pairedReceiverId = p.getString('link_paired_receiver') ?? '';
+    localDeviceId = p.getString('link_device_id') ?? '';
+    if (localDeviceId.isEmpty) {
+      final random = Random.secure();
+      localDeviceId = List<int>.generate(16, (_) => random.nextInt(256))
+          .map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+      await p.setString('link_device_id', localDeviceId);
+    }
     model.addListener(_onModel);
     await directInitialize();
     await _updateAddresses();
     if (enabled && autoConnect) await connect();
     notifyListeners();
+  }
+
+  /// Run discovery only when pairing is requested or a trusted receiver's
+  /// saved IP stops working. No IP entry is needed for first-time pairing.
+  Future<void> findReceivers() async {
+    if (searchingReceivers) return;
+    searchingReceivers = true;
+    status = 'Searching for nearby VYBE receivers...';
+    notifyListeners();
+    final results = await LinkDiscovery.scan();
+    receivers = results;
+    searchingReceivers = false;
+    status = results.isEmpty ? 'No VYBE receiver found on this network'
+        : 'Found ${results.length} VYBE receiver(s)';
+    notifyListeners();
+  }
+
+  Future<void> pairReceiver(LinkReceiver receiver) async {
+    pairedReceiverId = receiver.id;
+    receiverAddress = receiver.address;
+    enabled = true;
+    autoConnect = true;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('link_paired_receiver', pairedReceiverId);
+    await configure(isEnabled: true, deviceRole: 'sender',
+        automatic: true, address: receiverAddress);
+  }
+
+  /// Called when the UI returns from another app. Background reconnect is
+  /// best-effort: Android can suspend this Flutter process.
+  void onResumed() {
+    if (!enabled || !autoConnect) return;
+    if (role == 'receiver' && _server == null) { connect(); return; }
+    if (role == 'sender' && _socket == null) connect();
   }
 
   // Apply UI changes synchronously. Network and disk operations must never
@@ -144,7 +195,13 @@ class VybeLink extends ChangeNotifier {
     if (isEnabled != null) enabled = isEnabled;
     if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
     if (automatic != null) autoConnect = automatic;
-    if (address != null) receiverAddress = address.trim();
+    if (address != null) {
+      final requested = address.trim();
+      if (requested != receiverAddress) {
+        pairedReceiverId = ''; // Manual new IP means explicitly pairing again.
+      }
+      receiverAddress = requested;
+    }
     status = enabled ? 'Applying connection settings...' : 'Disabled';
     notifyListeners();
     // Start reconfiguration immediately, but do not hold UI updates hostage
@@ -156,6 +213,7 @@ class VybeLink extends ChangeNotifier {
       await p.setString('link_role', role);
       await p.setBool('link_auto', autoConnect);
       await p.setString('link_address', receiverAddress);
+      await p.setString('link_paired_receiver', pairedReceiverId);
     } catch (e) {
       status = 'Could not save settings: $e';
       notifyListeners();
@@ -174,8 +232,10 @@ class VybeLink extends ChangeNotifier {
   Future<void> connect() async {
     _generation++;
     final generation = _generation;
-    _retry?.cancel(); _sendTimer?.cancel();
+    _retry?.cancel(); _sendTimer?.cancel(); _helloTimer?.cancel();
+    _helloTimer = null;
     await _socketSub?.cancel(); _socketSub = null;
+    await _responder?.close(); _responder = null;
     _socket?.destroy(); _socket = null;
     await _server?.close(); _server = null;
     _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0; _artGeneration++; _rxGeneration++;
@@ -195,33 +255,98 @@ class VybeLink extends ChangeNotifier {
       try {
         _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
         if (generation != _generation) { await _server?.close(); return; }
-        status = 'Listening on $localAddresses:$port'; notifyListeners();
+        try {
+          _responder = await LinkDiscoveryResponder.start(localDeviceId);
+        } catch (_) {
+          // Discovery can be blocked on some networks; the saved-IP fallback
+          // still works.
+        }
+        if (generation != _generation) { await _responder?.close(); return; }
+        status = 'Ready for automatic connection'; notifyListeners();
         _server!.listen((client) {
+          _socketSub?.cancel();
           _socket?.destroy(); _socket = client;
           status = 'Connected to ${client.remoteAddress.address}';
           _model?.setLinkReceiverActive(true);
           notifyListeners();
+          client.writeln(jsonEncode({'v': 2, 'kind': 'hello', 'id': localDeviceId}));
           final lines = client.cast<List<int>>().transform(utf8.decoder).transform(const LineSplitter());
           _socketSub = lines.listen(_receive, onError: (_) => _receiverDisconnected(client),
               onDone: () => _receiverDisconnected(client));
         });
       } catch (e) { status = 'Cannot listen: $e'; notifyListeners(); }
     } else {
-      if (receiverAddress.isEmpty) {
-        status = 'Enter the receiver IP address'; notifyListeners(); return;
+      if (receiverAddress.isEmpty && pairedReceiverId.isEmpty) {
+        status = 'Tap Find head unit to pair once';
+        notifyListeners(); return;
       }
-      try {
-        final socket = await Socket.connect(receiverAddress, port, timeout: const Duration(seconds: 4));
-        if (generation != _generation) { socket.destroy(); return; }
-        _socket = socket;
-        status = 'Connected to $receiverAddress'; notifyListeners();
-        socket.listen((_) {}, onDone: () => _senderDisconnected(socket),
-            onError: (_) => _senderDisconnected(socket), cancelOnError: true);
-        _sendTimer = Timer.periodic(const Duration(seconds: 8), (_) => _send());
-        _send();
-      } catch (e) {
-        status = 'Connection failed: $e'; notifyListeners(); _scheduleRetry(generation);
+      Socket? socket;
+      String? foundAddress = receiverAddress.isEmpty ? null : receiverAddress;
+      if (foundAddress != null) {
+        try {
+          socket = await Socket.connect(foundAddress, port,
+              timeout: const Duration(seconds: 3));
+        } catch (_) {}
       }
+      // IP addresses can change across car starts, hotspots and USB links.
+      // Only reconnect automatically to the previously paired receiver ID.
+      if (socket == null && pairedReceiverId.isNotEmpty) {
+        status = 'Finding paired head unit...'; notifyListeners();
+        final available = await LinkDiscovery.scan();
+        if (generation != _generation) return;
+        final match = available.where((r) => r.id == pairedReceiverId);
+        if (match.isNotEmpty) {
+          foundAddress = match.first.address;
+          try {
+            socket = await Socket.connect(foundAddress, port,
+                timeout: const Duration(seconds: 3));
+          } catch (_) {}
+        }
+      }
+      if (generation != _generation) { socket?.destroy(); return; }
+      if (socket == null) {
+        status = 'Waiting for paired head unit';
+        notifyListeners(); _scheduleRetry(generation);
+        return;
+      }
+      _socket = socket;
+      status = 'Verifying head unit...'; notifyListeners();
+      // Nothing is sent until the receiver confirms its saved identity.
+      final peer = socket;
+      _socketSub = peer.cast<List<int>>().transform(utf8.decoder)
+          .transform(const LineSplitter()).listen((line) {
+        if (!identical(_socket, peer) || generation != _generation) return;
+        try {
+          final data = jsonDecode(line);
+          if (data is! Map || data['kind'] != 'hello' || data['v'] != 2) return;
+          final id = (data['id'] as String?) ?? '';
+          if (id.length < 16 || (pairedReceiverId.isNotEmpty &&
+              pairedReceiverId != id)) {
+            status = 'Receiver does not match paired head unit';
+            notifyListeners();
+            peer.destroy(); _senderDisconnected(peer); return;
+          }
+          _helloTimer?.cancel(); _helloTimer = null;
+          if (pairedReceiverId.isEmpty) pairedReceiverId = id;
+          receiverAddress = peer.remoteAddress.address;
+          SharedPreferences.getInstance().then((p) async {
+            await p.setString('link_address', receiverAddress);
+            await p.setString('link_paired_receiver', pairedReceiverId);
+          });
+          status = 'Connected automatically';
+          notifyListeners();
+          _sendTimer?.cancel();
+          _sendTimer = Timer.periodic(const Duration(seconds: 8), (_) => _send());
+          _send();
+        } catch (_) {}
+      }, onDone: () => _senderDisconnected(peer),
+          onError: (_) => _senderDisconnected(peer), cancelOnError: true);
+      _helloTimer = Timer(const Duration(seconds: 4), () {
+        if (identical(_socket, peer) && _sendTimer == null) {
+          peer.destroy();
+          _senderDisconnected(peer);
+        }
+      });
     }
   }
 
@@ -232,8 +357,10 @@ class VybeLink extends ChangeNotifier {
   }
   void _senderDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
-    _socket = null; _sendTimer?.cancel();
-    status = 'Disconnected'; notifyListeners(); _scheduleRetry(_generation);
+    _socket = null; _sendTimer?.cancel(); _sendTimer = null;
+    _helloTimer?.cancel(); _helloTimer = null;
+    status = 'Reconnecting automatically...';
+    notifyListeners(); _scheduleRetry(_generation);
   }
   void _scheduleRetry(int generation) {
     if (!enabled || !autoConnect || role != 'sender') return;
@@ -359,9 +486,10 @@ class VybeLink extends ChangeNotifier {
   Future<void> stop() async { await configure(isEnabled: false); }
   @override
   void dispose() {
-    _retry?.cancel(); _sendTimer?.cancel();
+    _retry?.cancel(); _sendTimer?.cancel(); _helloTimer?.cancel();
     _model?.removeListener(_onModel);
     _socketSub?.cancel(); _socket?.destroy(); _server?.close();
+    _responder?.close();
     super.dispose();
   }
 }

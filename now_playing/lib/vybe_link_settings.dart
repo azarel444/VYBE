@@ -23,7 +23,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
       padding: const EdgeInsets.all(20), children: [
         const Text('VYBE Link — Direct Connection Beta', style: TextStyle(fontSize: 23)),
         const SizedBox(height: 10),
-        const Text('Bluetooth continues carrying audio. VYBE Link sends metadata and album artwork over a local Wi-Fi network.'),
+        const Text('Bluetooth can carry audio while VYBE Link transfers song data and artwork over a reachable local IP network (Wi-Fi or supported USB tethering).'),
         SwitchListTile(title: const Text('Enable VYBE Link'), value: link.enabled,
           onChanged: (v) => link.configure(isEnabled: v)),
         const SizedBox(height: 12),
@@ -32,17 +32,51 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
           groupValue: link.role, onChanged: (v) { if (v != null) link.configure(deviceRole: v); }),
         RadioListTile<String>(title: const Text('Receiver — head unit'), value: 'receiver',
           groupValue: link.role, onChanged: (v) { if (v != null) link.configure(deviceRole: v); }),
-        SwitchListTile(title: const Text('Auto-connect'),
-          subtitle: const Text('Retry the saved receiver address when disconnected'),
+        SwitchListTile(title: const Text('Reconnect automatically'),
+          subtitle: const Text('Remember this head unit and reconnect when the network is available'),
           value: link.autoConnect, onChanged: (v) => link.configure(automatic: v)),
         if (link.role == 'sender') ...[
-          TextField(controller: address,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(labelText: 'Receiver IP address',
-              hintText: '192.168.1.100', border: OutlineInputBorder())),
+          Text(link.pairedReceiverId.isNotEmpty
+              ? 'Head unit paired. Future connections will be automatic, even if its IP changes.'
+              : 'First time only: connect both devices to the same network, then choose your head unit.'),
+          const SizedBox(height: 10),
+          ElevatedButton.icon(
+            onPressed: link.searchingReceivers ? null : () => link.findReceivers(),
+            icon: const Icon(Icons.search),
+            label: Text(link.searchingReceivers ? 'Searching...' : 'Find head unit'),
+          ),
+          for (final receiver in link.receivers)
+            ListTile(
+              leading: const Icon(Icons.directions_car),
+              title: Text(receiver.name),
+              subtitle: Text(receiver.id == link.pairedReceiverId
+                  ? 'Paired • ${receiver.address}'
+                  : receiver.address),
+              trailing: receiver.id == link.pairedReceiverId
+                  ? const Icon(Icons.check_circle) : const Icon(Icons.link),
+              onTap: () => link.pairReceiver(receiver),
+            ),
           const SizedBox(height: 8),
-          ElevatedButton(onPressed: () => link.configure(address: address.text),
-            child: const Text('Save IP and Connect')),
+          ExpansionTile(
+            title: const Text('Advanced: manual IP fallback'),
+            children: [
+              TextField(controller: address,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'Receiver IP address',
+                  hintText: '192.168.1.100',
+                  border: OutlineInputBorder(),
+                )),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: () => link.configure(
+                  isEnabled: true, deviceRole: 'sender',
+                  address: address.text, automatic: true,
+                ),
+                child: const Text('Pair using this IP'),
+              ),
+            ],
+          ),
         ] else ...[
           SelectableText('Head-unit IP: ${link.localAddresses.isEmpty ? "Not detected" : link.localAddresses}',
             style: const TextStyle(fontSize: 17)),
@@ -72,7 +106,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
         Text('Artwork: ${link.artworkStatus}'),
         Text('Metadata packets: ${link.metadataReceived}  •  Covers: ${link.artworkReceived}  •  Errors: ${link.artworkErrors}'),
         const SizedBox(height: 20),
-        const Text('Direct mode is experimental: both devices must support Wi-Fi Direct, grant Nearby devices / Location permission, and enable Location services for discovery. LAN IP mode remains available as a fallback.',
+        const Text('Automatic reconnection needs the same underlying network to be available and VYBE to be running. Wi-Fi Direct and USB networking depend on device support. Android may suspend background apps; uninterrupted hands-free operation is not yet guaranteed.',
           style: TextStyle(color: Colors.white60)),
       ],
     ),

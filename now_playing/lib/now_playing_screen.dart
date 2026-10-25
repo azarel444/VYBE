@@ -221,6 +221,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (state == AppLifecycleState.resumed) {
       _fxGovernor.enabled = settings.fxPerformanceMode == 0 && !settings.performance;
       model.refresh();
+      if (!widget.driveHost) VybeLink.instance.onResumed();
       // The Drive window may have changed the theme while VYBE was away.
       // Avoid racing an in-flight settings write with a stale preference reload.
       // The Drive engine never writes launch/content preferences.
