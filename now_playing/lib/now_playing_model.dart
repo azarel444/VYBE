@@ -61,6 +61,32 @@ class NowPlayingModel extends ChangeNotifier {
   final Map<String, Uint8List> _artCache = {};
   // Reuse covers across songs on the same positively identified album.
   final Map<String, Uint8List> _albumArtCache = {};
+  // Detect a player-supplied placeholder or shared playlist cover when the
+  // identical image appears under unrelated artist/album identities.
+  final Map<int, Set<String>> _sessionArtOwners = {};
+  final Set<int> _sharedSessionImages = {};
+  int _imageFingerprint(Uint8List bytes) {
+    // FNV-1a over all bytes; no image decoding required.
+    var hash = 2166136261;
+    for (final value in bytes) {
+      hash = ((hash ^ value) * 16777619) & 0xffffffff;
+    }
+    return hash;
+  }
+
+  bool _isSharedSessionArtwork(Uint8List bytes) {
+    final hash = _imageFingerprint(bytes);
+    final owner = '${artist.trim().toLowerCase()}|${album.trim().toLowerCase()}';
+    final owners = _sessionArtOwners.putIfAbsent(hash, () => <String>{});
+    owners.add(owner);
+    if (owners.length >= 3 &&
+        owners.map((x) => x.split('|').first).toSet().length >= 3) {
+      _sharedSessionImages.add(hash);
+    }
+    if (_sessionArtOwners.length > 150) _sessionArtOwners.remove(_sessionArtOwners.keys.first);
+    return _sharedSessionImages.contains(hash);
+  }
+
 
   String _albumArtKey(String artistName, String albumName) {
     final a = artistName.trim().toLowerCase();
@@ -239,7 +265,16 @@ class NowPlayingModel extends ChangeNotifier {
     }
 
     final artBytes = m['art'];
-    if (artBytes is Uint8List && artBytes.isNotEmpty) {
+    if (artBytes is Uint8List && artBytes.isNotEmpty &&
+        _isSharedSessionArtwork(artBytes)) {
+      sessionArtworkStatus = 'Rejected repeated image across unrelated artists';
+      artworkSource = 'None';
+      artworkStatus = 'Shared player placeholder or playlist cover rejected';
+      art = null;
+      _artToken++;
+      _netTimer?.cancel();
+      _netTimer = Timer(const Duration(milliseconds: 200), _runNetwork);
+    } else if (artBytes is Uint8List && artBytes.isNotEmpty) {
       sessionArtworkStatus = 'Received ${artBytes.length} bytes';
       artworkSource = 'Android media session';
       artworkStatus = 'Android media session artwork';
