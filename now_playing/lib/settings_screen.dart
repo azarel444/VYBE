@@ -360,8 +360,12 @@ class SettingsScreen extends StatelessWidget {
         _switch('24-hour time', 'Off uses 12-hour time with AM/PM',
           s.clock24h, (v) => s.update(() => s.clock24h = v)),
       _section('Performance'),
-      _switch('Performance mode',
-        'Reduce animated backgrounds and intensive visual effects on slower units',
+      _choices('FX quality',
+        const ['Auto', 'Performance', 'Maximum'],
+        s.fxPerformanceMode,
+        (i) => s.update(() { s.fxPerformanceMode = i; s.performance = false; })),
+      _switch('Legacy performance override',
+        'Apply the conservative FX budget without stopping animations',
         s.performance, (v) => s.update(() => s.performance = v)),
     ];
   }
