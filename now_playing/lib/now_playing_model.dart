@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'lyrics.dart';
 import 'net.dart';
 import 'media_cache.dart';
+import 'local_artwork.dart';
 import 'palette.dart';
 
 /// Talks to the Kotlin side (MainActivity) which listens to the active
@@ -321,8 +322,23 @@ class NowPlayingModel extends ChangeNotifier {
 
   void _runNetwork() {
     if (title.isEmpty || _linkReceiverActive) return;
-    if (artLookupEnabled && art == null) _lookupArt();
+    if (artLookupEnabled && art == null) _lookupLocalFirst();
     if (lyricsEnabled) _fetchLyrics();
+  }
+
+  Future<void> _lookupLocalFirst() async {
+    final token = _artToken;
+    final track = _trackKey;
+    final bytes = await LocalArtwork.instance.albumArt(artist, album);
+    if (token != _artToken || track != _trackKey || art != null) return;
+    if (bytes != null && bytes.isNotEmpty) {
+      artworkSource = 'Local artwork index';
+      artworkStatus = 'Matched local album artwork';
+      _setArt(bytes);
+      notifyListeners();
+    } else {
+      _lookupArt();
+    }
   }
 
   Future<void> _lookupArt({bool force = false}) async {
