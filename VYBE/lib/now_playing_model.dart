@@ -289,6 +289,10 @@ class NowPlayingModel extends ChangeNotifier {
     final m = Map<String, dynamic>.from(e as Map);
     accessGranted = m['access'] == true;
     final nowActive = m['active'] == true;
+    // Some players keep their session alive but publish an empty metadata
+    // snapshot while switching tracks. Treat that as transient too.
+    final missingMetadata = nowActive && active && title.isNotEmpty &&
+        ((m['title'] as String?) ?? '').trim().isEmpty;
 
     if (!accessGranted) {
       _idleTimer?.cancel();
@@ -298,7 +302,9 @@ class NowPlayingModel extends ChangeNotifier {
       return;
     }
 
-    if (!nowActive) {
+    if (!nowActive || missingMetadata) {
+      // A temporary missing session OR an empty metadata callback must
+      // not replace a real song with the placeholder.
       // An empty getActiveSessions result is not evidence that the user
       // stopped the music. Keep the last known track while the player
       // replaces its media session; only clear after a sustained absence.
