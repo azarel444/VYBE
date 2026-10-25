@@ -23,6 +23,8 @@ class VybeLink extends ChangeNotifier {
   bool searchingReceivers = false;
   LinkDiscoveryResponder? _responder;
   Timer? _helloTimer;
+  int _lastMetadataSentAt = 0;
+  String _lastMetadataState = '';
   bool enabled = false;
   String role = 'sender';
   bool autoConnect = true;
@@ -238,20 +240,26 @@ class VybeLink extends ChangeNotifier {
     } catch (_) { localAddresses = 'Unavailable'; }
   }
 
+  /// Restore the proven direct TCP path: manual IP connections send
+  /// metadata immediately. Receiver identity is learned asynchronously,
+  /// never used as a precondition for playing music.
   Future<void> connect() async {
-    _generation++;
-    final generation = _generation;
-    _retry?.cancel(); _sendTimer?.cancel(); _helloTimer?.cancel();
-    _helloTimer = null;
+    final generation = ++_generation;
+    _retry?.cancel();
+    _sendTimer?.cancel(); _sendTimer = null;
+    _helloTimer?.cancel(); _helloTimer = null;
     await _socketSub?.cancel(); _socketSub = null;
     await _responder?.close(); _responder = null;
     _socket?.destroy(); _socket = null;
     await _server?.close(); _server = null;
-    _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0; _artGeneration++; _rxGeneration++;
+    _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0;
+    _artGeneration++; _rxGeneration++;
     _sentFanartArtist = ''; _sentFanartHash = 0; _fanartGeneration++;
     receivedFanart = null; receivedFanartArtist = '';
-    // Sender connections must never erase their own local now-playing data.
-    // Only a previous receiver session needs to be released.
+    _lastMetadataSentAt = 0; _lastMetadataState = '';
+
+    // The sender must never clear its own media playback. A receiver retains
+    // the current song briefly while the TCP session is being recovered.
     if (role != 'receiver' || !enabled) {
       _model?.setLinkReceiverActive(false, immediate: true);
     } else {
@@ -260,103 +268,132 @@ class VybeLink extends ChangeNotifier {
     await _updateAddresses();
     if (generation != _generation) return;
     if (!enabled) { status = 'Disabled'; notifyListeners(); return; }
+
     if (role == 'receiver') {
       try {
-        _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
-        if (generation != _generation) { await _server?.close(); return; }
+        final server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
+        if (generation != _generation) { await server.close(); return; }
+        _server = server;
+        // Discovery must not interfere with accepting a manually entered IP.
         try {
           _responder = await LinkDiscoveryResponder.start(localDeviceId);
         } catch (_) {
-          // Discovery can be blocked on some networks; the saved-IP fallback
-          // still works.
+          _responder = null;
         }
-        if (generation != _generation) { await _responder?.close(); return; }
-        status = 'Ready for automatic connection'; notifyListeners();
-        _server!.listen((client) {
+        if (generation != _generation) {
+          await _responder?.close(); _responder = null;
+          await server.close();
+          return;
+        }
+        status = 'Listening on ${localAddresses.isEmpty ? "no network IP detected" : localAddresses}:$port';
+        notifyListeners();
+        server.listen((client) {
+          if (generation != _generation || role != 'receiver' || !enabled) {
+            client.destroy(); return;
+          }
           _socketSub?.cancel();
-          _socket?.destroy(); _socket = client;
+          _socket?.destroy();
+          _socket = client;
           status = 'Connected to ${client.remoteAddress.address}';
           _model?.setLinkReceiverActive(true);
           notifyListeners();
-          client.writeln(jsonEncode({'v': 2, 'kind': 'hello', 'id': localDeviceId}));
-          final lines = client.cast<List<int>>().transform(utf8.decoder).transform(const LineSplitter());
-          _socketSub = lines.listen(_receive, onError: (_) => _receiverDisconnected(client),
-              onDone: () => _receiverDisconnected(client));
-        });
-      } catch (e) { status = 'Cannot listen: $e'; notifyListeners(); }
-    } else {
-      if (receiverAddress.isEmpty && pairedReceiverId.isEmpty) {
-        status = 'Tap Find head unit to pair once';
-        notifyListeners(); return;
-      }
-      Socket? socket;
-      String? foundAddress = receiverAddress.isEmpty ? null : receiverAddress;
-      if (foundAddress != null) {
-        try {
-          socket = await Socket.connect(foundAddress, port,
-              timeout: const Duration(seconds: 3));
-        } catch (_) {}
-      }
-      // IP addresses can change across car starts, hotspots and USB links.
-      // Only reconnect automatically to the previously paired receiver ID.
-      if (socket == null && pairedReceiverId.isNotEmpty) {
-        status = 'Finding paired head unit...'; notifyListeners();
-        final available = await LinkDiscovery.scan();
-        if (generation != _generation) return;
-        final match = available.where((r) => r.id == pairedReceiverId);
-        if (match.isNotEmpty) {
-          foundAddress = match.first.address;
+          // Optional non-blocking identity message, useful for future
+          // rediscovery but not required for metadata/artwork transfer.
           try {
-            socket = await Socket.connect(foundAddress, port,
-                timeout: const Duration(seconds: 3));
+            client.writeln(jsonEncode({'v': 2, 'kind': 'hello', 'id': localDeviceId}));
           } catch (_) {}
+          final lines = client.cast<List<int>>()
+              .transform(utf8.decoder).transform(const LineSplitter());
+          _socketSub = lines.listen(
+            _receive,
+            onError: (_) => _receiverDisconnected(client),
+            onDone: () => _receiverDisconnected(client),
+            cancelOnError: true,
+          );
+        });
+      } catch (e) {
+        if (generation == _generation) {
+          status = 'Cannot listen for connections: $e';
+          notifyListeners();
         }
       }
-      if (generation != _generation) { socket?.destroy(); return; }
-      if (socket == null) {
-        status = 'Waiting for paired head unit';
-        notifyListeners(); _scheduleRetry(generation);
-        return;
-      }
-      _socket = socket;
-      status = 'Verifying head unit...'; notifyListeners();
-      // Nothing is sent until the receiver confirms its saved identity.
-      final peer = socket;
-      _socketSub = peer.cast<List<int>>().transform(utf8.decoder)
-          .transform(const LineSplitter()).listen((line) {
-        if (!identical(_socket, peer) || generation != _generation) return;
-        try {
-          final data = jsonDecode(line);
-          if (data is! Map || data['kind'] != 'hello' || data['v'] != 2) return;
-          final id = (data['id'] as String?) ?? '';
-          if (id.length < 16 || (pairedReceiverId.isNotEmpty &&
-              pairedReceiverId != id)) {
-            status = 'Receiver does not match paired head unit';
-            notifyListeners();
-            peer.destroy(); _senderDisconnected(peer); return;
-          }
-          _helloTimer?.cancel(); _helloTimer = null;
-          if (pairedReceiverId.isEmpty) pairedReceiverId = id;
-          receiverAddress = peer.remoteAddress.address;
-          SharedPreferences.getInstance().then((p) async {
-            await p.setString('link_address', receiverAddress);
-            await p.setString('link_paired_receiver', pairedReceiverId);
-          });
-          status = 'Connected automatically';
+      return;
+    }
+
+    // Previously entered IP is always tried FIRST. Discovery is only a
+    // fallback when that address stops working and a receiver was paired.
+    Socket? socket;
+    String address = receiverAddress;
+    if (address.isNotEmpty) {
+      try {
+        socket = await Socket.connect(
+          address, port, timeout: const Duration(seconds: 4));
+      } catch (_) {}
+    }
+    if (generation != _generation) { socket?.destroy(); return; }
+
+    if (socket == null && pairedReceiverId.isNotEmpty) {
+      status = 'Retrying paired receiver discovery...';
+      notifyListeners();
+      try {
+        final devices = await LinkDiscovery.scan();
+        if (generation != _generation) return;
+        for (final device in devices) {
+          if (device.id != pairedReceiverId) continue;
+          address = device.address;
+          try {
+            socket = await Socket.connect(
+              address, port, timeout: const Duration(seconds: 4));
+          } catch (_) {}
+          break;
+        }
+      } catch (_) {}
+    }
+    if (generation != _generation) { socket?.destroy(); return; }
+    if (socket == null) {
+      status = receiverAddress.isEmpty && pairedReceiverId.isEmpty
+          ? 'Enter the head-unit IP address to connect'
+          : 'Unable to reach head unit at ${receiverAddress.isEmpty ? "saved network" : receiverAddress}:$port';
+      notifyListeners();
+      _scheduleRetry(generation);
+      return;
+    }
+
+    _socket = socket;
+    receiverAddress = address;
+    status = 'Connected to $address';
+    notifyListeners();
+    // The original working method transmitted immediately upon TCP connect.
+    // Do not wait for a hello packet, which could prevent all song data.
+    final peer = socket;
+    final lines = peer.cast<List<int>>()
+        .transform(utf8.decoder).transform(const LineSplitter());
+    _socketSub = lines.listen((line) {
+      if (!identical(_socket, peer) || generation != _generation) return;
+      try {
+        final data = jsonDecode(line);
+        if (data is! Map || data['kind'] != 'hello' || data['v'] != 2) return;
+        final id = (data['id'] as String?) ?? '';
+        if (id.length < 16 || id.length > 128) return;
+        if (pairedReceiverId.isNotEmpty && pairedReceiverId != id) {
+          status = 'Connected IP belongs to a different receiver';
           notifyListeners();
-          _sendTimer?.cancel();
-          _sendTimer = Timer.periodic(const Duration(seconds: 8), (_) => _send());
-          _send();
-        } catch (_) {}
-      }, onDone: () => _senderDisconnected(peer),
-          onError: (_) => _senderDisconnected(peer), cancelOnError: true);
-      _helloTimer = Timer(const Duration(seconds: 4), () {
-        if (identical(_socket, peer) && _sendTimer == null) {
           peer.destroy();
           _senderDisconnected(peer);
+          return;
         }
-      });
-    }
+        pairedReceiverId = id;
+        SharedPreferences.getInstance().then((p) async {
+          await p.setString('link_address', address);
+          await p.setString('link_paired_receiver', id);
+        }).catchError((Object e) {
+          debugPrint('VYBE Link could not remember receiver: $e');
+        });
+      } catch (_) {}
+    }, onDone: () => _senderDisconnected(peer),
+        onError: (_) => _senderDisconnected(peer), cancelOnError: true);
+    _sendTimer = Timer.periodic(const Duration(seconds: 2), (_) => _send());
+    _send();
   }
 
   void _receiverDisconnected(Socket client) {
@@ -368,7 +405,7 @@ class VybeLink extends ChangeNotifier {
     if (!identical(client, _socket)) return;
     _socket = null; _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
-    status = 'Reconnecting automatically...';
+    status = 'Connection lost; retrying saved IP...';
     notifyListeners(); _scheduleRetry(_generation);
   }
   void _scheduleRetry(int generation) {
@@ -389,15 +426,27 @@ class VybeLink extends ChangeNotifier {
     final track = '${model.title}|${model.artist}|${model.album}';
     final changed = track != _lastTrack;
     if (changed) { _lastTrack = track; _lastArtHash = 0; _artGeneration++; }
-    final payload = jsonEncode({
-      'v': 2, 'kind': 'meta', 'track': track,
-      'title': model.title, 'artist': model.artist, 'album': model.album,
-      'playing': model.playing, 'active': model.active,
-      'duration': model.durationMs, 'position': model.positionMs,
-    });
-    if (payload != _lastPayload) {
-      _lastPayload = payload;
-      try { socket.write('$payload\n'); } catch (_) { _senderDisconnected(socket); return; }
+    // Limit timestamp-only changes to one send every 2 seconds. Flutter
+    // visualizer/album updates can notify many times per second and used to
+    // generate a new JSON packet on every notification.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final state = '${model.active}|${model.playing}';
+    if (changed || state != _lastMetadataState ||
+        now - _lastMetadataSentAt >= 2000) {
+      final payload = jsonEncode({
+        'v': 2, 'kind': 'meta', 'track': track,
+        'title': model.title, 'artist': model.artist, 'album': model.album,
+        'playing': model.playing, 'active': model.active,
+        'duration': model.durationMs, 'position': model.positionMs,
+      });
+      if (payload != _lastPayload) {
+        try {
+          socket.write('$payload\n');
+          _lastPayload = payload;
+          _lastMetadataSentAt = now;
+          _lastMetadataState = state;
+        } catch (_) { _senderDisconnected(socket); return; }
+      }
     }
     final art = model.art?.bytes;
     if (art == null || art.isEmpty) return;
