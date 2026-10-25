@@ -72,6 +72,8 @@ class VybeLink extends ChangeNotifier {
           case 'connected':
             final host = data['host']?.toString() ?? '';
             directStatus = 'Wi-Fi Direct group connected ($host)';
+            // Refresh the newly created P2P interface address on the head unit.
+            await _updateAddresses();
             if (role == 'sender' && host.isNotEmpty) {
               receiverAddress = host;
               // Reuse the existing TCP artwork transport over the new direct network.
@@ -83,6 +85,9 @@ class VybeLink extends ChangeNotifier {
             break;
           case 'error':
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct error';
+            break;
+          case 'status':
+            directStatus = data['message']?.toString() ?? 'Wi-Fi Direct in progress';
             break;
           case 'state':
             directStatus = data['enabled'] == true ? 'Wi-Fi Direct available' : 'Wi-Fi Direct disabled';
@@ -112,12 +117,16 @@ class VybeLink extends ChangeNotifier {
       directActive = true;
       if (receiver) {
         if (role != 'receiver' || !enabled) await configure(isEnabled: true, deviceRole: 'receiver');
-        await _direct.invokeMethod('host');
-        directStatus = 'Creating head-unit Wi-Fi Direct group';
+        directStatus = 'Requesting head-unit Wi-Fi Direct group...';
+        notifyListeners();
+        final accepted = await _direct.invokeMethod<bool>('host') ?? false;
+        if (!accepted) directStatus = 'Cannot start Wi-Fi Direct on head unit (permission or service unavailable)';
       } else {
         if (role != 'sender' || !enabled) await configure(isEnabled: true, deviceRole: 'sender');
-        await _direct.invokeMethod('discover');
-        directStatus = 'Searching for head unit';
+        directStatus = 'Scanning for Wi-Fi Direct devices...';
+        notifyListeners();
+        final accepted = await _direct.invokeMethod<bool>('discover') ?? false;
+        if (!accepted) directStatus = 'Cannot start Wi-Fi Direct discovery (permission or service unavailable)';
       }
     } catch (e) { directStatus = 'Wi-Fi Direct setup failed: $e'; }
     notifyListeners();

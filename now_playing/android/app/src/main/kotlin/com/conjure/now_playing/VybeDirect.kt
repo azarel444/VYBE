@@ -63,9 +63,64 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             override fun onFailure(reason: Int) { event(mapOf("type" to "error", "message" to "$name failed ($reason)")) }
         })
     }
+    // Android reports BUSY (error 2) when group creation cannot be serviced.
+    // Reuse an existing owner group, otherwise stop discovery and retry once.
+    // Never remove another app's existing Wi-Fi Direct connection.
+    private var hostPending = false
+    private fun retryHostAfterDiscovery() {
+        android.os.Handler(Looper.getMainLooper()).postDelayed({ beginHost(false) }, 1000L)
+    }
+    private fun reportGroupReady(service: WifiP2pManager, channel: WifiP2pManager.Channel) {
+        hostPending = false
+        event(mapOf("type" to "action", "name" to "host", "ok" to true))
+        service.requestConnectionInfo(channel) { info ->
+            if (info.groupFormed && info.groupOwnerAddress != null) {
+                event(mapOf("type" to "connected",
+                    "host" to info.groupOwnerAddress.hostAddress,
+                    "owner" to info.isGroupOwner))
+            }
+        }
+    }
+    private fun beginHost(allowRetry: Boolean) {
+        val service = manager ?: return
+        val channel = p2pChannel ?: return
+        service.requestGroupInfo(channel) { group ->
+            if (group?.isGroupOwner == true) {
+                reportGroupReady(service, channel)
+            } else if (group != null) {
+                hostPending = false
+                event(mapOf("type" to "error",
+                    "message" to "Already joined another Wi-Fi Direct group; disconnect it before hosting"))
+            } else {
+                service.createGroup(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        reportGroupReady(service, channel)
+                    }
+                    override fun onFailure(reason: Int) {
+                        if (reason == WifiP2pManager.BUSY && allowRetry) {
+                            event(mapOf("type" to "status",
+                                "message" to "Wi-Fi Direct busy; stopping discovery and retrying once"))
+                            service.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
+                                override fun onSuccess() { retryHostAfterDiscovery() }
+                                override fun onFailure(reason: Int) { retryHostAfterDiscovery() }
+                            })
+                        } else {
+                            hostPending = false
+                            val message = if (reason == WifiP2pManager.BUSY)
+                                "Wi-Fi Direct still busy (2). Try phone hotspot / Wi-Fi connection instead"
+                            else "Wi-Fi Direct group creation failed ($reason)"
+                            event(mapOf("type" to "error", "message" to message))
+                        }
+                    }
+                })
+            }
+        }
+    }
     fun host(): Boolean {
         if (!start()) return false
-        action("host") { manager!!.createGroup(p2pChannel!!, it) }
+        if (hostPending) return true
+        hostPending = true
+        beginHost(true)
         return true
     }
     fun discover(): Boolean {

@@ -37,13 +37,13 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
           value: link.autoConnect, onChanged: (v) => link.configure(automatic: v)),
         if (link.role == 'sender') ...[
           Text(link.pairedReceiverId.isNotEmpty
-              ? 'Head unit paired. Future connections will be automatic, even if its IP changes.'
-              : 'First time only: connect both devices to the same network, then choose your head unit.'),
+              ? 'Head unit paired. Automatic reconnection works when both devices share a reachable network.'
+              : 'First connection: enable your phone hotspot and join it on the head unit, or connect both to the same Wi-Fi. Then find the receiver below.'),
           const SizedBox(height: 10),
           ElevatedButton.icon(
             onPressed: link.searchingReceivers ? null : () => link.findReceivers(),
             icon: const Icon(Icons.search),
-            label: Text(link.searchingReceivers ? 'Searching...' : 'Find head unit'),
+            label: Text(link.searchingReceivers ? 'Searching...' : 'Find head unit on Wi-Fi / hotspot'),
           ),
           for (final receiver in link.receivers)
             ListTile(
@@ -83,8 +83,8 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
           const Text('TCP port: 38927'),
         ],
         const SizedBox(height: 20),
-        const Text('Connect without a router', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-        const Text('Head unit: create a Wi-Fi Direct group. Phone: find the head unit and tap it. Bluetooth audio remains separate.'),
+        const Text('Experimental Wi-Fi Direct', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+        const Text('This is separate from Wi-Fi / hotspot discovery above. First create a group on the head unit, then scan and join it from the phone. Some Android head units cannot start a group. Bluetooth audio remains separate.'),
         Text('Direct support: ${link.directAvailable ? "Detected" : "Not detected"}'),
         Text('Direct status: ${link.directStatus}'),
         ElevatedButton(onPressed: () => link.directStart(receiver: link.role == 'receiver'),
