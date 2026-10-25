@@ -224,6 +224,16 @@ class SettingsScreen extends StatelessWidget {
             }
           }),
       _section('Artwork diagnostics'),
+      _action('Mark as Placeholder',
+          'Remember the current music player image and reject identical images in future sessions',
+          'Mark Placeholder', () async {
+            final marked = await model.markCurrentSessionArtAsPlaceholder();
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(marked
+                  ? 'Placeholder remembered. Searching for real album artwork.'
+                  : 'No music player artwork available to mark.')));
+          }),
       _action('Copy artwork diagnostics',
           'Track, media-session artwork, cache/online lookup and failure details',
           'Copy Diagnostics', () async {
