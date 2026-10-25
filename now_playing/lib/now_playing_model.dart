@@ -38,6 +38,7 @@ class NowPlayingModel extends ChangeNotifier {
   int _lyricsToken = 0;
   Timer? _netTimer;
   Timer? _artClearTimer;
+  Timer? _sessionVerificationTimer;
   Timer? _artRetryTimer;
   Timer? _sessionArtRetryTimer;
   int _sessionArtRetries = 0;
@@ -139,6 +140,7 @@ class NowPlayingModel extends ChangeNotifier {
     _fftSub?.cancel();
     _netTimer?.cancel();
     _artClearTimer?.cancel();
+    _sessionVerificationTimer?.cancel();
     _artRetryTimer?.cancel();
     _sessionArtRetryTimer?.cancel();
     _idleTimer?.cancel();
@@ -242,6 +244,7 @@ class NowPlayingModel extends ChangeNotifier {
     if (changed) {
       _artToken++; // Invalidate lookups and decoding from the previous song.
       _artRetryTimer?.cancel();
+      _sessionVerificationTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
       _sessionArtRetries = 0;
       _artAttempts = 0;
@@ -286,6 +289,16 @@ class NowPlayingModel extends ChangeNotifier {
       _needsArt = false;
       if (art == null || !listEquals(art!.bytes, artBytes)) {
         _setArt(artBytes);
+      }
+      // Media-session images are unverified: player apps may send their
+      // branded placeholder even for well-known albums. Verify independently
+      // rather than treating successful decoding as proof of album art.
+      if (changed && artLookupEnabled) {
+        final expectedTrack = key;
+        _sessionVerificationTimer?.cancel();
+        _sessionVerificationTimer = Timer(const Duration(milliseconds: 900), () {
+          if (_trackKey == expectedTrack) _verifySessionArtwork();
+        });
       }
     } else if (changed && art != null) {
       sessionArtworkStatus = 'Missing (no bytes in media session)';
@@ -364,6 +377,21 @@ class NowPlayingModel extends ChangeNotifier {
     if (lyricsEnabled) _fetchLyrics();
   }
 
+  Future<void> _verifySessionArtwork() async {
+    final token = _artToken;
+    final track = _trackKey;
+    final local = await LocalArtwork.instance.albumArt(artist, album);
+    if (token != _artToken || track != _trackKey) return;
+    if (local != null && local.isNotEmpty) {
+      artworkSource = 'Verified local album artwork';
+      _setArt(local);
+      return;
+    }
+    // Force a catalog query, bypassing potentially contaminated old caches.
+    // Retain the session image if no verified replacement is found.
+    _lookupArt(force: true, verifySession: true);
+  }
+
   Future<void> _lookupLocalFirst() async {
     final token = _artToken;
     final track = _trackKey;
@@ -379,7 +407,7 @@ class NowPlayingModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _lookupArt({bool force = false}) async {
+  Future<void> _lookupArt({bool force = false, bool verifySession = false}) async {
     if (_linkReceiverActive || !artLookupEnabled || title.trim().isEmpty) return;
     final token = _artToken;
     final track = _trackKey;
@@ -419,7 +447,7 @@ class NowPlayingModel extends ChangeNotifier {
           if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
           // Use decoded artwork directly: _setArt would invalidate this lookup's token.
           art = decoded;
-          artworkStatus = 'Artwork restored from cache or online catalog';
+          artworkStatus = verifySession ? 'Media-session cover verified/replaced by online catalog' : 'Artwork restored from cache or online catalog';
           artworkLookupState = 'Found and decoded';
           artworkFailure = 'None';
           _needsArt = false;
@@ -547,7 +575,10 @@ class NowPlayingModel extends ChangeNotifier {
       artworkFailure = 'None';
       artworkLookupState = 'Artwork displayed';
     }
-    if (art != null) _rememberAlbumArt(bytes, albumCacheKey);
+    // Never persist an unverified media-session image as a known album cover.
+    if (art != null && artworkSource != 'Android media session') {
+      _rememberAlbumArt(bytes, albumCacheKey);
+    }
     if (art == null && artLookupEnabled && title.isNotEmpty) {
       // Avoid blocking the media-session event while lookup runs.
       _netTimer?.cancel();
