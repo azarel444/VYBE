@@ -57,6 +57,8 @@ class NowPlayingModel extends ChangeNotifier {
       'Status: $artworkStatus\nFailure: $artworkFailure\n'
       'Cover displayed: ${art != null && !art!.flat}';
   Timer? _idleTimer;
+  Timer? _linkInactiveTimer;
+  Timer? _linkDisconnectTimer;
   String _albumKey = '';
   bool _needsArt = false; // album changed and the player sent no new cover yet
   String _sentLaunch = '';
@@ -183,6 +185,8 @@ class NowPlayingModel extends ChangeNotifier {
     _artRetryTimer?.cancel();
     _sessionArtRetryTimer?.cancel();
     _idleTimer?.cancel();
+    _linkInactiveTimer?.cancel();
+    _linkDisconnectTimer?.cancel();
     super.dispose();
   }
 
@@ -197,16 +201,65 @@ class NowPlayingModel extends ChangeNotifier {
   }
 
   bool _linkReceiverActive = false;
-  void setLinkReceiverActive(bool on) {
-    _linkReceiverActive = on;
-    if (on) { _netTimer?.cancel(); _artRetryTimer?.cancel(); _artClearTimer?.cancel(); }
-    if (!on) { _clearAll(); active = false; notifyListeners(); }
+
+  /// A Link connection must never clear the native music state on a sender.
+  /// On receivers, a brief Wi-Fi interruption should retain the last song
+  /// instead of switching repeatedly to the empty-state screen.
+  void setLinkReceiverActive(bool on, {bool immediate = false}) {
+    _linkDisconnectTimer?.cancel();
+    _linkDisconnectTimer = null;
+    if (on) {
+      _linkReceiverActive = true;
+      _linkInactiveTimer?.cancel();
+      _linkInactiveTimer = null;
+      _idleTimer?.cancel();
+      _netTimer?.cancel();
+      _artRetryTimer?.cancel();
+      _artClearTimer?.cancel();
+      return;
+    }
+    if (!_linkReceiverActive) return; // Sender/disabled: no receiver state to reset.
+    void releaseReceiver() {
+      _linkDisconnectTimer = null;
+      if (!_linkReceiverActive) return;
+      _linkReceiverActive = false;
+      _linkInactiveTimer?.cancel();
+      _linkInactiveTimer = null;
+      _clearAll();
+      active = false;
+      playing = false;
+      notifyListeners();
+      // Resume reading the device's own media sessions if one is available.
+      _control.invokeMethod<void>('refresh').catchError((_) {});
+    }
+    if (immediate) {
+      releaseReceiver();
+    } else {
+      _linkDisconnectTimer = Timer(const Duration(seconds: 10), releaseReceiver);
+    }
   }
 
   void applyLinkMetadata({required String titleValue, required String artistValue,
       required String albumValue, required bool isPlaying, required bool isActive,
       required int duration, required int position, Uint8List? artwork}) {
     if (!_linkReceiverActive) return;
+
+    // The sender may briefly report an empty session while Android switches
+    // media controllers. Require a sustained inactive report before clearing.
+    // Cancel immediately when valid song information resumes.
+    if ((!isActive || titleValue.trim().isEmpty) && active && title.isNotEmpty) {
+      _linkInactiveTimer ??= Timer(const Duration(seconds: 7), () {
+        _linkInactiveTimer = null;
+        if (!_linkReceiverActive) return;
+        _clearAll();
+        active = false;
+        playing = false;
+        notifyListeners();
+      });
+      return;
+    }
+    _linkInactiveTimer?.cancel();
+    _linkInactiveTimer = null;
     final key = '$titleValue|$artistValue|$albumValue';
     final changed = key != _trackKey;
     if (changed) {
@@ -246,17 +299,20 @@ class NowPlayingModel extends ChangeNotifier {
     }
 
     if (!nowActive) {
-      // Players sometimes drop their session for a moment between songs or
-      // albums. Wait before treating it as "nothing playing", so the screen
-      // does not flash the empty state.
-      playing = false;
-      _idleTimer ??= Timer(const Duration(milliseconds: 2500), () {
-        _idleTimer = null;
-        active = false;
-        _clearAll();
-        notifyListeners();
-      });
-      notifyListeners();
+      // An empty getActiveSessions result is not evidence that the user
+      // stopped the music. Keep the last known track while the player
+      // replaces its media session; only clear after a sustained absence.
+      if (active && title.isNotEmpty) {
+        _idleTimer ??= Timer(const Duration(seconds: 7), () {
+          _idleTimer = null;
+          active = false;
+          playing = false;
+          _clearAll();
+          notifyListeners();
+        });
+      } else {
+        playing = false;
+      }
       return;
     }
     _idleTimer?.cancel();

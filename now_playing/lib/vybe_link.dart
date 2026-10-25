@@ -181,7 +181,13 @@ class VybeLink extends ChangeNotifier {
     _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0; _artGeneration++; _rxGeneration++;
     _sentFanartArtist = ''; _sentFanartHash = 0; _fanartGeneration++;
     receivedFanart = null; receivedFanartArtist = '';
-    _model?.setLinkReceiverActive(false);
+    // Sender connections must never erase their own local now-playing data.
+    // Only a previous receiver session needs to be released.
+    if (role != 'receiver' || !enabled) {
+      _model?.setLinkReceiverActive(false, immediate: true);
+    } else {
+      _model?.setLinkReceiverActive(false);
+    }
     await _updateAddresses();
     if (generation != _generation) return;
     if (!enabled) { status = 'Disabled'; notifyListeners(); return; }

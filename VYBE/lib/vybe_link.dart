@@ -36,6 +36,11 @@ class VybeLink extends ChangeNotifier {
   int metadataReceived = 0;
   int artworkReceived = 0;
   int artworkErrors = 0;
+  Uint8List? receivedFanart;
+  String receivedFanartArtist = '';
+  String _sentFanartArtist = '';
+  int _sentFanartHash = 0;
+  int _fanartGeneration = 0;
 
   static const MethodChannel _direct = MethodChannel('vybe/direct');
   bool directAvailable = false;
@@ -174,7 +179,15 @@ class VybeLink extends ChangeNotifier {
     _socket?.destroy(); _socket = null;
     await _server?.close(); _server = null;
     _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0; _artGeneration++; _rxGeneration++;
-    _model?.setLinkReceiverActive(false);
+    _sentFanartArtist = ''; _sentFanartHash = 0; _fanartGeneration++;
+    receivedFanart = null; receivedFanartArtist = '';
+    // Sender connections must never erase their own local now-playing data.
+    // Only a previous receiver session needs to be released.
+    if (role != 'receiver' || !enabled) {
+      _model?.setLinkReceiverActive(false, immediate: true);
+    } else {
+      _model?.setLinkReceiverActive(false);
+    }
     await _updateAddresses();
     if (generation != _generation) return;
     if (!enabled) { status = 'Disabled'; notifyListeners(); return; }
@@ -277,6 +290,28 @@ class VybeLink extends ChangeNotifier {
     } catch (e) { artworkStatus = 'Sender artwork error: $e'; notifyListeners(); }
   }
 
+  void sendFanart(String artist, Uint8List? bytes) {
+    final socket = _socket;
+    if (socket == null || !enabled || role != 'sender' || artist.isEmpty) return;
+    if (bytes == null || bytes.isEmpty) return;
+    final hash = Object.hash(bytes.length, bytes[0], bytes[bytes.length ~/ 2], bytes.last);
+    if (_sentFanartArtist == artist && _sentFanartHash == hash) return;
+    _sentFanartArtist = artist; _sentFanartHash = hash;
+    final token = ++_fanartGeneration;
+    () async {
+      try {
+        final codec = await ui.instantiateImageCodec(bytes, targetWidth: 480);
+        final frame = await codec.getNextFrame();
+        final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+        frame.image.dispose(); codec.dispose();
+        if (data == null || token != _fanartGeneration || !identical(socket, _socket)) return;
+        final compact = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+        if (compact.length > 950000) return;
+        socket.write('${jsonEncode({'v': 2, 'kind': 'fanart', 'artist': artist, 'art': base64Encode(compact)})}\n');
+      } catch (e) { artworkStatus = 'Fanart transfer error: $e'; notifyListeners(); }
+    }();
+  }
+
   // Socket data is ordered, but asynchronous artwork decoding must not allow
   // an older cover to overwrite a newly selected track.
   void _receive(String line) {
@@ -288,6 +323,10 @@ class VybeLink extends ChangeNotifier {
       if (data['kind'] == 'meta') {
         final changed = track != lastReceivedTrack;
         if (changed) { lastReceivedTrack = track; artworkStatus = 'Waiting for sender artwork'; _rxGeneration++; }
+        final incomingArtist = data['artist'] is String ? data['artist'] as String : '';
+        if (incomingArtist != receivedFanartArtist) {
+          receivedFanart = null; receivedFanartArtist = incomingArtist; notifyListeners();
+        }
         metadataReceived++;
         _model?.applyLinkMetadata(
           titleValue: data['title'] is String ? data['title'] : '',
@@ -299,6 +338,12 @@ class VybeLink extends ChangeNotifier {
           position: (data['position'] as num?)?.toInt() ?? 0,
         );
         if (changed) notifyListeners();
+      } else if (data['kind'] == 'fanart' && data['art'] is String &&
+          data['artist'] == receivedFanartArtist) {
+        try {
+          receivedFanart = base64Decode(data['art'] as String);
+          notifyListeners();
+        } catch (_) { artworkErrors++; }
       } else if (data['kind'] == 'art' && track == lastReceivedTrack && data['art'] is String) {
         try {
           final bytes = base64Decode(data['art'] as String);
