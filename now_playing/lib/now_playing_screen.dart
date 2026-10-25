@@ -258,7 +258,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (model.visualizerEnabled != settings.visualizer) {
       model.setVisualizer(settings.visualizer);
     }
-    _fxGovernor.enabled = settings.autoFxQuality && settings.fxPerformanceMode != 2 && !settings.performance;
+    _fxGovernor.enabled = settings.fxPerformanceMode == 0;
     if (!_fxGovernor.enabled) _fxTier = 2;
     model.setArtLookup(settings.artLookup);
     if (model.lyricsEnabled != settings.lyrics) {
@@ -445,7 +445,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget build(BuildContext context) {
     final vhs = _vhsOn;
     final fx = vhs ? settings.vhsEffects : 0.0;
-    final heavy = !settings.performance;
+    final heavy = true; // FX budget governs layers; never freeze the scene.
 
     Widget content(bool controlsInside) => GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -722,7 +722,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return RepaintBoundary(child: GoldenHourBackground(
       key: ValueKey(sceneAssets[sceneIndex]),
       time: _time,
-      motion: settings.performance ? 0.0 : motion,
+      motion: motion,
       palette: settings.animationUseAlbumColors ? albumPalette : scenePalettes[sceneIndex],
       bass: sim.bass,
       // Read the live bass on every shader repaint, not a stale build-time value.
@@ -760,13 +760,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ? LaserTunnelBackgroundPainter(
                 palette: _clubPalette, time: _time,
                 transparentStage: true,
-                motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+                motion: settings.templateBackgroundMotion,
                 darkness: 0.0,
                 lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)])
             : ClubBackgroundPainter(
                 palette: _clubPalette, time: _time,
                 transparentStage: true,
-                motion: settings.performance ? 0 : settings.templateBackgroundMotion,
+                motion: settings.templateBackgroundMotion,
                 darkness: 0.0,
                 lightingBlend: blends[settings.clubBlendMode.clamp(0, 9)]),
           child: const SizedBox.expand(),
@@ -804,7 +804,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             painter: IdleBackdropPainter(
               clock: fxClock,
               palette: _palette,
-              animate: !settings.performance,
+              animate: true,
               repaint: _tick,
             ),
           ),
@@ -825,7 +825,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
       );
-      if (settings.bgEffects && !settings.performance) {
+      if (settings.bgEffects) {
         blurred = FxComposite(
           mode: settings.fxBlendMode['Background Motion'] ?? 0,
           opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
@@ -871,7 +871,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       SizedBox.expand(child: RepaintBoundary(child: CustomPaint(
         painter: IdleBackdropPainter(
           clock: fxClock, palette: _palette,
-          animate: !settings.performance, repaint: _tick,
+          animate: true, repaint: _tick,
         ),
       )));
 
@@ -1448,7 +1448,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Auto responds to observed frame timings; Performance always uses the
     // conservative budget. Maximum preserves every selected layer.
     final tier = settings.fxPerformanceMode == 2 ? 2
-        : settings.fxPerformanceMode == 1 ? 0 : _fxTier;
+        : (settings.performance || settings.fxPerformanceMode == 1) ? 0 : _fxTier;
     final maxLayers = tier == 0 ? 2 : tier == 1 ? 4 : 100;
     final layers = <Widget>[
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
@@ -4079,7 +4079,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ),
     );
-    final Widget moving = settings.performance
+    final Widget moving = false
         ? Transform.rotate(angle: 0.9, child: ring)
         : AnimatedBuilder(
             animation: _tick,
@@ -4275,7 +4275,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: Stack(
             clipBehavior: Clip.none,
             children: [
-              if (settings.fxBloom && !settings.performance)
+              if (settings.fxBloom && settings.fxPerformanceMode == 2)
                 FxComposite(mode: settings.fxBlendMode['Cover Bloom'] ?? 0,
                   opacity: settings.fxBlendOpacity['Cover Bloom'] ?? 1.0,
                   child: _bloom(s)),
