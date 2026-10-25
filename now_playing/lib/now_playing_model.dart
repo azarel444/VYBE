@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'lyrics.dart';
 import 'net.dart';
@@ -66,6 +67,44 @@ class NowPlayingModel extends ChangeNotifier {
   // identical image appears under unrelated artist/album identities.
   final Map<int, Set<String>> _sessionArtOwners = {};
   final Set<int> _sharedSessionImages = {};
+  final Set<int> _markedPlaceholders = {};
+  Uint8List? _latestSessionArtwork;
+  bool _placeholderHashesLoaded = false;
+
+  Future<void> _loadPlaceholderHashes() async {
+    if (_placeholderHashesLoaded) return;
+    final prefs = await SharedPreferences.getInstance();
+    _markedPlaceholders.addAll((prefs.getStringList('vybe_marked_placeholder_hashes') ?? <String>[])
+        .map(int.tryParse).whereType<int>());
+    _placeholderHashesLoaded = true;
+  }
+
+  bool get canMarkSessionPlaceholder => _latestSessionArtwork != null;
+
+  Future<bool> markCurrentSessionArtAsPlaceholder() async {
+    final bytes = _latestSessionArtwork;
+    if (bytes == null || bytes.isEmpty) return false;
+    await _loadPlaceholderHashes();
+    final hash = _imageFingerprint(bytes);
+    _markedPlaceholders.add(hash);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('vybe_marked_placeholder_hashes',
+        _markedPlaceholders.map((x) => x.toString()).toList());
+    _sharedSessionImages.add(hash);
+    _albumArtCache.remove(_albumArtKey(artist, album));
+    _artCache.remove('${artist.toLowerCase()}|${title.toLowerCase()}');
+    _sessionVerificationTimer?.cancel();
+    _artToken++;
+    art = null;
+    artworkSource = 'None';
+    sessionArtworkStatus = 'Rejected manually marked placeholder';
+    artworkStatus = 'Known player placeholder rejected';
+    artworkLookupState = 'Looking up real album artwork';
+    notifyListeners();
+    if (artLookupEnabled && title.isNotEmpty) _lookupArt(force: true);
+    return true;
+  }
+
   int _imageFingerprint(Uint8List bytes) {
     // FNV-1a over all bytes; no image decoding required.
     var hash = 2166136261;
@@ -85,7 +124,7 @@ class NowPlayingModel extends ChangeNotifier {
       _sharedSessionImages.add(hash);
     }
     if (_sessionArtOwners.length > 150) _sessionArtOwners.remove(_sessionArtOwners.keys.first);
-    return _sharedSessionImages.contains(hash);
+    return _markedPlaceholders.contains(hash) || _sharedSessionImages.contains(hash);
   }
 
 
@@ -268,6 +307,25 @@ class NowPlayingModel extends ChangeNotifier {
     }
 
     final artBytes = m['art'];
+    if (artBytes is Uint8List && artBytes.isNotEmpty) {
+      _latestSessionArtwork = artBytes;
+      if (!_placeholderHashesLoaded) {
+        _loadPlaceholderHashes().then((_) {
+          if (_markedPlaceholders.contains(_imageFingerprint(artBytes)) &&
+              _trackKey == key) {
+            _albumArtCache.remove(cacheAlbumKey);
+            _artToken++;
+            art = null;
+            artworkSource = 'None';
+            sessionArtworkStatus = 'Rejected saved placeholder';
+            notifyListeners();
+            if (artLookupEnabled) _lookupArt(force: true);
+          }
+        });
+      }
+    } else if (changed) {
+      _latestSessionArtwork = null;
+    }
     if (artBytes is Uint8List && artBytes.isNotEmpty &&
         _isSharedSessionArtwork(artBytes)) {
       sessionArtworkStatus = 'Rejected repeated image across unrelated artists';
@@ -359,7 +417,9 @@ class NowPlayingModel extends ChangeNotifier {
     _trackKey = '';
     _albumKey = '';
     _needsArt = false;
+    _latestSessionArtwork = null;
     _artClearTimer?.cancel();
+    _sessionVerificationTimer?.cancel();
     _artRetryTimer?.cancel();
     _sessionArtRetryTimer?.cancel();
     _sessionArtRetries = 0;
