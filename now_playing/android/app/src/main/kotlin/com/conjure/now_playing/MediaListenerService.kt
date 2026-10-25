@@ -175,6 +175,17 @@ class MediaListenerService : NotificationListenerService() {
                 snaps[w.c.packageName] = newSnap(w.c, w.c.metadata)
             }
             handleState(w.c, w.c.playbackState, false)
+            // Some players publish their PLAYING state after the session
+            // appears, without delivering a callback to a newly registered
+            // listener. Re-read the state briefly during session startup.
+            val token = w.c.sessionToken
+            for (delay in listOf(350L, 1000L, 2200L)) {
+                main.postDelayed({
+                    if (watches.any { it.c.sessionToken == token }) {
+                        handleState(w.c, w.c.playbackState, false)
+                    }
+                }, delay)
+            }
         }
         if (drive?.running == true) pushOverlay()
     }
@@ -282,8 +293,16 @@ class MediaListenerService : NotificationListenerService() {
                     // A just-found session only counts as a fresh start if
                     // its state was set a moment ago. Otherwise the music has
                     // been going for a while (service restarted, say).
-                    val recent = live || (st != null &&
-                        now - st.lastPositionUpdateTime in 0L..5000L)
+                    // Some players retain an older position timestamp when
+                    // they start playing. For newly observed playback, use
+                    // position near the beginning as additional evidence.
+                    // Do not treat an already-running session as a new start.
+                    val position = st?.position ?: -1L
+                    val timestampRecent = st != null &&
+                        now - st.lastPositionUpdateTime in 0L..5000L
+                    val nearStart = position in 0L..4000L &&
+                        (st?.playbackSpeed ?: 0f) > 0f
+                    val recent = live || timestampRecent || nearStart
                     onStart(c, recent)
                 }
             }
