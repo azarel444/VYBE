@@ -11,6 +11,7 @@ import 'settings.dart';
 import 'fx_library.dart';
 import 'media_cache.dart';
 import 'artist_fanart.dart';
+import 'local_artwork.dart';
 
 const _cyan = Color(0xFF00E5FF);
 
@@ -192,6 +193,35 @@ class SettingsScreen extends StatelessWidget {
                 ],
               ),
             );
+          }),
+      _section('Local artwork library'),
+      _action('Choose artwork folder and scan',
+          'Index local album covers and artist fanart; include subfolders',
+          'Choose folder', () async {
+            try {
+              final selected = await LocalArtwork.instance.chooseFolderAndScan();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+                selected ? LocalArtwork.instance.status : 'Folder selection cancelled')));
+            } catch (e) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Artwork scan failed: $e')));
+            }
+          }),
+      _action('Rescan local artwork',
+          'Refresh the index after adding or changing artwork files',
+          'Rescan', () async {
+            try {
+              final count = await LocalArtwork.instance.scan();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Indexed $count local artwork images')));
+            } catch (e) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Rescan failed: $e')));
+            }
           }),
       _section('Artwork diagnostics'),
       _action('Copy artwork diagnostics',
