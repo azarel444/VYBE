@@ -240,6 +240,105 @@ class ArtistFanartCache {
         ids = (jsonDecode(await idsFile.readAsString()) as List).whereType<String>().take(2).toList();
       } catch (_) {}
     }
+    // Older single-image caches can exist without a saved MusicBrainz ID.
+    // Resolve IDs independently so cached artists can still load galleries.
+    if (ids.isEmpty) {
+      try {
+        final lookup = await _json(Uri.https('musicbrainz.org', '/ws/2/artist/', {
+          'query': 'artist:"${artist.replaceAll('"', '')}"',
+          'fmt': 'json', 'limit': '15',
+        }));
+        String normalize(String value) => value.toLowerCase()
+            .replaceAll(RegExp(r'[-‐‑‒–—_]'), ' ')
+            .replaceAll(RegExp(r'[.\\u2018\\u2019]'), '')
+            .replaceAll(RegExp(r'\\s+'), ' ').replaceFirst(RegExp(r'^the '), '').trim();
+        final candidates = lookup['artists'];
+        if (candidates is List) {
+          for (final entry in candidates) {
+            if (entry is! Map) continue;
+            final id = entry['id']?.toString();
+            final name = entry['name']?.toString();
+            if (id != null && name != null && normalize(name) == normalize(artist) &&
+                RegExp(r'^[0-9a-fA-F-]{36}
+    for (final id in ids.take(2)) {
+      try {
+        final data = await _json(Uri.https('webservice.fanart.tv', '/v3/music/$id', {
+          'api_key': projectKey,
+          if (personalKey.isNotEmpty) 'client_key': personalKey,
+        }));
+        final backgrounds = data['artistbackground'];
+        if (backgrounds is List) {
+          for (final entry in backgrounds) {
+            if (entry is! Map || entry['url'] is! String) continue;
+            final uri = Uri.tryParse(entry['url'] as String);
+            if (uri != null && uri.scheme == 'https' && !urls.contains(uri)) urls.add(uri);
+          }
+        }
+      } catch (_) {}
+    }
+    // Skip the first URL, which the existing get() method normally caches.
+    // Cached gallery images are reusable without another download.
+    for (var i = 1; i < urls.length && result.length < maxImages; i++) {
+      final file = File('${folder.path}/$name.gallery.$i.jpg');
+      Uint8List? bytes;
+      try {
+        bytes = await file.exists() ? await file.readAsBytes() : await _bytes(urls[i]);
+        if (bytes != null && bytes.isNotEmpty) {
+          if (!await file.exists()) await file.writeAsBytes(bytes);
+          result.add(bytes);
+        }
+      } catch (_) {}
+    }
+    return result;
+  }
+
+  Future<Map<String, dynamic>> _json(Uri uri) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      final req = await client.getUrl(uri).timeout(const Duration(seconds: 6));
+      req.headers.set(HttpHeaders.userAgentHeader, 'VYBE/1.9 (music artwork; contact via app publisher)');
+      final res = await req.close().timeout(const Duration(seconds: 6));
+      _requestDetails[uri.host] = 'HTTP ${res.statusCode}';
+      if (res.statusCode != 200) return {};
+      final body = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 8));
+      if (body.length > 500000) { _requestDetails[uri.host] = 'Response too large'; return {}; }
+      final json = jsonDecode(body);
+      if (json is! Map<String, dynamic>) { _requestDetails[uri.host] = 'Unexpected JSON structure'; return {}; }
+      _requestDetails[uri.host] = 'HTTP 200, JSON parsed';
+      return json;
+    } catch (e) {
+      _requestDetails[uri.host] = '${e.runtimeType}: $e';
+      rethrow;
+    } finally { client.close(force: true); }
+  }
+
+  Future<Uint8List?> _bytes(Uri uri) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      final req = await client.getUrl(uri);
+      final res = await req.close().timeout(const Duration(seconds: 7));
+      if (res.statusCode != 200) return null;
+      final out = BytesBuilder(copy: false);
+      await for (final chunk in res.timeout(const Duration(seconds: 10))) {
+        out.add(chunk);
+        if (out.length > 6 * 1024 * 1024) return null;
+      }
+      return out.takeBytes();
+    } finally { client.close(force: true); }
+  }
+}
+).hasMatch(id) && !ids.contains(id)) {
+              ids.add(id);
+              if (ids.length >= 2) break;
+            }
+          }
+        }
+        if (ids.isNotEmpty) {
+          _artistIds[key] = List.of(ids);
+          await idsFile.writeAsString(jsonEncode(ids));
+        }
+      } catch (_) {}
+    }
     if (ids.isEmpty) return result;
     final urls = <Uri>[];
     for (final id in ids.take(2)) {
