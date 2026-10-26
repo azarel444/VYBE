@@ -67,6 +67,14 @@ class MediaListenerService : NotificationListenerService() {
     private val userChangeAt = HashMap<String, Long>()
     private val endedAt = HashMap<String, Long>()
     private var lastLaunch = 0L
+    private fun trace(pkg: String, detail: String) {
+        val prefs = getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+        val old = prefs.getString("launch_diagnostics", "") ?: ""
+        val line = "${java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())} [$pkg] $detail"
+        val lines = (old.lineSequence().filter { it.isNotBlank() }.toList() + line).takeLast(120)
+        prefs.edit().putString("launch_diagnostics", lines.joinToString("\n")).apply()
+        Log.d("VYBE-Launch", line)
+    }
 
     private val main = Handler(Looper.getMainLooper())
     private var drive: DriveOverlay? = null
@@ -178,6 +186,7 @@ class MediaListenerService : NotificationListenerService() {
                     // Read metadata before the new playback position overwrites
                     // the old track's end-position evidence. Also covers players
                     // that don't deliver a separate metadata callback.
+                    trace(c.packageName, "state callback=${state?.state} pos=${state?.position}")
                     handleMetadata(c, c.metadata)
                     trackState(c, state)
                     handleState(c, state, true)
@@ -185,6 +194,7 @@ class MediaListenerService : NotificationListenerService() {
                 }
 
                 override fun onMetadataChanged(metadata: MediaMetadata?) {
+                    trace(c.packageName, "metadata callback track=${keyOf(metadata)}")
                     handleMetadata(c, metadata)
                     if (drive?.running == true) pushOverlay()
                 }
@@ -212,6 +222,7 @@ class MediaListenerService : NotificationListenerService() {
         watches = keep
         for (w in fresh) {
             remember(w.c)
+            trace(w.c.packageName, "session attached state=${w.c.playbackState?.state} track=${keyOf(w.c.metadata)}")
             if (!snaps.containsKey(w.c.packageName)) {
                 snaps[w.c.packageName] = newSnap(w.c, w.c.metadata)
             }
@@ -318,12 +329,14 @@ class MediaListenerService : NotificationListenerService() {
                 (prev.isPlaying && prev.durationMs > 0 &&
                     prev.estimate(now) >= prev.durationMs - END_WINDOW_MS)
             )
+        trace(pkg, "track changed old=${prev.key} new=$key explicitSkip=$explicitSkip naturalEnd=$ended")
         prev.key = key
         prev.durationMs = dur
         prev.posMs = 0L
         prev.stamp = now
         prev.endedNaturally = false
         if (ended) {
+            trace(pkg, "suppressed: natural progression")
             endedAt[pkg] = now
             userChangeAt.remove(pkg)
             return
@@ -368,6 +381,7 @@ class MediaListenerService : NotificationListenerService() {
                     val nearStart = position in 0L..4000L &&
                         (st?.playbackSpeed ?: 0f) > 0f
                     val recent = live || timestampRecent || nearStart
+                    trace(pkg, "PLAYING live=$live recent=$recent position=$position")
                     onStart(c, recent)
                 }
             }
@@ -392,7 +406,7 @@ class MediaListenerService : NotificationListenerService() {
     }
 
     private fun onStart(c: MediaController, recent: Boolean) {
-        if (!recent) return
+        if (!recent) { trace(c.packageName, "suppressed: stale PLAYING"); return }
         val prefs = getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
         val pkg = c.packageName
         val now = SystemClock.elapsedRealtime()
@@ -402,10 +416,10 @@ class MediaListenerService : NotificationListenerService() {
         val byPerson = userChangeAt[pkg]?.let { now - it in 0L..10000L } == true
         if (!byPerson) {
             val e = endedAt[pkg]
-            if (e != null && now - e < 8000L) return
+            if (e != null && now - e < 8000L) { trace(pkg, "suppressed: natural-end cooldown"); return }
             val graceMs = prefs.getInt("graceSec", 0) * 1000L
             val last = pausedAt[pkg]
-            if (last != null && now - last < graceMs) return
+            if (last != null && now - last < graceMs) { trace(pkg, "suppressed: pause grace"); return }
         }
         launchVybe(c)
     }
@@ -414,20 +428,23 @@ class MediaListenerService : NotificationListenerService() {
         val prefs = getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
         val pkg = c.packageName
         val now = SystemClock.elapsedRealtime()
-        if (!prefs.getBoolean("openOnMusic", false)) return
+        if (!prefs.getBoolean("openOnMusic", false)) { trace(pkg, "blocked: auto launch off"); return }
         val kind = PlayerFilter.classify(this, pkg, c.metadata)
-        if (!PlayerFilter.allowed(prefs, pkg, kind)) return
-        if (MainActivity.visible) return
-        if (prefs.getBoolean("avoidNav", true) && navigationActive(prefs)) return
-        if (inCall()) return
-        if (now - lastLaunch < 3000L) return
+        if (!PlayerFilter.allowed(prefs, pkg, kind)) { trace(pkg, "blocked: player filter kind=$kind"); return }
+        if (MainActivity.visible) { trace(pkg, "skipped: VYBE visible"); return }
+        if (prefs.getBoolean("avoidNav", true) && navigationActive(prefs)) { trace(pkg, "blocked: navigation"); return }
+        if (inCall()) { trace(pkg, "blocked: call"); return }
+        if (now - lastLaunch < 3000L) { trace(pkg, "blocked: launch cooldown"); return }
         try {
             val i = Intent(this, MainActivity::class.java)
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            trace(pkg, "attempting launch")
             startActivity(i)
+            trace(pkg, "startActivity returned (foreground not guaranteed)")
             lastLaunch = now
             userChangeAt.remove(pkg)
         } catch (error: Exception) {
+            trace(pkg, "launch exception: ${error.message}")
             Log.w("VYBE", "Automatic launch rejected for $pkg", error)
         }
     }
