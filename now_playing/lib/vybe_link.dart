@@ -37,6 +37,7 @@ class VybeLink extends ChangeNotifier {
   Timer? _retry;
   Timer? _connectionWatchdog;
   bool _connecting = false;
+  bool _initialized = false;
   Timer? _sendTimer;
   NowPlayingModel? _model;
   String _lastPayload = '';
@@ -148,12 +149,22 @@ class VybeLink extends ChangeNotifier {
   int _generation = 0;
 
   Future<void> initialize(NowPlayingModel model) async {
+    if (_initialized) {
+      if (!identical(_model, model)) {
+        _model?.removeListener(_onModel);
+        _model = model;
+        model.addListener(_onModel);
+      }
+      onResumed();
+      return;
+    }
+    _initialized = true;
     _model = model;
     final p = await SharedPreferences.getInstance();
     enabled = p.getBool('link_enabled') ?? false;
     role = p.getString('link_role') ?? 'sender';
     autoConnect = p.getBool('link_auto') ?? true;
-    receiverAddress = p.getString('link_address') ?? '';
+    receiverAddress = (p.getString('link_address') ?? '').trim();
     pairedReceiverId = p.getString('link_paired_receiver') ?? '';
     localDeviceId = p.getString('link_device_id') ?? '';
     if (localDeviceId.isEmpty) {
@@ -397,6 +408,20 @@ class VybeLink extends ChangeNotifier {
 
     _socket = socket;
     receiverAddress = address;
+    // A working manual-IP connection is a valid pairing even when UDP
+    // discovery or the optional receiver hello is blocked by the head unit.
+    // Save it immediately instead of relying on the hello callback.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('link_enabled', true);
+      await prefs.setBool('link_auto', true);
+      await prefs.setString('link_role', 'sender');
+      await prefs.setString('link_address', address);
+      autoConnect = true;
+    } catch (e) {
+      debugPrint('VYBE Link failed to persist working receiver IP: $e');
+    }
+    if (generation != _generation || !identical(socket, _socket)) return;
     status = 'Connected to $address';
     notifyListeners();
     // The original working method transmitted immediately upon TCP connect.
