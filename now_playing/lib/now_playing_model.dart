@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -45,6 +46,8 @@ class NowPlayingModel extends ChangeNotifier {
   int _sessionArtRetries = 0;
   String _lookupInFlight = '';
   int _artAttempts = 0;
+  String _upgradedArtworkTrack = '';
+  String artworkResolution = 'Not measured';
   String artworkStatus = 'Waiting for playback';
   String sessionArtworkStatus = 'No media-session event yet';
   String artworkSource = 'None';
@@ -55,7 +58,8 @@ class NowPlayingModel extends ChangeNotifier {
       'Session artwork: $sessionArtworkStatus\n'
       'Source: $artworkSource\nLookup: $artworkLookupState\n'
       'Status: $artworkStatus\nFailure: $artworkFailure\n'
-      'Cover displayed: ${art != null && !art!.flat}';
+      'Cover displayed: ${art != null && !art!.flat}\n'
+      'Artwork resolution: $artworkResolution';
   Timer? _idleTimer;
   Timer? _linkInactiveTimer;
   Timer? _linkDisconnectTimer;
@@ -343,6 +347,8 @@ class NowPlayingModel extends ChangeNotifier {
     final albumChanged = albumKey != _albumKey;
 
     if (changed) {
+      _upgradedArtworkTrack = '';
+      artworkResolution = 'Not measured';
       _artToken++; // Invalidate lookups and decoding from the previous song.
       _artRetryTimer?.cancel();
       _sessionVerificationTimer?.cancel();
@@ -407,7 +413,8 @@ class NowPlayingModel extends ChangeNotifier {
       _artClearTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
       _needsArt = false;
-      if (art == null || !listEquals(art!.bytes, artBytes)) {
+      if (_upgradedArtworkTrack != key &&
+          (art == null || !listEquals(art!.bytes, artBytes))) {
         _setArt(artBytes);
       }
       // Media-session images are unverified: player apps may send their
@@ -417,7 +424,7 @@ class NowPlayingModel extends ChangeNotifier {
         final expectedTrack = key;
         _sessionVerificationTimer?.cancel();
         _sessionVerificationTimer = Timer(const Duration(milliseconds: 900), () {
-          if (_trackKey == expectedTrack) _verifySessionArtwork();
+          if (_trackKey == expectedTrack) _upgradeSessionArtwork(expectedTrack, artBytes);
         });
       }
     } else if (changed && art != null) {
@@ -491,6 +498,52 @@ class NowPlayingModel extends ChangeNotifier {
     art = null;
     lyrics = null;
     _lyricsToken++;
+  }
+
+  Future<int> _artworkShortestSide(Uint8List bytes) async {
+    try {
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      final image = frame.image;
+      final shortest = image.width < image.height ? image.width : image.height;
+      image.dispose();
+      codec.dispose();
+      return shortest;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> _upgradeSessionArtwork(String expectedTrack, Uint8List sessionBytes) async {
+    if (!artLookupEnabled || expectedTrack != _trackKey) return;
+    final originalSize = await _artworkShortestSide(sessionBytes);
+    if (expectedTrack != _trackKey) return;
+    artworkResolution = originalSize == 0 ? 'Unknown' : 'Session: shortest side $originalSize px';
+    notifyListeners();
+    // Avoid unnecessary catalog requests for already-large session images.
+    if (originalSize >= 600) return;
+    final candidate = await fetchArtwork(title, artist, album: album);
+    if (candidate == null || expectedTrack != _trackKey) return;
+    final candidateSize = await _artworkShortestSide(candidate);
+    if (expectedTrack != _trackKey || candidateSize < 500 ||
+        candidateSize <= originalSize) return;
+    final decoded = await ArtAssets.load(candidate);
+    if (decoded == null || expectedTrack != _trackKey) return;
+    // A verified catalog match must not be overwritten by repeated low-res
+    // media-session events for the same song.
+    ++_artToken;
+    _upgradedArtworkTrack = expectedTrack;
+    art = decoded;
+    artworkSource = 'High-resolution online catalog upgrade';
+    artworkResolution = 'Session: $originalSize px → catalog: $candidateSize px (shortest side)';
+    artworkStatus = 'Upgraded low-resolution media-session cover';
+    artworkLookupState = 'Higher-resolution matching cover applied';
+    _artRetryTimer?.cancel();
+    _artClearTimer?.cancel();
+    final albumKey = _albumArtKey(artist, album);
+    _artCache['${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}'] = candidate;
+    _rememberAlbumArt(candidate, albumKey);
+    notifyListeners();
   }
 
   void _runNetwork() {
