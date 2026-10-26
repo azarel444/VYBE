@@ -216,6 +216,9 @@ class VybeLink extends ChangeNotifier {
   // Apply UI changes synchronously. Network and disk operations must never
   // delay the visual state of a switch or device-role control.
   Future<void> configure({bool? isEnabled, String? deviceRole, bool? automatic, String? address}) async {
+    final endpointChanged = (isEnabled != null && isEnabled != enabled) ||
+        (deviceRole != null && deviceRole != role) ||
+        (address != null && address.trim() != receiverAddress);
     if (isEnabled != null) enabled = isEnabled;
     if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
     if (automatic != null) autoConnect = automatic;
@@ -230,7 +233,7 @@ class VybeLink extends ChangeNotifier {
     notifyListeners();
     // Start reconfiguration immediately, but do not hold UI updates hostage
     // to the socket teardown or an unreachable receiver.
-    final connection = enabled && autoConnect &&
+    final connection = !endpointChanged && enabled &&
         ((role == 'sender' && _socket != null) ||
          (role == 'receiver' && _server != null))
         ? Future<void>.value() : connect();
