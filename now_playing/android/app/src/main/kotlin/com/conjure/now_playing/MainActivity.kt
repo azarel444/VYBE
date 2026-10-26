@@ -910,21 +910,24 @@ open class MainActivity : FlutterActivity() {
         }
     }
 
-    // "On screen" means started, not resumed: in a split or freeform window
-    // VYBE can be paused (another window has focus) but still visible.
-    override fun onStart() {
-        super.onStart()
-        started++
+    // Auto-launch must check whether VYBE owns foreground focus, not
+    // whether its activity is merely started behind another music player.
+    override fun onResume() {
+        super.onResume()
+        resumedActivities++
         visible = true
         MediaListenerService.instance?.hideBubble()
         MediaListenerService.instance?.vybeVisible(true)
     }
 
-    override fun onStop() {
-        // Either VYBE screen counts: the normal one or the Drive window.
-        started = maxOf(0, started - 1)
-        visible = started > 0
+    override fun onPause() {
+        resumedActivities = maxOf(0, resumedActivities - 1)
+        visible = resumedActivities > 0
         MediaListenerService.instance?.vybeVisible(visible)
+        super.onPause()
+    }
+
+    override fun onStop() {
         stopVisualizer()
         super.onStop()
     }
@@ -932,7 +935,7 @@ open class MainActivity : FlutterActivity() {
     companion object {
         @Volatile
         var visible = false
-        private var started = 0
+        private var resumedActivities = 0
 
         private const val BANDS = 96
         private const val REQ_AUDIO = 4711
