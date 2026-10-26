@@ -223,6 +223,49 @@ class SettingsScreen extends StatelessWidget {
                 SnackBar(content: Text('Rescan failed: $e')));
             }
           }),
+      _section('Auto-launch diagnostics'),
+      _action('Inspect auto-launch events',
+          'Playback and track-change events, launch attempts, and suppression reasons',
+          'Show Launch Log', () async {
+            String report;
+            try {
+              report = await const MethodChannel('nowplaying/control')
+                  .invokeMethod<String>('launchDiagnostics') ?? 'No events yet.';
+            } catch (e) {
+              report = 'Unable to read launch log: $e';
+            }
+            if (!context.mounted) return;
+            showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Auto-launch diagnostics'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: SingleChildScrollView(child: SelectableText(report)),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: report));
+                    },
+                    child: const Text('Copy Log'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      await const MethodChannel('nowplaying/control')
+                          .invokeMethod<void>('clearLaunchDiagnostics');
+                      if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    },
+                    child: const Text('Clear Log'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            );
+          }),
       _section('Artwork diagnostics'),
       _action('Mark as Placeholder',
           'Remember the current music player image and reject identical images in future sessions',
