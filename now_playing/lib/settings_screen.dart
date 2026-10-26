@@ -382,6 +382,12 @@ class SettingsScreen extends StatelessWidget {
       _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
         s.templateBackgroundMotion, 0.0, 1.0,
         (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
+      _section('Artist fanart slideshow'),
+      const Text('Randomly cycle through available artist images. Applies to every theme using artist fanart and to fanart sent over VYBE Connect.'),
+        _choices('Change artist image every',
+          const ['5 sec', '10 sec', '15 sec', '30 sec', '60 sec', '2 min', '5 min'],
+          const [5, 10, 15, 30, 60, 120, 300].indexOf(s.fanartCycleSeconds).clamp(0, 6),
+          (i) => s.update(() => s.fanartCycleSeconds = const [5, 10, 15, 30, 60, 120, 300][i])),
       if (isFanartTheme) ...[
         _section('Fanart backgrounds'),
         const Text('Bigfan and Muzine display artist fanart whenever it is '
@@ -396,10 +402,6 @@ class SettingsScreen extends StatelessWidget {
           (v) => s.update(() => s.fanartOverride = v)),
         const Text('If Album Art is selected but no usable cover exists, '
             'the selected animated background is used instead.'),
-        _choices('Change artist image every',
-          const ['5 sec', '10 sec', '15 sec', '30 sec', '60 sec', '2 min', '5 min'],
-          const [5, 10, 15, 30, 60, 120, 300].indexOf(s.fanartCycleSeconds).clamp(0, 6),
-          (i) => s.update(() => s.fanartCycleSeconds = const [5, 10, 15, 30, 60, 120, 300][i])),
         _slider('Fanart animation speed',
             '${(s.cinematicAnimationSpeed * 100).round()}%',
             s.cinematicAnimationSpeed, 0.0, 3.0,
