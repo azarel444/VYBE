@@ -49,6 +49,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Uint8List? _fanartBytes;
   List<Uint8List> _fanartGallery = [];
   Timer? _fanartCycleTimer;
+  int _activeFanartCycleSeconds = 0;
   final math.Random _fanartRandom = math.Random();
   int _fanartGalleryIndex = 0;
   String _fanartArtist = '';
@@ -634,9 +635,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // ---------------------------------------------------------------- background
 
   void _startFanartCycle() {
+    final seconds = settings.fanartCycleSeconds.clamp(5, 300);
+    if (_fanartCycleTimer?.isActive == true && _activeFanartCycleSeconds == seconds) return;
     _fanartCycleTimer?.cancel();
     if (_fanartGallery.length < 2) return;
-    _fanartCycleTimer = Timer.periodic(Duration(seconds: settings.fanartCycleSeconds.clamp(5, 300)), (_) {
+    _activeFanartCycleSeconds = seconds;
+    _fanartCycleTimer = Timer.periodic(Duration(seconds: seconds), (_) {
       if (!mounted || _fanartGallery.length < 2) return;
       var next = _fanartRandom.nextInt(_fanartGallery.length - 1);
       if (next >= _fanartGalleryIndex) next++;
