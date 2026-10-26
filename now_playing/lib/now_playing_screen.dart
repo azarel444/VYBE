@@ -170,7 +170,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (mounted && a != _dirActive) setState(() => _dirActive = a);
       });
     }
-    _clockTimer = Timer.periodic(Duration(seconds: settings.fanartCycleSeconds.clamp(5, 300)), (_) {
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(_updateClock);
     });
     makeNoiseImage().then((img) {
@@ -636,7 +636,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void _startFanartCycle() {
     _fanartCycleTimer?.cancel();
     if (_fanartGallery.length < 2) return;
-    _fanartCycleTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _fanartCycleTimer = Timer.periodic(Duration(seconds: settings.fanartCycleSeconds.clamp(5, 300)), (_) {
       if (!mounted || _fanartGallery.length < 2) return;
       var next = _fanartRandom.nextInt(_fanartGallery.length - 1);
       if (next >= _fanartGalleryIndex) next++;
