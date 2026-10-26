@@ -6,7 +6,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'native_preferences.dart';
 import 'now_playing_model.dart';
 import 'vybe_link_discovery.dart';
 
@@ -198,8 +198,10 @@ class VybeLink extends ChangeNotifier {
     final results = await LinkDiscovery.scan();
     receivers = results;
     searchingReceivers = false;
-    status = results.isEmpty ? 'No VYBE receiver found on this network'
-        : 'Found ${results.length} VYBE receiver(s)';
+    if (_socket == null && role == 'sender') {
+      status = results.isEmpty ? 'No VYBE receiver found on this network'
+          : 'Found ${results.length} VYBE receiver(s)';
+    }
     notifyListeners();
   }
 
@@ -210,6 +212,7 @@ class VybeLink extends ChangeNotifier {
     autoConnect = true;
     final p = await SharedPreferences.getInstance();
     await p.setString('link_paired_receiver', pairedReceiverId);
+    await p.setString('link_address', receiverAddress);
     // Do not route pairing through configure(address:): it intentionally
     // clears the saved receiver identity for manual IP changes.
     await configure(isEnabled: true, deviceRole: 'sender', automatic: true);
@@ -240,7 +243,9 @@ class VybeLink extends ChangeNotifier {
       }
       receiverAddress = requested;
     }
-    status = enabled ? 'Applying connection settings...' : 'Disabled';
+    status = !enabled ? 'Disabled' :
+        (!endpointChanged && _socket != null && role == 'sender')
+            ? 'Connected to ${receiverAddress}' : 'Connecting...';
     notifyListeners();
     // Start reconfiguration immediately, but do not hold UI updates hostage
     // to the socket teardown or an unreachable receiver.
@@ -367,6 +372,9 @@ class VybeLink extends ChangeNotifier {
       return;
     }
 
+    status = receiverAddress.isNotEmpty ? 'Connecting to saved head unit...' :
+        'Searching for head unit...';
+    notifyListeners();
     // Previously entered IP is always tried FIRST. Discovery is only a
     // fallback when that address stops working and a receiver was paired.
     Socket? socket;
