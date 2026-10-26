@@ -170,7 +170,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (mounted && a != _dirActive) setState(() => _dirActive = a);
       });
     }
-    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _clockTimer = Timer.periodic(Duration(seconds: settings.fanartCycleSeconds.clamp(5, 300)), (_) {
       if (mounted) setState(_updateClock);
     });
     makeNoiseImage().then((img) {
@@ -282,6 +282,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       navPkg: settings.navPkg,
     );
     _updateClock();
+    if (_fanartGallery.length > 1) _startFanartCycle();
     _loadFanart();
     if (widget.driveHost) {
       // Leaving Drive is coordinated by _pickTheme, after its awaited save.
