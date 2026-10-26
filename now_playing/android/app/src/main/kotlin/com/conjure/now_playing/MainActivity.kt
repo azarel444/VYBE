@@ -403,6 +403,14 @@ open class MainActivity : FlutterActivity() {
                 "stopDrive" -> { MediaListenerService.instance?.stopDrive(); result.success(null) }
                 "driveRunning" -> result.success(MediaListenerService.instance?.driveRunning() == true)
                 "getPlayers" -> result.success(getPlayers())
+                "launchDiagnostics" -> result.success(
+                    getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+                        .getString("launch_diagnostics", "No launch events yet."))
+                "clearLaunchDiagnostics" -> {
+                    getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+                        .edit().remove("launch_diagnostics").apply()
+                    result.success(null)
+                }
                 "setPlayerOverride" -> {
                     val pkg = call.argument<String>("pkg")
                     val mode = call.argument<String>("mode") ?: "auto"
