@@ -47,6 +47,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final sim = SpectrumSim();
   final _fanart = ArtistFanartCache();
   Uint8List? _fanartBytes;
+  List<Uint8List> _fanartGallery = [];
+  Timer? _fanartCycleTimer;
+  final math.Random _fanartRandom = math.Random();
+  int _fanartGalleryIndex = 0;
   String _fanartArtist = '';
   String _fanartLoadingArtist = '';
   int _fanartRequest = 0;
@@ -209,6 +213,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _hideTimer?.cancel();
     _brightnessChannel.invokeMethod<void>('setNight', false).catchError((Object _) {});
     _clockTimer?.cancel();
+    _fanartCycleTimer?.cancel();
     _dirTimer?.cancel();
     _noise?.dispose();
     _recAngle.dispose();
@@ -627,6 +632,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ---------------------------------------------------------------- background
 
+  void _startFanartCycle() {
+    _fanartCycleTimer?.cancel();
+    if (_fanartGallery.length < 2) return;
+    _fanartCycleTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _fanartGallery.length < 2) return;
+      var next = _fanartRandom.nextInt(_fanartGallery.length - 1);
+      if (next >= _fanartGalleryIndex) next++;
+      _fanartGalleryIndex = next;
+      setState(() => _fanartBytes = _fanartGallery[next]);
+      final link = VybeLink.instance;
+      if (!widget.driveHost && link.enabled && link.role == 'sender') {
+        link.sendFanart(_fanartArtist, _fanartBytes);
+      }
+    });
+  }
+
   Future<void> _loadFanart() async {
     final artist = model.artist.trim();
     final link = VybeLink.instance;
@@ -645,6 +666,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : settings.backgroundSource == 6;
     final needsFanart = needsLocalFanart || linkSender;
     if (!needsFanart || artist.isEmpty) {
+      _fanartCycleTimer?.cancel();
+      _fanartGallery = [];
       if (_fanartArtist.isNotEmpty || _fanartBytes != null) {
         ++_fanartRequest;
         _fanartArtist = '';
@@ -661,6 +684,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (_fanartArtist == artist && _fanartLastFailure != null &&
         DateTime.now().difference(_fanartLastFailure!) <
             const Duration(seconds: 25)) return;
+    _fanartCycleTimer?.cancel();
+    _fanartGallery = [];
+    _fanartGalleryIndex = 0;
     _fanartArtist = artist;
     _fanartBytes = null;
     _fanartLoadingArtist = artist;
@@ -674,6 +700,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         _fanartLastFailure = bytes == null ? DateTime.now() : null;
         setState(() => _fanartBytes = bytes);
         if (linkSender && bytes != null) link.sendFanart(artist, bytes);
+        if (localBytes == null && bytes != null && settings.fanartProjectKey.isNotEmpty) {
+          // Gallery retrieval runs after the first background is visible.
+          // A slow additional download must never delay normal fanart.
+          _fanart.getGallery(artist, settings.fanartProjectKey,
+              personalKey: settings.fanartApiKey).then((gallery) {
+            if (!mounted || request != _fanartRequest ||
+                _fanartArtist != artist || gallery.length < 2) return;
+            _fanartGallery = gallery;
+            _fanartGalleryIndex = 0;
+            _startFanartCycle();
+          }).catchError((Object error) {
+            debugPrint('VYBE fanart gallery unavailable: $error');
+          });
+        }
       }
     } catch (e) {
       if (mounted && request == _fanartRequest && _fanartArtist == artist) {
@@ -936,7 +976,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       AnimatedSwitcher(
         duration: const Duration(milliseconds: 700),
         child: SizedBox.expand(
-          key: ValueKey(showFanart ? 'fanart:${_fanartArtist}' :
+          key: ValueKey(showFanart ? 'fanart:${_fanartArtist}:$_fanartGalleryIndex' :
               useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
               'cinematic-template:${settings.cinematicPalette}'),
           child: image)),
