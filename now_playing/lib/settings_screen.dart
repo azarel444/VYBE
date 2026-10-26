@@ -396,6 +396,10 @@ class SettingsScreen extends StatelessWidget {
           (v) => s.update(() => s.fanartOverride = v)),
         const Text('If Album Art is selected but no usable cover exists, '
             'the selected animated background is used instead.'),
+        _choices('Change artist image every',
+          const ['5 sec', '10 sec', '15 sec', '30 sec', '60 sec', '2 min', '5 min'],
+          const [5, 10, 15, 30, 60, 120, 300].indexOf(s.fanartCycleSeconds).clamp(0, 6),
+          (i) => s.update(() => s.fanartCycleSeconds = const [5, 10, 15, 30, 60, 120, 300][i])),
         _slider('Fanart animation speed',
             '${(s.cinematicAnimationSpeed * 100).round()}%',
             s.cinematicAnimationSpeed, 0.0, 3.0,
