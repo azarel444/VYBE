@@ -35,6 +35,8 @@ class VybeLink extends ChangeNotifier {
   Socket? _socket;
   StreamSubscription? _socketSub;
   Timer? _retry;
+  Timer? _connectionWatchdog;
+  bool _connecting = false;
   Timer? _sendTimer;
   NowPlayingModel? _model;
   String _lastPayload = '';
@@ -164,6 +166,14 @@ class VybeLink extends ChangeNotifier {
     await directInitialize();
     await _updateAddresses();
     if (enabled && autoConnect) await connect();
+    // Android/network transitions may not generate a socket close event.
+    // Periodically recover a missing connection without user interaction.
+    _connectionWatchdog?.cancel();
+    _connectionWatchdog = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (!enabled || !autoConnect || _connecting || _retry?.isActive == true) return;
+      if (role == 'sender' && _socket == null) connect();
+      if (role == 'receiver' && _server == null) connect();
+    });
     notifyListeners();
   }
 
@@ -189,14 +199,16 @@ class VybeLink extends ChangeNotifier {
     autoConnect = true;
     final p = await SharedPreferences.getInstance();
     await p.setString('link_paired_receiver', pairedReceiverId);
-    await configure(isEnabled: true, deviceRole: 'sender',
-        automatic: true, address: receiverAddress);
+    // Do not route pairing through configure(address:): it intentionally
+    // clears the saved receiver identity for manual IP changes.
+    await configure(isEnabled: true, deviceRole: 'sender', automatic: true);
   }
 
   /// Called when the UI returns from another app. Background reconnect is
   /// best-effort: Android can suspend this Flutter process.
   void onResumed() {
     if (!enabled || !autoConnect) return;
+    if (_connecting) return;
     if (role == 'receiver' && _server == null) { connect(); return; }
     if (role == 'sender' && _socket == null) connect();
   }
@@ -218,7 +230,10 @@ class VybeLink extends ChangeNotifier {
     notifyListeners();
     // Start reconfiguration immediately, but do not hold UI updates hostage
     // to the socket teardown or an unreachable receiver.
-    final connection = connect();
+    final connection = enabled && autoConnect &&
+        ((role == 'sender' && _socket != null) ||
+         (role == 'receiver' && _server != null))
+        ? Future<void>.value() : connect();
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool('link_enabled', enabled);
@@ -245,8 +260,18 @@ class VybeLink extends ChangeNotifier {
   /// metadata immediately. Receiver identity is learned asynchronously,
   /// never used as a precondition for playing music.
   Future<void> connect() async {
+    if (_connecting) return;
+    _connecting = true;
+    try {
+    await _connectInternal();
+    } finally {
+      _connecting = false;
+    }
+  }
+
+  Future<void> _connectInternal() async {
     final generation = ++_generation;
-    _retry?.cancel();
+    _retry?.cancel(); _retry = null;
     _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
     await _socketSub?.cancel(); _socketSub = null;
@@ -317,6 +342,12 @@ class VybeLink extends ChangeNotifier {
         if (generation == _generation) {
           status = 'Cannot listen for connections: $e';
           notifyListeners();
+          if (autoConnect) {
+            _retry?.cancel();
+            _retry = Timer(const Duration(seconds: 8), () {
+              if (generation == _generation && _server == null) connect();
+            });
+          }
         }
       }
       return;
@@ -556,7 +587,8 @@ class VybeLink extends ChangeNotifier {
   Future<void> stop() async { await configure(isEnabled: false); }
   @override
   void dispose() {
-    _retry?.cancel(); _sendTimer?.cancel(); _helloTimer?.cancel();
+    _retry?.cancel(); _connectionWatchdog?.cancel();
+    _sendTimer?.cancel(); _helloTimer?.cancel();
     _model?.removeListener(_onModel);
     _socketSub?.cancel(); _socket?.destroy(); _server?.close();
     _responder?.close();
