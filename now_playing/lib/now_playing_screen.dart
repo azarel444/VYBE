@@ -1071,9 +1071,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         sleeveCenterY + sleeveSize * (portrait ? vinylEdgeOffset : -vinylEdgeOffset);
     final musiczineVinylX = musiczineVinylCenterX - musiczineVinylSize * .5;
     final musiczineVinylY = musiczineVinylCenterY - musiczineVinylSize * .5;
+    // The sleeve must use full-resolution artwork. art.tiny is a 96px
+    // palette/background thumbnail and becomes visibly pixelated here.
     final cover = hasCover
-        ? RawImage(image: art.tiny, fit: BoxFit.cover,
-            filterQuality: FilterQuality.high)
+        ? Image.memory(art.bytes, fit: BoxFit.cover,
+            gaplessPlayback: true, filterQuality: FilterQuality.high)
         : const ColoredBox(color: Color(0xFF101418));
     // The enlarged monochrome album artwork is a SECOND visual layer behind
     // the diagonal cover, not the artist fanart and not an empty black wedge.
