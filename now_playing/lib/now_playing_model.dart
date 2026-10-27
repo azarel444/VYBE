@@ -268,7 +268,7 @@ class NowPlayingModel extends ChangeNotifier {
     final changed = key != _trackKey;
     if (changed) {
       _artToken++; _artRetryTimer?.cancel(); _artClearTimer?.cancel();
-      _artAttempts = 0; _lookupInFlight = ''; art = null;
+      _artAttempts = 0; _lookupInFlight = ''; // Retain previous cover until new art arrives.
       lyrics = null; _lyricsToken++;
     }
     title = titleValue; artist = artistValue; album = albumValue;
@@ -362,8 +362,7 @@ class NowPlayingModel extends ChangeNotifier {
       artworkFailure = 'None';
       artworkLookupState = 'Idle';
       _artClearTimer?.cancel();
-      // Only reuse a cover when the album is positively identified as the same.
-      if (albumChanged || album.isEmpty) art = null;
+      // Keep outgoing cover until new artwork arrives, avoiding standby flashes.
       // Restore an already decoded cover from another track on this album.
       if (art == null && cacheAlbumKey.isNotEmpty) {
         final cached = _albumArtCache[cacheAlbumKey];
@@ -394,19 +393,9 @@ class NowPlayingModel extends ChangeNotifier {
     } else if (changed) {
       _latestSessionArtwork = null;
     }
-    if (artBytes is Uint8List && artBytes.isNotEmpty &&
-        _isSharedSessionArtwork(artBytes)) {
-      sessionArtworkStatus = 'Rejected repeated image across unrelated artists';
-      artworkSource = 'None';
-      artworkStatus = 'Shared player placeholder or playlist cover rejected';
-      artworkLookupState = 'Looking up original track artwork';
-      artworkFailure = 'Identical player artwork seen for multiple artists';
-      _albumArtCache.remove(cacheAlbumKey);
-      art = null;
-      _artToken++;
-      _netTimer?.cancel();
-      _netTimer = Timer(const Duration(milliseconds: 200), _runNetwork);
-    } else if (artBytes is Uint8List && artBytes.isNotEmpty) {
+    // Shared playlist artwork remains usable offline; never reject it
+    // merely because several tracks carry identical image bytes.
+    if (artBytes is Uint8List && artBytes.isNotEmpty) {
       sessionArtworkStatus = 'Received ${artBytes.length} bytes';
       artworkSource = 'Android media session';
       artworkStatus = 'Android media session artwork';
@@ -417,9 +406,7 @@ class NowPlayingModel extends ChangeNotifier {
           (art == null || !listEquals(art!.bytes, artBytes))) {
         _setArt(artBytes);
       }
-      // Media-session images are unverified: player apps may send their
-      // branded placeholder even for well-known albums. Verify independently
-      // rather than treating successful decoding as proof of album art.
+      // Display the player's artwork immediately; upgrades are optional.
       if (changed && artLookupEnabled) {
         final expectedTrack = key;
         _sessionVerificationTimer?.cancel();
@@ -449,7 +436,8 @@ class NowPlayingModel extends ChangeNotifier {
     }
     _trackKey = key;
     _albumKey = albumKey;
-    if (art == null && title.isNotEmpty) _scheduleSessionArtRetry();
+    if ((artBytes is! Uint8List || artBytes.isEmpty) && title.isNotEmpty)
+      _scheduleSessionArtRetry();
 
     if (changed) {
       lyrics = null;
@@ -750,8 +738,8 @@ class NowPlayingModel extends ChangeNotifier {
       artworkFailure = 'None';
       artworkLookupState = 'Artwork displayed';
     }
-    // Never persist an unverified media-session image as a known album cover.
-    if (art != null && artworkSource != 'Android media session') {
+    // Keep usable media-session covers available while offline.
+    if (art != null) {
       _rememberAlbumArt(bytes, albumCacheKey);
     }
     if (art == null && artLookupEnabled && title.isNotEmpty) {
