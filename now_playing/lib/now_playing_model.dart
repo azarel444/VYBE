@@ -399,7 +399,14 @@ class NowPlayingModel extends ChangeNotifier {
       if (art == null || !listEquals(art!.bytes, artBytes)) {
         _setArt(artBytes);
       }
-      // Player-supplied cover is displayed directly without online replacement.
+      // Player artwork is displayed first; a strict song match may upgrade it.
+      if (changed && artLookupEnabled) {
+        final expectedTrack = key;
+        _sessionVerificationTimer?.cancel();
+        _sessionVerificationTimer = Timer(const Duration(milliseconds: 1500), () {
+          _findSongCoverUpgrade(expectedTrack);
+        });
+      }
     } else if (changed && art != null) {
       sessionArtworkStatus = 'Missing (no bytes in media session)';
       // Keep showing the current cover. Within the same album it stays for
@@ -472,6 +479,30 @@ class NowPlayingModel extends ChangeNotifier {
     art = null;
     lyrics = null;
     _lyricsToken++;
+  }
+
+  Future<void> _findSongCoverUpgrade(String expectedTrack) async {
+    if (!artLookupEnabled || _linkReceiverActive || expectedTrack != _trackKey ||
+        title.trim().isEmpty || artist.trim().isEmpty) return;
+    final requestedTitle = title;
+    final requestedArtist = artist;
+    // A failed/offline lookup never removes the artwork already displayed.
+    final bytes = await fetchSongSpecificArtwork(requestedTitle, requestedArtist);
+    if (bytes == null || expectedTrack != _trackKey) return;
+    final decoded = await ArtAssets.load(bytes);
+    if (decoded == null || decoded.flat || expectedTrack != _trackKey) return;
+    final current = art;
+    if (current != null && listEquals(current.bytes, bytes)) return;
+    ++_artToken;
+    art = decoded;
+    artworkSource = 'Exact song catalog match';
+    artworkStatus = 'Song-specific cover found';
+    artworkLookupState = 'Exact artist and song match';
+    artworkFailure = 'None';
+    _rememberAlbumArt(bytes, _albumArtKey(artist, album));
+    _artCache['${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}'] = bytes;
+    MediaCache.putArt('${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}', bytes);
+    notifyListeners();
   }
 
   void _runNetwork() {
