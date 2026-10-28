@@ -937,13 +937,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  // Use the actual animated scene selected in Visuals, not the idle standby
+  // painter. Fanart fallback should work even while a track is playing.
   Widget _cinematicAnimatedFallback() =>
-      SizedBox.expand(child: RepaintBoundary(child: CustomPaint(
-        painter: IdleBackdropPainter(
-          clock: fxClock, palette: _palette,
-          animate: true, repaint: _tick,
-        ),
-      )));
+      _premiumAnimatedBackground(settings.templateBackgroundMotion);
 
   Widget _cinematicBackdrop() => AnimatedBuilder(
     animation: _slow,
