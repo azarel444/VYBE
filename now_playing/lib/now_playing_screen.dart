@@ -3575,7 +3575,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           top: h * 0.03,
           height: math.max(1.0, c.dy - ringEdge - h * 0.03).toDouble(),
           child: Align(
-            alignment: Alignment.bottomCenter,
+            alignment: Alignment.center,
             child: FittedBox(
               fit: BoxFit.scaleDown,
               child: SizedBox(
