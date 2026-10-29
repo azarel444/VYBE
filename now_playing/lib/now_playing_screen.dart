@@ -937,10 +937,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  // Use the actual animated scene selected in Visuals, not the idle standby
-  // painter. Fanart fallback should work even while a track is playing.
+  // Never start a GPU-heavy scene while artwork is pending unless the user
+  // explicitly selected Animated Background as the fanart fallback.
   Widget _cinematicAnimatedFallback() =>
-      _premiumAnimatedBackground(settings.templateBackgroundMotion);
+      settings.fanartFallbackSource == 1
+          ? _premiumAnimatedBackground(settings.templateBackgroundMotion)
+          : const ColoredBox(color: Color(0xFF10121B));
 
   Widget _cinematicBackdrop() => AnimatedBuilder(
     animation: _slow,
