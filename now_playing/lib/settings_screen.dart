@@ -1,3 +1,4 @@
+import 'local_artwork_scan.dart';
 import 'vybe_link_settings.dart';
 import 'integration_diagnostics.dart';
 import 'package:flutter/material.dart';
@@ -196,32 +197,22 @@ class SettingsScreen extends StatelessWidget {
           }),
       _section('Local artwork library'),
       _action('Choose artwork folder and scan',
-          'Index local album covers and artist fanart; include subfolders',
+          'Index local album covers, artist fanart and clearlogos',
           'Choose folder', () async {
             try {
-              final selected = await LocalArtwork.instance.chooseFolderAndScan();
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
-                selected ? LocalArtwork.instance.status : 'Folder selection cancelled')));
+              final selected = await LocalArtwork.instance.chooseFolder();
+              if (!context.mounted || !selected) return;
+              await showLocalArtworkScan(context);
             } catch (e) {
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Artwork scan failed: $e')));
+                SnackBar(content: Text('Folder selection failed: $e')));
             }
           }),
       _action('Rescan local artwork',
           'Refresh the index after adding or changing artwork files',
           'Rescan', () async {
-            try {
-              final count = await LocalArtwork.instance.scan();
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Indexed $count local artwork images')));
-            } catch (e) {
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Rescan failed: $e')));
-            }
+            await showLocalArtworkScan(context);
           }),
       _section('Auto-launch diagnostics'),
       _action('Inspect auto-launch events',
