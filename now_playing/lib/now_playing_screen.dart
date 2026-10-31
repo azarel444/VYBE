@@ -1455,6 +1455,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _themeClock(double w, double h, bool portrait) {
+    // Use actual orientation: the caller's `narrow` flag is not orientation.
+    portrait = h > w * 1.1;
     final now = DateTime.now();
     final hour = settings.clock24h
         ? now.hour
@@ -1901,7 +1903,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
 
-    final artistHeader = SizedBox(width: w * .83, height: h * .115,
+    final artistHeader = SizedBox(width: w * .83, height: h * (portrait ? .115 : .19),
       child: Center(child: _artist(h * .055, Alignment.center, false)));
 
     if (portrait) {
@@ -1936,10 +1938,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Keep the album reflection behind (rather than above) the song info.
     // Paint the text last so it remains legible over the reflection.
     final centered = Stack(clipBehavior: Clip.none, children: [
-      Positioned(top: h * .025, left: 0, right: 0,
+      Positioned(top: h * .055, left: 0, right: 0,
         child: Center(child: artistHeader)),
       Positioned(
-        top: h * 0.23, left: 0, right: 0,
+        top: h * 0.32, left: 0, right: 0,
         child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: top)),
       ),
       Positioned(
@@ -4341,8 +4343,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _artist(double size, Alignment a, bool vhs) {
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
       final screen = MediaQuery.sizeOf(context);
-      final maxLogoWidth = screen.width * (settings.theme == 0 ? .78 : .48);
-      final logoHeight = math.max(size * 2.3, screen.height * .055) *
+      final maxLogoWidth = screen.width * (settings.theme == 0 ? .82 : .48);
+      final logoHeight = (settings.theme == 0
+          ? math.max(size * 2.3, screen.height * (screen.width > screen.height * 1.1 ? .17 : .09))
+          : math.max(size * 2.3, screen.height * .055)) *
           settings.artistLogoScale;
       return _shaded(ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxLogoWidth),
