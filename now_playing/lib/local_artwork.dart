@@ -40,8 +40,11 @@ class LocalArtwork {
     } catch (_) { status = 'Local index needs rebuilding'; }
   }
 
+  Future<bool> chooseFolder() async =>
+      await _channel.invokeMethod<bool>('chooseFolder') ?? false;
+
   Future<bool> chooseFolderAndScan() async {
-    final selected = await _channel.invokeMethod<bool>('chooseFolder') ?? false;
+    final selected = await chooseFolder();
     if (selected) await scan();
     return selected;
   }
