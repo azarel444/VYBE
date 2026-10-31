@@ -1526,7 +1526,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Follow the information panel when a theme swaps its art and text.
       if (settings.layoutSwap && (theme == 5 || theme == 7 || theme == 9 || theme == 6 || theme == 8)) onRight = !onRight;
       if (theme == 9) onRight = !settings.layoutSwap; // Orbit clock follows text side, opposite the ring.
-      if (theme == 0) onRight = true; // Focused clock moves to the upper right.
+      if (theme == 0 || theme == AppSettings.tFan) onRight = true; // Focused and Big Fan clocks upper right.
       if (theme == AppSettings.tEditorial) onRight = false;
       // Typo uses upper-center when lyrics actually display, upper-left
       // when the right pane contains artwork (including disabled lyrics).
@@ -3795,6 +3795,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: cross,
       children: [
+        if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active)
+          Align(
+            alignment: center ? Alignment.center : Alignment.centerRight,
+            child: _artist(artistSize, center ? Alignment.center : Alignment.centerRight, false),
+          )
+        else
+          Text(
+            _artistStr.toUpperCase(),
+            textAlign: ta,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: artistSize,
+              letterSpacing: artistSize * 0.3,
+              color: _readableText(.82),
+              shadows: _cleanTextShadows,
+            ),
+          ),
         Text(
           _titleStr,
           textAlign: ta,
@@ -3809,18 +3827,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
         SizedBox(height: h * 0.025),
-        Text(
-          _artistStr.toUpperCase(),
-          textAlign: ta,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: artistSize,
-            letterSpacing: artistSize * 0.3,
-            color: _readableText(.82),
-            shadows: _cleanTextShadows,
-          ),
-        ),
         if (model.album.isNotEmpty && model.album != model.title) ...[
           SizedBox(height: h * 0.012),
           Text(
@@ -4351,10 +4357,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _artist(double size, Alignment a, bool vhs) {
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
       final screen = MediaQuery.sizeOf(context);
-      final maxLogoWidth = screen.width * (settings.theme == 0 ? .82 : .48);
+      final maxLogoWidth = screen.width * (settings.theme == 0 ? .82 :
+          (settings.theme == AppSettings.tTypo || settings.theme == 4 ? .48 : .82));
       final logoHeight = (settings.theme == 0
           ? math.max(size * 2.3, screen.height * (screen.width > screen.height * 1.1 ? .17 : .09))
-          : math.max(size * 2.3, screen.height * .055)) *
+          : math.max(size * (settings.theme == AppSettings.tTypo || settings.theme == 4 ? 2.3 : 4.6),
+              screen.height * (settings.theme == AppSettings.tTypo || settings.theme == 4 ? .055 : .11))) *
           settings.artistLogoScale;
       return _shaded(ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxLogoWidth),
