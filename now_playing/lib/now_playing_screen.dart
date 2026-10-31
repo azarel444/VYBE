@@ -46,7 +46,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final settings = AppSettings();
   final sim = SpectrumSim();
   final _fanart = ArtistFanartCache();
-  Uint8List? _fanartBytes;\n  Uint8List? _clearLogoBytes;\n  String _clearLogoArtist = '';\n  int _clearLogoRequest = 0;
+  Uint8List? _fanartBytes;
+  Uint8List? _clearLogoBytes;
+  String _clearLogoArtist = '';
+  int _clearLogoRequest = 0;
   List<Uint8List> _fanartGallery = [];
   Timer? _fanartCycleTimer;
   int _activeFanartCycleSeconds = 0;
@@ -3754,7 +3757,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       return Text(
         settings.lyrics
             ? '♪'
-            : 'Lyrics are off.\nTurn them on in Settings.',
+            : 'Lyrics are off.
+Turn them on in Settings.',
         textAlign: ta,
         style: TextStyle(
           fontSize: center ? h * 0.026 : h * 0.036,
