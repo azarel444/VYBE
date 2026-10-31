@@ -223,7 +223,7 @@ class ArtistFanartCache {
   /// Load additional artist backgrounds for a randomized slideshow. The first
   /// image remains managed by get(), preserving existing fallback behavior.
   Future<List<Uint8List>> getGallery(String artist, String projectKey,
-      {String personalKey = '', int maxImages = 5}) async {
+      {String personalKey = '', int maxImages = 10}) async {
     final key = artist.toLowerCase().trim();
     if (key.isEmpty || projectKey.isEmpty) return [];
     final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
