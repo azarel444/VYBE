@@ -1281,8 +1281,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               SizedBox(height: w * .095,
                 child: FittedBox(fit: BoxFit.fill,
                   alignment: Alignment.centerLeft,
-                  child: Text(artist, maxLines: 1,
-                    softWrap: false, style: titleStyle))),
+                  child: settings.useArtistClearLogo && _clearLogoBytes != null
+                    ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+                        filterQuality: FilterQuality.medium)
+                    : Text(artist, maxLines: 1,
+                        softWrap: false, style: titleStyle))),
               SizedBox(height: h * .005),
               if (model.album.isEmpty)
                 Center(child: Text(song, maxLines: 1,
@@ -1310,10 +1313,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             crossAxisAlignment: flipped
                 ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min, children: [
-              Text(artist,
-                textAlign: flipped ? TextAlign.right : TextAlign.left,
-                maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: titleStyle),
+              if (settings.useArtistClearLogo && _clearLogoBytes != null)
+                SizedBox(height: h * .095, width: w * .43,
+                  child: Align(
+                    alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+                      alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
+                      filterQuality: FilterQuality.medium)))
+              else
+                Text(artist,
+                  textAlign: flipped ? TextAlign.right : TextAlign.left,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: titleStyle),
               Text(song,
                 textAlign: flipped ? TextAlign.right : TextAlign.left,
                 maxLines: 1, overflow: TextOverflow.ellipsis,
