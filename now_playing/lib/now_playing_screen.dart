@@ -1488,8 +1488,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
           break;
-        case 0: // Focused: above the ring/art assembly.
+        case 0: // Focused: upper-right, away from the centered logo.
           topInset = h * 0.025;
+          onRight = true;
           break;
         default: // Other portrait compositions: above song information.
           topInset = h * 0.08;
@@ -1504,6 +1505,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Follow the information panel when a theme swaps its art and text.
       if (settings.layoutSwap && (theme == 5 || theme == 7 || theme == 9 || theme == 6 || theme == 8)) onRight = !onRight;
       if (theme == 9) onRight = !settings.layoutSwap; // Orbit clock follows text side, opposite the ring.
+      if (theme == 0) onRight = true; // Focused clock moves to the upper right.
       if (theme == AppSettings.tEditorial) onRight = false;
       // Typo uses upper-center when lyrics actually display, upper-left
       // when the right pane contains artwork (including disabled lyrics).
@@ -1817,15 +1819,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final barsMode = settings.vizStyle == 1;
     final lyricSlot = settings.lyrics ? h * 0.05 : 0.0;
     final lyricGap = settings.lyrics ? _lyricGap(h) : 0.0;
-    final textH = h * 0.115 + lyricSlot + lyricGap; // title + artist (+ lyrics)
+    final textH = h * 0.14 + lyricSlot + lyricGap; // artist header is separate
     final wLimit = portrait ? (barsMode ? w * 0.76 : w * 0.54) : (barsMode ? w * 0.55 : w * 0.4);
 
     final double art;
     if (barsMode) {
-      final avail = h * 0.94 - textH - h * 0.045; // artwork and reflection
+      final avail = h * 0.77 - textH - h * 0.045; // artwork and reflection
       art = math.min(wLimit, avail / 1.28); // enlarged art without the ring
     } else {
-      final avail = h * 0.94 - textH - h * 0.03;
+      final avail = h * 0.77 - textH - h * 0.03;
       art = math.min(wLimit, avail / 1.72); // ring box is 1.72 x art
     }
     final outer = art * 0.86; // ring radius including the tallest bars
@@ -1875,7 +1877,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         children: [
           _title(h * 0.062, Alignment.center, false),
           SizedBox(height: h * 0.012),
-          _artist(h * 0.026, Alignment.center, false),
+          if (model.album.isNotEmpty) _shaded(_fit(Text(model.album, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: h * .028, color: Colors.white70)), Alignment.center)),
           if (settings.lyrics) SizedBox(height: lyricGap),
           if (settings.lyrics)
             SizedBox(
@@ -1888,17 +1890,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
 
+    final artistHeader = SizedBox(width: w * .83, height: h * .115,
+      child: Center(child: _artist(h * .055, Alignment.center, false)));
+
     if (portrait) {
       // Focused: lower the album/ring assembly and let its reflection extend
       // behind the song labels. Draw text last so it stays on top.
       final content = Stack(clipBehavior: Clip.none, children: [
+        Positioned(left: 0, right: 0, top: h * .09,
+          child: Center(child: artistHeader)),
         Positioned(
-          left: 0, right: 0, top: h * 0.19,
+          left: 0, right: 0, top: h * 0.265,
           child: Center(child: FittedBox(
             fit: BoxFit.scaleDown, child: top)),
         ),
         Positioned(
-          left: 0, right: 0, top: h * 0.69,
+          left: 0, right: 0, top: h * 0.79,
           child: Center(child: FittedBox(
             fit: BoxFit.scaleDown, child: text)),
         ),
@@ -1914,12 +1921,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ]);
     }
 
-    // Landscape Focused: leave a clear header for the centered clock.
+    // Landscape Focused: reserve the upper center for a readable artist logo.
     // Keep the album reflection behind (rather than above) the song info.
     // Paint the text last so it remains legible over the reflection.
     final centered = Stack(clipBehavior: Clip.none, children: [
+      Positioned(top: h * .025, left: 0, right: 0,
+        child: Center(child: artistHeader)),
       Positioned(
-        top: h * 0.14, left: 0, right: 0,
+        top: h * 0.23, left: 0, right: 0,
         child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: top)),
       ),
       Positioned(
@@ -4320,11 +4329,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _artist(double size, Alignment a, bool vhs) {
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
-      return _shaded(_fit(
-        Image.memory(_clearLogoBytes!, gaplessPlayback: true,
-          height: size * 2.3 * settings.artistLogoScale,
-          fit: BoxFit.contain, filterQuality: FilterQuality.medium),
-        a));
+      final screen = MediaQuery.sizeOf(context);
+      final maxLogoWidth = screen.width * (settings.theme == 0 ? .78 : .48);
+      final logoHeight = math.max(size * 2.3, screen.height * .055) *
+          settings.artistLogoScale;
+      return _shaded(ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxLogoWidth),
+        child: Image.memory(_clearLogoBytes!, gaplessPlayback: true,
+          height: logoHeight, fit: BoxFit.contain,
+          filterQuality: FilterQuality.medium)));
     }
     return _shaded(_fit(
         (vhs || _vhsOn)
