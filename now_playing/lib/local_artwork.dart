@@ -108,19 +108,45 @@ class LocalArtwork {
     return gallery.isEmpty ? null : gallery.first;
   }
 
+  /// Local logos use the same compact artist naming as fanart:
+  /// Music/fanart/breakingbenjaminclearlogo.png.
+  /// PNG preserves transparency; legacy logo names remain supported.
   Future<Uint8List?> clearLogo(String artist) async {
     await load();
     final key = normalize(artist);
     if (key.isEmpty) return null;
-    for (final entry in _files) {
-      final name = normalize((entry['name'] ?? '').replaceFirst(
-          RegExp(r'\.(jpg|jpeg|png|webp)$', caseSensitive: false), ''));
+    final compactArtist = key.replaceAll(' ', '');
+    var matches = _files.where((entry) {
+      final filename = entry['name'] ?? '';
+      if (!filename.toLowerCase().endsWith('.png')) return false;
+      final basename = filename.substring(0, filename.length - 4);
+      final compactName = normalize(basename).replaceAll(' ', '');
       final folder = normalize((entry['folder'] ?? '').split('/').last);
-      if (name == '$key logo' || name == '$key clearlogo' ||
-          (folder == key && (name == 'clearlogo' || name == 'logo'))) {
-        final bytes = await _read(entry);
-        if (bytes != null && bytes.isNotEmpty) return bytes;
+      return compactName == '${compactArtist}clearlogo' ||
+          compactName == '${compactArtist}logo' ||
+          (folder == key && (compactName == 'clearlogo' || compactName == 'logo'));
+    }).toList();
+    if (matches.isEmpty && !_rescanAttempted) {
+      _rescanAttempted = true;
+      try {
+        await scan();
+        matches = _files.where((entry) {
+          final filename = entry['name'] ?? '';
+          if (!filename.toLowerCase().endsWith('.png')) return false;
+          final basename = filename.substring(0, filename.length - 4);
+          final compactName = normalize(basename).replaceAll(' ', '');
+          final folder = normalize((entry['folder'] ?? '').split('/').last);
+          return compactName == '${compactArtist}clearlogo' ||
+              compactName == '${compactArtist}logo' ||
+              (folder == key && (compactName == 'clearlogo' || compactName == 'logo'));
+        }).toList();
+      } catch (e) {
+        status = 'Local clearlogo rescan failed: $e';
       }
+    }
+    for (final entry in matches) {
+      final bytes = await _read(entry);
+      if (bytes != null && bytes.isNotEmpty) return bytes;
     }
     return null;
   }
