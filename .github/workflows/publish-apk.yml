@@ -2,9 +2,10 @@ name: Publish downloadable VYBE APKs
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/publish-apk.yml'
+  workflow_run:
+    workflows: ["Build APK"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -12,20 +13,31 @@ permissions:
 
 jobs:
   publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: vybe-release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - name: Download successful APK artifact
+      - name: Download latest successful APK artifact
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
         run: |
-          gh run download 41214345656 --name now-playing-apks --dir apk
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            SOURCE_RUN="$(gh run list --workflow build.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          fi
+          echo "SOURCE_RUN=$SOURCE_RUN" >> "$GITHUB_ENV"
+          gh run download "$SOURCE_RUN" --name now-playing-apks --dir apk
           ls -lh apk/*.apk
       - name: Publish APKs as release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view vybe-latest >/dev/null 2>&1; then
-            gh release create vybe-latest --title "VYBE latest test APKs" --notes "Test build from successful Actions run 41214345656. Download the APK matching your device architecture." --prerelease --latest=false
+            gh release create vybe-latest --title "VYBE latest test APKs" --notes "Download the APK matching your Android device." --prerelease --latest=false
           fi
           gh release upload vybe-latest apk/*.apk --clobber
+          gh release edit vybe-latest --notes "Latest published VYBE APKs from successful Actions run $SOURCE_RUN. Download the APK matching your device architecture."
