@@ -1491,8 +1491,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 3: // Edge to Edge: centered along the bottom.
           bottomInset = math.max(22.0, h * 0.022);
           break;
-        case 4: // Drive: above the album, not over the map.
-          topInset = math.max(h * 0.042, 48.0);
+        case 4: // Drive: clock at the top, clear of the larger artist logo.
+          topInset = math.max(12.0, MediaQuery.of(context).viewPadding.top);
           break;
         case 5: // Fan: between the top spectrum and song information.
           topInset = h * 0.135;
@@ -1536,7 +1536,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // any real system inset supplied by the device.
     final cameraSafeTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
     if (portrait && bottomInset == null) {
-      topInset = math.max(topInset, cameraSafeTop + 14.0);
+      topInset = math.max(topInset, theme == 4 ? cameraSafeTop : cameraSafeTop + 14.0);
     }
     if (typoLyricsCentered) topInset = 22.0;
     final inset = theme == AppSettings.tEditorial && !portrait
@@ -4357,12 +4357,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _artist(double size, Alignment a, bool vhs) {
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
       final screen = MediaQuery.sizeOf(context);
-      final maxLogoWidth = screen.width * (settings.theme == 0 ? .82 :
-          (settings.theme == AppSettings.tTypo || settings.theme == 4 ? .48 : .82));
+      final maxLogoWidth = screen.width * .82;
       final logoHeight = (settings.theme == 0
           ? math.max(size * 2.3, screen.height * (screen.width > screen.height * 1.1 ? .17 : .09))
-          : math.max(size * (settings.theme == AppSettings.tTypo || settings.theme == 4 ? 2.3 : 4.6),
-              screen.height * (settings.theme == AppSettings.tTypo || settings.theme == 4 ? .055 : .11))) *
+          : math.max(size * 4.6, screen.height * .11)) *
           settings.artistLogoScale;
       return _shaded(ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxLogoWidth),
