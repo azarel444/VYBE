@@ -1,3 +1,5 @@
+import 'local_artwork.dart';
+import 'local_artwork_scan.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -70,6 +72,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _lyrics = false;
   bool _boot = false;
   bool _music = false;
+  String _localArtStatus = 'Optional — you can set this up later.';
+  bool _choosingArtwork = false;
   Timer? _poll;
   Future<void> _pendingChoiceWrite = Future<void>.value();
 
@@ -267,6 +271,33 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           title: 'Quick setup',
           body: 'Choose what VYBE does. Change any option later in Settings. Online artwork and lyrics searches send song title and artist to their providers.',
           extra: Column(children: [
+            const SizedBox(height: 14),
+            const Text('Local music & artwork',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            const Text('Choose your music folder to find album covers, artist fanart and clearlogos. Subfolders are included.'),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _choosingArtwork ? null : () async {
+                setState(() => _choosingArtwork = true);
+                try {
+                  final selected = await LocalArtwork.instance.chooseFolder();
+                  if (!mounted) return;
+                  if (selected) {
+                    await showLocalArtworkScan(context);
+                    if (mounted) setState(() => _localArtStatus = LocalArtwork.instance.status);
+                  }
+                } catch (e) {
+                  if (mounted) setState(() => _localArtStatus = 'Folder selection failed: $e');
+                } finally {
+                  if (mounted) setState(() => _choosingArtwork = false);
+                }
+              },
+              icon: const Icon(Icons.folder_open),
+              label: const Text('Choose music folder'),
+            ),
+            Text(_localArtStatus, style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 14),
             _switchRow('Find missing album art', _art, (v) {
               setState(() => _art = v);
               _put('artLookup', v);
