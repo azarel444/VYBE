@@ -50,6 +50,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Uint8List? _clearLogoBytes;
   String _clearLogoArtist = '';
   int _clearLogoRequest = 0;
+  Timer? _clearLogoRetryTimer;
+  String _clearLogoLoadingArtist = '';
+  int _clearLogoRetryCount = 0;
   List<Uint8List> _fanartGallery = [];
   Timer? _fanartCycleTimer;
   int _activeFanartCycleSeconds = 0;
@@ -221,6 +224,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _clockTimer?.cancel();
     _fanartCycleTimer?.cancel();
     _fanartRetryTimer?.cancel();
+    _clearLogoRetryTimer?.cancel();
     _dirTimer?.cancel();
     _noise?.dispose();
     _recAngle.dispose();
@@ -640,27 +644,61 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ---------------------------------------------------------------- background
 
+  void _scheduleClearLogoRetry(String artist) {
+    _clearLogoRetryTimer?.cancel();
+    final seconds = [5, 10, 20, 40, 60][_clearLogoRetryCount.clamp(0, 4)];
+    if (_clearLogoRetryCount < 4) _clearLogoRetryCount++;
+    _clearLogoRetryTimer = Timer(Duration(seconds: seconds), () {
+      if (!mounted || !settings.useArtistClearLogo ||
+          model.artist.trim() != artist) return;
+      _loadClearLogo();
+    });
+  }
+
   Future<void> _loadClearLogo() async {
     final artist = model.artist.trim();
     if (!settings.useArtistClearLogo || artist.isEmpty) {
+      _clearLogoRetryTimer?.cancel();
+      _clearLogoRetryCount = 0;
       if (_clearLogoBytes != null || _clearLogoArtist.isNotEmpty) {
         ++_clearLogoRequest;
         _clearLogoArtist = '';
-        setState(() => _clearLogoBytes = null);
+        if (mounted) setState(() => _clearLogoBytes = null);
       }
       return;
     }
-    if (_clearLogoArtist == artist) return;
-    _clearLogoArtist = artist;
-    final request = ++_clearLogoRequest;
-    if (_clearLogoBytes != null) setState(() => _clearLogoBytes = null);
-    Uint8List? bytes = await LocalArtwork.instance.clearLogo(artist);
-    if (bytes == null && settings.fanartProjectKey.isNotEmpty) {
-      bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
-          personalKey: settings.fanartApiKey);
+    if (_clearLogoArtist == artist && _clearLogoBytes != null) return;
+    if (_clearLogoLoadingArtist == artist) return;
+    if (_clearLogoArtist != artist) {
+      _clearLogoRetryTimer?.cancel();
+      _clearLogoRetryCount = 0;
+      _clearLogoArtist = artist;
+      if (_clearLogoBytes != null && mounted) {
+        setState(() => _clearLogoBytes = null);
+      }
     }
-    if (mounted && request == _clearLogoRequest && _clearLogoArtist == artist) {
+    _clearLogoLoadingArtist = artist;
+    final request = ++_clearLogoRequest;
+    Uint8List? bytes;
+    try {
+      bytes = await LocalArtwork.instance.clearLogo(artist);
+      if (bytes == null && settings.fanartProjectKey.isNotEmpty) {
+        bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
+            personalKey: settings.fanartApiKey);
+      }
+    } catch (e) {
+      debugPrint('VYBE clearlogo lookup failed for $artist: $e');
+    } finally {
+      if (_clearLogoLoadingArtist == artist) _clearLogoLoadingArtist = '';
+    }
+    if (!mounted || request != _clearLogoRequest ||
+        _clearLogoArtist != artist || !settings.useArtistClearLogo) return;
+    if (bytes != null && bytes.isNotEmpty) {
+      _clearLogoRetryTimer?.cancel();
+      _clearLogoRetryCount = 0;
       setState(() => _clearLogoBytes = bytes);
+    } else {
+      _scheduleClearLogoRetry(artist);
     }
   }
 
