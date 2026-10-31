@@ -100,9 +100,9 @@ class AppSettings extends ChangeNotifier {
   // chooses album artwork or an animated scene. Override skips fanart entirely.
   int fanartFallbackSource = 0; // 0 album art, 1 animated scene
   bool fanartOverride = false;
-  bool useArtistClearLogo = false; // Per-theme artist-name replacement.
+  bool useArtistClearLogo = true; // Per-theme artist-name replacement.
   double artistLogoScale = 1.0; // Relative logo size, 0.5 .. 2.0.
-  int fanartCycleSeconds = 30; // Random artist background interval, minimum 5 seconds.
+  int fanartCycleSeconds = 10; // Random artist background interval, minimum 5 seconds.
   // Legacy storage key; used only to migrate existing per-theme selections.
   int fanartThemeSource = 0; // 0 auto fanart, 1 forced album, 2 forced animation
   bool animationUseAlbumColors = false; // false: scene default, true: artwork palette
@@ -299,8 +299,8 @@ class AppSettings extends ChangeNotifier {
     fanartFallbackSource = integer('fanartFallbackSource',
         oldFanartSource == 2 ? 1 : 0, 0, 1);
     fanartOverride = flag('fanartOverride', oldFanartSource != 0);
-    fanartCycleSeconds = integer('fanartCycleSeconds', 30, 5, 300);
-    useArtistClearLogo = flag('useArtistClearLogo', false);
+    fanartCycleSeconds = integer('fanartCycleSeconds', 10, 5, 300);
+    useArtistClearLogo = flag('useArtistClearLogo', true);
     artistLogoScale = number('artistLogoScale', 1.0, 0.5, 2.0);
     cinematicFallback = integer('cinematicFallback', 1, 0, 2);
     animationUseAlbumColors = flag('animationUseAlbumColors', false);
@@ -511,8 +511,8 @@ class AppSettings extends ChangeNotifier {
         fanartThemeSource == 2 ? 1 : 0, 0, 1);
     fanartOverride = p.getBool('fanartOverride') ??
         (fanartThemeSource != 0);
-    fanartCycleSeconds = _int(p, 'fanartCycleSeconds', 30, 5, 300);
-    useArtistClearLogo = p.getBool('useArtistClearLogo') ?? false;
+    fanartCycleSeconds = _int(p, 'fanartCycleSeconds', 10, 5, 300);
+    useArtistClearLogo = p.getBool('useArtistClearLogo') ?? true;
     artistLogoScale = (p.getDouble('artistLogoScale') ?? 1.0).clamp(0.5, 2.0).toDouble();
     animationUseAlbumColors = p.getBool('animationUseAlbumColors') ?? false;
     cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
