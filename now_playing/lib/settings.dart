@@ -100,7 +100,7 @@ class AppSettings extends ChangeNotifier {
   // chooses album artwork or an animated scene. Override skips fanart entirely.
   int fanartFallbackSource = 0; // 0 album art, 1 animated scene
   bool fanartOverride = false;
-  int fanartCycleSeconds = 30; // Random artist background interval, minimum 5 seconds.
+  bool useArtistClearLogo = false; // Per-theme artist-name replacement.\n  double artistLogoScale = 1.0; // Relative logo size, 0.5 .. 2.0.\n  int fanartCycleSeconds = 30; // Random artist background interval, minimum 5 seconds.
   // Legacy storage key; used only to migrate existing per-theme selections.
   int fanartThemeSource = 0; // 0 auto fanart, 1 forced album, 2 forced animation
   bool animationUseAlbumColors = false; // false: scene default, true: artwork palette
@@ -215,7 +215,7 @@ class AppSettings extends ChangeNotifier {
     'fanartMode': fanartMode,
     'fanartFallbackSource': fanartFallbackSource,
     'fanartOverride': fanartOverride,
-    'fanartCycleSeconds': fanartCycleSeconds,
+    'fanartCycleSeconds': fanartCycleSeconds,\n    'useArtistClearLogo': useArtistClearLogo,\n    'artistLogoScale': artistLogoScale,
     'cinematicFallback': cinematicFallback,
     'animationUseAlbumColors': animationUseAlbumColors,
     'cinematicPalette': cinematicPalette,
@@ -295,7 +295,7 @@ class AppSettings extends ChangeNotifier {
     fanartFallbackSource = integer('fanartFallbackSource',
         oldFanartSource == 2 ? 1 : 0, 0, 1);
     fanartOverride = flag('fanartOverride', oldFanartSource != 0);
-    fanartCycleSeconds = integer('fanartCycleSeconds', 30, 5, 300);
+    fanartCycleSeconds = integer('fanartCycleSeconds', 30, 5, 300);\n    useArtistClearLogo = flag('useArtistClearLogo', false);\n    artistLogoScale = number('artistLogoScale', 1.0, 0.5, 2.0);
     cinematicFallback = integer('cinematicFallback', 1, 0, 2);
     animationUseAlbumColors = flag('animationUseAlbumColors', false);
     cinematicPalette = integer('cinematicPalette', 15, 14, 19);
@@ -505,7 +505,7 @@ class AppSettings extends ChangeNotifier {
         fanartThemeSource == 2 ? 1 : 0, 0, 1);
     fanartOverride = p.getBool('fanartOverride') ??
         (fanartThemeSource != 0);
-    fanartCycleSeconds = _int(p, 'fanartCycleSeconds', 30, 5, 300);
+    fanartCycleSeconds = _int(p, 'fanartCycleSeconds', 30, 5, 300);\n    useArtistClearLogo = p.getBool('useArtistClearLogo') ?? false;\n    artistLogoScale = (p.getDouble('artistLogoScale') ?? 1.0).clamp(0.5, 2.0).toDouble();
     animationUseAlbumColors = p.getBool('animationUseAlbumColors') ?? false;
     cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
     // Users who previously selected Rave land on Club Stage rather than
@@ -677,7 +677,7 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('cinematicFallback', cinematicFallback);
     await p.setInt('fanartFallbackSource', fanartFallbackSource);
     await p.setBool('fanartOverride', fanartOverride);
-    await p.setInt('fanartCycleSeconds', fanartCycleSeconds);
+    await p.setInt('fanartCycleSeconds', fanartCycleSeconds);\n    await p.setBool('useArtistClearLogo', useArtistClearLogo);\n    await p.setDouble('artistLogoScale', artistLogoScale);
     // Keep the old key meaningful for users upgrading from older builds.
     await p.setInt('fanartThemeSource',
         fanartOverride ? (fanartFallbackSource == 1 ? 2 : 1) : 0);
