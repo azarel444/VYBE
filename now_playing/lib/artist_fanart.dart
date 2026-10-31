@@ -233,6 +233,18 @@ class ArtistFanartCache {
     final first = await get(artist, projectKey, personalKey: personalKey);
     if (first == null) return result;
     result.add(first);
+    // Restore all previously downloaded gallery images from disk first.
+    // This works without internet, and avoids requiring a Fanart.tv lookup
+    // before an offline slideshow can start.
+    for (var i = 1; i < maxImages; i++) {
+      final cached = File('${folder.path}/$name.gallery.$i.jpg');
+      if (!await cached.exists()) continue;
+      try {
+        final bytes = await cached.readAsBytes();
+        if (bytes.isNotEmpty) result.add(bytes);
+      } catch (_) {}
+    }
+    if (result.length >= maxImages) return result;
     final idsFile = File('${folder.path}/$name.ids.json');
     var ids = _artistIds[key] ?? <String>[];
     if (ids.isEmpty && await idsFile.exists()) {
