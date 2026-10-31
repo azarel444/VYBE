@@ -1470,8 +1470,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         theme == AppSettings.tTypo && _hasLyrics;
     // Cinematic landscape clock belongs at the top center, independent
     // of the mirrored music-information layout.
-    final centered = (portrait && theme != AppSettings.tEditorial) || typoLyricsCentered ||
-        (!portrait && (theme == AppSettings.tCinematic || theme == 0));
+    final centered = (portrait && theme != AppSettings.tEditorial && theme != 0) || typoLyricsCentered ||
+        (!portrait && theme == AppSettings.tCinematic);
     bool onRight = true;
     double topInset = portrait ? h * 0.055 : 18.0;
     double? bottomInset;
