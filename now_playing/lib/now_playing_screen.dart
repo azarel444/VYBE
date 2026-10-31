@@ -58,6 +58,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   int _activeFanartCycleSeconds = 0;
   final math.Random _fanartRandom = math.Random();
   int _fanartGalleryIndex = 0;
+  bool _fanartGalleryIsLocal = false;
   String _fanartArtist = '';
   String _fanartLoadingArtist = '';
   int _fanartRequest = 0;
@@ -710,8 +711,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _activeFanartCycleSeconds = seconds;
     _fanartCycleTimer = Timer.periodic(Duration(seconds: seconds), (_) {
       if (!mounted || _fanartGallery.length < 2) return;
-      var next = _fanartRandom.nextInt(_fanartGallery.length - 1);
-      if (next >= _fanartGalleryIndex) next++;
+      var next = _fanartGalleryIsLocal
+          ? (_fanartGalleryIndex + 1) % _fanartGallery.length
+          : _fanartRandom.nextInt(_fanartGallery.length - 1);
+      if (!_fanartGalleryIsLocal && next >= _fanartGalleryIndex) next++;
       _fanartGalleryIndex = next;
       setState(() => _fanartBytes = _fanartGallery[next]);
       final link = VybeLink.instance;
@@ -776,6 +779,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fanartCycleTimer?.cancel();
     _fanartRetryTimer?.cancel();
     _fanartGallery = [];
+    _fanartGalleryIsLocal = false;
     _fanartGalleryIndex = 0;
     if (_fanartArtist != artist) {
       _fanartRetryTimer?.cancel();
@@ -799,7 +803,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (linkSender && bytes != null) link.sendFanart(artist, bytes);
         if (localGallery.length > 1) {
           _fanartGallery = localGallery;
-          _fanartGalleryIndex = 0;
+          _fanartGalleryIsLocal = true;
+          _fanartGalleryIndex = _fanartRandom.nextInt(localGallery.length);
+          setState(() => _fanartBytes = localGallery[_fanartGalleryIndex]);
+          if (linkSender) link.sendFanart(artist, _fanartBytes);
           _startFanartCycle();
         }
         if (localBytes == null && bytes != null && settings.fanartProjectKey.isNotEmpty) {
@@ -810,6 +817,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             if (!mounted || request != _fanartRequest ||
                 _fanartArtist != artist || gallery.length < 2) return;
             _fanartGallery = gallery;
+            _fanartGalleryIsLocal = false;
             _fanartGalleryIndex = 0;
             _startFanartCycle();
           }).catchError((Object error) {
