@@ -59,6 +59,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _fanartLoadingArtist = '';
   int _fanartRequest = 0;
   DateTime? _fanartLastFailure;
+  Timer? _fanartRetryTimer;
+  int _fanartRetryCount = 0;
   final particles = ParticleField();
   final glitch = GlitchState();
   final grid = GridState();
@@ -680,6 +682,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     });
   }
 
+  void _scheduleFanartRetry(String artist) {
+    _fanartRetryTimer?.cancel();
+    // Retry transient HTTP/network failures without requiring a track skip.
+    // Exponential backoff avoids hammering Fanart.tv during an outage.
+    final seconds = [5, 10, 20, 40, 60][_fanartRetryCount.clamp(0, 4)];
+    if (_fanartRetryCount < 4) _fanartRetryCount++;
+    _fanartRetryTimer = Timer(Duration(seconds: seconds), () {
+      if (!mounted || model.artist.trim() != artist) return;
+      _fanartLastFailure = null;
+      _loadFanart();
+    });
+  }
+
   Future<void> _loadFanart() async {
     _loadClearLogo();
     final artist = model.artist.trim();
@@ -699,6 +714,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : settings.backgroundSource == 6;
     final needsFanart = needsLocalFanart || linkSender;
     if (!needsFanart || artist.isEmpty) {
+      _fanartRetryTimer?.cancel();
+      _fanartRetryCount = 0;
       _fanartCycleTimer?.cancel();
       _fanartGallery = [];
       if (_fanartArtist.isNotEmpty || _fanartBytes != null) {
@@ -718,8 +735,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         DateTime.now().difference(_fanartLastFailure!) <
             const Duration(seconds: 25)) return;
     _fanartCycleTimer?.cancel();
+    _fanartRetryTimer?.cancel();
     _fanartGallery = [];
     _fanartGalleryIndex = 0;
+    if (_fanartArtist != artist) {
+      _fanartRetryTimer?.cancel();
+      _fanartRetryCount = 0;
+    }
     _fanartArtist = artist;
     _fanartBytes = null;
     _fanartLoadingArtist = artist;
@@ -732,6 +754,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               personalKey: settings.fanartApiKey));
       if (mounted && request == _fanartRequest && _fanartArtist == artist) {
         _fanartLastFailure = bytes == null ? DateTime.now() : null;
+        if (bytes == null) _scheduleFanartRetry(artist);
+        else { _fanartRetryTimer?.cancel(); _fanartRetryCount = 0; }
         setState(() => _fanartBytes = bytes);
         if (linkSender && bytes != null) link.sendFanart(artist, bytes);
         if (localGallery.length > 1) {
@@ -757,6 +781,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     } catch (e) {
       if (mounted && request == _fanartRequest && _fanartArtist == artist) {
         _fanartLastFailure = DateTime.now();
+        _scheduleFanartRetry(artist);
         setState(() => _fanartBytes = null);
         debugPrint('VYBE fanart lookup failed for $artist: $e');
       }
