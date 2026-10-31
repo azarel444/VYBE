@@ -396,7 +396,13 @@ class NowPlayingModel extends ChangeNotifier {
       _artClearTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
       _needsArt = false;
-      if (art == null || !listEquals(art!.bytes, artBytes)) {
+      // A repeated media-session callback must not overwrite a verified
+      // song-specific upgrade for this same track. The original supplied
+      // image remains available as fallback on the next track or failed lookup.
+      final hasVerifiedSongCover = artworkSource == 'Exact song catalog match' &&
+          !changed && art != null;
+      if (!hasVerifiedSongCover &&
+          (art == null || !listEquals(art!.bytes, artBytes))) {
         _setArt(artBytes);
       }
       // Player artwork is displayed first; a strict song match may upgrade it.
@@ -499,7 +505,9 @@ class NowPlayingModel extends ChangeNotifier {
     artworkStatus = 'Song-specific cover found';
     artworkLookupState = 'Exact artist and song match';
     artworkFailure = 'None';
-    _rememberAlbumArt(bytes, _albumArtKey(artist, album));
+    // A compilation's album tag is shared by unrelated songs. Do not cache
+    // this song-specific cover under that album name, or it can leak to
+    // another track in the compilation.
     _artCache['${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}'] = bytes;
     MediaCache.putArt('${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}', bytes);
     notifyListeners();
