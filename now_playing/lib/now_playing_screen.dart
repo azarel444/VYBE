@@ -1590,9 +1590,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             if (theme == AppSettings.tEditorial) {
               // Muzine: remain entirely within the strip above the record
               // and its grayscale artwork divider.
-              return proportional.clamp(14.0, portrait ? math.min(23.0, h * .028) : math.min(26.0, h * .047));
+              return proportional.clamp(14.0, portrait ? math.min(23.0, h * .028) : math.min(26.0, h * .047)).toDouble();
             }
-            return proportional.clamp(15.0, portrait ? 29.0 : 34.0);
+            return proportional.clamp(15.0, portrait ? 29.0 : 34.0).toDouble();
           }(),
           fontWeight: FontWeight.w500,
           letterSpacing: 0.5,
