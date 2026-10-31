@@ -309,6 +309,54 @@ class ArtistFanartCache {
     return result;
   }
 
+  /// Download Fanart.tv HD music clearlogo, with a persistent offline cache.
+  Future<Uint8List?> getClearLogo(String artist, String projectKey,
+      {String personalKey = ''}) async {
+    if (artist.trim().isEmpty || projectKey.isEmpty) return null;
+    final key = artist.toLowerCase().trim();
+    final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
+    await folder.create(recursive: true);
+    final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
+    final file = File('${folder.path}/$name.clearlogo.png');
+    if (await file.exists()) {
+      try { return await file.readAsBytes(); } catch (_) {}
+    }
+    // Reuse the already-implemented MusicBrainz ID lookup and cache.
+    await get(artist, projectKey, personalKey: personalKey);
+    var ids = _artistIds[key] ?? <String>[];
+    final idFile = File('${folder.path}/$name.ids.json');
+    if (ids.isEmpty && await idFile.exists()) {
+      try {
+        ids = (jsonDecode(await idFile.readAsString()) as List)
+            .whereType<String>().take(2).toList();
+      } catch (_) {}
+    }
+    for (final id in ids.take(2)) {
+      try {
+        final data = await _json(Uri.https('webservice.fanart.tv',
+            '/v3/music/$id', {
+          'api_key': projectKey,
+          if (personalKey.isNotEmpty) 'client_key': personalKey,
+        }));
+        for (final category in ['hdmusiclogo', 'musiclogo']) {
+          final entries = data[category];
+          if (entries is! List) continue;
+          for (final entry in entries) {
+            if (entry is! Map || entry['url'] is! String) continue;
+            final uri = Uri.tryParse(entry['url'] as String);
+            if (uri == null || uri.scheme != 'https') continue;
+            final bytes = await _bytes(uri);
+            if (bytes.isNotEmpty) {
+              await file.writeAsBytes(bytes);
+              return bytes;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> _json(Uri uri) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
     try {
