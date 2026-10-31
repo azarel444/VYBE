@@ -64,7 +64,7 @@ class LocalArtwork {
   /// Music/Prince/fanart2.jpg. Avoid treating album covers as fanart.
   bool _matchesFanart(Map<String, String> entry, String artistKey) {
     final rawName = (entry['name'] ?? '').replaceFirst(
-        RegExp(r'\.(jpg|jpeg|png|webp), '');
+        RegExp(r'\.(jpg|jpeg|png|webp)$', caseSensitive: false), '');
     final file = normalize(rawName);
     final folder = normalize((entry['folder'] ?? '').split('/').last);
     final named = RegExp(
