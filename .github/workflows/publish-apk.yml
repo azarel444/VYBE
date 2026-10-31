@@ -1,0 +1,31 @@
+name: Publish downloadable VYBE APKs
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-apk.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download successful APK artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 41214345656 --name now-playing-apks --dir apk
+          ls -lh apk/*.apk
+      - name: Publish APKs as release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view vybe-latest >/dev/null 2>&1; then
+            gh release create vybe-latest --title "VYBE latest test APKs" --notes "Test build from successful Actions run 41214345656. Download the APK matching your device architecture." --prerelease --latest=false
+          fi
+          gh release upload vybe-latest apk/*.apk --clobber
