@@ -67,13 +67,18 @@ class LocalArtwork {
         RegExp(r'\.(jpg|jpeg|png|webp)$', caseSensitive: false), '');
     final file = normalize(rawName);
     final folder = normalize((entry['folder'] ?? '').split('/').last);
+    // Accept both "Prince fanart.jpg" and "PrinceFanart.jpg", plus
+    // numbered variants such as "PrinceFanart2.jpg".
     final named = RegExp(
       '^' + RegExp.escape(artistKey) +
-      r'(?: (?:fanart|background|artist))?(?: ?[0-9]+)?$',
+      r'(?: ?(?:fanart|background|artist))?(?: ?[0-9]+)?$',
     ).hasMatch(file);
-    final dedicatedFolder = folder == artistKey &&
-        RegExp(r'^(?:fanart|background|artist)(?: ?[0-9]+)?$')
-            .hasMatch(file);
+    // A dedicated fanart folder may contain Artist.jpg or ArtistFanart.jpg.
+    final dedicatedFolder = (folder == 'fanart' || folder == 'fan art' ||
+            folder == 'artist fanart') && named ||
+        folder == artistKey &&
+            RegExp(r'^(?:fanart|background|artist)(?: ?[0-9]+)?$')
+                .hasMatch(file);
     return named || dedicatedFolder;
   }
 
