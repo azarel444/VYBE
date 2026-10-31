@@ -46,7 +46,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final settings = AppSettings();
   final sim = SpectrumSim();
   final _fanart = ArtistFanartCache();
-  Uint8List? _fanartBytes;
+  Uint8List? _fanartBytes;\n  Uint8List? _clearLogoBytes;\n  String _clearLogoArtist = '';\n  int _clearLogoRequest = 0;
   List<Uint8List> _fanartGallery = [];
   Timer? _fanartCycleTimer;
   int _activeFanartCycleSeconds = 0;
@@ -634,6 +634,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // ---------------------------------------------------------------- background
 
+  Future<void> _loadClearLogo() async {
+    final artist = model.artist.trim();
+    if (!settings.useArtistClearLogo || artist.isEmpty) {
+      if (_clearLogoBytes != null || _clearLogoArtist.isNotEmpty) {
+        ++_clearLogoRequest;
+        _clearLogoArtist = '';
+        setState(() => _clearLogoBytes = null);
+      }
+      return;
+    }
+    if (_clearLogoArtist == artist) return;
+    _clearLogoArtist = artist;
+    final request = ++_clearLogoRequest;
+    if (_clearLogoBytes != null) setState(() => _clearLogoBytes = null);
+    Uint8List? bytes = await LocalArtwork.instance.clearLogo(artist);
+    if (bytes == null && settings.fanartProjectKey.isNotEmpty) {
+      bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
+          personalKey: settings.fanartApiKey);
+    }
+    if (mounted && request == _clearLogoRequest && _clearLogoArtist == artist) {
+      setState(() => _clearLogoBytes = bytes);
+    }
+  }
+
   void _startFanartCycle() {
     final seconds = settings.fanartCycleSeconds.clamp(5, 300);
     if (_fanartCycleTimer?.isActive == true && _activeFanartCycleSeconds == seconds) return;
@@ -654,6 +678,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Future<void> _loadFanart() async {
+    _loadClearLogo();
     final artist = model.artist.trim();
     final link = VybeLink.instance;
     if (!widget.driveHost && link.enabled && link.role == 'receiver') {
@@ -4226,12 +4251,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         a,
       ));
 
-  Widget _artist(double size, Alignment a, bool vhs) => _shaded(_fit(
+  Widget _artist(double size, Alignment a, bool vhs) {
+    if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
+      return _shaded(_fit(
+        Image.memory(_clearLogoBytes!, gaplessPlayback: true,
+          height: size * 2.3 * settings.artistLogoScale,
+          fit: BoxFit.contain, filterQuality: FilterQuality.medium),
+        a));
+    }
+    return _shaded(_fit(
         (vhs || _vhsOn)
             ? _split((c) => _artistText(size, color: c), main: Colors.white70)
             : _artistText(size),
         a,
       ));
+  }
 
   /// RGB split: a pink and a cyan ghost behind the sharp text.
   Widget _split(Widget Function(Color) build, {Color main = Colors.white}) {
