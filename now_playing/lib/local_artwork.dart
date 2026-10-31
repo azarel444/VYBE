@@ -59,23 +59,40 @@ class LocalArtwork {
     return _files.length;
   }
 
-  Future<Uint8List?> fanart(String artist) async {
+  /// Exact artist match with optional numeric suffixes, never a loose prefix.
+  /// Examples: Prince.jpg, Prince2.jpg, Prince fanart 3.jpg, or
+  /// Music/Prince/fanart2.jpg. Avoid treating album covers as fanart.
+  bool _matchesFanart(Map<String, String> entry, String artistKey) {
+    final rawName = (entry['name'] ?? '').replaceFirst(
+        RegExp(r'\\.(jpg|jpeg|png|webp)$', caseSensitive: false), '');
+    final file = normalize(rawName);
+    final folder = normalize((entry['folder'] ?? '').split('/').last);
+    final named = RegExp(
+      '^' + RegExp.escape(artistKey) +
+      r'(?: (?:fanart|background|artist))?(?: ?[0-9]+)?$',
+    ).hasMatch(file);
+    final dedicatedFolder = folder == artistKey &&
+        RegExp(r'^(?:fanart|background|artist)(?: ?[0-9]+)?$')
+            .hasMatch(file);
+    return named || dedicatedFolder;
+  }
+
+  Future<List<Uint8List>> fanartGallery(String artist) async {
     await load();
     final key = normalize(artist);
-    if (key.isEmpty) return null;
-    // Only accept a specifically named artist background, not a random
-    // cover from an artist's album folder.
-    for (final entry in _files) {
-      final file = normalize((entry['name'] ?? '').replaceFirst(
-        RegExp(r'\.(jpg|jpeg|png|webp)$', caseSensitive: false), ''));
-      final folder = normalize((entry['folder'] ?? '').split('/').last);
-      final named = file == key || file == '${key} fanart' ||
-          file == '${key} background' || file == '${key} artist';
-      final dedicatedFolder = folder == key &&
-          (file == 'fanart' || file == 'artist' || file == 'background');
-      if (named || dedicatedFolder) return _read(entry);
+    if (key.isEmpty) return [];
+    final matches = _files.where((entry) => _matchesFanart(entry, key));
+    final images = <Uint8List>[];
+    for (final entry in matches) {
+      final bytes = await _read(entry);
+      if (bytes != null && bytes.isNotEmpty) images.add(bytes);
     }
-    return null;
+    return images;
+  }
+
+  Future<Uint8List?> fanart(String artist) async {
+    final gallery = await fanartGallery(artist);
+    return gallery.isEmpty ? null : gallery.first;
   }
 
   Future<Uint8List?> albumArt(String artist, String album) async {
