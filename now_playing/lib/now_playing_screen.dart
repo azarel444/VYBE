@@ -3757,8 +3757,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       return Text(
         settings.lyrics
             ? '♪'
-            : 'Lyrics are off.
-Turn them on in Settings.',
+            : 'Lyrics are off.\\nTurn them on in Settings.',
         textAlign: ta,
         style: TextStyle(
           fontSize: center ? h * 0.026 : h * 0.036,
