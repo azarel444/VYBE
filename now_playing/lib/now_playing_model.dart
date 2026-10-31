@@ -496,8 +496,13 @@ class NowPlayingModel extends ChangeNotifier {
         title.trim().isEmpty || artist.trim().isEmpty) return;
     final requestedTitle = title;
     final requestedArtist = artist;
-    // A failed/offline lookup never removes the artwork already displayed.
-    final bytes = await fetchSongSpecificArtwork(requestedTitle, requestedArtist);
+    // Keep the media-session (including compilation) cover visible while
+    // checking for a verified artist + song replacement. Reuse only a
+    // track-specific cache entry: album-level caches may hold compilation art.
+    final songKey = '${requestedArtist.trim().toLowerCase()}|${requestedTitle.trim().toLowerCase()}';
+    Uint8List? bytes = _artCache[songKey];
+    bytes ??= await MediaCache.getArt(songKey);
+    bytes ??= await fetchSongSpecificArtwork(requestedTitle, requestedArtist);
     if (bytes == null || expectedTrack != _trackKey) return;
     final decoded = await ArtAssets.load(bytes);
     if (decoded == null || decoded.flat || expectedTrack != _trackKey) return;
