@@ -220,6 +220,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _brightnessChannel.invokeMethod<void>('setNight', false).catchError((Object _) {});
     _clockTimer?.cancel();
     _fanartCycleTimer?.cancel();
+    _fanartRetryTimer?.cancel();
     _dirTimer?.cancel();
     _noise?.dispose();
     _recAngle.dispose();
