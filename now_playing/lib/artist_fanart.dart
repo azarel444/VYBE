@@ -346,7 +346,7 @@ class ArtistFanartCache {
             final uri = Uri.tryParse(entry['url'] as String);
             if (uri == null || uri.scheme != 'https') continue;
             final bytes = await _bytes(uri);
-            if (bytes.isNotEmpty) {
+            if (bytes != null && bytes.isNotEmpty) {
               await file.writeAsBytes(bytes);
               return bytes;
             }
