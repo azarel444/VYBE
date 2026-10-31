@@ -52,3 +52,17 @@ jobs:
         with:
           name: now-playing-apks
           path: now_playing/build/app/outputs/flutter-apk/*.apk
+      - name: Show APK download link on build summary
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "## VYBE APKs — ready to download" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Build:** ${GITHUB_RUN_NUMBER} · **Commit:** ${GITHUB_SHA:0:7}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### [Download APKs from this build](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID#artifacts)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Under **Artifacts**, tap **now-playing-apks** to download the APK ZIP, just as before." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This build includes all changes up to commit \`${GITHUB_SHA:0:7}\`." >> "$GITHUB_STEP_SUMMARY"
