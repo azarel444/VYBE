@@ -10,7 +10,7 @@ class LocalArtwork {
   static const _channel = MethodChannel('vybe/local_art');
   final List<Map<String, String>> _files = [];
   bool _loaded = false;
-  bool _rescanAttempted = false;
+  final Set<String> _rescanAttemptedFor = <String>{};
   String status = 'No local artwork scan yet';
   int get count => _files.length;
 
@@ -53,6 +53,7 @@ class LocalArtwork {
       if (item is Map) next.add(Map<String, String>.from(item));
     }
     _files..clear()..addAll(next);
+    _rescanAttemptedFor.clear();
     _loaded = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('localArtworkIndex', jsonEncode(_files));
@@ -83,8 +84,7 @@ class LocalArtwork {
     final key = normalize(artist);
     if (key.isEmpty) return [];
     var matches = _files.where((entry) => _matchesFanart(entry, key)).toList();
-    if (matches.isEmpty && !_rescanAttempted) {
-      _rescanAttempted = true;
+    if (matches.isEmpty && _rescanAttemptedFor.add('fanart:$key')) {
       try {
         await scan();
         matches = _files.where((entry) => _matchesFanart(entry, key)).toList();
@@ -97,7 +97,11 @@ class LocalArtwork {
       final bytes = await _read(entry);
       if (bytes != null && bytes.isNotEmpty) images.add(bytes);
     }
-    if (matches.isNotEmpty && images.isEmpty) {
+    if (matches.isEmpty) {
+      status = 'No local fanart matches for $artist in ${_files.length} indexed images';
+    } else if (images.isNotEmpty) {
+      status = 'Loaded ${images.length} local fanart images for $artist';
+    } else if (matches.isNotEmpty && images.isEmpty) {
       status = 'Found ${matches.length} fanart files for $artist but could not read them';
     }
     return images;
@@ -126,8 +130,7 @@ class LocalArtwork {
           compactName == '${compactArtist}logo' ||
           (folder == key && (compactName == 'clearlogo' || compactName == 'logo'));
     }).toList();
-    if (matches.isEmpty && !_rescanAttempted) {
-      _rescanAttempted = true;
+    if (matches.isEmpty && _rescanAttemptedFor.add('logo:$key')) {
       try {
         await scan();
         matches = _files.where((entry) {
