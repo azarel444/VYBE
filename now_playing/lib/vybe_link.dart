@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'native_preferences.dart';
 import 'now_playing_model.dart';
 import 'vybe_link_discovery.dart';
+import 'local_artwork.dart';
 
 /// Local-network beta. Pair a receiver once, then rediscover its IP across
 /// sessions. A reachable IP network is still required (LAN, Wi-Fi Direct or
@@ -36,6 +37,10 @@ class VybeLink extends ChangeNotifier {
   StreamSubscription? _socketSub;
   Timer? _retry;
   Timer? _connectionWatchdog;
+  Timer? _heartbeat;
+  int _lastPeerResponse = 0;
+  String _localCoverTrack = '';
+  bool _localCoverAvailable = false;
   bool _connecting = false;
   bool _initialized = false;
   Timer? _sendTimer;
@@ -180,7 +185,18 @@ class VybeLink extends ChangeNotifier {
     // Android/network transitions may not generate a socket close event.
     // Periodically recover a missing connection without user interaction.
     _connectionWatchdog?.cancel();
-    _connectionWatchdog = Timer.periodic(const Duration(seconds: 12), (_) {
+    _connectionWatchdog = Timer.periodic(const Duration(seconds: 3), (_) {
+      final peer = _socket;
+      if (peer != null) {
+        if (DateTime.now().millisecondsSinceEpoch - _lastPeerResponse > 11000) {
+          if (role == 'sender') _senderDisconnected(peer);
+          else _receiverDisconnected(peer);
+          peer.destroy();
+          return;
+        }
+        try { peer.writeln(jsonEncode({'v': 2, 'kind': 'ping'})); }
+        catch (_) { if (role == 'sender') _senderDisconnected(peer); else _receiverDisconnected(peer); }
+      }
       if (!enabled || !autoConnect || _connecting || _retry?.isActive == true) return;
       if (role == 'sender' && _socket == null) connect();
       if (role == 'receiver' && _server == null) connect();
@@ -293,6 +309,7 @@ class VybeLink extends ChangeNotifier {
     _retry?.cancel(); _retry = null;
     _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
+    _lastPeerResponse = 0;
     await _socketSub?.cancel(); _socketSub = null;
     await _responder?.close(); _responder = null;
     _socket?.destroy(); _socket = null;
@@ -340,6 +357,7 @@ class VybeLink extends ChangeNotifier {
           _socketSub?.cancel();
           _socket?.destroy();
           _socket = client;
+          _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
           status = 'Connected to ${client.remoteAddress.address}';
           _model?.setLinkReceiverActive(true);
           notifyListeners();
@@ -415,6 +433,7 @@ class VybeLink extends ChangeNotifier {
     }
 
     _socket = socket;
+    _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
     receiverAddress = address;
     // A working manual-IP connection is a valid pairing even when UDP
     // discovery or the optional receiver hello is blocked by the head unit.
@@ -441,7 +460,10 @@ class VybeLink extends ChangeNotifier {
       if (!identical(_socket, peer) || generation != _generation) return;
       try {
         final data = jsonDecode(line);
-        if (data is! Map || data['kind'] != 'hello' || data['v'] != 2) return;
+        if (data is! Map || data['v'] != 2) return;
+        _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
+        if (data['kind'] == 'ping') { peer.writeln(jsonEncode({'v': 2, 'kind': 'pong'})); return; }
+        if (data['kind'] != 'hello') return;
         final id = (data['id'] as String?) ?? '';
         if (id.length < 16 || id.length > 128) return;
         if (pairedReceiverId.isNotEmpty && pairedReceiverId != id) {
@@ -583,10 +605,29 @@ class VybeLink extends ChangeNotifier {
     try {
       final data = jsonDecode(line);
       if (data is! Map || data['v'] != 2) return;
+      _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
+      if (data['kind'] == 'ping') { _socket?.writeln(jsonEncode({'v': 2, 'kind': 'pong'})); return; }
+      if (data['kind'] == 'pong') return;
       final track = data['track'] is String ? data['track'] as String : '';
       if (data['kind'] == 'meta') {
         final changed = track != lastReceivedTrack;
-        if (changed) { lastReceivedTrack = track; artworkStatus = 'Waiting for sender artwork'; _rxGeneration++; }
+        if (changed) {
+          lastReceivedTrack = track;
+          artworkStatus = 'Checking local artwork';
+          _rxGeneration++;
+          _localCoverTrack = track;
+          _localCoverAvailable = false;
+          final token = _rxGeneration;
+          final artist = data['artist'] is String ? data['artist'] as String : '';
+          final album = data['album'] is String ? data['album'] as String : '';
+          LocalArtwork.instance.albumArt(artist, album).then((bytes) {
+            if (token != _rxGeneration || track != lastReceivedTrack || bytes == null || bytes.isEmpty) return;
+            _localCoverAvailable = true;
+            _model?.applyLinkArtwork(bytes);
+            artworkStatus = 'Local album artwork';
+            notifyListeners();
+          });
+        }
         final incomingArtist = data['artist'] is String ? data['artist'] as String : '';
         if (incomingArtist != receivedFanartArtist) {
           receivedFanart = null; receivedFanartArtist = incomingArtist; notifyListeners();
@@ -612,7 +653,7 @@ class VybeLink extends ChangeNotifier {
         try {
           final bytes = base64Decode(data['art'] as String);
           if (track != lastReceivedTrack) return;
-          _model?.applyLinkArtwork(bytes);
+          if (!_localCoverAvailable) _model?.applyLinkArtwork(bytes);
           artworkReceived++;
           artworkStatus = 'Received (${(bytes.length / 1024).round()} KB)';
           notifyListeners();
@@ -623,7 +664,7 @@ class VybeLink extends ChangeNotifier {
   Future<void> stop() async { await configure(isEnabled: false); }
   @override
   void dispose() {
-    _retry?.cancel(); _connectionWatchdog?.cancel();
+    _retry?.cancel(); _connectionWatchdog?.cancel(); _heartbeat?.cancel();
     _sendTimer?.cancel(); _helloTimer?.cancel();
     _model?.removeListener(_onModel);
     _socketSub?.cancel(); _socket?.destroy(); _server?.close();
