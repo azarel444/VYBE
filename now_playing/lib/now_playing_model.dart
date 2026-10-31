@@ -390,17 +390,21 @@ class NowPlayingModel extends ChangeNotifier {
     // Shared playlist artwork remains usable offline; never reject it
     // merely because several tracks carry identical image bytes.
     if (artBytes is Uint8List && artBytes.isNotEmpty) {
+      // Capture the current source before updating diagnostics. Repeated
+      // media-session callbacks must not undo a verified song-specific cover.
+      final hasVerifiedSongCover = artworkSource == 'Exact song catalog match' &&
+          !changed && art != null;
       sessionArtworkStatus = 'Received ${artBytes.length} bytes';
-      artworkSource = 'Android media session';
-      artworkStatus = 'Android media session artwork';
+      if (!hasVerifiedSongCover) {
+        artworkSource = 'Android media session';
+        artworkStatus = 'Android media session artwork';
+      }
       _artClearTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
       _needsArt = false;
       // A repeated media-session callback must not overwrite a verified
       // song-specific upgrade for this same track. The original supplied
       // image remains available as fallback on the next track or failed lookup.
-      final hasVerifiedSongCover = artworkSource == 'Exact song catalog match' &&
-          !changed && art != null;
       if (!hasVerifiedSongCover &&
           (art == null || !listEquals(art!.bytes, artBytes))) {
         _setArt(artBytes);
