@@ -257,7 +257,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void _onLinkFanart() {
     if (!mounted || VybeLink.instance.role != 'receiver') return;
     final link = VybeLink.instance;
-    if (link.receivedFanartArtist != model.artist) return;
+    if (link.receivedFanartArtist != model.artist ||
+        (_fanartGalleryIsLocal && _fanartArtist == model.artist && _fanartGallery.isNotEmpty)) return;
     final incoming = link.receivedFanart;
     if (!identical(incoming, _fanartBytes)) {
       _fanartArtist = model.artist;
@@ -742,7 +743,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final artist = model.artist.trim();
     final link = VybeLink.instance;
     if (!widget.driveHost && link.enabled && link.role == 'receiver') {
-      if (link.receivedFanartArtist == artist) _onLinkFanart();
+      if (_fanartArtist == artist && _fanartGalleryIsLocal && _fanartGallery.isNotEmpty) return;
+      if (_fanartLoadingArtist == artist) return;
+      if (_fanartArtist != artist) {
+        _fanartArtist = artist;
+        _fanartGallery = [];
+        _fanartGalleryIsLocal = false;
+        _fanartCycleTimer?.cancel();
+        _fanartLoadingArtist = artist;
+        final request = ++_fanartRequest;
+        LocalArtwork.instance.fanartGallery(artist).then((gallery) {
+          if (!mounted || request != _fanartRequest || _fanartArtist != artist) return;
+          if (gallery.isNotEmpty) {
+            _fanartGallery = gallery;
+            _fanartGalleryIsLocal = true;
+            _fanartGalleryIndex = _fanartRandom.nextInt(gallery.length);
+            setState(() => _fanartBytes = gallery[_fanartGalleryIndex]);
+            if (gallery.length > 1) _startFanartCycle();
+          } else {
+            _onLinkFanart();
+          }
+        }).whenComplete(() { if (_fanartLoadingArtist == artist) _fanartLoadingArtist = ''; });
+      } else {
+        _onLinkFanart();
+      }
       return;
     }
     // Keep fetching artist backgrounds for the head unit even when the
@@ -1560,7 +1584,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: Center(widthFactor: centered ? null : 1, heightFactor: 1,
           child: Text(value, style: TextStyle(
           color: Colors.white.withOpacity(0.93),
-          fontSize: portrait ? 17 : 19,
+          fontSize: () {
+            // Scale with logical screen height, constrained by each layout.
+            final proportional = h * (portrait ? .027 : .044);
+            if (theme == AppSettings.tEditorial) {
+              // Muzine: remain entirely within the strip above the record
+              // and its grayscale artwork divider.
+              return proportional.clamp(14.0, portrait ? math.min(23.0, h * .028) : math.min(26.0, h * .047));
+            }
+            return proportional.clamp(15.0, portrait ? 29.0 : 34.0);
+          }(),
           fontWeight: FontWeight.w500,
           letterSpacing: 0.5,
           fontFeatures: const [ui.FontFeature.tabularFigures()],
