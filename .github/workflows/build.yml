@@ -34,7 +34,17 @@ jobs:
         run: |
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' android/app/build.gradle* || true
 
-      - name: Install Android NDK with retry\n        run: |\n          for attempt in 1 2 3; do\n            yes | sdkmanager --install 'ndk;28.2.13676358' && break\n            echo "NDK installation attempt $attempt failed; clearing partial download"\n            rm -rf "$ANDROID_HOME/ndk/28.2.13676358"\n            sleep 15\n          done\n          test -f "$ANDROID_HOME/ndk/28.2.13676358/source.properties"\n\n      - run: flutter pub get
+      - name: Install Android NDK with retry
+        run: |
+          for attempt in 1 2 3; do
+            sdkmanager --install 'ndk;28.2.13676358' < /dev/null && break
+            echo "NDK installation attempt $attempt failed; clearing partial download"
+            rm -rf "$ANDROID_HOME/ndk/28.2.13676358"
+            sleep 15
+          done
+          test -f "$ANDROID_HOME/ndk/28.2.13676358/source.properties"
+
+      - run: flutter pub get
 
       - run: flutter build apk --release --split-per-abi
 
