@@ -697,7 +697,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fanartLoadingArtist = artist;
     final request = ++_fanartRequest;
     try {
-      final localBytes = await LocalArtwork.instance.fanart(artist);
+      final localGallery = await LocalArtwork.instance.fanartGallery(artist);
+      final localBytes = localGallery.isEmpty ? null : localGallery.first;
       final bytes = localBytes ?? (settings.fanartProjectKey.isEmpty ? null :
           await _fanart.get(artist, settings.fanartProjectKey,
               personalKey: settings.fanartApiKey));
@@ -705,6 +706,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         _fanartLastFailure = bytes == null ? DateTime.now() : null;
         setState(() => _fanartBytes = bytes);
         if (linkSender && bytes != null) link.sendFanart(artist, bytes);
+        if (localGallery.length > 1) {
+          _fanartGallery = localGallery;
+          _fanartGalleryIndex = 0;
+          _startFanartCycle();
+        }
         if (localBytes == null && bytes != null && settings.fanartProjectKey.isNotEmpty) {
           // Gallery retrieval runs after the first background is visible.
           // A slow additional download must never delay normal fanart.
