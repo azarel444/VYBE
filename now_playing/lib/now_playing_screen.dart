@@ -4432,15 +4432,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
-  Text _albumText(double size) => Text(
-        model.album.toUpperCase(),
-        maxLines: 1,
-        style: TextStyle(
-          fontSize: size,
-          fontWeight: FontWeight.w400,
-          letterSpacing: size * 0.38,
-          color: _readableText(_nearWhiteText ? .70 : .45),
-          shadows: _cleanTextShadows,
+  TextStyle _albumLabelTextStyle(double size) => TextStyle(
+        fontSize: size,
+        fontWeight: FontWeight.w500,
+        letterSpacing: size * 0.23,
+        color: Colors.white,
+      );
+
+  // Compact high-contrast album label; never stretch the black backing
+  // across the entire metadata panel.
+  Widget _albumText(double size) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Text(model.album.toUpperCase(), maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _albumLabelTextStyle(size)),
         ),
       );
 
@@ -4452,11 +4462,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           style: _titleText(size).style),
       ));
 
-  Widget _fixedAlbum(double size, Alignment align) => _shaded(Align(
+  Widget _fixedAlbum(double size, Alignment align) => Align(
         alignment: align,
-        child: Text(model.album.toUpperCase(), maxLines: 1,
-          overflow: TextOverflow.ellipsis, style: _albumText(size).style),
-      ));
+        child: _albumText(size),
+      );
 
   Widget _title(double size, Alignment a, bool vhs) => _shaded(_fit(
         (vhs || _vhsOn) ? _split((c) => _titleText(size, color: c)) : _titleText(size),
