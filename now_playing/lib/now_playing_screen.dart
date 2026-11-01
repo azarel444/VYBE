@@ -777,7 +777,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         settings.theme == AppSettings.tEditorial;
     final needsLocalFanart = isFanartTheme
         ? !settings.fanartOverride
-        : settings.backgroundSource == 6;
+        : settings.backgroundSource == 6 ||
+            (settings.backgroundSource == 0 && settings.fanartMode == 1);
     final needsFanart = needsLocalFanart || linkSender;
     if (!needsFanart || artist.isEmpty) {
       _fanartRetryTimer?.cancel();
@@ -976,7 +977,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _albumBackdrop() {
-    if (settings.backgroundSource == 6 && _fanartBytes != null) {
+    if ((settings.backgroundSource == 6 ||
+        (settings.backgroundSource == 0 && settings.fanartMode == 1)) &&
+        _fanartBytes != null) {
       return Stack(fit: StackFit.expand, children: [
         // Fanart was unblurred before this setting. Keep that original look
         // at the default value while allowing additional softening.
@@ -1527,8 +1530,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 8: // Typo: clock gets its own camera-safe header above the title.
           topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
-        case 11: // Editorial: upper-right pocket beside the angled sleeve.
-          topInset = h * .162;
+        case 11: // Muzine: allow a larger clock above and left of the sleeve.
+          topInset = h * .075;
+          onRight = false;
           break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
@@ -1565,7 +1569,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (typoLyricsCentered) topInset = 22.0;
     final inset = theme == AppSettings.tEditorial && !portrait
         ? w * .022 : (portrait ? 18.0 : 30.0);
-    if (theme == AppSettings.tEditorial && !portrait) topInset = h * .055;
+    if (theme == AppSettings.tEditorial && !portrait) topInset = h * .018;
     // Muzine's clock stays in the grayscale strip above the record.
     // Unlike the composition, this clock is rendered OUTSIDE the mirroring
     // transform: mirror its own anchor when the sleeve is on the right.
@@ -1573,26 +1577,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final editorialFlipped = editorialLandscape && settings.layoutSwap;
     return Positioned(
       left: centered ? 0 : (editorialLandscape
-          ? (editorialFlipped ? w * .81 : null)
+          ? (editorialFlipped ? w * .66 : w * .012)
           : (onRight ? null : inset)),
       right: centered ? 0 : (editorialLandscape
-          ? (editorialFlipped ? null : w * .81)
+          ? (editorialFlipped ? w * .012 : w * .66)
           : (onRight ? inset : null)),
       top: bottomInset == null ? topInset : null,
       bottom: bottomInset,
       child: IgnorePointer(
-        child: Center(widthFactor: centered ? null : 1, heightFactor: 1,
+        child: Center(widthFactor: editorialLandscape || centered ? null : 1, heightFactor: 1,
           child: Text(value, style: TextStyle(
           color: Colors.white.withOpacity(0.93),
           fontSize: () {
-            // Scale with logical screen height, constrained by each layout.
-            final proportional = h * (portrait ? .027 : .044);
+            // Scale with the music typography, not a fixed 26px cap. The
+            // ATOTO reports fewer logical pixels than a phone, so a minimum
+            // readable clock size is essential. Muzine may move into the
+            // available upper-left space rather than shrinking to the strip.
             if (theme == AppSettings.tEditorial) {
-              // Muzine: remain entirely within the strip above the record
-              // and its grayscale artwork divider.
-              return proportional.clamp(14.0, portrait ? math.min(23.0, h * .028) : math.min(26.0, h * .047)).toDouble();
+              return (h * (portrait ? .044 : .073))
+                  .clamp(portrait ? 28.0 : 26.0, portrait ? 46.0 : 52.0)
+                  .toDouble();
             }
-            return proportional.clamp(15.0, portrait ? 29.0 : 34.0).toDouble();
+            return (h * (portrait ? .038 : .058))
+                .clamp(portrait ? 25.0 : 24.0, portrait ? 44.0 : 48.0)
+                .toDouble();
           }(),
           fontWeight: FontWeight.w500,
           letterSpacing: 0.5,
@@ -2192,9 +2200,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // One clock only, in the same responsive column as the artwork and
       // metadata. It stays above the art as the map opening changes height.
       final cameraTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
-      final availableTop = h * 0.425;
-      final topSpace = math.max(cameraTop + 12.0, h * 0.065);
-      final reservedText = h * 0.065 + (settings.showClock ? 36.0 : 0.0);
+      final availableTop = h * 0.50;
+      final topSpace = math.max(cameraTop, h * 0.055);
+      final hasLogo = settings.useArtistClearLogo && _clearLogoBytes != null;
+      final reservedText = h * 0.075 + (settings.showClock ? h * 0.055 : 0.0) +
+          (hasLogo ? h * 0.09 : h * 0.03);
       final artSide = math.max(48.0,
         math.min(math.min(w * 0.48, h * 0.225),
           availableTop - topSpace - reservedText)).toDouble();
@@ -2204,16 +2214,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           SizedBox(height: topSpace),
           if (settings.showClock) ...[
             Text(_clockLabel(), textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 14,
+              style: TextStyle(color: Colors.white,
+                fontSize: (h * .043).clamp(24.0, 46.0).toDouble(),
                 fontWeight: FontWeight.w500,
-                shadows: [Shadow(color: Colors.black, blurRadius: 8)])),
-            SizedBox(height: 10),
+                shadows: const [Shadow(color: Colors.black, blurRadius: 8)])),
+            SizedBox(height: h * .007),
+          ],
+          if (hasLogo) ...[
+            SizedBox(width: w * .82, height: h * .09,
+              child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+                gaplessPlayback: true, filterQuality: FilterQuality.medium)),
+            SizedBox(height: h * .006),
           ],
           _driveArtwork(artSide),
           SizedBox(height: h * 0.012),
           _title(h * 0.031, Alignment.center, false),
-          SizedBox(height: h * 0.004),
-          _artist(h * 0.017, Alignment.center, false),
+          if (!hasLogo) ...[
+            SizedBox(height: h * 0.004),
+            _artist(h * 0.017, Alignment.center, false),
+          ],
         ]),
       );
       if (host) {
@@ -2237,12 +2256,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final m = h * 0.04;
     final panelW = math.max(1.0, w - hole.width - m * 2).toDouble();
     final infoW = panelW * 0.92;
-    final d = math.min(infoW * 0.9, h * 0.42).toDouble();
+    final d = math.min(infoW * 0.9, h * 0.33).toDouble();
     final reserve = settings.visualizer ? h * settings.driveBarsH * 0.75 : h * 0.03;
     final panel = Positioned(
       left: swap ? hole.right + m : 0,
       width: panelW,
-      top: h * 0.02,
+      top: h * 0.11,
       bottom: reserve,
       child: Center(
         child: FittedBox(
@@ -2252,16 +2271,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (settings.showClock) ...[
-                  Text(_clockLabel(), textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      shadows: [Shadow(color: Colors.black, blurRadius: 8)])),
-                  SizedBox(height: h * 0.018),
+                if (settings.useArtistClearLogo && _clearLogoBytes != null) ...[
+                  SizedBox(width: infoW * .9, height: h * .15,
+                    child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+                      gaplessPlayback: true, filterQuality: FilterQuality.medium)),
+                  SizedBox(height: h * .008),
                 ],
                 _title(h * 0.05, Alignment.center, false),
-                SizedBox(height: h * 0.008),
-                _artist(h * 0.026, Alignment.center, false),
+                if (!settings.useArtistClearLogo || _clearLogoBytes == null) ...[
+                  SizedBox(height: h * 0.008),
+                  _artist(h * 0.026, Alignment.center, false),
+                ],
                 if (model.album.isNotEmpty && model.album != model.title) ...[
                   SizedBox(height: h * 0.008),
                   _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
@@ -2282,6 +2302,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       fit: StackFit.expand,
       children: [
         panel,
+        if (settings.showClock)
+          Positioned(left: swap ? hole.right + m : 0, width: panelW,
+            top: math.max(6.0, MediaQuery.of(context).viewPadding.top),
+            child: IgnorePointer(child: Text(_clockLabel(),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white,
+                fontSize: (h * .065).clamp(24.0, 44.0).toDouble(),
+                fontWeight: FontWeight.w500,
+                shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))),
         if (!host) ...[
           Positioned.fromRect(rect: hole, child: _driveFrame(h)),
           _driveBottomBars(w, h, hole),
