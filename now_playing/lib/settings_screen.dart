@@ -214,6 +214,49 @@ class SettingsScreen extends StatelessWidget {
           'Rescan', () async {
             await showLocalArtworkScan(context);
           }),
+      _action('Diagnose local fanart',
+          'Check matching images and whether this theme will display them',
+          'Test fanart', () async {
+            final artist = model.artist.trim();
+            String report;
+            if (artist.isEmpty) {
+              report = 'Play a song with an artist name, then run this check.';
+            } else {
+              try {
+                final gallery = await LocalArtwork.instance.fanartGallery(artist);
+                final isFanartTheme = s.theme == AppSettings.tCinematic ||
+                    s.theme == AppSettings.tEditorial;
+                final enabled = isFanartTheme
+                    ? !s.fanartOverride
+                    : s.backgroundSource == 6 ||
+                        (s.backgroundSource == 0 && s.fanartMode == 1);
+                report = 'Artist: $artist\n'
+                    'Indexed images: ${LocalArtwork.instance.count}\n'
+                    'Readable matching fanart: ${gallery.length}\n'
+                    'Current theme uses fanart: ${enabled ? "yes" : "no"}\n'
+                    'Scan status: ${LocalArtwork.instance.status}\n\n'
+                    'Expected filenames: artistnamefanart.jpg, '
+                    'artistnamefanart2.jpg, or Artist/fanart.jpg. '
+                    'Select the parent music folder and rescan after adding files.';
+              } catch (error) {
+                report = 'Local fanart lookup failed for $artist: $error';
+              }
+            }
+            if (!context.mounted) return;
+            await showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Local fanart diagnostics'),
+                content: SingleChildScrollView(child: SelectableText(report)),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            );
+          }),
       _section('Auto-launch diagnostics'),
       _action('Inspect auto-launch events',
           'Playback and track-change events, launch attempts, and suppression reasons',
