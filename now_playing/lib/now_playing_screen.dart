@@ -2043,13 +2043,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: textCrossAlignment,
                     children: [
-                      _artist(u * 0.032, textAlignment, vhs),
-                      SizedBox(height: u * 0.012),
-                      _title(u * 0.085, textAlignment, vhs),
+                      _artist(u * 0.052, textAlignment, vhs),
+                      SizedBox(height: u * 0.009),
+                      _fixedTitle(u * 0.044, textAlignment),
                       if (model.album.isNotEmpty &&
                           model.album != model.title) ...[
-                        SizedBox(height: u * 0.012),
-                        _shaded(_fit(_albumText(u * 0.028), textAlignment)),
+                        SizedBox(height: u * 0.006),
+                        _fixedAlbum(u * 0.032, textAlignment),
                       ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(u)),
@@ -2126,12 +2126,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   children: [
                     _artWithReflection(s, vhs: vhs),
                     SizedBox(height: gap * 2),
-                    _title(h * 0.05, Alignment.center, vhs),
-                    SizedBox(height: h * 0.01),
-                    _artist(h * 0.022, Alignment.center, vhs),
+                    _artist(h * 0.044, Alignment.center, vhs),
+                    SizedBox(height: h * 0.009),
+                    _fixedTitle(h * 0.037, Alignment.center),
                     if (showAlbum) ...[
                       SizedBox(height: h * 0.008),
-                      _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
+                      _fixedAlbum(h * 0.026, Alignment.center),
                     ],
                     if (_hasLyrics) ...[
                       SizedBox(height: _lyricGap(h)),
@@ -2556,9 +2556,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _title(h * 0.05, Alignment.center, false),
-                    SizedBox(height: h * 0.01),
-                    _artist(h * 0.022, Alignment.center, false),
+                    _artist(h * 0.044, Alignment.center, false),
+                    SizedBox(height: h * 0.009),
+                    _title(h * 0.037, Alignment.center, false),
                     if (_hasLyrics) ...[
                       SizedBox(height: _lyricGap(h)),
                       _lyricBlock(h * 0.75, Alignment.center, vhs: false),
@@ -3042,9 +3042,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _title(h * 0.05, Alignment.center, false),
-                      SizedBox(height: h * 0.01),
-                      _artist(h * 0.022, Alignment.center, false),
+                      _artist(h * 0.044, Alignment.center, false),
+                      SizedBox(height: h * 0.009),
+                      _title(h * 0.037, Alignment.center, false),
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(h)),
                         _lyricBlock(h * 0.75, Alignment.center, vhs: false),
@@ -3226,13 +3226,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _title(h * 0.05, Alignment.center, false),
-                      SizedBox(height: h * 0.01),
-                      _artist(h * 0.022, Alignment.center, false),
+                      _artist(h * 0.044, Alignment.center, false),
+                      SizedBox(height: h * 0.009),
+                      _title(h * 0.037, Alignment.center, false),
                       if (model.album.isNotEmpty &&
                           model.album != model.title) ...[
                         SizedBox(height: h * 0.008),
-                        _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
+                        _fixedAlbum(h * 0.026, Alignment.center),
                       ],
                       SizedBox(height: h * 0.035),
                       _fanCards(s),
@@ -3434,9 +3434,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _title(h * 0.05, Alignment.center, false),
-                      SizedBox(height: h * 0.01),
-                      _artist(h * 0.022, Alignment.center, false),
+                      _artist(h * 0.044, Alignment.center, false),
+                      SizedBox(height: h * 0.009),
+                      _title(h * 0.037, Alignment.center, false),
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(h)),
                         _lyricBlock(h * 0.75, Alignment.center, vhs: false),
@@ -3635,7 +3635,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (narrow) {
       artR = math.min(w * 0.27, h * 0.15).toDouble();
       // Give the title group breathing room above the orbit assembly.
-      c = Offset(w / 2, h * 0.57);
+      c = Offset(w / 2, h * 0.585);
     } else {
       artR = math.min(h * 0.29, w * 0.17).toDouble();
       c = Offset(w * (settings.layoutSwap ? 0.74 : 0.26), h / 2);
@@ -3774,12 +3774,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _artist(h * 0.022, Alignment.center, false),
-                    SizedBox(height: h * 0.01),
-                    _title(h * 0.05, Alignment.center, false),
+                    _artist(h * 0.044, Alignment.center, false),
+                    SizedBox(height: h * 0.009),
+                    _title(h * 0.037, Alignment.center, false),
                     if (model.album.isNotEmpty && model.album != model.title) ...[
                       SizedBox(height: h * 0.008),
-                      _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
+                      _fixedAlbum(h * 0.026, Alignment.center),
                     ],
                   ],
                 ),
@@ -3853,8 +3853,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _typoInfoRaw(double h, {required bool center}) {
     final ta = center ? TextAlign.center : TextAlign.right;
     final cross = center ? CrossAxisAlignment.center : CrossAxisAlignment.end;
-    final artistSize = center ? h * 0.022 : h * 0.034;
-    final albumSize = center ? h * 0.018 : h * 0.026;
+    final artistSize = center ? h * 0.047 : h * 0.064;
+    final albumSize = center ? h * 0.026 : h * 0.035;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: cross,
@@ -3883,16 +3883,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: center ? h * 0.06 : h * 0.115,
+            fontSize: center ? h * 0.037 : h * 0.052,
             fontWeight: FontWeight.w300,
             height: 1.05,
             color: _readableText(1),
             shadows: _cleanTextShadows,
           ),
         ),
-        SizedBox(height: h * 0.025),
+        SizedBox(height: h * 0.008),
         if (model.album.isNotEmpty && model.album != model.title) ...[
-          SizedBox(height: h * 0.012),
+          SizedBox(height: h * 0.005),
           Text(
             model.album.toUpperCase(),
             textAlign: ta,
@@ -4413,6 +4413,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
+  // Fixed-size metadata labels: long song/album names ellipsize rather than
+  // shrinking the entire information group to an unreadable size.
+  Widget _fixedTitle(double size, Alignment align) => _shaded(Align(
+        alignment: align,
+        child: Text(_titleStr, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: _titleText(size).style),
+      ));
+
+  Widget _fixedAlbum(double size, Alignment align) => _shaded(Align(
+        alignment: align,
+        child: Text(model.album.toUpperCase(), maxLines: 1,
+          overflow: TextOverflow.ellipsis, style: _albumText(size).style),
+      ));
+
   Widget _title(double size, Alignment a, bool vhs) => _shaded(_fit(
         (vhs || _vhsOn) ? _split((c) => _titleText(size, color: c)) : _titleText(size),
         a,
@@ -4424,12 +4438,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final maxLogoWidth = screen.width * .82;
       final logoHeight = (settings.theme == 0
           ? math.max(size * 2.3, screen.height * (screen.width > screen.height * 1.1 ? .17 : .09))
-          : math.max(size * 4.6, screen.height * .11)) *
+          : math.max(math.min(size * 2.5, screen.height * .17), screen.height * .11)) *
           settings.artistLogoScale;
       return _shaded(ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxLogoWidth),
         child: Image.memory(_clearLogoBytes!, gaplessPlayback: true,
-          height: logoHeight, fit: BoxFit.contain,
+          height: logoHeight, fit: BoxFit.contain, alignment: a,
           filterQuality: FilterQuality.medium)));
     }
     return _shaded(_fit(
