@@ -139,6 +139,8 @@ class MediaListenerService : NotificationListenerService() {
         main.removeCallbacks(autoClose)
         bubble?.hide()
         bubble = null
+        flutterProbe?.hide()
+        flutterProbe = null
         drive?.stop()
         drive = null
         for (w in watches) {
@@ -489,11 +491,37 @@ class MediaListenerService : NotificationListenerService() {
     fun navActiveNow(): Boolean = navigationNotificationActive()
 
     private var bubble: ReturnBubble? = null
+    private var flutterProbe: FlutterDriveProbe? = null
+
+    /**
+     * Opt-in, diagnostic FlutterView overlay (hold the Return tab for 1.6 s).
+     * Maps remains the foreground activity. This is deliberately not the full
+     * Drive theme and never replaces the normal tap action.
+     */
+    fun showFlutterDriveProbe() {
+        main.post {
+            if (!DriveActivity.alive) return@post
+            val probe = flutterProbe ?: FlutterDriveProbe(this) {
+                hideFlutterDriveProbe()
+            }.also { flutterProbe = it }
+            if (probe.show()) {
+                drive?.stop()
+                bubble?.hide()
+            }
+        }
+    }
+
+    fun hideFlutterDriveProbe() {
+        main.post {
+            flutterProbe?.hide()
+            if (DriveActivity.alive) showBubble()
+        }
+    }
 
     /** Shows the small "return to VYBE" button, if the Drive window exists. */
     fun showBubble() {
         main.post {
-            if (!DriveActivity.alive) return@post
+            if (!DriveActivity.alive || flutterProbe?.showing == true) return@post
             if (bubble == null) bubble = ReturnBubble(this)
             bubble?.show()
         }
