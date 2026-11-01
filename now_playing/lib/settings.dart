@@ -388,6 +388,10 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> _saveAppearanceProfiles(SharedPreferences preferences) async {
     if (_dirtyAppearanceThemes.isEmpty) return;
+    // SharedPreferences caches values separately in the main and Drive Flutter
+    // engines. Reload before merging, otherwise a stale cache can overwrite
+    // another engine's recently saved theme (including its layout flip).
+    await preferences.reload();
     // Read the latest profiles instead of replacing another Flutter engine's
     // changes to unrelated themes with this window's stale in-memory copy.
     final merged = _decodeAppearances(
