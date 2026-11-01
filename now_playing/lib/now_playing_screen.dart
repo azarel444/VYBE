@@ -3781,12 +3781,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     if (narrow) {
       final ringEdge = artR * 1.72;
+      // The clock is a separate Stack layer. Reserve its entire camera-safe
+      // header plus a real gap before centering the ClearLogo/title group;
+      // otherwise tall logos can touch the clock on portrait devices.
+      final cameraSafeTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
+      final clockTop = math.max(h * 0.075, cameraSafeTop + 14.0);
+      final clockHeight = (h * 0.038).clamp(25.0, 44.0).toDouble() * 1.25;
+      final infoTop = settings.showClock
+          ? math.max(h * 0.03, clockTop + clockHeight + h * 0.02)
+          : h * 0.03;
       layers.add(
         Positioned(
           left: w * 0.06,
           right: w * 0.06,
-          top: h * 0.03,
-          height: math.max(1.0, c.dy - ringEdge - h * 0.03).toDouble(),
+          top: infoTop,
+          height: math.max(1.0, c.dy - ringEdge - infoTop).toDouble(),
           child: Align(
             alignment: Alignment.center,
             child: FittedBox(
