@@ -37,6 +37,8 @@ class NowPlayingModel extends ChangeNotifier {
   String _trackKey = '';
   int _artToken = 0;
   int _lyricsToken = 0;
+  Timer? _lyricsRetryTimer;
+  int _lyricsRetryAttempts = 0;
   Timer? _netTimer;
   Timer? _artClearTimer;
   Timer? _sessionVerificationTimer;
@@ -180,6 +182,7 @@ class NowPlayingModel extends ChangeNotifier {
     _sub?.cancel();
     _fftSub?.cancel();
     _netTimer?.cancel();
+    _lyricsRetryTimer?.cancel();
     _artClearTimer?.cancel();
     _sessionVerificationTimer?.cancel();
     _artRetryTimer?.cancel();
@@ -265,6 +268,7 @@ class NowPlayingModel extends ChangeNotifier {
     if (changed) {
       _artToken++; _artRetryTimer?.cancel(); _artClearTimer?.cancel();
       _artAttempts = 0; _lookupInFlight = ''; // Retain previous cover until new art arrives.
+      _resetLyricsLookup();
       lyrics = null; _lyricsToken++;
     }
     title = titleValue; artist = artistValue; album = albumValue;
@@ -443,6 +447,7 @@ class NowPlayingModel extends ChangeNotifier {
       _scheduleSessionArtRetry();
 
     if (changed) {
+      _resetLyricsLookup();
       lyrics = null;
       _lyricsToken++;
       // Wait a moment: players often update the metadata twice in a row.
@@ -487,6 +492,7 @@ class NowPlayingModel extends ChangeNotifier {
     _lookupInFlight = '';
     _artToken++;
     art = null;
+    _resetLyricsLookup();
     lyrics = null;
     _lyricsToken++;
   }
@@ -641,8 +647,17 @@ class NowPlayingModel extends ChangeNotifier {
     _lookupArt(force: true);
   }
 
+  void _resetLyricsLookup() {
+    _lyricsRetryTimer?.cancel();
+    _lyricsRetryTimer = null;
+    _lyricsRetryAttempts = 0;
+  }
+
   Future<void> _fetchLyrics() async {
     final token = ++_lyricsToken;
+    final track = _trackKey;
+    _lyricsRetryTimer?.cancel();
+    _lyricsRetryTimer = null;
     final k = '${artist.toLowerCase()}|${title.toLowerCase()}';
     List<LyricLine>? found;
     if (_lyricsCache.containsKey(k)) {
@@ -656,9 +671,20 @@ class NowPlayingModel extends ChangeNotifier {
       }
       if (_lyricsCache.length > 12) _lyricsCache.remove(_lyricsCache.keys.first);
     }
-    if (token != _lyricsToken) return;
+    if (token != _lyricsToken || track != _trackKey || !lyricsEnabled) return;
     lyrics = found;
     notifyListeners();
+    // A temporary network failure must not leave lyrics blank for the entire
+    // song. Retry the same track twice, without retaining negative cache hits.
+    if (found == null && active && _lyricsRetryAttempts < 2) {
+      final seconds = _lyricsRetryAttempts++ == 0 ? 8 : 25;
+      _lyricsRetryTimer = Timer(Duration(seconds: seconds), () {
+        _lyricsRetryTimer = null;
+        if (lyricsEnabled && active && _trackKey == track && lyrics == null) {
+          _fetchLyrics();
+        }
+      });
+    }
   }
 
   /// Index of the lyric line being sung at [ms], or -1 before the first.
@@ -681,8 +707,10 @@ class NowPlayingModel extends ChangeNotifier {
   void setLyricsEnabled(bool on) {
     lyricsEnabled = on;
     if (on) {
+      _resetLyricsLookup();
       if (title.isNotEmpty) _fetchLyrics();
     } else {
+      _resetLyricsLookup();
       lyrics = null;
       _lyricsToken++;
       notifyListeners();
