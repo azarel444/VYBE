@@ -46,7 +46,24 @@ jobs:
 
       - run: flutter pub get
 
-      - run: flutter build apk --release --split-per-abi
+      # Each APK needs a monotonically increasing Android versionCode. Without
+      # this, the package installer may treat successive builds as identical.
+      # Note: updating in place also requires the SAME signing certificate
+      # across builds. The scaffold's default debug signing is ephemeral on
+      # GitHub-hosted runners; configure persistent release signing before
+      # relying on installs over an existing app.
+      - name: Build versioned APKs
+        run: |
+          BUILD_CODE=$((10000 + GITHUB_RUN_NUMBER))
+          echo "Building VYBE Android versionCode=$BUILD_CODE"
+          flutter build apk --release --split-per-abi --build-number="$BUILD_CODE"
+
+      - name: Explain signing limitation
+        run: |
+          echo "::warning::Generated Flutter scaffold uses a runner-local debug signing key unless release signing is configured. APKs signed by different runs cannot update each other in place. Configure persistent signing credentials for upgrade installs."
+          echo "### APK installation compatibility" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version code: $((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_STEP_SUMMARY"
+          echo "In-place upgrades also require the same signing certificate across builds; generated runner debug keys are not stable." >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
