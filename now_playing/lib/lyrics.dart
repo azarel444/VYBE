@@ -54,7 +54,9 @@ Future<List<LyricLine>?> fetchSyncedLyrics(
       }
     }
     if (best == null) return null;
-    if (durationMs > 0 && bestDiff > 5000) return null; // probably a different cut
+    // Players frequently report rounded or incorrect durations. Allow a modest
+    // mismatch rather than rejecting otherwise valid synchronized lyrics.
+    if (durationMs > 0 && bestDiff > 15000) return null;
     final lines = parseLrc(best['syncedLyrics'] as String);
     return lines.length >= 2 ? lines : null;
   } catch (_) {
