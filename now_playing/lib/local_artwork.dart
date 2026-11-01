@@ -19,6 +19,9 @@ class LocalArtwork {
     const aliases = <String, String>{
       'p!nk': 'pink', 'ac/dc': 'acdc', 'guns n roses': 'guns n roses',
     };
+    // Match artist aliases before stripping punctuation: otherwise P!nk
+    // becomes "p nk" and can never match a pinkfanart.jpg filename.
+    if (aliases.containsKey(text)) return aliases[text]!;
     text = text.replaceAll(RegExp(r'[\u0300-\u036f]'), '');
     text = text.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
     text = text.replaceAll(RegExp(r'\s+'), ' ');
