@@ -354,7 +354,7 @@ class MediaListenerService : NotificationListenerService() {
             st == PlaybackState.STATE_SKIPPING_TO_NEXT ||
             st == PlaybackState.STATE_SKIPPING_TO_PREVIOUS ||
             st == PlaybackState.STATE_SKIPPING_TO_QUEUE_ITEM
-        if (going || prev.isPlaying) launchVybe(c)
+        if (going && (explicitSkip || st == PlaybackState.STATE_PLAYING)) launchVybe(c)
         // When still paused, the next PLAYING event handles the launch.
     }
 
@@ -380,7 +380,9 @@ class MediaListenerService : NotificationListenerService() {
                         now - st.lastPositionUpdateTime in 0L..5000L
                     val nearStart = position in 0L..4000L &&
                         (st?.playbackSpeed ?: 0f) > 0f
-                    val recent = live || timestampRecent || nearStart
+                    // A low playback position alone is not evidence of a new play action:
+                    // dormant media sessions can retain position zero for days.
+                    val recent = live || timestampRecent
                     trace(pkg, "PLAYING live=$live recent=$recent position=$position")
                     onStart(c, recent)
                 }
