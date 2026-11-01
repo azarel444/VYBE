@@ -2144,8 +2144,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _artWithReflection(s, vhs: vhs),
-                    SizedBox(height: gap * 2),
+                    // Keep portrait metadata readable and artist-first,
+                    // consistent with the other portrait artwork themes.
+                    // Scale only the artwork, never the text column.
                     _artist(h * 0.044, Alignment.center, vhs),
                     SizedBox(height: h * 0.009),
                     _fixedTitle(h * 0.037, Alignment.center),
@@ -2153,6 +2154,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       SizedBox(height: h * 0.008),
                       _fixedAlbum(h * 0.026, Alignment.center),
                     ],
+                    SizedBox(height: gap),
+                    _artWithReflection(s, vhs: vhs),
                     if (_hasLyrics) ...[
                       SizedBox(height: _lyricGap(h)),
                       _lyricBlock(h * 0.75, Alignment.center, vhs: vhs),
