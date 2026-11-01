@@ -14,6 +14,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterActivityLaunchConfigs
 
 /**
  * A labeled edge-mounted "Return to VYBE" tab drawn over the map app while the Drive
@@ -147,7 +149,13 @@ class ReturnBubble(private val ctx: Context) {
 
     private fun openVybe() {
         try {
-            val i = Intent(ctx, DriveActivity::class.java)
+            // A hidden DriveActivity can be reclaimed while Maps is foreground.
+            // Restore the /drive route and transparent window when Android needs
+            // to create a fresh Flutter engine, just as startDriveScreen does.
+            val i = FlutterActivity.NewEngineIntentBuilder(DriveActivity::class.java)
+                .initialRoute("/drive")
+                .backgroundMode(FlutterActivityLaunchConfigs.BackgroundMode.transparent)
+                .build(ctx)
             // Restore the existing Drive task instead of reordering its
             // activity across Maps' task boundary. Reordering can cause Maps
             // to treat the return as a new foreground transition and enter PiP.
