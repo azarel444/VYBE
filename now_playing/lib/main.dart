@@ -9,10 +9,62 @@ import 'onboarding.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  final initialRoute = ui.PlatformDispatcher.instance.defaultRouteName;
+  // This isolated route is an opt-in FlutterView/WindowManager experiment.
+  // It must not change the Maps activity's system UI or load the real Drive UI.
+  if (initialRoute == '/drive-overlay-probe') {
+    runApp(const _DriveOverlayProbeApp());
+    return;
+  }
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   // The see-through Drive window starts the same app on the '/drive' route.
-  final driveHost = ui.PlatformDispatcher.instance.defaultRouteName == '/drive';
+  final driveHost = initialRoute == '/drive';
   runApp(NowPlayingApp(driveHost: driveHost));
+}
+
+/// Diagnostic Flutter surface hosted by a non-focusable Android overlay.
+/// It is intentionally separate from Drive until activity-independent native
+/// media channels, lifecycle, and map touch handling are validated on ATOTO.
+class _DriveOverlayProbeApp extends StatelessWidget {
+  const _DriveOverlayProbeApp();
+
+  static const _channel = MethodChannel('vybe/drive_overlay_probe');
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark(),
+        home: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Container(
+            color: const Color(0xDD10131C),
+            padding: const EdgeInsets.all(16),
+            child: SafeArea(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.layers_outlined, size: 40, color: Color(0xFF05D9FF)),
+                  const SizedBox(height: 14),
+                  const Text('VYBE Flutter overlay test',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Maps should remain fullscreen and interactive to the right. '
+                    'This is a rendering test, not the finished Drive theme.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () => _channel.invokeMethod<void>('close'),
+                    child: const Text('Close test'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class NowPlayingApp extends StatelessWidget {
