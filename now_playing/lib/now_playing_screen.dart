@@ -895,7 +895,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     switch (settings.theme) {
       case 4: // Drive: sun radiates from behind the record / cover.
         return narrow ? const Offset(.50, .26)
-            : Offset(settings.driveSwap ? .74 : .26, .65);
+            : Offset(.26, .65);
       case AppSettings.tTypo: // A little above the headline.
         return narrow ? const Offset(.50, .20)
             : Offset(swapped ? .72 : .28, .25);
@@ -1567,7 +1567,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       }
     } else {
       // Mirrored Drive places its music panel on the opposite side.
-      if (theme == 4) onRight = settings.driveSwap;
+      if (theme == 4) onRight = false;
       // Side by Side clock follows the text panel opposite the artwork.
       if (theme == 1) onRight = !settings.layoutSwap;
       // Fan and Record Cut landscape have the artwork on the left/right.
@@ -2267,14 +2267,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // the car and the route are centered in it.
     final cw = w * settings.driveCardWidth;
     final m = h * 0.04;
-    return Rect.fromLTWH(settings.driveSwap ? m : w - m - cw, m, cw, h * 0.92);
+    return Rect.fromLTWH(w - m - cw, m, cw, h * 0.92);
   }
 
   /// The Drive theme. In the Drive window the map shows through the hole; in
   /// the normal VYBE window (after leaving Drive) the same screen is drawn
   /// with a framed box where the map would be, and tapping it starts Drive.
   Widget _driveLayout(double w, double h, bool narrow) {
-    final swap = settings.driveSwap;
+    const swap = false;
     final hole = _driveHole(w, h, narrow);
     final host = widget.driveHost;
 
@@ -2465,11 +2465,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     var left = 0.0;
     var right = 0.0;
     if (_dirActive) {
-      if (settings.driveSwap) {
-        left = hole.right;
-      } else {
-        right = w - hole.left;
-      }
+      right = w - hole.left;
     }
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 450),
@@ -4849,14 +4845,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
                 btn(Icons.settings, 36, _openSettings),
                 if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
-                    const [1, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(settings.theme))
+                    const [1, 3, 5, 6, 7, 8, 9, 10, 11].contains(settings.theme))
                   btn(Icons.swap_horiz_rounded, 36, () {
                     settings.update(() {
-                      if (settings.theme == 4) {
-                        settings.driveSwap = !settings.driveSwap;
-                      } else {
-                        settings.layoutSwap = !settings.layoutSwap;
-                      }
+                      settings.layoutSwap = !settings.layoutSwap;
                     });
                     setState(() {});
                   }),
