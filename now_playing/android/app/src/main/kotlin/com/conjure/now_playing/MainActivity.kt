@@ -964,7 +964,10 @@ class DriveActivity : MainActivity() {
 
     override fun onDestroy() {
         alive = false
-        MediaListenerService.instance?.hideBubble()
+        // A hidden Drive activity may be reclaimed while navigation stays in
+        // the foreground. Keep its return tab available unless Drive was
+        // explicitly finished; ReturnBubble can recreate the /drive route.
+        if (isFinishing) MediaListenerService.instance?.hideBubble()
         super.onDestroy()
     }
 
