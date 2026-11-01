@@ -24,6 +24,18 @@ class LocalArtwork {
     // Match artist aliases before stripping punctuation: otherwise P!nk
     // becomes "p nk" and can never match a pinkfanart.jpg filename.
     if (aliases.containsKey(text)) return aliases[text]!;
+    // Fold common Latin accents before ASCII-only filename matching.
+    // Dart strings are not automatically Unicode-decomposed: stripping
+    // combining marks alone would discard a precomposed 'é' entirely.
+    const latinFolds = <String, String>{
+      'à':'a','á':'a','â':'a','ã':'a','ä':'a','å':'a','æ':'ae',
+      'ç':'c','è':'e','é':'e','ê':'e','ë':'e',
+      'ì':'i','í':'i','î':'i','ï':'i','ð':'d',
+      'ñ':'n','ò':'o','ó':'o','ô':'o','õ':'o','ö':'o','ø':'o',
+      'ù':'u','ú':'u','û':'u','ü':'u',
+      'ý':'y','ÿ':'y','þ':'th','ß':'ss','œ':'oe','ł':'l',
+    };
+    text = text.split('').map((c) => latinFolds[c] ?? c).join();
     text = text.replaceAll(RegExp(r'[\u0300-\u036f]'), '');
     text = text.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
     text = text.replaceAll(RegExp(r'\s+'), ' ');
