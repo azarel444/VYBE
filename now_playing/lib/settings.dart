@@ -182,7 +182,7 @@ class AppSettings extends ChangeNotifier {
   String navPkg = ''; // navigation app (empty = find one automatically)
   String navLabel = '';
   bool driveAlbumCover = false; // Drive: square cover instead of spinning vinyl
-  bool layoutSwap = false; // Swap left/right panels in landscape layouts
+  bool layoutSwap = false; // Per-theme left/right panel arrangement
   bool driveSwap = false; // Drive theme: navigation card on the left
   double driveCardWidth = 0.5; // Drive: share of the screen left open for the map, 0.35 .. 0.65
   int graceSec = 0; // a pause shorter than this does not reopen VYBE (0 = any pause reopens)
@@ -220,6 +220,7 @@ class AppSettings extends ChangeNotifier {
     'fanartCycleSeconds': fanartCycleSeconds,
     'useArtistClearLogo': useArtistClearLogo,
     'artistLogoScale': artistLogoScale,
+    'layoutSwap': layoutSwap,
     'cinematicFallback': cinematicFallback,
     'animationUseAlbumColors': animationUseAlbumColors,
     'cinematicPalette': cinematicPalette,
@@ -302,6 +303,7 @@ class AppSettings extends ChangeNotifier {
     fanartCycleSeconds = integer('fanartCycleSeconds', 10, 5, 300);
     useArtistClearLogo = flag('useArtistClearLogo', true);
     artistLogoScale = number('artistLogoScale', 1.0, 0.5, 2.0);
+    layoutSwap = flag('layoutSwap', false);
     cinematicFallback = integer('cinematicFallback', 1, 0, 2);
     animationUseAlbumColors = flag('animationUseAlbumColors', false);
     cinematicPalette = integer('cinematicPalette', 15, 14, 19);
@@ -443,6 +445,14 @@ class AppSettings extends ChangeNotifier {
       ..addAll(_decodeAppearances(
           preferences.getString(_appearanceProfilesKey)));
     _dirtyAppearanceThemes.clear();
+    // Migrate the old device-wide flip only into the theme that was active.
+    // Other themes start unflipped, then remember their own choice.
+    if (_appearanceProfiles.isNotEmpty &&
+        _appearanceProfiles[theme] != null &&
+        !_appearanceProfiles[theme]!.containsKey('layoutSwap')) {
+      _appearanceProfiles[theme]!['layoutSwap'] = layoutSwap;
+      _dirtyAppearanceThemes.add(theme);
+    }
     _activeAppearanceTheme = theme;
     _persistedTheme = theme;
     if (_appearanceProfiles.isEmpty) {
