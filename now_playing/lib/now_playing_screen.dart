@@ -712,10 +712,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _activeFanartCycleSeconds = seconds;
     _fanartCycleTimer = Timer.periodic(Duration(seconds: seconds), (_) {
       if (!mounted || _fanartGallery.length < 2) return;
-      var next = _fanartGalleryIsLocal
-          ? (_fanartGalleryIndex + 1) % _fanartGallery.length
-          : _fanartRandom.nextInt(_fanartGallery.length - 1);
-      if (!_fanartGalleryIsLocal && next >= _fanartGalleryIndex) next++;
+      // Shuffle local and downloaded galleries alike. Pick uniformly from
+      // every image except the current one so the slideshow never repeats
+      // the same image on consecutive ticks.
+      var next = _fanartRandom.nextInt(_fanartGallery.length - 1);
+      if (next >= _fanartGalleryIndex) next++;
       _fanartGalleryIndex = next;
       setState(() => _fanartBytes = _fanartGallery[next]);
       final link = VybeLink.instance;
