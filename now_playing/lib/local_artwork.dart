@@ -10,6 +10,8 @@ class LocalArtwork {
   static const _channel = MethodChannel('vybe/local_art');
   final List<Map<String, String>> _files = [];
   bool _loaded = false;
+  // Increments after an explicit user scan so the active artist can refresh.
+  int manualScanGeneration = 0;
   final Set<String> _rescanAttemptedFor = <String>{};
   String status = 'No local artwork scan yet';
   int get count => _files.length;
@@ -52,14 +54,17 @@ class LocalArtwork {
     return selected;
   }
 
-  Future<int> scan() async {
+  Future<int> scan({bool manual = true}) async {
     final result = await _channel.invokeMethod<List<dynamic>>('scan') ?? [];
     final next = <Map<String, String>>[];
     for (final item in result) {
       if (item is Map) next.add(Map<String, String>.from(item));
     }
     _files..clear()..addAll(next);
-    _rescanAttemptedFor.clear();
+    if (manual) {
+      _rescanAttemptedFor.clear();
+      manualScanGeneration++;
+    }
     _loaded = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('localArtworkIndex', jsonEncode(_files));
@@ -92,7 +97,7 @@ class LocalArtwork {
     var matches = _files.where((entry) => _matchesFanart(entry, key)).toList();
     if (matches.isEmpty && _rescanAttemptedFor.add('fanart:$key')) {
       try {
-        await scan();
+        await scan(manual: false);
         matches = _files.where((entry) => _matchesFanart(entry, key)).toList();
       } catch (e) {
         status = 'Local artwork rescan failed: $e';
@@ -138,7 +143,7 @@ class LocalArtwork {
     }).toList();
     if (matches.isEmpty && _rescanAttemptedFor.add('logo:$key')) {
       try {
-        await scan();
+        await scan(manual: false);
         matches = _files.where((entry) {
           final filename = entry['name'] ?? '';
           if (!filename.toLowerCase().endsWith('.png')) return false;
