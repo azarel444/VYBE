@@ -327,13 +327,17 @@ class DriveOverlay(private val ctx: Context) {
 
         val artX = if (leftIsArt) 0 else sw - sideW
         val infoX = if (leftIsArt) sw - sideW else 0
+        // Register each window as soon as it is attached. If a later
+        // addView throws (for example when overlay permission is revoked),
+        // start() calls removeAll(); it must know about the earlier windows
+        // or they remain stranded above Maps after Drive fails to start.
         wm.addView(artPanel, params(sideW, sh, artX, 0))
+        artWin = artPanel
         wm.addView(infoPanel, params(sideW, sh, infoX, 0))
+        infoWin = infoPanel
         val dirH = max(dp(70f), (sh * 0.14f).toInt())
         val dirW = (centerW * 0.94f).toInt()
         wm.addView(dirPanel, params(dirW, dirH, sideW + (centerW - dirW) / 2, sh - dirH - dp(10f)))
-        artWin = artPanel
-        infoWin = infoPanel
         dirWin = dirPanel
     }
 
