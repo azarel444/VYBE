@@ -1975,7 +1975,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ]);
       if (!barsMode || !settings.visualizer) return content;
-      final edge = w * 0.07;
+      final edge = w * 0.075;
       return Stack(children: [
         Positioned(left: 0, top: 0, bottom: 0, width: edge,
           child: _edgeBars(edge, leftEdge: true)),
@@ -2001,7 +2001,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     ]);
     if (!barsMode || !settings.visualizer) return centered;
-    final edge = w * 0.105;
+    final edge = w * 0.115;
     return Stack(children: [
       Positioned(left: 0, top: 0, bottom: 0, width: edge,
         child: _edgeBars(edge, leftEdge: true)),
