@@ -8,6 +8,7 @@ import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterView
+import io.flutter.embedding.android.FlutterTextureView
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
@@ -53,11 +54,10 @@ class FlutterDriveProbe(
                         result.notImplemented()
                     }
                 }
-            val v = FlutterView(
-                ctx,
-                FlutterView.RenderMode.texture,
-                FlutterView.TransparencyMode.transparent,
-            )
+            // Texture rendering supports transparent WindowManager surfaces.
+            // Use the supported FlutterTextureView constructor rather than
+            // deprecated RenderMode/TransparencyMode constructor overloads.
+            val v = FlutterView(ctx, FlutterTextureView(ctx))
             createdView = v
             v.attachToFlutterEngine(e)
             attached = true
