@@ -58,6 +58,7 @@ class ReturnBubble(private val ctx: Context) {
 
             val v = TextView(ctx)
             v.text = "‹  Return to VYBE"
+            v.contentDescription = "Tap to return to VYBE. Hold for a map-friendly native overlay preview."
             v.setTextColor(Color.WHITE)
             v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             v.gravity = Gravity.CENTER
@@ -122,6 +123,15 @@ class ReturnBubble(private val ctx: Context) {
                             prefs.edit().putBoolean("bubbleOnLeft", left)
                                 .putInt("bubbleX", if (left) edgeInset else screen().first - tabWidth - edgeInset)
                                 .putInt("bubbleY", p.y).apply()
+                        } else if (e.eventTime - e.downTime >= 650L) {
+                            // Optional PiP investigation path: keep Maps in the
+                            // foreground and toggle the existing nonfocusable
+                            // native overlay. A normal tap still opens the full
+                            // Flutter Drive UI, so this does not replace it or
+                            // claim to solve Maps' activity-triggered PiP.
+                            val service = MediaListenerService.instance
+                            if (service?.driveRunning() == true) service.stopDrive()
+                            else service?.startDrive()
                         } else {
                             openVybe()
                         }
