@@ -33,6 +33,9 @@ class _DriveOverlayProbeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
+        // The engine's /drive-overlay-probe route selects this app in main().
+        // The probe MaterialApp itself must start at its home route.
+        initialRoute: '/',
         theme: ThemeData.dark(),
         home: Scaffold(
           backgroundColor: Colors.transparent,
