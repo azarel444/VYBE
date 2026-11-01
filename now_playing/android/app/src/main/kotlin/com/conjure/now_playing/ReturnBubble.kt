@@ -14,6 +14,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterActivityLaunchConfigs
 
 /**
  * A labeled edge-mounted "Return to VYBE" tab drawn over the map app while the Drive
@@ -157,10 +159,16 @@ class ReturnBubble(private val ctx: Context) {
 
     private fun openVybe() {
         try {
-            // Restore the return path confirmed working on the ATOTO in v1.8.1.
-            // Reuse the existing DriveActivity rather than creating a new
-            // Flutter engine or clearing the activity stack on every return.
-            val i = Intent(ctx, DriveActivity::class.java)
+            // Bring the existing transparent Drive task forward using the
+            // ATOTO-tested REORDER_TO_FRONT behavior. If Android reclaimed
+            // that activity while Maps was foreground, the same intent also
+            // supplies the /drive route and transparent Flutter engine config.
+            // A plain Intent loses those creation arguments on a cold restore
+            // and can show the normal "Tap to start Drive" screen instead.
+            val i = FlutterActivity.NewEngineIntentBuilder(DriveActivity::class.java)
+                .initialRoute("/drive")
+                .backgroundMode(FlutterActivityLaunchConfigs.BackgroundMode.transparent)
+                .build(ctx)
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             ctx.startActivity(i)
         } catch (_: Exception) {
