@@ -3635,7 +3635,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (narrow) {
       artR = math.min(w * 0.27, h * 0.15).toDouble();
       // Give the title group breathing room above the orbit assembly.
-      c = Offset(w / 2, h * 0.585);
+      c = Offset(w / 2, h * 0.615);
     } else {
       artR = math.min(h * 0.29, w * 0.17).toDouble();
       c = Offset(w * (settings.layoutSwap ? 0.74 : 0.26), h / 2);
@@ -3854,7 +3854,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final ta = center ? TextAlign.center : TextAlign.right;
     final cross = center ? CrossAxisAlignment.center : CrossAxisAlignment.end;
     final artistSize = center ? h * 0.047 : h * 0.064;
-    final albumSize = center ? h * 0.026 : h * 0.035;
+    final albumSize = center ? h * 0.022 : h * 0.031;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: cross,
