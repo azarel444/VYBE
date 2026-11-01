@@ -151,13 +151,13 @@ class DriveOverlay(private val ctx: Context) {
 
     // ------------------------------------------------------------ lifecycle
 
-    fun start(swap: Boolean, center: Float, controls: Boolean) {
+    fun start(swap: Boolean, center: Float, controls: Boolean, mapSafePreview: Boolean = false) {
         stop()
         this.swap = swap
         this.centerFrac = center.coerceIn(0.3f, 0.7f)
         this.controls = controls
         try {
-            build()
+            build(mapSafePreview)
             running = true
             applyVisibility()
             refreshAll()
@@ -200,7 +200,7 @@ class DriveOverlay(private val ctx: Context) {
 
     // ----------------------------------------------------------------- build
 
-    private fun build() {
+    private fun build(mapSafePreview: Boolean) {
         val (sw, sh) = screen()
         val centerW = (sw * centerFrac).toInt()
         val sideW = (sw - centerW) / 2
@@ -224,7 +224,14 @@ class DriveOverlay(private val ctx: Context) {
             }
         }
         iv.elevation = dp(8f).toFloat()
-        iv.setOnClickListener { openVybe() }
+        // The Return-tab long-press preview promises to keep Maps foregrounded.
+        // Launching MainActivity from artwork would background Maps and can
+        // trigger its automatic PiP. Normal native Drive mode keeps its
+        // existing artwork-to-VYBE shortcut; preview deliberately does not.
+        iv.contentDescription = if (mapSafePreview)
+            "Album artwork. Map-safe preview; use the Return tab to open full VYBE."
+        else "Album artwork. Open VYBE."
+        if (!mapSafePreview) iv.setOnClickListener { openVybe() }
         artCol.addView(iv, LinearLayout.LayoutParams(artSize, artSize))
         artView = iv
 

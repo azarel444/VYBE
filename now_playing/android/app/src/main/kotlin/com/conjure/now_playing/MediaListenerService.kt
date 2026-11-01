@@ -523,7 +523,7 @@ class MediaListenerService : NotificationListenerService() {
 
     fun driveRunning(): Boolean = drive?.running == true
 
-    fun startDrive() {
+    fun startDrive(mapSafePreview: Boolean = false) {
         val d = drive ?: return
         val prefs = getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
         navSeen = false
@@ -532,6 +532,7 @@ class MediaListenerService : NotificationListenerService() {
             prefs.getBoolean("driveSwap", false),
             prefs.getFloat("driveCenter", 0.5f),
             prefs.getBoolean("driveControls", true),
+            mapSafePreview,
         )
         d.setSuppressed(MainActivity.visible)
         pushOverlay()

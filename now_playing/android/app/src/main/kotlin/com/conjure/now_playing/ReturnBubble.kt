@@ -131,7 +131,7 @@ class ReturnBubble(private val ctx: Context) {
                             // claim to solve Maps' activity-triggered PiP.
                             val service = MediaListenerService.instance
                             if (service?.driveRunning() == true) service.stopDrive()
-                            else service?.startDrive()
+                            else service?.startDrive(mapSafePreview = true)
                         } else {
                             openVybe()
                         }
