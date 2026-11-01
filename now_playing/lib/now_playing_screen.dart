@@ -1614,20 +1614,63 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Orbit already computes its own text-side anchor above.
       topInset = h * 0.055;
     }
+    // Muzine portrait: the clock belongs entirely inside the upper-right
+    // negative-space triangle. Its former h*.19 origin sat directly on the
+    // grayscale divider at h*.20, even before the text's own height.
+    if (portrait && theme == AppSettings.tEditorial) {
+      final safeTop = math.max(MediaQuery.of(context).viewPadding.top + 6.0,
+          h * .052);
+      final availableHeight = math.max(20.0, h * .20 - safeTop - 10.0);
+      return Positioned(
+        left: w * .53,
+        right: w * .045,
+        top: safeTop,
+        height: math.min(h * .105, availableHeight),
+        child: IgnorePointer(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Text(value, maxLines: 1, softWrap: false,
+              style: TextStyle(
+                color: Colors.white.withOpacity(.93),
+                fontSize: (h * .044).clamp(28.0, 46.0).toDouble(),
+                fontWeight: FontWeight.w500,
+                letterSpacing: .5,
+                fontFeatures: const [ui.FontFeature.tabularFigures()],
+                shadows: const [
+                  Shadow(color: Color(0xDD000000), blurRadius: 7,
+                    offset: Offset(0, 2)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     final editorialLandscape = theme == AppSettings.tEditorial && !portrait;
     final editorialFlipped = editorialLandscape && settings.layoutSwap;
     return Positioned(
       left: panelClock ? (onRight ? w * .52 : w * .05) : centered ? 0 : (editorialLandscape
-          ? (editorialFlipped ? w * .66 : w * .012)
+          ? (editorialFlipped ? w * .805 : w * .018)
           : (onRight ? null : inset)),
       right: panelClock ? (onRight ? w * .05 : w * .52) : centered ? 0 : (editorialLandscape
-          ? (editorialFlipped ? w * .012 : w * .66)
+          ? (editorialFlipped ? w * .018 : w * .805)
           : (onRight ? inset : null)),
       top: bottomInset == null ? topInset : null,
       bottom: bottomInset,
       child: IgnorePointer(
         child: Center(widthFactor: editorialLandscape || centered || panelClock ? null : 1, heightFactor: 1,
-          child: Text(value, style: TextStyle(
+          child: editorialLandscape
+              ? FittedBox(fit: BoxFit.scaleDown,
+                  child: Text(value, maxLines: 1, softWrap: false,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(.93),
+                      fontSize: (h * .058).clamp(24.0, 44.0).toDouble(),
+                      fontWeight: FontWeight.w500,
+                      fontFeatures: const [ui.FontFeature.tabularFigures()],
+                      shadows: const [Shadow(color: Colors.black, blurRadius: 8)],
+                    )))
+              : Text(value, style: TextStyle(
           color: Colors.white.withOpacity(0.93),
           fontSize: () {
             // Scale with the music typography, not a fixed 26px cap. The
@@ -3134,18 +3177,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _artist(h * 0.032, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, false),
+              _artist(h * 0.032, Alignment.center, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, false),
+              _title(h * 0.085, Alignment.center, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight)),
+                _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, settings.layoutSwap ? Alignment.centerLeft : Alignment.centerRight, vhs: false),
+                _lyricBlock(h, Alignment.center, vhs: false),
               ],
             ],
           ),
@@ -3518,18 +3561,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
             child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: counterFlipText ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _artist(h * 0.032, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, false),
+              _artist(h * 0.032, Alignment.center, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, false),
+              _title(h * 0.085, Alignment.center, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), counterFlipText ? Alignment.centerRight : Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, counterFlipText ? Alignment.centerRight : Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, Alignment.center, vhs: false),
               ],
             ],
           ),
@@ -3939,17 +3982,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         SizedBox(height: h * 0.008),
         if (model.album.isNotEmpty && model.album != model.title) ...[
           SizedBox(height: h * 0.005),
-          Text(
-            model.album.toUpperCase(),
-            textAlign: ta,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: albumSize,
-              letterSpacing: albumSize * 0.3,
-              color: _readableText(.66),
-              shadows: _cleanTextShadows,
-            ),
+          Align(
+            alignment: center ? Alignment.center : Alignment.centerRight,
+            child: _albumText(albumSize),
           ),
         ],
       ],
