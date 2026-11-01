@@ -15,6 +15,33 @@ There is already a native `DriveOverlay.kt` that creates `WindowManager` windows
 
 ATOTO validation: start Drive, tap Maps to show fullscreen Maps, **long-press** Return to VYBE. Verify Maps stays fullscreen behind the native overlay (no PiP), and that music keeps playing. Long-press again to hide the preview. This test does **not** constitute a final fix.
 
+## Experimental FlutterView overlay probe (opt-in, not a fix)
+
+A separate `FlutterDriveProbe.kt` now hosts a **real Flutter-rendered test panel**
+in a non-focusable `TYPE_APPLICATION_OVERLAY` window managed by
+`MediaListenerService`. It launches a dedicated Flutter engine on
+`/drive-overlay-probe` and cleans up its engine/view when closed or the
+notification listener disconnects. This does not invoke `startActivity`
+or foreground VYBE.
+
+To test on the ATOTO after installing the new APK:
+
+1. Start Drive and open fullscreen Maps as usual, so the Return tab appears.
+2. **Press and hold Return to VYBE for at least 1.6 seconds**, then release.
+   A shorter hold (0.65–1.6 seconds) still opens the older native preview;
+   a normal tap still uses the existing activity-based Drive UI.
+3. A narrow **"VYBE Flutter overlay test"** panel should appear on the left.
+   Check that Maps remains fullscreen, navigation continues, and the **right
+   side of Maps remains touchable**, with no PiP.
+4. Tap **Close test** to restore the Return tab. Repeat and watch for
+   black surfaces, missing UI, slow startup, or Maps entering PiP.
+
+The test panel deliberately does **not** show artwork or the full Drive
+theme: native method channels in `MainActivity` still depend on an Activity.
+Passing this test only validates whether a service-owned Flutter surface can
+coexist with fullscreen Maps on the ATOTO. Full UI migration and regression
+testing remain necessary. The experiment is off by default.
+
 ## Target implementation (do not silently substitute the native preview)
 
 1. Move the **actual Flutter Drive UI** to a service-managed `FlutterView` in a `TYPE_APPLICATION_OVERLAY` window, not a foreground `DriveActivity`. Keep Maps the resumed foreground activity when showing/hiding Drive.
