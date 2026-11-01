@@ -1601,10 +1601,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       AppSettings.tDiagonal, 3, 7,
     }.contains(theme);
     if (panelClock) {
-      if (theme == AppSettings.tTypo || theme == 7 || theme == AppSettings.tDiagonal) {
+      if (theme == AppSettings.tTypo || theme == 7) {
+        // Typo and Record Cut put metadata on the left by default.
         onRight = settings.layoutSwap;
-      } else if (theme == 3) {
-        onRight = settings.layoutSwap;
+      } else if (theme == AppSettings.tDiagonal || theme == 3) {
+        // Diagonal and Edge-to-Edge put metadata on the right by default.
+        onRight = !settings.layoutSwap;
       } else if (theme == AppSettings.tFan) {
         onRight = !settings.layoutSwap;
       }
