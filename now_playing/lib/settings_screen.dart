@@ -203,6 +203,7 @@ class SettingsScreen extends StatelessWidget {
               final selected = await LocalArtwork.instance.chooseFolder();
               if (!context.mounted || !selected) return;
               await showLocalArtworkScan(context);
+              if (context.mounted) s.update(() {}, persist: false);
             } catch (e) {
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
@@ -213,6 +214,7 @@ class SettingsScreen extends StatelessWidget {
           'Refresh the index after adding or changing artwork files',
           'Rescan', () async {
             await showLocalArtworkScan(context);
+            if (context.mounted) s.update(() {}, persist: false);
           }),
       _action('Diagnose local fanart',
           'Check matching images and whether this theme will display them',
