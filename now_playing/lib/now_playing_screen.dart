@@ -1542,7 +1542,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 0: // Focused: center the clock above the artist/ClearLogo.
           topInset = h * 0.025;
           break;
-          break;
         default: // Other portrait compositions: above song information.
           topInset = h * 0.08;
       }
@@ -4040,7 +4039,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       _typoInfo(h, center: true),
-                      SizedBox(height: h * 0.03),
+                      SizedBox(height: h * 0.016),
                       const SizedBox(
                         height: 3,
                         width: double.infinity,
@@ -4053,7 +4052,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           ),
                         ),
                       ),
-                      SizedBox(height: h * 0.03),
+                      SizedBox(height: h * 0.016),
                       _typoRight(h, center: true, side: math.min(cw * 0.9, h * 0.3).toDouble()),
                     ],
                   ),
