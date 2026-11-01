@@ -1509,7 +1509,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         theme == AppSettings.tTypo && _hasLyrics;
     // Cinematic landscape clock belongs at the top center, independent
     // of the mirrored music-information layout.
-    final centered = (portrait && theme != AppSettings.tEditorial && theme != 0) || typoLyricsCentered ||
+    final centered = (portrait && theme != AppSettings.tEditorial) || typoLyricsCentered ||
         (!portrait && theme == AppSettings.tCinematic);
     bool onRight = true;
     double topInset = portrait ? h * 0.055 : 18.0;
@@ -1539,9 +1539,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
           break;
-        case 0: // Focused: upper-right, away from the centered logo.
+        case 0: // Focused: center the clock above the artist/ClearLogo.
           topInset = h * 0.025;
-          onRight = true;
+          break;
           break;
         default: // Other portrait compositions: above song information.
           topInset = h * 0.08;
@@ -1961,7 +1961,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Focused: lower the album/ring assembly and let its reflection extend
       // behind the song labels. Draw text last so it stays on top.
       final content = Stack(clipBehavior: Clip.none, children: [
-        Positioned(left: 0, right: 0, top: h * .09,
+        Positioned(left: 0, right: 0, top: h * .135,
           child: Center(child: artistHeader)),
         Positioned(
           left: 0, right: 0, top: h * 0.265,
