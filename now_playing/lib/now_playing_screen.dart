@@ -1604,8 +1604,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (theme == AppSettings.tTypo || theme == 7) {
         // Typo and Record Cut put metadata on the left by default.
         onRight = settings.layoutSwap;
-      } else if (theme == AppSettings.tDiagonal || theme == 3) {
-        // Diagonal and Edge-to-Edge put metadata on the right by default.
+      } else if (theme == AppSettings.tDiagonal) {
+        // Diagonal is deliberately different: the clock stays upper-right
+        // even when the artwork and song information are mirrored.
+        onRight = true;
+      } else if (theme == 3) {
+        // Edge-to-Edge follows the mirrored song-information panel.
         onRight = !settings.layoutSwap;
       } else if (theme == AppSettings.tFan) {
         onRight = !settings.layoutSwap;
