@@ -2117,9 +2117,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned.fill(
           top: barsH,
           child: Center(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: SizedBox(
+            child: SizedBox(
                 width: cw,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -2140,7 +2138,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   ],
                 ),
               ),
-            ),
           ),
         ),
       ],
