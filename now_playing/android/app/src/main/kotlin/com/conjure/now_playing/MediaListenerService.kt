@@ -380,10 +380,18 @@ class MediaListenerService : NotificationListenerService() {
                         now - st.lastPositionUpdateTime in 0L..5000L
                     val nearStart = position in 0L..4000L &&
                         (st?.playbackSpeed ?: 0f) > 0f
-                    // A low playback position alone is not evidence of a new play action:
-                    // dormant media sessions can retain position zero for days.
-                    val recent = live || timestampRecent
-                    trace(pkg, "PLAYING live=$live recent=$recent position=$position")
+                    // A callback alone is not proof of a fresh play action:
+                    // some players re-publish an old PLAYING state when a dormant
+                    // session is reattached. Preserve explicit skips and real
+                    // pause-to-play transitions even when the player reports an
+                    // old position timestamp.
+                    val resumed = pausedAt.containsKey(pkg)
+                    val selected = userChangeAt[pkg]?.let {
+                        now - it in 0L..10000L
+                    } == true
+                    val recent = timestampRecent ||
+                        (live && (resumed || selected || nearStart))
+                    trace(pkg, "PLAYING live=$live recent=$recent position=$position timestampRecent=$timestampRecent resumed=$resumed selected=$selected nearStart=$nearStart")
                     onStart(c, recent)
                 }
             }
