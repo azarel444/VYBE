@@ -1355,9 +1355,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   Expanded(child: Text(song, maxLines: 1,
                     overflow: TextOverflow.ellipsis, style: songStyle)),
                   SizedBox(width: w * .025),
-                  Expanded(child: Text(model.album, maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right, style: songStyle.copyWith(fontSize: songStyle.fontSize! * .86))),
+                  Expanded(child: Align(
+                    alignment: Alignment.centerRight,
+                    child: _albumText(songStyle.fontSize! * .86))),
                 ]),
             ])),
         if (_hasLyrics)
@@ -1394,10 +1394,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         // as it is at the far right in the standard composition.
         if (model.album.isNotEmpty)
           Positioned(right: w * .025, top: h * .043, width: w * .22,
-            child: readable(Text(model.album,
-              textAlign: flipped ? TextAlign.left : TextAlign.right,
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: songStyle))),
+            child: readable(Align(
+              alignment: flipped ? Alignment.centerLeft : Alignment.centerRight,
+              child: _albumText(songStyle.fontSize! * .86)))),
         if (_hasLyrics)
           Positioned(left: w * .37, right: w * .06, top: h * .43,
             height: h * .19,
@@ -1460,11 +1459,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         SizedBox(height: h * 0.008),
         _title(titleSize, textAlign, false),
         SizedBox(height: h * 0.008),
-        Text(model.album.isEmpty ? '' : model.album,
-          textAlign: swap ? TextAlign.right : TextAlign.left,
-          maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: Colors.white70,
-            fontSize: titleSize * 0.7)),
+        if (model.album.isNotEmpty)
+          Align(alignment: textAlign,
+            child: _albumText(titleSize * .7)),
       ]));
     final cover = GestureDetector(
       key: _artKey,
@@ -2023,7 +2020,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         children: [
           _title(h * 0.062, Alignment.center, false),
           SizedBox(height: h * 0.012),
-          if (model.album.isNotEmpty) _shaded(_fit(Text(model.album, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: h * .028, color: Colors.white70)), Alignment.center)),
+          if (model.album.isNotEmpty)
+            _shaded(_fit(_albumText(h * .028), Alignment.center)),
           if (settings.lyrics) SizedBox(height: lyricGap),
           if (settings.lyrics)
             SizedBox(
