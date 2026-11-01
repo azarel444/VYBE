@@ -1259,7 +1259,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       shadows: const [Shadow(color: Colors.black, blurRadius: 9),
         Shadow(color: Colors.black, blurRadius: 17, offset: Offset(1, 2))]);
     final songStyle = TextStyle(
-      color: Colors.white, fontSize: portrait ? w * .049 : h * .052,
+      color: Colors.white, fontSize: portrait ? w * .043 : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     final composition = Stack(fit: StackFit.expand, children: [
@@ -1314,13 +1314,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min, children: [
               SizedBox(height: w * .095,
-                child: FittedBox(fit: BoxFit.fill,
-                  alignment: Alignment.centerLeft,
-                  child: settings.useArtistClearLogo && _clearLogoBytes != null
-                    ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                        filterQuality: FilterQuality.medium)
-                    : Text(artist, maxLines: 1,
-                        softWrap: false, style: titleStyle))),
+                child: settings.useArtistClearLogo && _clearLogoBytes != null
+                    ? Align(alignment: Alignment.centerLeft,
+                        child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+                            alignment: Alignment.centerLeft,
+                            filterQuality: FilterQuality.medium))
+                    : FittedBox(fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(artist, maxLines: 1,
+                            softWrap: false, style: titleStyle))),
               SizedBox(height: h * .005),
               if (model.album.isEmpty)
                 Center(child: Text(song, maxLines: 1,
@@ -1332,7 +1334,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   SizedBox(width: w * .025),
                   Expanded(child: Text(model.album, maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right, style: songStyle)),
+                    textAlign: TextAlign.right, style: songStyle.copyWith(fontSize: songStyle.fontSize! * .86))),
                 ]),
             ])),
         if (_hasLyrics)
@@ -1530,9 +1532,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         case 8: // Typo: clock gets its own camera-safe header above the title.
           topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
           break;
-        case 11: // Muzine: allow a larger clock above and left of the sleeve.
-          topInset = h * .075;
-          onRight = false;
+        case 11: // Muzine: clock belongs in the upper-right negative space.
+          topInset = h * .19;
+          onRight = true;
           break;
         case 9: // Orbit: directly above the artist/title group.
           topInset = h * 0.075;
