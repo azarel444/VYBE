@@ -60,6 +60,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   int _fanartGalleryIndex = 0;
   bool _fanartGalleryIsLocal = false;
   String _fanartArtist = '';
+  int _seenLocalScanGeneration = 0;
   String _fanartLoadingArtist = '';
   int _fanartRequest = 0;
   DateTime? _fanartLastFailure;
@@ -740,6 +741,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Future<void> _loadFanart() async {
+    // A user-initiated library rescan must invalidate the current artist,
+    // including online fallback artwork that was already cached in this view.
+    // Otherwise new local files remain invisible until a different artist plays.
+    final scanGeneration = LocalArtwork.instance.manualScanGeneration;
+    if (_seenLocalScanGeneration != scanGeneration) {
+      _seenLocalScanGeneration = scanGeneration;
+      ++_fanartRequest;
+      _fanartRetryTimer?.cancel();
+      _fanartCycleTimer?.cancel();
+      _fanartArtist = '';
+      _fanartLoadingArtist = '';
+      _fanartGallery = [];
+      _fanartGalleryIsLocal = false;
+      _fanartBytes = null;
+      _fanartLastFailure = null;
+      _clearLogoRetryTimer?.cancel();
+      ++_clearLogoRequest;
+      _clearLogoArtist = '';
+      _clearLogoLoadingArtist = '';
+      _clearLogoBytes = null;
+    }
     _loadClearLogo();
     final artist = model.artist.trim();
     final link = VybeLink.instance;
