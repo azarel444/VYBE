@@ -1597,19 +1597,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Muzine's clock stays in the grayscale strip above the record.
     // Unlike the composition, this clock is rendered OUTSIDE the mirroring
     // transform: mirror its own anchor when the sleeve is on the right.
+    // Center landscape clocks within the theme's information half rather
+    // than anchoring them to the outer screen corner.
+    final panelClock = !portrait && <int>{
+      AppSettings.tOrbit, AppSettings.tTypo, AppSettings.tFan,
+      AppSettings.tDiagonal, 3, 7,
+    }.contains(theme);
+    if (panelClock) {
+      if (theme == AppSettings.tTypo || theme == 7 || theme == AppSettings.tDiagonal) {
+        onRight = settings.layoutSwap;
+      } else if (theme == 3) {
+        onRight = settings.layoutSwap;
+      } else if (theme == AppSettings.tFan) {
+        onRight = !settings.layoutSwap;
+      }
+      // Orbit already computes its own text-side anchor above.
+      topInset = h * 0.055;
+    }
     final editorialLandscape = theme == AppSettings.tEditorial && !portrait;
     final editorialFlipped = editorialLandscape && settings.layoutSwap;
     return Positioned(
-      left: centered ? 0 : (editorialLandscape
+      left: panelClock ? (onRight ? w * .52 : w * .05) : centered ? 0 : (editorialLandscape
           ? (editorialFlipped ? w * .66 : w * .012)
           : (onRight ? null : inset)),
-      right: centered ? 0 : (editorialLandscape
+      right: panelClock ? (onRight ? w * .05 : w * .52) : centered ? 0 : (editorialLandscape
           ? (editorialFlipped ? w * .012 : w * .66)
           : (onRight ? inset : null)),
       top: bottomInset == null ? topInset : null,
       bottom: bottomInset,
       child: IgnorePointer(
-        child: Center(widthFactor: editorialLandscape || centered ? null : 1, heightFactor: 1,
+        child: Center(widthFactor: editorialLandscape || centered || panelClock ? null : 1, heightFactor: 1,
           child: Text(value, style: TextStyle(
           color: Colors.white.withOpacity(0.93),
           fontSize: () {
@@ -2505,7 +2522,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       height: h,
       child: _edgeBars(w * 0.09, leftEdge: !swapped),
     );
-    final textAlign = !settings.visualizer ? Alignment.center : (swapped ? Alignment.centerLeft : Alignment.centerRight);
+    final textAlign = Alignment.center;
     final infoPanel = Expanded(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -2516,9 +2533,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: !settings.visualizer
-              ? CrossAxisAlignment.center
-              : (swapped ? CrossAxisAlignment.start : CrossAxisAlignment.end),
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             _artist(h * 0.03, textAlign, false),
             SizedBox(height: h * 0.012),
@@ -3298,18 +3313,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _artist(h * 0.032, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
+              _artist(h * 0.032, Alignment.center, false),
               SizedBox(height: h * 0.012),
-              _title(h * 0.085, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
+              _title(h * 0.085, Alignment.center, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
-                _lyricBlock(h, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, vhs: false),
+                _lyricBlock(h, Alignment.center, vhs: false),
               ],
             ],
           ),
@@ -3855,14 +3870,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: 0,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _artist(h * 0.024, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
+              _artist(h * 0.024, Alignment.center, false),
               SizedBox(height: h * 0.014),
-              _title(h * 0.06, settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft, false),
+              _title(h * 0.06, Alignment.center, false),
               if (model.album.isNotEmpty && model.album != model.title) ...[
                 SizedBox(height: h * 0.014),
-                _shaded(_fit(_albumText(h * 0.022), settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft)),
+                _shaded(_fit(_albumText(h * 0.022), Alignment.center)),
               ],
               SizedBox(height: h * 0.035),
               if (_hasLyrics) ...[
@@ -4112,8 +4127,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             children: [
               Expanded(
                 child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _typoInfo(h, center: false),
+                  alignment: Alignment.center,
+                  child: _typoInfo(h, center: true),
                 ),
               ),
               Padding(
