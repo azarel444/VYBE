@@ -120,7 +120,23 @@ class AppSettings extends ChangeNotifier {
   String fanartApiKey = '';
   String fanartProjectKey = bundledFanartProjectKey;
   double sensitivity = 1.0; // 0.5 .. 1.5
-  int vizStyle = 1; // Focused theme: 0 ring, 1 bars; bars by default
+  int vizStyle = 1; // Legacy Focused visualizer preference.
+  int focusedPortraitStyle = 0; // Ring by default in portrait.
+  int focusedLandscapeStyle = 1; // Side bars by default in landscape.
+
+  int focusedStyleFor(bool portrait) =>
+      portrait ? focusedPortraitStyle : focusedLandscapeStyle;
+
+  void setFocusedStyleFor(bool portrait, int style) {
+    update(() {
+      if (portrait) {
+        focusedPortraitStyle = style;
+      } else {
+        focusedLandscapeStyle = style;
+      }
+      vizStyle = style; // Keep legacy preference compatible.
+    });
+  }
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
@@ -543,6 +559,8 @@ class AppSettings extends ChangeNotifier {
     fanartProjectKey = bundledFanartProjectKey;
     sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
     vizStyle = _int(p, 'vizStyle', 1, 0, 1);
+    focusedPortraitStyle = _int(p, 'focusedPortraitStyle', vizStyle, 0, 1);
+    focusedLandscapeStyle = _int(p, 'focusedLandscapeStyle', vizStyle, 0, 1);
     final bc = p.getInt('barCount') ?? 96;
     barCount = barCounts.contains(bc) ? bc : 96;
     accent = 0; // Album-art colors replace the retired manual color palettes.
@@ -654,6 +672,8 @@ class AppSettings extends ChangeNotifier {
   Future<void> saveFocusedStyle() async {
     final p = await SharedPreferences.getInstance();
     await p.setInt('vizStyle', vizStyle);
+    await p.setInt('focusedPortraitStyle', focusedPortraitStyle);
+    await p.setInt('focusedLandscapeStyle', focusedLandscapeStyle);
   }
 
   Future<void> saveTheme() {
@@ -713,6 +733,8 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('cinematicAnimationSpeed', cinematicAnimationSpeed);
     await p.setDouble('sensitivity', sensitivity);
     await p.setInt('vizStyle', vizStyle);
+    await p.setInt('focusedPortraitStyle', focusedPortraitStyle);
+    await p.setInt('focusedLandscapeStyle', focusedLandscapeStyle);
     await p.setInt('barCount', barCount);
     await p.setInt('accent', accent);
     await p.setDouble('kGlow', kGlow);
