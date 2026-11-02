@@ -512,7 +512,11 @@ class MediaListenerService : NotificationListenerService() {
                 ::probeArtworkSnapshot,
                 ::probeTransport,
             ).also { flutterProbe = it }
-            if (probe.show()) {
+            // Mirror the experimental panel with the user's existing Drive
+            // layout preference, without ever foregrounding an Activity.
+            val swap = getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+                .getBoolean("driveSwap", false)
+            if (probe.show(onRight = swap)) {
                 drive?.stop()
                 bubble?.hide()
             }
@@ -534,10 +538,33 @@ class MediaListenerService : NotificationListenerService() {
      * Keep this deliberately small: the production Drive screen still needs
      * its artwork, preferences, visualizer and Connect channels migrated.
      */
+    /** Read only the same ongoing guidance notification used by native Drive.
+     * This is a snapshot, not a background Maps activity or a location API.
+     * Polling in the isolated Flutter probe also notices turn changes without
+     * requiring a second notification listener or foreground transition.
+     */
+    private fun probeNavigationSnapshot(): Map<String, String> {
+        return try {
+            val navPkg = getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+                .getString("navPkg", "") ?: ""
+            val guidance = activeNotifications
+                ?.firstOrNull { isNavNotification(it, navPkg) }
+            val extras = guidance?.notification?.extras
+            val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+            val detail = listOfNotNull(
+                extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+                extras?.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString(),
+            ).filter { it.isNotBlank() }.distinct().joinToString("  ·  ")
+            mapOf("navTitle" to title, "navText" to detail)
+        } catch (_: Exception) {
+            mapOf("navTitle" to "", "navText" to "")
+        }
+    }
+
     private fun probeTrackSnapshot(): Map<String, Any?> {
         val controller = pickController() ?: return mapOf(
             "title" to "Nothing playing", "artist" to "", "playing" to false,
-        )
+        ) + probeNavigationSnapshot()
         val md = controller.metadata
         val title = md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
         val artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST)
@@ -552,7 +579,7 @@ class MediaListenerService : NotificationListenerService() {
             // The Dart probe only fetches bytes when the track/art source changes.
             "artKey" to listOf(controller.packageName, title, artist, album, artUri)
                 .joinToString("\\u001f"),
-        )
+        ) + probeNavigationSnapshot()
     }
 
     /** Probe-only, on-demand session artwork. Do not fetch network art or
