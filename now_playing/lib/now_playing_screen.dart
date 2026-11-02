@@ -1559,8 +1559,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           left: w * 0.07, right: w * 0.07,
           top: h * 0.32, height: h * 0.17,
           child: _lyricBlock(h, Alignment.center, vhs: false)),
-        Positioned(left: w * 0.06, right: w * 0.04,
-          bottom: h * 0.205, child: info),
+        // Big Fan portrait: stack the album cover above centered metadata.
+        // The waveform remains independently anchored at the bottom.
+        Positioned(left: w * .08, right: w * .08,
+          bottom: h * .205,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            GestureDetector(key: _artKey, onTap: _openPlayer,
+              child: _artCard(math.min(w * .31, h * .15))),
+            SizedBox(height: h * .014),
+            SizedBox(width: w * .84,
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                _artist(h * .038, Alignment.center, false),
+                SizedBox(height: h * .008),
+                _title(h * .035, Alignment.center, false),
+                if (model.album.isNotEmpty && model.album != model.title) ...[
+                  SizedBox(height: h * .006),
+                  _fixedAlbum(h * .025, Alignment.center),
+                ],
+              ])),
+          ])),
         Positioned(left: w * 0.02, right: w * 0.02,
           bottom: h * 0.035, height: waveHeight, child: wave),
       ] else ...[
