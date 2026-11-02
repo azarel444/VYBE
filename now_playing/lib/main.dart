@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -22,42 +23,121 @@ void main() {
   runApp(NowPlayingApp(driveHost: driveHost));
 }
 
-/// Diagnostic Flutter surface hosted by a non-focusable Android overlay.
-/// It is intentionally separate from Drive until activity-independent native
-/// media channels, lifecycle, and map touch handling are validated on ATOTO.
-class _DriveOverlayProbeApp extends StatelessWidget {
+/// Opt-in, activity-independent FlutterView overlay experiment. The native
+/// service supplies a small media-session snapshot and transport controls;
+/// the full Drive UI and its other channels remain untouched.
+class _DriveOverlayProbeApp extends StatefulWidget {
   const _DriveOverlayProbeApp();
 
+  @override
+  State<_DriveOverlayProbeApp> createState() => _DriveOverlayProbeAppState();
+}
+
+class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
   static const _channel = MethodChannel('vybe/drive_overlay_probe');
+  Timer? _timer;
+  String _title = 'Checking music…';
+  String _artist = '';
+  bool _playing = false;
+  bool _fetching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshTrack();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _refreshTrack());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshTrack() async {
+    if (_fetching) return;
+    _fetching = true;
+    try {
+      final data = await _channel.invokeMapMethod<String, dynamic>('track');
+      if (!mounted || data == null) return;
+      setState(() {
+        _title = (data['title'] as String?) ?? 'Nothing playing';
+        _artist = (data['artist'] as String?) ?? '';
+        _playing = data['playing'] == true;
+      });
+    } on PlatformException catch (e) {
+      debugPrint('VYBE overlay probe media bridge: $e');
+    } finally {
+      _fetching = false;
+    }
+  }
+
+  Future<void> _send(String command) async {
+    try {
+      await _channel.invokeMethod<bool>('transport', {'command': command});
+      await _refreshTrack();
+    } on PlatformException catch (e) {
+      debugPrint('VYBE overlay probe transport: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        // The engine's /drive-overlay-probe route selects this app in main().
-        // The probe MaterialApp itself must start at its home route.
-        initialRoute: '/',
         theme: ThemeData.dark(),
         home: Scaffold(
           backgroundColor: Colors.transparent,
           body: Container(
             color: const Color(0xDD10131C),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             child: SafeArea(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.layers_outlined, size: 40, color: Color(0xFF05D9FF)),
-                  const SizedBox(height: 14),
+                  const Icon(Icons.layers_outlined,
+                      size: 36, color: Color(0xFF05D9FF)),
+                  const SizedBox(height: 12),
                   const Text('VYBE Flutter overlay test',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  Text(_title, textAlign: TextAlign.center,
+                      maxLines: 3, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  if (_artist.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(_artist, textAlign: TextAlign.center,
+                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Previous track',
+                        onPressed: () => _send('previous'),
+                        icon: const Icon(Icons.skip_previous),
+                      ),
+                      IconButton(
+                        tooltip: _playing ? 'Pause' : 'Play',
+                        onPressed: () => _send('toggle'),
+                        icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
+                      ),
+                      IconButton(
+                        tooltip: 'Next track',
+                        onPressed: () => _send('next'),
+                        icon: const Icon(Icons.skip_next),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 12),
                   const Text(
-                    'Maps should remain fullscreen and interactive to the right. '
-                    'This is a rendering test, not the finished Drive theme.',
+                    'Maps should stay fullscreen and touchable on the right. '
+                    'Test track updates and controls here without switching apps.',
                     textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: () => _channel.invokeMethod<void>('close'),
                     child: const Text('Close test'),
