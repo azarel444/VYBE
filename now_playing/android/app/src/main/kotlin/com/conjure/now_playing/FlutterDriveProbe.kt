@@ -27,6 +27,8 @@ import io.flutter.plugin.common.MethodChannel
 class FlutterDriveProbe(
     private val ctx: Context,
     private val onClose: () -> Unit,
+    private val trackSnapshot: () -> Map<String, Any?>,
+    private val transport: (String) -> Boolean,
 ) {
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var engine: FlutterEngine? = null
@@ -45,13 +47,27 @@ class FlutterDriveProbe(
             val e = FlutterEngine(ctx)
             createdEngine = e
             e.navigationChannel.setInitialRoute("/drive-overlay-probe")
+            // The service owns the media-session bridge; no Activity is
+            // brought forward, and no MainActivity MethodChannels are reused.
             MethodChannel(e.dartExecutor.binaryMessenger, "vybe/drive_overlay_probe")
                 .setMethodCallHandler { call, result ->
-                    if (call.method == "close") {
-                        result.success(null)
-                        onClose()
-                    } else {
-                        result.notImplemented()
+                    when (call.method) {
+                        "close" -> {
+                            result.success(null)
+                            onClose()
+                        }
+                        "track" -> {
+                            try { result.success(trackSnapshot()) }
+                            catch (error: Exception) { result.error("track", error.message, null) }
+                        }
+                        "transport" -> {
+                            try {
+                                result.success(transport(call.argument<String>("command") ?: ""))
+                            } catch (error: Exception) {
+                                result.error("transport", error.message, null)
+                            }
+                        }
+                        else -> result.notImplemented()
                     }
                 }
             // Texture rendering supports transparent WindowManager surfaces.
