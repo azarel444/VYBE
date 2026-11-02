@@ -1411,7 +1411,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null ? h * .105 : w * .095,
+              // Reserve enough height for wide artist marks to reach the full
+              // metadata width without distorting their aspect ratio.
+              // The previous 10.5%-height slot capped a 2:1 logo at
+              // roughly one third of a portrait screen's width.
+              SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null
+                  ? math.min(h * .225, w * .45) : w * .095,
                 child: settings.useArtistClearLogo && _clearLogoBytes != null
                     ? Align(alignment: Alignment.centerLeft,
                         child: SizedBox(width: double.infinity,
