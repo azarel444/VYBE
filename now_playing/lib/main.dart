@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -40,6 +41,8 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
   String _artist = '';
   bool _playing = false;
   bool _fetching = false;
+  String _artKey = '';
+  Uint8List? _artwork;
 
   @override
   void initState() {
@@ -60,15 +63,37 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
     try {
       final data = await _channel.invokeMapMethod<String, dynamic>('track');
       if (!mounted || data == null) return;
+      final nextArtKey = (data['artKey'] as String?) ?? '';
+      final artworkChanged = nextArtKey != _artKey;
       setState(() {
         _title = (data['title'] as String?) ?? 'Nothing playing';
         _artist = (data['artist'] as String?) ?? '';
         _playing = data['playing'] == true;
+        if (artworkChanged) {
+          _artKey = nextArtKey;
+          _artwork = null;
+        }
       });
+      if (artworkChanged && nextArtKey.isNotEmpty) {
+        _loadArtwork(nextArtKey);
+      }
     } on PlatformException catch (e) {
       debugPrint('VYBE overlay probe media bridge: $e');
     } finally {
       _fetching = false;
+    }
+  }
+
+  // Request art only when the media session changes its track/art key.
+  // This deliberately uses session art, not VYBE's production local-art or
+  // network fanart resolver, so the probe cannot regress those features.
+  Future<void> _loadArtwork(String key) async {
+    try {
+      final bytes = await _channel.invokeMethod<Uint8List>('artwork');
+      if (!mounted || _artKey != key) return;
+      setState(() => _artwork = bytes);
+    } on PlatformException catch (e) {
+      debugPrint('VYBE overlay probe artwork bridge: $e');
     }
   }
 
@@ -100,6 +125,18 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
                   const Text('VYBE Flutter overlay test',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  if (_artwork != null) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: 92,
+                      height: 92,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.memory(_artwork!, fit: BoxFit.cover,
+                            gaplessPlayback: true),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Text(_title, textAlign: TextAlign.center,
                       maxLines: 3, overflow: TextOverflow.ellipsis,
@@ -133,7 +170,7 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
                   const SizedBox(height: 12),
                   const Text(
                     'Maps should stay fullscreen and touchable on the right. '
-                    'Test track updates and controls here without switching apps.',
+                    'Test artwork, track updates and controls without switching apps.',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12),
                   ),
