@@ -44,17 +44,27 @@ class LocalArtwork {
 
   Future<void> load() async {
     if (_loaded) return;
-    _loaded = true;
     final prefs = await SharedPreferences.getInstance();
     try {
       final raw = prefs.getString('localArtworkIndex');
       if (raw != null) {
         for (final entry in jsonDecode(raw) as List) {
-          _files.add(Map<String, String>.from(entry as Map));
+          if (entry is Map) {
+            final uri = entry['uri'];
+            if (uri is String && uri.isNotEmpty) {
+              _files.add({'uri': uri, 'name': entry['name']?.toString() ?? '',
+                'folder': entry['folder']?.toString() ?? ''});
+            }
+          }
         }
       }
       status = '${_files.length} indexed local images';
-    } catch (_) { status = 'Local index needs rebuilding'; }
+    } catch (_) {
+      _files.clear();
+      status = 'Local index needs rebuilding';
+    } finally {
+      _loaded = true;
+    }
   }
 
   Future<bool> chooseFolder() async =>
@@ -70,7 +80,13 @@ class LocalArtwork {
     final result = await _channel.invokeMethod<List<dynamic>>('scan') ?? [];
     final next = <Map<String, String>>[];
     for (final item in result) {
-      if (item is Map) next.add(Map<String, String>.from(item));
+      if (item is Map) {
+        final uri = item['uri'];
+        if (uri is String && uri.isNotEmpty) {
+          next.add({'uri': uri, 'name': item['name']?.toString() ?? '',
+            'folder': item['folder']?.toString() ?? ''});
+        }
+      }
     }
     _files..clear()..addAll(next);
     if (manual) {
