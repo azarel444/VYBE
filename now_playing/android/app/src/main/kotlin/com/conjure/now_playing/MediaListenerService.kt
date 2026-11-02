@@ -500,7 +500,11 @@ class MediaListenerService : NotificationListenerService() {
      */
     fun showFlutterDriveProbe() {
         main.post {
-            if (!DriveActivity.alive) return@post
+            // The return tab is the explicit opt-in. On memory-constrained
+            // head units Android may reclaim the hidden DriveActivity while
+            // Maps stays in front. The Flutter overlay is service-hosted and
+            // must not require that Activity to remain alive.
+            if (bubble == null && !DriveActivity.alive) return@post
             val probe = flutterProbe ?: FlutterDriveProbe(
                 this,
                 ::hideFlutterDriveProbe,
@@ -518,7 +522,11 @@ class MediaListenerService : NotificationListenerService() {
     fun hideFlutterDriveProbe() {
         main.post {
             flutterProbe?.hide()
-            if (DriveActivity.alive) showBubble()
+            // Restore the existing return tab even if Android reclaimed the
+            // DriveActivity during the probe. Do not create a new tab after
+            // an explicitly ended Drive session.
+            if (bubble != null) bubble?.show()
+            else if (DriveActivity.alive) showBubble()
         }
     }
 
