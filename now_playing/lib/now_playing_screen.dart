@@ -565,7 +565,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fit: StackFit.expand,
                     children: [
                       layout,
-                      if (settings.showClock && !widget.driveHost && settings.theme != 4) _themeClock(w, h, narrow),
+                      // Clock is displayed only with the popup controls.
                       if (vhs && !widget.driveHost && settings.theme != 4) _osd(h, compact: narrow),
                     ],
                   ),
@@ -586,7 +586,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             // Night Mode uses window brightness, never a text-dimming overlay.
             _progressLine(),
-            if (controlsInside && _showControls) _controls(),
+            if (controlsInside && _showControls) ...[
+              _controlsClockHeader(),
+              _controls(),
+            ],
           ],
         ),
       );
@@ -625,7 +628,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
             if (w >= h * 1.3) _driveBottomBars(w, h, hole),
-            if (_showControls) _controls(),
+            if (_showControls) ...[
+              _controlsClockHeader(),
+              _controls(),
+            ],
           ],
         );
       }),
@@ -2394,7 +2400,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final availableTop = h * 0.50;
       final topSpace = math.max(cameraTop, h * 0.055);
       final hasLogo = settings.useArtistClearLogo && _clearLogoBytes != null;
-      final reservedText = h * 0.075 + (settings.showClock ? h * 0.055 : 0.0) +
+      final reservedText = h * 0.075 +
           (hasLogo ? h * 0.09 : h * 0.03);
       final artSide = math.max(48.0,
         math.min(math.min(w * 0.48, h * 0.225),
@@ -2403,14 +2409,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         height: availableTop,
         child: Column(children: [
           SizedBox(height: topSpace),
-          if (settings.showClock) ...[
-            Text(_clockLabel(), textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white,
-                fontSize: (h * .043).clamp(24.0, 46.0).toDouble(),
-                fontWeight: FontWeight.w500,
-                shadows: const [Shadow(color: Colors.black, blurRadius: 8)])),
-            SizedBox(height: h * .007),
-          ],
+          // Drive's clock is also provided by the popup controls.
           if (hasLogo) ...[
             SizedBox(width: w * .82, height: h * .09,
               child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
@@ -2493,15 +2492,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       fit: StackFit.expand,
       children: [
         panel,
-        if (settings.showClock)
-          Positioned(left: swap ? hole.right + m : 0, width: panelW,
-            top: math.max(6.0, MediaQuery.of(context).viewPadding.top),
-            child: IgnorePointer(child: Text(_clockLabel(),
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white,
-                fontSize: (h * .065).clamp(24.0, 44.0).toDouble(),
-                fontWeight: FontWeight.w500,
-                shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))),
+        // No persistent Drive clock: it appears with the controls.
         if (!host) ...[
           Positioned.fromRect(rect: hole, child: _driveFrame(h)),
           _driveBottomBars(w, h, hole),
@@ -4921,6 +4912,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           );
         },
       ),
+    );
+  }
+
+  /// One clock for every theme, visible only while the controls are open.
+  /// The top fade keeps the time legible over bright fanart without
+  /// introducing a permanent obstruction into any composition.
+  Widget _controlsClockHeader() {
+    final h = MediaQuery.sizeOf(context).height;
+    return Positioned(
+      left: 0, right: 0, top: 0,
+      height: math.min(h * .24, 190.0),
+      child: IgnorePointer(child: Stack(children: [
+        const Positioned.fill(child: DecoratedBox(
+          decoration: BoxDecoration(gradient: LinearGradient(
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [Color(0xC9000000), Color(0x77000000),
+              Color(0x00000000)],
+            stops: [0, .40, 1])))),
+        Positioned(left: 0, right: 0,
+          top: math.max(12.0, MediaQuery.of(context).viewPadding.top + 8.0),
+          child: Center(child: Text(_clockLabel(),
+            style: TextStyle(color: Colors.white,
+              fontSize: (h * .065).clamp(27.0, 48.0).toDouble(),
+              fontWeight: FontWeight.w500,
+              shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))),
+      ])),
     );
   }
 
