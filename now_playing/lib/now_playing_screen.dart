@@ -1443,7 +1443,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         // Keep the mirrored artist/title group anchored to its right edge,
         // including the shorter song title. Counter-mirroring its glyphs
         // alone does not correct the group's horizontal alignment.
-        Positioned(left: w * .235, top: h * .125, width: w * .47,
+        Positioned(left: w * .235, top: h * .043, width: w * .47,
           child: readable(Column(
             crossAxisAlignment: flipped
                 ? CrossAxisAlignment.end : CrossAxisAlignment.start,
