@@ -1862,7 +1862,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// stacked as one group that is centered on the screen.
   Widget _focused(double w, double h) {
     final portrait = h > w * 1.1;
-    final barsMode = settings.vizStyle == 1;
+    final barsMode = settings.focusedStyleFor(h > w * 1.1) == 1;
     final lyricSlot = settings.lyrics ? h * 0.05 : 0.0;
     final lyricGap = settings.lyrics ? _lyricGap(h) : 0.0;
     final textH = h * 0.14 + lyricSlot + lyricGap; // artist header is separate
