@@ -36,11 +36,18 @@ To test on the ATOTO after installing the new APK:
 4. Tap **Close test** to restore the Return tab. Repeat and watch for
    black surfaces, missing UI, slow startup, or Maps entering PiP.
 
+The opt-in test now also includes a small **service-owned media bridge**:
+it reads the currently selected music session's title, artist and playback
+state every two seconds and exposes previous/play-pause/next controls. Test
+that the title updates on skips and that the controls work **while Maps stays
+fullscreen**. This specifically validates media-session access from the
+non-Activity Flutter engine, not just rendering.
+
 The test panel deliberately does **not** show artwork or the full Drive
-theme: native method channels in `MainActivity` still depend on an Activity.
-Passing this test only validates whether a service-owned Flutter surface can
-coexist with fullscreen Maps on the ATOTO. Full UI migration and regression
-testing remain necessary. The experiment is off by default.
+theme: the remaining native MethodChannels in `MainActivity` still depend on
+an Activity. Passing this test validates only the service-hosted Flutter
+surface and its basic media bridge on the ATOTO. Full UI migration and
+regression testing remain necessary. The experiment is off by default.
 
 ## Target implementation (do not silently substitute the native preview)
 
