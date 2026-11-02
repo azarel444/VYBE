@@ -1437,7 +1437,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         // Keep the mirrored artist/title group anchored to its right edge,
         // including the shorter song title. Counter-mirroring its glyphs
         // alone does not correct the group's horizontal alignment.
-        Positioned(left: w * .235, top: h * .043, width: w * .47,
+        Positioned(left: w * .235, top: h * .125, width: w * .47,
           child: readable(Column(
             crossAxisAlignment: flipped
                 ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -1599,7 +1599,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Cinematic landscape clock belongs at the top center, independent
     // of the mirrored music-information layout.
     final centered = (portrait && theme != AppSettings.tEditorial) || typoLyricsCentered ||
-        (!portrait && theme == AppSettings.tCinematic);
+        (!portrait && (theme == AppSettings.tCinematic ||
+            theme == AppSettings.tEditorial));
     bool onRight = true;
     double topInset = portrait ? h * 0.055 : 18.0;
     double? bottomInset;
@@ -1659,18 +1660,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (typoLyricsCentered) topInset = 22.0;
     final inset = theme == AppSettings.tEditorial && !portrait
         ? w * .022 : (portrait ? 18.0 : 30.0);
-    if (theme == AppSettings.tEditorial && !portrait) topInset = h * .018;
+    if (theme == AppSettings.tEditorial && !portrait) topInset = h * .015;
     // Muzine's clock stays in the grayscale strip above the record.
     // Unlike the composition, this clock is rendered OUTSIDE the mirroring
     // transform: mirror its own anchor when the sleeve is on the right.
     // Center landscape clocks within the theme's information half rather
     // than anchoring them to the outer screen corner.
     final panelClock = !portrait && <int>{
-      AppSettings.tOrbit, AppSettings.tTypo, AppSettings.tFan,
+      0, AppSettings.tOrbit, AppSettings.tTypo, AppSettings.tFan,
       1, 3, 5, 7, 8, 9,
     }.contains(theme);
     if (panelClock) {
-      if (theme == 1) onRight = !settings.layoutSwap;
+      if (theme == 0 || theme == 1) onRight = !settings.layoutSwap;
       if (theme == 5 || theme == 8) onRight = !settings.layoutSwap;
       if (theme == AppSettings.tTypo || theme == 7) {
         // Typo and Record Cut put metadata on the left by default.
@@ -1696,8 +1697,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           h * .038);
       final availableHeight = math.max(32.0, h * .20 - safeTop - 8.0);
       return Positioned(
-        left: w * .48,
-        right: w * .02,
+        // The disc is centered near 0.21w in portrait. Center the clock
+        // above that record rather than on the opposite artwork wedge.
+        left: w * .015,
+        right: w * .555,
         top: safeTop,
         height: availableHeight,
         child: IgnorePointer(
@@ -1707,7 +1710,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: Text(value, maxLines: 1, softWrap: false,
               style: TextStyle(
                 color: Colors.white.withOpacity(.93),
-                fontSize: (h * .070).clamp(38.0, 66.0).toDouble(),
+                fontSize: (h * .055).clamp(32.0, 58.0).toDouble(),
                 fontWeight: FontWeight.w500,
                 letterSpacing: .5,
                 fontFeatures: const [ui.FontFeature.tabularFigures()],
