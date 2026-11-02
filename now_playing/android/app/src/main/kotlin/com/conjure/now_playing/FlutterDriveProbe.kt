@@ -28,6 +28,7 @@ class FlutterDriveProbe(
     private val ctx: Context,
     private val onClose: () -> Unit,
     private val trackSnapshot: () -> Map<String, Any?>,
+    private val artworkSnapshot: () -> ByteArray?,
     private val transport: (String) -> Boolean,
 ) {
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -59,6 +60,10 @@ class FlutterDriveProbe(
                         "track" -> {
                             try { result.success(trackSnapshot()) }
                             catch (error: Exception) { result.error("track", error.message, null) }
+                        }
+                        "artwork" -> {
+                            try { result.success(artworkSnapshot()) }
+                            catch (error: Exception) { result.error("artwork", error.message, null) }
                         }
                         "transport" -> {
                             try {
