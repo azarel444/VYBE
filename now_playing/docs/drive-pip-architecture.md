@@ -43,11 +43,20 @@ that the title updates on skips and that the controls work **while Maps stays
 fullscreen**. This specifically validates media-session access from the
 non-Activity Flutter engine, not just rendering.
 
-The test panel deliberately does **not** show artwork or the full Drive
-theme: the remaining native MethodChannels in `MainActivity` still depend on
-an Activity. Passing this test validates only the service-hosted Flutter
-surface and its basic media bridge on the ATOTO. Full UI migration and
-regression testing remain necessary. The experiment is off by default.
+The test panel now includes **compressed media-session artwork** and
+**notification-based navigation guidance**, in addition to song metadata and
+transport controls. It deliberately does **not** use the production local-art
+resolver, network fanart pipeline, visualizers or full Drive theme: those
+channels still depend on the Activity. Passing this test validates the
+service-hosted Flutter surface and a limited media/navigation bridge, not the
+finished Drive UI. Full migration and regression testing remain necessary.
+The experiment is off by default.
+
+The panel stays **on the left** even if an old `driveSwap` preference is set,
+leaving the right-hand Maps guidance area uncovered. On display rotation, the
+notification-listener service now resizes the overlay window rather than
+recreating the Flutter engine. Check both landscape and portrait on ATOTO
+before relying on this behavior.
 
 ## Target implementation (do not silently substitute the native preview)
 
