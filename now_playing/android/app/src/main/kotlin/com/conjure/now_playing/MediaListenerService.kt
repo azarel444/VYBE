@@ -3,6 +3,7 @@ package com.conjure.now_playing
 import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
+import android.content.res.Configuration
 import android.content.Intent
 import android.media.AudioManager
 import android.media.MediaMetadata
@@ -131,6 +132,13 @@ class MediaListenerService : NotificationListenerService() {
         }
         main.removeCallbacks(missedTrackCheck)
         main.postDelayed(missedTrackCheck, 1800L)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // The service-hosted FlutterView has no Activity to recreate it on
+        // rotation; explicitly resize its overlay window to current metrics.
+        main.post { flutterProbe?.relayout() }
     }
 
     override fun onListenerDisconnected() {
@@ -512,11 +520,10 @@ class MediaListenerService : NotificationListenerService() {
                 ::probeArtworkSnapshot,
                 ::probeTransport,
             ).also { flutterProbe = it }
-            // Mirror the experimental panel with the user's existing Drive
-            // layout preference, without ever foregrounding an Activity.
-            val swap = getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
-                .getBoolean("driveSwap", false)
-            if (probe.show(onRight = swap)) {
+            // Maps' directions are on the right in the tested layouts.
+            // Keep the experimental music panel on the left; a legacy
+            // driveSwap preference must not obscure the navigation area.
+            if (probe.show()) {
                 drive?.stop()
                 bubble?.hide()
             }
