@@ -473,8 +473,12 @@ class SettingsScreen extends StatelessWidget {
         _slider('Sensitivity', '${(s.sensitivity * 100).round()}%',
           s.sensitivity, 0.5, 1.5,
           (v) => s.update(() => s.sensitivity = v, persist: false), s.save),
-        _choices('Style in the Focused theme', const ['Ring', 'Bars'],
-          s.vizStyle, (i) => s.update(() => s.vizStyle = i)),
+        _choices('Focused style (current orientation)', const ['Ring', 'Bars'],
+          s.focusedStyleFor(MediaQuery.of(context).size.height >
+              MediaQuery.of(context).size.width * 1.1),
+          (i) => s.setFocusedStyleFor(
+              MediaQuery.of(context).size.height >
+                  MediaQuery.of(context).size.width * 1.1, i)),
         _choices('Number of bars', AppSettings.barCounts.map((e) => '$e').toList(),
           AppSettings.barCounts.indexOf(s.barCount),
           (i) => s.update(() => s.barCount = AppSettings.barCounts[i])),
