@@ -1336,7 +1336,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(height: w * .095,
+              SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null ? h * .105 : w * .095,
                 child: settings.useArtistClearLogo && _clearLogoBytes != null
                     ? Align(alignment: Alignment.centerLeft,
                         child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
@@ -1374,7 +1374,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min, children: [
               if (settings.useArtistClearLogo && _clearLogoBytes != null)
-                SizedBox(height: h * .095, width: w * .43,
+                SizedBox(height: h * .16, width: w * .47,
                   child: Align(
                     alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
                     child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
@@ -1625,10 +1625,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           h * .052);
       final availableHeight = math.max(20.0, h * .20 - safeTop - 10.0);
       return Positioned(
-        left: w * .53,
-        right: w * .045,
+        left: w * .50,
+        right: w * .035,
         top: safeTop,
-        height: math.min(h * .105, availableHeight),
+        height: availableHeight,
         child: IgnorePointer(
           child: FittedBox(
             fit: BoxFit.scaleDown,
@@ -1636,7 +1636,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: Text(value, maxLines: 1, softWrap: false,
               style: TextStyle(
                 color: Colors.white.withOpacity(.93),
-                fontSize: (h * .044).clamp(28.0, 46.0).toDouble(),
+                fontSize: (h * .058).clamp(34.0, 58.0).toDouble(),
                 fontWeight: FontWeight.w500,
                 letterSpacing: .5,
                 fontFeatures: const [ui.FontFeature.tabularFigures()],
@@ -4525,10 +4525,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _artist(double size, Alignment a, bool vhs) {
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
       final screen = MediaQuery.sizeOf(context);
-      final maxLogoWidth = screen.width * .82;
+      final maxLogoWidth = screen.width * (screen.width < screen.height ? .92 : .88);
       final logoHeight = (settings.theme == 0
-          ? math.max(size * 2.3, screen.height * (screen.width > screen.height * 1.1 ? .17 : .09))
-          : math.max(math.min(size * 2.5, screen.height * .17), screen.height * .11)) *
+          ? math.max(size * 3.0, screen.height * (screen.width > screen.height * 1.1 ? .19 : .14))
+          : math.max(math.min(size * 3.5, screen.height * .21), screen.height * .15)) *
           settings.artistLogoScale;
       return _shaded(ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxLogoWidth),
