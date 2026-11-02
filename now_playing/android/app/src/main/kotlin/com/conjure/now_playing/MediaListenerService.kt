@@ -501,9 +501,12 @@ class MediaListenerService : NotificationListenerService() {
     fun showFlutterDriveProbe() {
         main.post {
             if (!DriveActivity.alive) return@post
-            val probe = flutterProbe ?: FlutterDriveProbe(this) {
-                hideFlutterDriveProbe()
-            }.also { flutterProbe = it }
+            val probe = flutterProbe ?: FlutterDriveProbe(
+                this,
+                ::hideFlutterDriveProbe,
+                ::probeTrackSnapshot,
+                ::probeTransport,
+            ).also { flutterProbe = it }
             if (probe.show()) {
                 drive?.stop()
                 bubble?.hide()
@@ -517,6 +520,43 @@ class MediaListenerService : NotificationListenerService() {
             if (DriveActivity.alive) showBubble()
         }
     }
+
+    /** Activity-independent media bridge for the opt-in FlutterView test.
+     * Keep this deliberately small: the production Drive screen still needs
+     * its artwork, preferences, visualizer and Connect channels migrated.
+     */
+    private fun probeTrackSnapshot(): Map<String, Any?> {
+        val controller = pickController() ?: return mapOf(
+            "title" to "Nothing playing", "artist" to "", "playing" to false,
+        )
+        val md = controller.metadata
+        return mapOf(
+            "title" to (md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""),
+            "artist" to (md?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+                ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: ""),
+            "playing" to (controller.playbackState?.state == PlaybackState.STATE_PLAYING),
+        )
+    }
+
+    private fun probeTransport(command: String): Boolean {
+        val controller = pickController() ?: return false
+        return try {
+            when (command) {
+                "previous" -> controller.transportControls.skipToPrevious()
+                "next" -> controller.transportControls.skipToNext()
+                "toggle" -> {
+                    if (controller.playbackState?.state == PlaybackState.STATE_PLAYING)
+                        controller.transportControls.pause()
+                    else controller.transportControls.play()
+                }
+                else -> return false
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
 
     /** Shows the small "return to VYBE" button, if the Drive window exists. */
     fun showBubble() {
