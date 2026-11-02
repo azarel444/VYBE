@@ -488,7 +488,8 @@ class SettingsScreen extends StatelessWidget {
         'Use pink and cyan instead of colors from album artwork',
         s.vhsVaporwave, (v) => s.update(() => s.vhsVaporwave = v)),
       _section('Clock'),
-      _switch('Show clock', 'Shown according to each theme and orientation',
+      _switch('Show clock with playback controls',
+        'Only visible while the popup controls are open; no theme clock',
         s.showClock, (v) => s.update(() => s.showClock = v)),
       if (s.showClock)
         _switch('24-hour time', 'Off uses 12-hour time with AM/PM',
