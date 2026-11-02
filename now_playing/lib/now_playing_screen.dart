@@ -587,7 +587,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Night Mode uses window brightness, never a text-dimming overlay.
             _progressLine(),
             if (controlsInside && _showControls) ...[
-              _controlsClockHeader(),
+              if (settings.showClock) _controlsClockHeader(),
               _controls(),
             ],
           ],
@@ -629,7 +629,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
             if (w >= h * 1.3) _driveBottomBars(w, h, hole),
             if (_showControls) ...[
-              _controlsClockHeader(),
+              if (settings.showClock) _controlsClockHeader(),
               _controls(),
             ],
           ],
@@ -1595,243 +1595,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ]);
   }
 
-  /// Each layout gets an independent clock anchor in portrait and landscape.
-  /// Keep the clock over negative space, not album artwork or song information.
+  /// Shared clock label for the playback-controls overlay.
   String _clockLabel() {
     final now = DateTime.now();
     final hour = settings.clock24h ? now.hour : (now.hour % 12 == 0 ? 12 : now.hour % 12);
     return '${hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}${settings.clock24h ? '' : (now.hour < 12 ? ' AM' : ' PM')}';
   }
 
-  Widget _themeClock(double w, double h, bool portrait) {
-    // Use actual orientation: the caller's `narrow` flag is not orientation.
-    portrait = h > w * 1.1;
-    final now = DateTime.now();
-    final hour = settings.clock24h
-        ? now.hour
-        : (now.hour % 12 == 0 ? 12 : now.hour % 12);
-    final value = '${hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}${settings.clock24h ? '' : (now.hour < 12 ? ' AM' : ' PM')}';
 
-    // Portrait positions are art-directed per theme (October 2026 review).
-    // Landscape clocks follow the music-information side, not the artwork.
-    final theme = settings.theme;
-    // Typo: lyrics use the upper center; album-art mode keeps the clock
-    // upper-left, clear of the artwork. Other landscape themes retain sides.
-    final typoLyricsCentered = !portrait &&
-        theme == AppSettings.tTypo && _hasLyrics;
-    // Cinematic landscape clock belongs at the top center, independent
-    // of the mirrored music-information layout.
-    final centered = (portrait && theme != AppSettings.tEditorial) || typoLyricsCentered ||
-        (!portrait && (theme == AppSettings.tCinematic ||
-            theme == AppSettings.tEditorial));
-    bool onRight = true;
-    double topInset = portrait ? h * 0.055 : 18.0;
-    double? bottomInset;
-    if (portrait) {
-      switch (theme) {
-        case 1: // Side by Side: centered along the bottom.
-        case 3: // Edge to Edge: centered along the bottom.
-          bottomInset = math.max(22.0, h * 0.022);
-          break;
-        case 4: // Drive: clock at the top, clear of the larger artist logo.
-          topInset = math.max(12.0, MediaQuery.of(context).viewPadding.top);
-          break;
-        case 5: // Fan: between the top spectrum and song information.
-          topInset = h * 0.135;
-          break;
-        case 7: // Record Cut: above the lowered record.
-          topInset = h * 0.025;
-          break;
-        case 8: // Typo: clock gets its own camera-safe header above the title.
-          topInset = math.max(48.0, MediaQuery.of(context).viewPadding.top) + 14.0;
-          break;
-        case 11: // Muzine: clock belongs in the upper-right negative space.
-          topInset = h * .19;
-          onRight = true;
-          break;
-        case 9: // Orbit: directly above the artist/title group.
-          topInset = h * 0.075;
-          break;
-        case 0: // Focused: center the clock above the artist/ClearLogo.
-          topInset = h * 0.025;
-          break;
-        default: // Other portrait compositions: above song information.
-          topInset = h * 0.08;
-      }
-    } else {
-      // Mirrored Drive places its music panel on the opposite side.
-      if (theme == 4) onRight = false;
-      // Side by Side clock follows the text panel opposite the artwork.
-      if (theme == 1) onRight = !settings.layoutSwap;
-      // Fan and Record Cut landscape have the artwork on the left/right.
-      if (theme == 7 || theme == AppSettings.tTypo) onRight = false;
-      // Follow the information panel when a theme swaps its art and text.
-      if (settings.layoutSwap && (theme == 5 || theme == 7 || theme == 9 || theme == 6 || theme == 8)) onRight = !onRight;
-      if (theme == 9) onRight = !settings.layoutSwap; // Orbit clock follows text side, opposite the ring.
-      if (theme == 0 || theme == AppSettings.tFan) onRight = true; // Focused and Big Fan clocks upper right.
-      if (theme == AppSettings.tEditorial) onRight = false;
-      // Typo uses upper-center when lyrics actually display, upper-left
-      // when the right pane contains artwork (including disabled lyrics).
-    }
-    // Android's status bar can be hidden in immersive mode while the physical
-    // hole-punch camera remains. Reserve a minimum camera-safe band as well as
-    // any real system inset supplied by the device.
-    final cameraSafeTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
-    if (portrait && bottomInset == null) {
-      topInset = math.max(topInset, theme == 4 ? cameraSafeTop : cameraSafeTop + 14.0);
-    }
-    if (typoLyricsCentered) topInset = 22.0;
-    final inset = theme == AppSettings.tEditorial && !portrait
-        ? w * .022 : (portrait ? 18.0 : 30.0);
-    if (theme == AppSettings.tEditorial && !portrait) topInset = h * .015;
-    // Muzine's clock stays in the grayscale strip above the record.
-    // Unlike the composition, this clock is rendered OUTSIDE the mirroring
-    // transform: mirror its own anchor when the sleeve is on the right.
-    // Center landscape clocks within the theme's information half rather
-    // than anchoring them to the outer screen corner.
-    final panelClock = !portrait && <int>{
-      AppSettings.tOrbit, AppSettings.tTypo, AppSettings.tFan,
-      3, 5, 7, 8, 9,
-    }.contains(theme);
-    if (panelClock) {
-      if (theme == 0 || theme == 1) onRight = !settings.layoutSwap;
-      if (theme == 5 || theme == 8) onRight = !settings.layoutSwap;
-      if (theme == AppSettings.tTypo || theme == 7) {
-        // Typo and Record Cut put metadata on the left by default.
-        onRight = settings.layoutSwap;
-      } else if (theme == AppSettings.tDiagonal) {
-        // Diagonal is deliberately different: the clock stays upper-right
-        // even when the artwork and song information are mirrored.
-        onRight = true;
-      } else if (theme == 3) {
-        // Edge-to-Edge follows the mirrored song-information panel.
-        onRight = !settings.layoutSwap;
-      } else if (theme == AppSettings.tFan) {
-        onRight = !settings.layoutSwap;
-      }
-      // Orbit already computes its own text-side anchor above.
-      topInset = h * 0.055;
-    }
-    // Muzine portrait: the clock belongs entirely inside the upper-right
-    // negative-space triangle. Its former h*.19 origin sat directly on the
-    // grayscale divider at h*.20, even before the text's own height.
-    if (portrait && theme == AppSettings.tEditorial) {
-      final safeTop = math.max(MediaQuery.of(context).viewPadding.top + 6.0,
-          h * .038);
-      final availableHeight = math.max(32.0, h * .20 - safeTop - 8.0);
-      return Positioned(
-        // The disc is centered near 0.21w in portrait. Center the clock
-        // above that record rather than on the opposite artwork wedge.
-        left: w * .55,
-        right: w * .025,
-        top: math.max(safeTop, h * .085),
-        height: math.min(availableHeight, h * .10),
-        child: IgnorePointer(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.center,
-            child: Text(value, maxLines: 1, softWrap: false,
-              style: TextStyle(
-                color: Colors.white.withOpacity(.93),
-                fontSize: (h * .035).clamp(23.0, 42.0).toDouble(),
-                fontWeight: FontWeight.w500,
-                letterSpacing: .5,
-                fontFeatures: const [ui.FontFeature.tabularFigures()],
-                shadows: const [
-                  Shadow(color: Color(0xDD000000), blurRadius: 7,
-                    offset: Offset(0, 2)),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    // Theme-specific clock anchors, independent of generic metadata panels.
-    if (!portrait && theme == 0) {
-      return Positioned(top: h * .045, right: w * .018, width: w * .16,
-        child: IgnorePointer(child: FittedBox(fit: BoxFit.scaleDown,
-          child: Text(value, maxLines: 1, softWrap: false,
-            style: TextStyle(color: Colors.white, fontSize: h * .063,
-              fontWeight: FontWeight.w500,
-              shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))));
-    }
-    if (!portrait && theme == 1) {
-      return Positioned(top: h * .035,
-        left: settings.layoutSwap ? w * .63 : w * .07, width: w * .31,
-        child: IgnorePointer(child: Center(child: Text(value,
-          maxLines: 1, softWrap: false,
-          style: TextStyle(color: Colors.white, fontSize: h * .055,
-            fontWeight: FontWeight.w500,
-            shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))));
-    }
-    if (!portrait && theme == AppSettings.tEditorial) {
-      return Positioned(top: h * .035,
-        left: settings.layoutSwap ? null : w * .012,
-        right: settings.layoutSwap ? w * .012 : null,
-        width: w * .19,
-        child: IgnorePointer(child: FittedBox(fit: BoxFit.scaleDown,
-          child: Text(value, maxLines: 1, softWrap: false,
-            style: TextStyle(color: Colors.white, fontSize: h * .061,
-              fontWeight: FontWeight.w500,
-              shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))));
-    }
-    final editorialLandscape = theme == AppSettings.tEditorial && !portrait;
-    final editorialFlipped = editorialLandscape && settings.layoutSwap;
-    return Positioned(
-      left: panelClock ? (onRight ? w * .50 : 0.0) : centered ? 0 : (editorialLandscape
-          ? (editorialFlipped ? w * .805 : w * .018)
-          : (onRight ? null : inset)),
-      right: panelClock ? (onRight ? 0.0 : w * .50) : centered ? 0 : (editorialLandscape
-          ? (editorialFlipped ? w * .018 : w * .805)
-          : (onRight ? inset : null)),
-      top: bottomInset == null ? topInset : null,
-      bottom: bottomInset,
-      child: IgnorePointer(
-        child: Center(widthFactor: editorialLandscape || centered || panelClock ? null : 1, heightFactor: 1,
-          child: editorialLandscape
-              ? FittedBox(fit: BoxFit.scaleDown,
-                  child: Text(value, maxLines: 1, softWrap: false,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(.93),
-                      fontSize: (h * .058).clamp(24.0, 44.0).toDouble(),
-                      fontWeight: FontWeight.w500,
-                      fontFeatures: const [ui.FontFeature.tabularFigures()],
-                      shadows: const [Shadow(color: Colors.black, blurRadius: 8)],
-                    )))
-              : Text(value, style: TextStyle(
-          color: Colors.white.withOpacity(0.93),
-          fontSize: () {
-            // Scale with the music typography, not a fixed 26px cap. The
-            // ATOTO reports fewer logical pixels than a phone, so a minimum
-            // readable clock size is essential. Muzine may move into the
-            // available upper-left space rather than shrinking to the strip.
-            if (theme == AppSettings.tEditorial) {
-              return (h * (portrait ? .044 : .073))
-                  .clamp(portrait ? 28.0 : 26.0, portrait ? 46.0 : 52.0)
-                  .toDouble();
-            }
-            return (h * (portrait ? .038 : .058))
-                .clamp(portrait ? 25.0 : 24.0, portrait ? 44.0 : 48.0)
-                .toDouble();
-          }(),
-          fontWeight: FontWeight.w500,
-          letterSpacing: 0.5,
-          fontFeatures: const [ui.FontFeature.tabularFigures()],
-          shadows: const [
-            Shadow(color: Color(0xDD000000), blurRadius: 7, offset: Offset(0, 2)),
-            Shadow(color: Color(0x99000000), blurRadius: 14, offset: Offset(0, 3)),
-          ],
-        )),
-        ),
-      ),
-    );
-  }
-
-  // -------------------------------------------------------------- VHS layers
-
-  /// GPU backdrop displacement occurs after blurred art, before visualizers,
-  /// artwork and labels. On Skia the legacy canvas treatment remains available.
   Widget _shaderFxLayer() {
     int mode = -1;
     String name = '';
@@ -3958,15 +3729,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     if (narrow) {
       final ringEdge = artR * 1.72;
-      // The clock is a separate Stack layer. Reserve its entire camera-safe
-      // header plus a real gap before centering the ClearLogo/title group;
-      // otherwise tall logos can touch the clock on portrait devices.
-      final cameraSafeTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
-      final clockTop = math.max(h * 0.075, cameraSafeTop + 14.0);
-      final clockHeight = (h * 0.038).clamp(25.0, 44.0).toDouble() * 1.25;
-      final infoTop = settings.showClock
-          ? math.max(h * 0.03, clockTop + clockHeight + h * 0.02)
-          : h * 0.03;
+      // The theme is now clock-free; use the available upper space.
+      final infoTop = h * 0.03;
       layers.add(
         Positioned(
           left: w * 0.06,
@@ -4228,11 +3992,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           Positioned(
             left: edge + w * 0.04,
             right: edge + w * 0.04,
-            // Reserve a dedicated top band for the portrait Typo clock.
-            // Center/scale metadata and artwork only in the remaining area.
-            top: settings.showClock
-                ? math.max(48.0, MediaQuery.of(context).viewPadding.top) + 62.0
-                : 0,
+            // No persistent clock: center metadata in the full panel.
+            top: 0,
             bottom: 0,
             child: Center(
               child: FittedBox(
