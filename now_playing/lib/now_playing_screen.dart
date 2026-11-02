@@ -560,7 +560,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   layout = _focused(w, h);
                 }
                 return Transform.translate(
-                  offset: (widget.driveHost || settings.theme >= 3) ? Offset.zero : _shift,
+                  offset: (widget.driveHost || settings.theme >= 3 || settings.theme == 1) ? Offset.zero : _shift,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
@@ -1414,9 +1414,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null ? h * .105 : w * .095,
                 child: settings.useArtistClearLogo && _clearLogoBytes != null
                     ? Align(alignment: Alignment.centerLeft,
-                        child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+                        child: SizedBox(width: double.infinity,
+                          child: Image.memory(_clearLogoBytes!,
+                            fit: BoxFit.contain,
                             alignment: Alignment.centerLeft,
-                            filterQuality: FilterQuality.medium))
+                            filterQuality: FilterQuality.medium)))
                     : FittedBox(fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
                         child: Text(artist, maxLines: 1,
