@@ -39,6 +39,8 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
   Timer? _timer;
   String _title = 'Checking music…';
   String _artist = '';
+  String _navTitle = '';
+  String _navText = '';
   bool _playing = false;
   bool _fetching = false;
   String _artKey = '';
@@ -68,6 +70,8 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
       setState(() {
         _title = (data['title'] as String?) ?? 'Nothing playing';
         _artist = (data['artist'] as String?) ?? '';
+        _navTitle = (data['navTitle'] as String?) ?? '';
+        _navText = (data['navText'] as String?) ?? '';
         _playing = data['playing'] == true;
         if (artworkChanged) {
           _artKey = nextArtKey;
@@ -116,7 +120,8 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
             color: const Color(0xDD10131C),
             padding: const EdgeInsets.all(12),
             child: SafeArea(
-              child: Column(
+              child: SingleChildScrollView(
+                child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Icon(Icons.layers_outlined,
@@ -167,10 +172,25 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
                       ),
                     ],
                   ),
+                  if (_navTitle.isNotEmpty || _navText.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    const Divider(height: 1, color: Color(0x6605D9FF)),
+                    const SizedBox(height: 8),
+                    const Icon(Icons.navigation_outlined,
+                        size: 20, color: Color(0xFF05D9FF)),
+                    if (_navTitle.isNotEmpty)
+                      Text(_navTitle, textAlign: TextAlign.center,
+                          maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                    if (_navText.isNotEmpty)
+                      Text(_navText, textAlign: TextAlign.center,
+                          maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12)),
+                  ],
                   const SizedBox(height: 12),
                   const Text(
-                    'Maps should stay fullscreen and touchable on the right. '
-                    'Test artwork, track updates and controls without switching apps.',
+                    'Maps should remain fullscreen and touchable outside this panel. '
+                    'Test music, guidance updates and controls without switching apps.',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12),
                   ),
@@ -180,6 +200,7 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
                     child: const Text('Close test'),
                   ),
                 ],
+                ),
               ),
             ),
           ),
