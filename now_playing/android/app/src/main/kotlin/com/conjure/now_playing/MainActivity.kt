@@ -57,6 +57,36 @@ open class MainActivity : FlutterActivity() {
         } catch (e: Exception) { pending.error("folder", e.message, null) }
     }
 
+    // Keep large artwork indexes out of FlutterSharedPreferences. On older
+    // installs, migrate only this one key; preserve the SAF tree permission,
+    // Connect pairing and all other preferences.
+    private fun artworkIndexFile() = android.util.AtomicFile(
+        java.io.File(filesDir, "vybe_local_art_index.json"))
+
+    private fun writeArtworkIndex(json: String) {
+        val file = artworkIndexFile()
+        val output = file.startWrite()
+        try {
+            output.write(json.toByteArray(Charsets.UTF_8))
+            file.finishWrite(output)
+        } catch (error: Exception) {
+            file.failWrite(output)
+            throw error
+        }
+    }
+
+    private fun readArtworkIndex(): String? {
+        val file = artworkIndexFile()
+        if (file.baseFile.exists()) {
+            return file.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }
+        val legacy = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        val old = legacy.getString("flutter.localArtworkIndex", null) ?: return null
+        writeArtworkIndex(old)
+        legacy.edit().remove("flutter.localArtworkIndex").apply()
+        return old
+    }
+
     private fun scanArtworkTree(): List<Map<String, String>> {
         val tree = getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE)
             .getString("tree", null) ?: return emptyList()
@@ -133,6 +163,27 @@ open class MainActivity : FlutterActivity() {
                         }
                         startActivityForResult(intent, artworkRequestCode)
                     }
+                }
+                "readIndex" -> Thread {
+                    try {
+                        val json = readArtworkIndex()
+                        runOnUiThread { result.success(json) }
+                    } catch (error: Exception) {
+                        runOnUiThread { result.error("read_index", error.message, null) }
+                    }
+                }.start()
+                "writeIndex" -> {
+                    val json = call.argument<String>("json")
+                    if (json == null) {
+                        result.error("write_index", "Missing artwork index data", null)
+                    } else Thread {
+                        try {
+                            writeArtworkIndex(json)
+                            runOnUiThread { result.success(true) }
+                        } catch (error: Exception) {
+                            runOnUiThread { result.error("write_index", error.message, null) }
+                        }
+                    }.start()
                 }
                 "scan" -> Thread {
                     try {
