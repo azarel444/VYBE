@@ -37,7 +37,14 @@ class FlutterDriveProbe(
 
     val showing: Boolean get() = flutterView != null
 
-    fun show(onRight: Boolean = false): Boolean {
+    private fun panelWidth(): Int {
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getMetrics(metrics)
+        return (metrics.widthPixels * 0.42f).toInt().coerceAtLeast(1)
+    }
+
+    fun show(): Boolean {
         if (showing) return true
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(ctx)) return false
 
@@ -83,10 +90,7 @@ class FlutterDriveProbe(
             v.attachToFlutterEngine(e)
             attached = true
 
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            wm.defaultDisplay.getMetrics(metrics)
-            val width = (metrics.widthPixels * 0.42f).toInt().coerceAtLeast(1)
+            val width = panelWidth()
             val type = if (Build.VERSION.SDK_INT >= 26)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
@@ -102,7 +106,8 @@ class FlutterDriveProbe(
             )
             // Keep the opposite side fully outside this window so Maps can
             // receive touches directly, even on low-end head units.
-            params.gravity = Gravity.TOP or (if (onRight) Gravity.END else Gravity.START)
+            // Always leave the right-hand Maps guidance area uncovered.
+            params.gravity = Gravity.TOP or Gravity.START
             wm.addView(v, params)
             flutterView = v
             engine = e
@@ -123,6 +128,22 @@ class FlutterDriveProbe(
             flutterView = null
             engine = null
             return false
+        }
+    }
+
+    /** The service survives rotation, so update the overlay's actual bounds.
+     * FlutterView receives the new constraints without recreating its engine.
+     */
+    fun relayout() {
+        val v = flutterView ?: return
+        val params = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val newWidth = panelWidth()
+        if (params.width == newWidth) return
+        params.width = newWidth
+        try {
+            wm.updateViewLayout(v, params)
+        } catch (error: Exception) {
+            android.util.Log.w("VYBE/FlutterProbe", "Unable to resize overlay", error)
         }
     }
 
