@@ -1667,8 +1667,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Center landscape clocks within the theme's information half rather
     // than anchoring them to the outer screen corner.
     final panelClock = !portrait && <int>{
-      0, AppSettings.tOrbit, AppSettings.tTypo, AppSettings.tFan,
-      1, 3, 5, 7, 8, 9,
+      AppSettings.tOrbit, AppSettings.tTypo, AppSettings.tFan,
+      3, 5, 7, 8, 9,
     }.contains(theme);
     if (panelClock) {
       if (theme == 0 || theme == 1) onRight = !settings.layoutSwap;
@@ -1699,10 +1699,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       return Positioned(
         // The disc is centered near 0.21w in portrait. Center the clock
         // above that record rather than on the opposite artwork wedge.
-        left: w * .015,
-        right: w * .555,
-        top: safeTop,
-        height: availableHeight,
+        left: w * .55,
+        right: w * .025,
+        top: math.max(safeTop, h * .085),
+        height: math.min(availableHeight, h * .10),
         child: IgnorePointer(
           child: FittedBox(
             fit: BoxFit.scaleDown,
@@ -1710,7 +1710,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: Text(value, maxLines: 1, softWrap: false,
               style: TextStyle(
                 color: Colors.white.withOpacity(.93),
-                fontSize: (h * .055).clamp(32.0, 58.0).toDouble(),
+                fontSize: (h * .035).clamp(23.0, 42.0).toDouble(),
                 fontWeight: FontWeight.w500,
                 letterSpacing: .5,
                 fontFeatures: const [ui.FontFeature.tabularFigures()],
@@ -1723,6 +1723,35 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
       );
+    }
+    // Theme-specific clock anchors, independent of generic metadata panels.
+    if (!portrait && theme == 0) {
+      return Positioned(top: h * .045, right: w * .018, width: w * .16,
+        child: IgnorePointer(child: FittedBox(fit: BoxFit.scaleDown,
+          child: Text(value, maxLines: 1, softWrap: false,
+            style: TextStyle(color: Colors.white, fontSize: h * .063,
+              fontWeight: FontWeight.w500,
+              shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))));
+    }
+    if (!portrait && theme == 1) {
+      return Positioned(top: h * .035,
+        left: settings.layoutSwap ? w * .63 : w * .07, width: w * .31,
+        child: IgnorePointer(child: Center(child: Text(value,
+          maxLines: 1, softWrap: false,
+          style: TextStyle(color: Colors.white, fontSize: h * .055,
+            fontWeight: FontWeight.w500,
+            shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))));
+    }
+    if (!portrait && theme == AppSettings.tEditorial) {
+      return Positioned(top: h * .035,
+        left: settings.layoutSwap ? null : w * .012,
+        right: settings.layoutSwap ? w * .012 : null,
+        width: w * .19,
+        child: IgnorePointer(child: FittedBox(fit: BoxFit.scaleDown,
+          child: Text(value, maxLines: 1, softWrap: false,
+            style: TextStyle(color: Colors.white, fontSize: h * .061,
+              fontWeight: FontWeight.w500,
+              shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))));
     }
     final editorialLandscape = theme == AppSettings.tEditorial && !portrait;
     final editorialFlipped = editorialLandscape && settings.layoutSwap;
@@ -2114,7 +2143,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
 
-    final artistHeader = SizedBox(width: w * .83, height: h * (portrait ? .115 : .19),
+    final artistHeader = SizedBox(width: w * (portrait ? .83 : .72), height: h * (portrait ? .115 : .165),
       child: Center(child: _artist(h * .055, Alignment.center, false)));
 
     if (portrait) {
@@ -2713,7 +2742,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     _artist(h * 0.044, Alignment.center, false),
                     SizedBox(height: h * 0.009),
                     _title(h * 0.037, Alignment.center, false),
-                    if (_hasLyrics) ...[
+                    if (model.album.isNotEmpty && model.album != model.title) ...[
+                        SizedBox(height: h * 0.008),
+                        _fixedAlbum(h * 0.026, Alignment.center),
+                      ],
+                      if (_hasLyrics) ...[
                       SizedBox(height: _lyricGap(h)),
                       _lyricBlock(h * 0.75, Alignment.center, vhs: false),
                     ],
@@ -3199,6 +3232,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       _artist(h * 0.044, Alignment.center, false),
                       SizedBox(height: h * 0.009),
                       _title(h * 0.037, Alignment.center, false),
+                      if (model.album.isNotEmpty && model.album != model.title) ...[
+                        SizedBox(height: h * 0.008),
+                        _fixedAlbum(h * 0.026, Alignment.center),
+                      ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(h)),
                         _lyricBlock(h * 0.75, Alignment.center, vhs: false),
@@ -3380,6 +3417,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      _fanCards(s),
+                      SizedBox(height: h * 0.025),
                       _artist(h * 0.044, Alignment.center, false),
                       SizedBox(height: h * 0.009),
                       _title(h * 0.037, Alignment.center, false),
@@ -3388,8 +3427,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         SizedBox(height: h * 0.008),
                         _fixedAlbum(h * 0.026, Alignment.center),
                       ],
-                      SizedBox(height: h * 0.035),
-                      _fanCards(s),
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(h)),
                         _lyricBlock(h * 0.75, Alignment.center, vhs: false),
