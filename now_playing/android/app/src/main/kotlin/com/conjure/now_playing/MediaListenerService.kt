@@ -505,6 +505,7 @@ class MediaListenerService : NotificationListenerService() {
                 this,
                 ::hideFlutterDriveProbe,
                 ::probeTrackSnapshot,
+                ::probeArtworkSnapshot,
                 ::probeTransport,
             ).also { flutterProbe = it }
             if (probe.show()) {
@@ -530,12 +531,43 @@ class MediaListenerService : NotificationListenerService() {
             "title" to "Nothing playing", "artist" to "", "playing" to false,
         )
         val md = controller.metadata
+        val title = md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+        val artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+            ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: ""
+        val album = md?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+        val artUri = md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: md?.getString(MediaMetadata.METADATA_KEY_ART_URI) ?: ""
         return mapOf(
-            "title" to (md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""),
-            "artist" to (md?.getString(MediaMetadata.METADATA_KEY_ARTIST)
-                ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: ""),
+            "title" to title,
+            "artist" to artist,
             "playing" to (controller.playbackState?.state == PlaybackState.STATE_PLAYING),
+            // The Dart probe only fetches bytes when the track/art source changes.
+            "artKey" to listOf(controller.packageName, title, artist, album, artUri)
+                .joinToString("\\u001f"),
         )
+    }
+
+    /** Probe-only, on-demand session artwork. Do not fetch network art or
+     * replace the production local-artwork/fanart selection pipeline.
+     * Keep the payload small for the low-memory ATOTO Flutter engine.
+     */
+    private fun probeArtworkSnapshot(): ByteArray? {
+        val bitmap = MediaArt.bitmap(this, pickController()?.metadata) ?: return null
+        val edge = maxOf(bitmap.width, bitmap.height)
+        val scale = if (edge > 320) 320f / edge else 1f
+        val scaled = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(
+            bitmap,
+            maxOf(1, (bitmap.width * scale).toInt()),
+            maxOf(1, (bitmap.height * scale).toInt()),
+            true,
+        ) else bitmap
+        return try {
+            val output = java.io.ByteArrayOutputStream()
+            if (scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 78, output))
+                output.toByteArray() else null
+        } finally {
+            if (scaled !== bitmap) scaled.recycle()
+        }
     }
 
     private fun probeTransport(command: String): Boolean {
