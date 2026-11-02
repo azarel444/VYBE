@@ -37,7 +37,7 @@ class FlutterDriveProbe(
 
     val showing: Boolean get() = flutterView != null
 
-    fun show(): Boolean {
+    fun show(onRight: Boolean = false): Boolean {
         if (showing) return true
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(ctx)) return false
 
@@ -100,7 +100,9 @@ class FlutterDriveProbe(
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT,
             )
-            params.gravity = Gravity.TOP or Gravity.START
+            // Keep the opposite side fully outside this window so Maps can
+            // receive touches directly, even on low-end head units.
+            params.gravity = Gravity.TOP or (if (onRight) Gravity.END else Gravity.START)
             wm.addView(v, params)
             flutterView = v
             engine = e
