@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 /// User-approved Android document tree. The index stores URIs, never image bytes.
 class LocalArtwork {
@@ -10,6 +9,7 @@ class LocalArtwork {
   static const _channel = MethodChannel('vybe/local_art');
   final List<Map<String, String>> _files = [];
   bool _loaded = false;
+  Future<int>? _scanInFlight;
   // Increments after an explicit user scan so the active artist can refresh.
   int manualScanGeneration = 0;
   final Set<String> _rescanAttemptedFor = <String>{};
@@ -42,29 +42,41 @@ class LocalArtwork {
     return aliases[text] ?? text;
   }
 
+  /// The large artwork index is kept in an atomic native file, not the
+  /// Flutter preferences map. The native reader migrates existing installs
+  /// without deleting the selected SAF folder or any theme settings.
   Future<void> load() async {
     if (_loaded) return;
-    final prefs = await SharedPreferences.getInstance();
     try {
-      final raw = prefs.getString('localArtworkIndex');
-      if (raw != null) {
-        for (final entry in jsonDecode(raw) as List) {
-          if (entry is Map) {
-            final uri = entry['uri'];
-            if (uri is String && uri.isNotEmpty) {
-              _files.add({'uri': uri, 'name': entry['name']?.toString() ?? '',
-                'folder': entry['folder']?.toString() ?? ''});
-            }
-          }
-        }
+      final raw = await _channel.invokeMethod<String>('readIndex');
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is! List) throw const FormatException('Invalid artwork index');
+        final entries = _validatedEntries(decoded);
+        _files..clear()..addAll(entries);
       }
       status = '${_files.length} indexed local images';
-    } catch (_) {
+    } catch (error) {
       _files.clear();
-      status = 'Local index needs rebuilding';
+      status = 'Local index needs rebuilding: $error';
     } finally {
       _loaded = true;
     }
+  }
+
+  static List<Map<String, String>> _validatedEntries(List<dynamic> raw) {
+    final entries = <Map<String, String>>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final uri = item['uri'];
+      if (uri is! String || !uri.startsWith('content://')) continue;
+      entries.add(<String, String>{
+        'uri': uri,
+        'name': item['name'] is String ? item['name'] as String : '',
+        'folder': item['folder'] is String ? item['folder'] as String : '',
+      });
+    }
+    return entries;
   }
 
   Future<bool> chooseFolder() async =>
@@ -76,26 +88,39 @@ class LocalArtwork {
     return selected;
   }
 
-  Future<int> scan({bool manual = true}) async {
-    final result = await _channel.invokeMethod<List<dynamic>>('scan') ?? [];
-    final next = <Map<String, String>>[];
-    for (final item in result) {
-      if (item is Map) {
-        final uri = item['uri'];
-        if (uri is String && uri.isNotEmpty) {
-          next.add({'uri': uri, 'name': item['name']?.toString() ?? '',
-            'folder': item['folder']?.toString() ?? ''});
-        }
+  /// Automatic lookup rescans share an in-flight scan. A user-requested
+  /// rescan waits for it and then runs again, so newly added files are not
+  /// skipped. Never replace a working index until the new one is persisted.
+  Future<int> scan({bool manual = true}) {
+    final pending = _scanInFlight;
+    if (pending != null) {
+      if (!manual) return pending;
+      return pending.catchError((Object _) => count)
+          .then((_) => scan(manual: true));
+    }
+    final work = _scanOnce();
+    _scanInFlight = work;
+    return work.whenComplete(() {
+      if (identical(_scanInFlight, work)) _scanInFlight = null;
+    }).then((indexed) {
+      if (manual) {
+        _rescanAttemptedFor.clear();
+        manualScanGeneration++;
       }
+      return indexed;
+    });
+  }
+
+  Future<int> _scanOnce() async {
+    final result = await _channel.invokeMethod<List<dynamic>>('scan') ?? [];
+    final next = _validatedEntries(result);
+    final saved = await _channel.invokeMethod<bool>('writeIndex',
+        <String, Object>{'json': jsonEncode(next)});
+    if (saved != true) {
+      throw StateError('Could not save local artwork index');
     }
     _files..clear()..addAll(next);
-    if (manual) {
-      _rescanAttemptedFor.clear();
-      manualScanGeneration++;
-    }
     _loaded = true;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('localArtworkIndex', jsonEncode(_files));
     status = '${_files.length} indexed local images';
     return _files.length;
   }
