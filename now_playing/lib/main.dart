@@ -45,6 +45,11 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
   bool _fetching = false;
   String _artKey = '';
   Uint8List? _artwork;
+  // Some media players publish their cover a few seconds after the title.
+  // Retry missing art a few times, not on every two-second poll forever.
+  int _artworkAttempts = 0;
+  bool _artworkLoading = false;
+  static const int _maxArtworkAttempts = 3;
 
   @override
   void initState() {
@@ -76,9 +81,11 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
         if (artworkChanged) {
           _artKey = nextArtKey;
           _artwork = null;
+          _artworkAttempts = 0;
         }
       });
-      if (artworkChanged && nextArtKey.isNotEmpty) {
+      if (nextArtKey.isNotEmpty && _artwork == null &&
+          !_artworkLoading && _artworkAttempts < _maxArtworkAttempts) {
         _loadArtwork(nextArtKey);
       }
     } on PlatformException catch (e) {
@@ -88,16 +95,22 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
     }
   }
 
-  // Request art only when the media session changes its track/art key.
-  // This deliberately uses session art, not VYBE's production local-art or
-  // network fanart resolver, so the probe cannot regress those features.
+  // Request art only on track changes or a bounded retry if session art was
+  // initially missing. This deliberately avoids the production local-art and
+  // network fanart resolvers so the probe cannot regress those features.
   Future<void> _loadArtwork(String key) async {
+    _artworkLoading = true;
+    _artworkAttempts++;
     try {
       final bytes = await _channel.invokeMethod<Uint8List>('artwork');
       if (!mounted || _artKey != key) return;
-      setState(() => _artwork = bytes);
+      if (bytes != null && bytes.isNotEmpty) {
+        setState(() => _artwork = bytes);
+      }
     } on PlatformException catch (e) {
       debugPrint('VYBE overlay probe artwork bridge: $e');
+    } finally {
+      _artworkLoading = false;
     }
   }
 
