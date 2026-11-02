@@ -1598,9 +1598,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // than anchoring them to the outer screen corner.
     final panelClock = !portrait && <int>{
       AppSettings.tOrbit, AppSettings.tTypo, AppSettings.tFan,
-      AppSettings.tDiagonal, 3, 7,
+      1, 3, 5, 7, 8, 9,
     }.contains(theme);
     if (panelClock) {
+      if (theme == 1) onRight = !settings.layoutSwap;
+      if (theme == 5 || theme == 8) onRight = !settings.layoutSwap;
       if (theme == AppSettings.tTypo || theme == 7) {
         // Typo and Record Cut put metadata on the left by default.
         onRight = settings.layoutSwap;
@@ -1622,11 +1624,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // grayscale divider at h*.20, even before the text's own height.
     if (portrait && theme == AppSettings.tEditorial) {
       final safeTop = math.max(MediaQuery.of(context).viewPadding.top + 6.0,
-          h * .052);
-      final availableHeight = math.max(20.0, h * .20 - safeTop - 10.0);
+          h * .038);
+      final availableHeight = math.max(32.0, h * .20 - safeTop - 8.0);
       return Positioned(
-        left: w * .50,
-        right: w * .035,
+        left: w * .48,
+        right: w * .02,
         top: safeTop,
         height: availableHeight,
         child: IgnorePointer(
@@ -1636,7 +1638,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: Text(value, maxLines: 1, softWrap: false,
               style: TextStyle(
                 color: Colors.white.withOpacity(.93),
-                fontSize: (h * .058).clamp(34.0, 58.0).toDouble(),
+                fontSize: (h * .070).clamp(38.0, 66.0).toDouble(),
                 fontWeight: FontWeight.w500,
                 letterSpacing: .5,
                 fontFeatures: const [ui.FontFeature.tabularFigures()],
@@ -1653,10 +1655,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final editorialLandscape = theme == AppSettings.tEditorial && !portrait;
     final editorialFlipped = editorialLandscape && settings.layoutSwap;
     return Positioned(
-      left: panelClock ? (onRight ? w * .52 : w * .05) : centered ? 0 : (editorialLandscape
+      left: panelClock ? (onRight ? w * .50 : 0.0) : centered ? 0 : (editorialLandscape
           ? (editorialFlipped ? w * .805 : w * .018)
           : (onRight ? null : inset)),
-      right: panelClock ? (onRight ? w * .05 : w * .52) : centered ? 0 : (editorialLandscape
+      right: panelClock ? (onRight ? 0.0 : w * .50) : centered ? 0 : (editorialLandscape
           ? (editorialFlipped ? w * .018 : w * .805)
           : (onRight ? inset : null)),
       top: bottomInset == null ? topInset : null,
@@ -4525,15 +4527,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _artist(double size, Alignment a, bool vhs) {
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
       final screen = MediaQuery.sizeOf(context);
-      final maxLogoWidth = screen.width * (screen.width < screen.height ? .92 : .88);
+      final maxLogoWidth = screen.width * (screen.width < screen.height ? .94 : .90);
       final logoHeight = (settings.theme == 0
-          ? math.max(size * 3.0, screen.height * (screen.width > screen.height * 1.1 ? .19 : .14))
-          : math.max(math.min(size * 3.5, screen.height * .21), screen.height * .15)) *
+          ? math.max(size * 3.4, screen.height * (screen.width > screen.height * 1.1 ? .22 : .16))
+          : math.max(math.min(size * 4.0, screen.height * .25), screen.height * .17)) *
           settings.artistLogoScale;
       return _shaded(ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxLogoWidth),
         child: Image.memory(_clearLogoBytes!, gaplessPlayback: true,
-          height: logoHeight, fit: BoxFit.contain, alignment: a,
+          width: maxLogoWidth, height: logoHeight, fit: BoxFit.contain, alignment: a,
           filterQuality: FilterQuality.medium)));
     }
     return _shaded(_fit(
