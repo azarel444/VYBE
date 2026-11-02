@@ -658,6 +658,72 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     });
   }
 
+  /// Fanart.tv ClearLogo PNGs often contain large transparent borders.
+  /// BoxFit.contain scales the entire PNG canvas, making the visible logo
+  /// tiny even in a wide layout. Trim alpha-only padding once when loaded;
+  /// keep the original bytes if decoding or trimming is too expensive.
+  Future<Uint8List> _trimClearLogoPadding(Uint8List original) async {
+    ui.Codec? codec;
+    ui.Image? decoded;
+    ui.Image? cropped;
+    ui.Picture? picture;
+    try {
+      codec = await ui.instantiateImageCodec(original);
+      final frame = await codec.getNextFrame();
+      decoded = frame.image;
+      final width = decoded.width, height = decoded.height;
+      if (width <= 0 || height <= 0 || width * height > 3000000) {
+        return original;
+      }
+      final rgba = await decoded.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (rgba == null) return original;
+      final pixels = rgba.buffer.asUint8List(rgba.offsetInBytes, rgba.lengthInBytes);
+      int left = width, right = -1, top = height, bottom = -1;
+      for (var y = 0; y < height; y++) {
+        final row = y * width * 4;
+        for (var x = 0; x < width; x++) {
+          if (pixels[row + x * 4 + 3] <= 12) continue;
+          if (x < left) left = x;
+          if (x > right) right = x;
+          if (y < top) top = y;
+          if (y > bottom) bottom = y;
+        }
+      }
+      if (right < left || bottom < top) return original;
+      final contentW = right - left + 1, contentH = bottom - top + 1;
+      // Retain a small margin around antialiased logo edges.
+      final padX = math.max(2, (contentW * .025).round());
+      final padY = math.max(2, (contentH * .025).round());
+      left = math.max(0, left - padX);
+      right = math.min(width - 1, right + padX);
+      top = math.max(0, top - padY);
+      bottom = math.min(height - 1, bottom + padY);
+      final cropW = right - left + 1, cropH = bottom - top + 1;
+      if (cropW * cropH > width * height * .88) return original;
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      canvas.drawImageRect(
+        decoded,
+        ui.Rect.fromLTWH(left.toDouble(), top.toDouble(),
+            cropW.toDouble(), cropH.toDouble()),
+        ui.Rect.fromLTWH(0, 0, cropW.toDouble(), cropH.toDouble()),
+        ui.Paint()..filterQuality = ui.FilterQuality.high,
+      );
+      picture = recorder.endRecording();
+      cropped = await picture.toImage(cropW, cropH);
+      final encoded = await cropped.toByteData(format: ui.ImageByteFormat.png);
+      return encoded?.buffer.asUint8List() ?? original;
+    } catch (error) {
+      debugPrint('VYBE clearlogo alpha trim skipped: $error');
+      return original;
+    } finally {
+      cropped?.dispose();
+      picture?.dispose();
+      decoded?.dispose();
+      codec?.dispose();
+    }
+  }
+
   Future<void> _loadClearLogo() async {
     final artist = model.artist.trim();
     if (!settings.useArtistClearLogo || artist.isEmpty) {
@@ -688,6 +754,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (bytes == null && settings.fanartProjectKey.isNotEmpty) {
         bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
             personalKey: settings.fanartApiKey);
+      }
+      if (bytes != null && bytes.isNotEmpty) {
+        bytes = await _trimClearLogoPadding(bytes);
       }
     } catch (e) {
       debugPrint('VYBE clearlogo lookup failed for $artist: $e');
