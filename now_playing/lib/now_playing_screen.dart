@@ -4501,7 +4501,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         width: s,
         height: s,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(s * 0.07),
+          borderRadius: BorderRadius.circular(s * 0.018),
           border: Border.all(color: const Color(0xFFFF005E).withOpacity(0.35), width: 1),
           boxShadow: [
             BoxShadow(
@@ -4616,7 +4616,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         width: s,
                         height: s,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(s * 0.07),
+                          borderRadius: BorderRadius.circular(s * 0.018),
                           border: Border.all(
                               color: _palette.a.withOpacity(0.85), width: 1.5),
                         ),
@@ -4632,13 +4632,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           // bottom edge starts, so no square corners poke out.
           Positioned(
             top: 0,
-            left: s * 0.07,
-            right: s * 0.07,
-            height: s * 0.06,
+            left: s * 0.018,
+            right: s * 0.018,
+            height: s * 0.018,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 borderRadius:
-                    BorderRadius.vertical(bottom: Radius.circular(s * 0.05)),
+                    BorderRadius.vertical(bottom: Radius.circular(s * 0.018)),
                 gradient: const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
