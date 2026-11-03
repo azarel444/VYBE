@@ -5281,7 +5281,7 @@ class _EdgyStandbyPainter extends CustomPainter {
     canvas.drawCircle(glow, size.shortestSide * .42,
       Paint()..shader = ui.Gradient.radial(
         glow, size.shortestSide * .42,
-        [const Color(0xFFFF005E).withOpacity(.18 + .08 * bass.clamp(0, 1)),
+        [const Color(0xFFFF005E).withOpacity(.18 + .08 * bass.clamp(0.0, 1.0).toDouble()),
          const Color(0xFFFF005E).withOpacity(0)],
       ));
     final side = math.min(size.width * .025, 15.0);
