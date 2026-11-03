@@ -1439,7 +1439,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .235, top: h * .043, width: w * .47,
           child: readable(
             settings.useArtistClearLogo && _clearLogoBytes != null
-              ? SizedBox(height: h * .32, width: w * .47,
+              ? SizedBox(height: h * .32, width: w * .39,
                   child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                     alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
                     filterQuality: FilterQuality.medium))
