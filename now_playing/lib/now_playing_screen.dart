@@ -500,13 +500,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Applied once, after background rendering, before foreground FX/UI.
             Positioned.fill(child: IgnorePointer(child: ColoredBox(
               color: Colors.black.withOpacity(((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial) && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
-            if (heavy) _shaderFxLayer(),
-            if (heavy) ..._extraFx(),
+            if (heavy && model.active) _shaderFxLayer(),
+            if (heavy && model.active) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
               opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
               child: Transform.scale(scale: settings.fxSize['VHS'] ?? 1.0,
                 child: Stack(fit: StackFit.expand, children: _vhsBackdrop(fx)))),
-            if (settings.bgEffects && settings.particles && heavy)
+            if (settings.bgEffects && settings.particles && heavy && model.active)
               IgnorePointer(
                 child: Transform.scale(
                   scale: settings.fxSize['Floating Particles'] ?? 1.0,
