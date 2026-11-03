@@ -149,7 +149,7 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Icon(Icons.layers_outlined,
-                      size: 36, color: Color(0xFF05D9FF)),
+                      size: 36, color: Color(0xFFFF005E)),
                   const SizedBox(height: 12),
                   const Text('VYBE Flutter overlay test',
                       textAlign: TextAlign.center,
@@ -201,7 +201,7 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
                     const Divider(height: 1, color: Color(0x6605D9FF)),
                     const SizedBox(height: 8),
                     const Icon(Icons.navigation_outlined,
-                        size: 20, color: Color(0xFF05D9FF)),
+                        size: 20, color: Color(0xFFFF005E)),
                     if (_navTitle.isNotEmpty)
                       Text(_navTitle, textAlign: TextAlign.center,
                           maxLines: 2, overflow: TextOverflow.ellipsis,
