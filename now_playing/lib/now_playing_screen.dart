@@ -1078,7 +1078,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if ((settings.backgroundSource == 6 ||
         (settings.backgroundSource == 0 && settings.fanartMode == 1)) &&
         _fanartBytes != null) {
-      return Stack(fit: StackFit.expand, children: [
+      Widget fanart = Stack(fit: StackFit.expand, children: [
         // Fanart was unblurred before this setting. Keep that original look
         // at the default value while allowing additional softening.
         ImageFiltered(
@@ -1093,6 +1093,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         // Zero means no dimming for artist photos, just like album covers.
 
       ]);
+      if (settings.bgEffects) {
+        fanart = FxComposite(
+          mode: settings.fxBlendMode['Background Motion'] ?? 0,
+          opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
+          child: _drift(fanart));
+      }
+      return fanart;
     }
     final art = model.art;
     final Widget child;
@@ -1158,15 +1165,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final size = MediaQuery.of(context).size;
         final m = settings.kMotion;
         final motionSize = settings.fxSize['Background Motion'] ?? 1.0;
-        final dx = math.sin(_time * 0.08) * size.width * 0.065 * m * motionSize;
-        final dy = math.cos(_time * 0.06) * size.height * 0.055 * m * motionSize;
+        final dx = math.sin(_time * 0.08) * size.width * 0.085 * m * motionSize;
+        final dy = math.cos(_time * 0.06) * size.height * 0.075 * m * motionSize;
         return Transform.translate(
           offset: Offset(dx, dy),
           child: Transform.scale(
             // Overscan must cover the maximum pan in both axes, otherwise
             // the top/right edges can expose empty strips during motion.
             scale: 1.0 + math.max(0.18 * motionSize,
-                0.15 * m.abs() * motionSize.abs()),
+                0.20 * m.abs() * motionSize.abs()),
             child: c),
         );
       },
