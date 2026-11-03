@@ -1406,79 +1406,59 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ))),
       ],
       if (portrait) ...[
-        // Editorial mockup: artist and title together at the lower left;
-        // album title/secondary label sits separately on the lower right.
+        // Full-width artist branding, followed by vertically stacked metadata.
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min, children: [
-              // Reserve enough height for wide artist marks to reach the full
-              // metadata width without distorting their aspect ratio.
-              // The previous 10.5%-height slot capped a 2:1 logo at
-              // roughly one third of a portrait screen's width.
               SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null
-                  ? math.min(h * .225, w * .45) : w * .095,
+                  ? math.min(h * .225, w * .45) : w * .22,
                 child: settings.useArtistClearLogo && _clearLogoBytes != null
-                    ? Align(alignment: Alignment.centerLeft,
-                        child: SizedBox(width: double.infinity,
-                          child: Image.memory(_clearLogoBytes!,
-                            fit: BoxFit.contain,
-                            alignment: Alignment.centerLeft,
-                            filterQuality: FilterQuality.medium)))
-                    : FittedBox(fit: BoxFit.scaleDown,
+                    ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                         alignment: Alignment.centerLeft,
-                        child: Text(artist, maxLines: 1,
-                            softWrap: false, style: titleStyle))),
-              SizedBox(height: h * .005),
-              if (model.album.isEmpty)
-                Center(child: Text(song, maxLines: 1,
-                  overflow: TextOverflow.ellipsis, style: songStyle))
-              else
-                Row(children: [
-                  Expanded(child: Text(song, maxLines: 1,
-                    overflow: TextOverflow.ellipsis, style: songStyle)),
-                  SizedBox(width: w * .025),
-                  Expanded(child: Align(
-                    alignment: Alignment.centerRight,
-                    child: _albumText(songStyle.fontSize! * .86))),
-                ]),
+                        filterQuality: FilterQuality.medium)
+                    : FittedBox(fit: BoxFit.contain,
+                        alignment: Alignment.centerLeft,
+                        child: Text(artist, maxLines: 1, softWrap: false,
+                            style: titleStyle.copyWith(fontSize: w * .19)))),
+              SizedBox(height: h * .008),
+              Text(song, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: songStyle),
+              if (model.album.isNotEmpty) ...[
+                SizedBox(height: h * .006),
+                Align(alignment: Alignment.centerLeft,
+                  child: _albumText(songStyle.fontSize! * .86)),
+              ],
             ])),
         if (_hasLyrics)
           Positioned(left: w * .08, right: w * .08, top: h * .50,
             height: h * .17,
             child: _lyricBlock(h, Alignment.center, vhs: false)),
       ] else ...[
-        // Keep the mirrored artist/title group anchored to its right edge,
-        // including the shorter song title. Counter-mirroring its glyphs
-        // alone does not correct the group's horizontal alignment.
-        Positioned(left: w * .235, top: h * .043, width: w * .47,
+        // Artist branding and full-width song/album stack in landscape.
+        Positioned(left: w * .235, top: h * .043, width: w * .64,
           child: readable(Column(
             crossAxisAlignment: flipped
                 ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min, children: [
               if (settings.useArtistClearLogo && _clearLogoBytes != null)
-                SizedBox(height: h * .16, width: w * .47,
-                  child: Align(
+                SizedBox(height: h * .32, width: w * .64,
+                  child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                     alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                      alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
-                      filterQuality: FilterQuality.medium)))
+                    filterQuality: FilterQuality.medium))
               else
                 Text(artist,
                   textAlign: flipped ? TextAlign.right : TextAlign.left,
                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: titleStyle),
+                  style: titleStyle.copyWith(fontSize: h * .09)),
               Text(song,
                 textAlign: flipped ? TextAlign.right : TextAlign.left,
-                maxLines: 1, overflow: TextOverflow.ellipsis,
+                maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
+              if (model.album.isNotEmpty) ...[
+                SizedBox(height: h * .008),
+                _albumText(songStyle.fontSize! * .86),
+              ],
             ]))),
-        // The album label should be at the far left after mirroring, just
-        // as it is at the far right in the standard composition.
-        if (model.album.isNotEmpty)
-          Positioned(right: w * .025, top: h * .043, width: w * .22,
-            child: readable(Align(
-              alignment: flipped ? Alignment.centerLeft : Alignment.centerRight,
-              child: _albumText(songStyle.fontSize! * .86)))),
         if (_hasLyrics)
           Positioned(left: w * .37, right: w * .06, top: h * .43,
             height: h * .19,
