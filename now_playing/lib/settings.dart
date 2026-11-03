@@ -18,8 +18,8 @@ class AppSettings extends ChangeNotifier {
     'Record Cut',
     'Typo',
     'Orbit',
-    'Cinematic',
-    'Musiczine',
+    'Bigfan',
+    'Muzine',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
@@ -96,10 +96,24 @@ class AppSettings extends ChangeNotifier {
   );
   int fanartMode = 2; // Non-Cinematic artwork preference
   int cinematicFallback = 1; // Legacy preference (fanart now falls back album then animation)
-  int fanartThemeSource = 0; // 0 artist fanart, 1 album art, 2 animated scene
+  // Bigfan/Muzine use artist fanart automatically. When unavailable the user
+  // chooses album artwork or an animated scene. Override skips fanart entirely.
+  int fanartFallbackSource = 0; // 0 album art, 1 animated scene
+  bool fanartOverride = false;
+  bool useArtistClearLogo = true; // Per-theme artist-name replacement.
+  double artistLogoScale = 1.0; // Relative logo size, 0.5 .. 2.0.
+  int fanartCycleSeconds = 10; // Random artist background interval, minimum 5 seconds.
+  // Legacy storage key; used only to migrate existing per-theme selections.
+  int fanartThemeSource = 0; // 0 auto fanart, 1 forced album, 2 forced animation
   bool animationUseAlbumColors = false; // false: scene default, true: artwork palette
-  int cinematicPalette = 15; // 14 Golden Hour, 15 Neon Ribbons, 16 Club Stage, 17 Lightstorm, 18 Rave, 19 Neon Club
-  double cinematicDarkness = 0.30;
+  // Stable stored IDs: the retired Rave scene (18) stays unused so removing
+  // it does not renumber existing users' saved animated backgrounds.
+  static const premiumSceneIds = <int>[14, 15, 16, 17, 19];
+  static const premiumSceneNames = <String>[
+    'Golden Hour', 'Neon Ribbons', 'Club Stage', 'Lightstorm', 'Neon Club',
+  ];
+  int cinematicPalette = 15;
+  double cinematicDarkness = 0.0;
   double cinematicBlur = 0.0;
   double cinematicContrast = 1.0;
   double cinematicAnimationSpeed = 1.0; // premium shader playback multiplier
@@ -136,7 +150,7 @@ class AppSettings extends ChangeNotifier {
   bool performance = false;
   int night = 1; // 0 off, 1 auto (8pm-6am), 2 always
   int fxPerformanceMode = 0; // 0 auto, 1 performance, 2 maximum visuals
-  bool autoFxQuality = true; // live frame-time based shader quality governor
+  bool autoFxQuality = true; // live frame-time quality governor
   bool burnIn = true;
   bool artLookup = true; // search online when a player sends no cover
   bool lyrics = false; // synced lyrics from LRCLIB
@@ -186,6 +200,266 @@ class AppSettings extends ChangeNotifier {
   double bgBlur = 6.0; // Original album blur = 6; fanart originally sharp.
   double bgContrast = 1.4; // blurred background contrast, 1.0 (normal) .. 2.0
 
+  // Each visual theme owns its own appearance. The legacy unprefixed settings
+  // remain as the active theme's working values for existing renderers.
+  // Device-wide playback, navigation, night-mode and performance controls
+  // intentionally stay global.
+  static const String _appearanceProfilesKey = 'themeAppearancesV1';
+  final Map<int, Map<String, dynamic>> _appearanceProfiles = {};
+  // Only modified themes are written, so the separate Drive engine cannot
+  // overwrite other themes' newer appearance profiles with stale copies.
+  final Set<int> _dirtyAppearanceThemes = <int>{};
+  int? _activeAppearanceTheme;
+  int _persistedTheme = 0;
+
+  Map<String, dynamic> _captureAppearance() => <String, dynamic>{
+    'backgroundSource': backgroundSource,
+    'fanartMode': fanartMode,
+    'fanartFallbackSource': fanartFallbackSource,
+    'fanartOverride': fanartOverride,
+    'fanartCycleSeconds': fanartCycleSeconds,
+    'useArtistClearLogo': useArtistClearLogo,
+    'artistLogoScale': artistLogoScale,
+    'cinematicFallback': cinematicFallback,
+    'animationUseAlbumColors': animationUseAlbumColors,
+    'cinematicPalette': cinematicPalette,
+    'cinematicDarkness': cinematicDarkness,
+    'cinematicBlur': cinematicBlur,
+    'cinematicContrast': cinematicContrast,
+    'cinematicAnimationSpeed': cinematicAnimationSpeed,
+    'clubBlendMode': clubBlendMode,
+    'templateBackgroundMotion': templateBackgroundMotion,
+    'bgOverlay': bgOverlay,
+    'bgBlur': bgBlur,
+    'bgContrast': bgContrast,
+    'bgEffects': bgEffects,
+    'particles': particles,
+    'fxNebula': fxNebula,
+    'fxGrid': fxGrid,
+    'fxStars': fxStars,
+    'kNebula': kNebula,
+    'kGrid': kGrid,
+    'kStars': kStars,
+    'kGlow': kGlow,
+    'kSweep': kSweep,
+    'kRays': kRays,
+    'kRipples': kRipples,
+    'kWater': kWater,
+    'kBloom': kBloom,
+    'kParticles': kParticles,
+    'kMotion': kMotion,
+    'vhsEffects': vhsEffects,
+    'vhsVaporwave': vhsVaporwave,
+    'fxGlow': fxGlow,
+    'fxSweep': fxSweep,
+    'fxRays': fxRays,
+    'fxRipples': fxRipples,
+    'fxWater': fxWater,
+    'fxBloom': fxBloom,
+    'fxVhs': fxVhs,
+    'extraFx': {for (final n in extraFxNames) n: extraFx[n] ?? false},
+    'extraStrength': {
+      for (final n in extraFxNames) n: extraStrength[n] ?? 0.8,
+    },
+    'fxSize': {for (final n in allFxNames) n: fxSize[n] ?? 1.0},
+    'fxBlendMode': {for (final n in allFxNames) n: fxBlendMode[n] ?? 0},
+    'fxBlendOpacity': {
+      for (final n in allFxNames) n: fxBlendOpacity[n] ?? 1.0,
+    },
+  };
+
+  Map<String, dynamic> _freshAppearance() =>
+      AppSettings()._captureAppearance();
+
+  void _applyAppearance(Map<String, dynamic> profile) {
+    int integer(String key, int fallback, int min, int max) {
+      final v = profile[key];
+      return (v is num ? v.toInt() : fallback).clamp(min, max).toInt();
+    }
+    double number(String key, double fallback, double min, double max) {
+      final v = profile[key];
+      return (v is num ? v.toDouble() : fallback).clamp(min, max).toDouble();
+    }
+    bool flag(String key, bool fallback) {
+      final v = profile[key];
+      return v is bool ? v : fallback;
+    }
+    Map<String, dynamic> entries(String key) {
+      final v = profile[key];
+      if (v is! Map) return <String, dynamic>{};
+      return v.map((k, value) => MapEntry(k.toString(), value));
+    }
+    backgroundSource = integer('backgroundSource', 0, 0, 6);
+    animatedTemplateBackground = backgroundSource == 1;
+    fanartMode = integer('fanartMode', 2, 0, 2);
+    // Old profiles used a three-way source selector. Keep a previously
+    // explicitly forced Album Art/Animation view as an override, but migrate
+    // the old default Fanart choice to automatic fanart with album fallback.
+    final oldFanartSource = integer('fanartThemeSource', 0, 0, 2);
+    fanartFallbackSource = integer('fanartFallbackSource',
+        oldFanartSource == 2 ? 1 : 0, 0, 1);
+    fanartOverride = flag('fanartOverride', oldFanartSource != 0);
+    fanartCycleSeconds = integer('fanartCycleSeconds', 10, 5, 300);
+    useArtistClearLogo = flag('useArtistClearLogo', true);
+    artistLogoScale = number('artistLogoScale', 1.0, 0.5, 2.0);
+    cinematicFallback = integer('cinematicFallback', 1, 0, 2);
+    animationUseAlbumColors = flag('animationUseAlbumColors', false);
+    cinematicPalette = integer('cinematicPalette', 15, 14, 19);
+    if (cinematicPalette == 18) cinematicPalette = 16;
+    if (!premiumSceneIds.contains(cinematicPalette)) cinematicPalette = 15;
+    cinematicDarkness = number('cinematicDarkness', 0.0, 0.0, 1.0);
+    cinematicBlur = number('cinematicBlur', 0.0, 0.0, 18.0);
+    cinematicContrast = number('cinematicContrast', 1.0, 1.0, 2.0);
+    cinematicAnimationSpeed =
+        number('cinematicAnimationSpeed', 1.0, 0.0, 3.0);
+    clubBlendMode = integer('clubBlendMode', 0, 0, 9);
+    templateBackgroundMotion =
+        number('templateBackgroundMotion', 0.65, 0.0, 1.0);
+    bgOverlay = number('bgOverlay', 0.30, 0.0, 1.0);
+    bgBlur = number('bgBlur', 6.0, 0.0, 18.0);
+    bgContrast = number('bgContrast', 1.4, 1.0, 2.0);
+    bgEffects = flag('bgEffects', true);
+    particles = flag('particles', false);
+    fxNebula = flag('fxNebula', false);
+    fxGrid = flag('fxGrid', false);
+    fxStars = flag('fxStars', false);
+    kNebula = number('kNebula', 0.65, 0.0, 1.0);
+    kGrid = number('kGrid', 0.5, 0.0, 1.0);
+    kStars = number('kStars', 0.6, 0.0, 1.0);
+    kGlow = number('kGlow', 0.7, 0.0, 1.0);
+    kSweep = number('kSweep', 0.7, 0.0, 1.0);
+    kRays = number('kRays', 0.7, 0.0, 1.0);
+    kRipples = number('kRipples', 0.7, 0.0, 1.0);
+    kWater = number('kWater', 0.7, 0.0, 1.0);
+    kBloom = number('kBloom', 0.7, 0.0, 1.0);
+    kParticles = number('kParticles', 1.0, 0.0, 1.0);
+    kMotion = number('kMotion', 1.0, 0.0, 1.0);
+    vhsEffects = number('vhsEffects', 0.7, 0.0, 1.0);
+    vhsVaporwave = flag('vhsVaporwave', false);
+    fxGlow = flag('fxGlow', false);
+    fxSweep = flag('fxSweep', false);
+    fxRays = flag('fxRays', false);
+    fxRipples = flag('fxRipples', false);
+    fxWater = flag('fxWater', false);
+    fxBloom = flag('fxBloom', false);
+    fxVhs = flag('fxVhs', false);
+    final extra = entries('extraFx');
+    final strengths = entries('extraStrength');
+    final sizes = entries('fxSize');
+    final blends = entries('fxBlendMode');
+    final opacities = entries('fxBlendOpacity');
+    for (final n in extraFxNames) {
+      extraFx[n] = extra[n] is bool ? extra[n] as bool : false;
+      extraStrength[n] = ((strengths[n] is num)
+          ? (strengths[n] as num).toDouble()
+          : 0.8).clamp(0.0, 1.0).toDouble();
+    }
+    for (final n in allFxNames) {
+      fxSize[n] = ((sizes[n] is num) ? (sizes[n] as num).toDouble() : 1.0)
+          .clamp(0.5, 2.5).toDouble();
+      fxBlendMode[n] = ((blends[n] is num) ? (blends[n] as num).toInt() : 0)
+          .clamp(0, 23).toInt();
+      fxBlendOpacity[n] = ((opacities[n] is num)
+          ? (opacities[n] as num).toDouble()
+          : 1.0).clamp(0.0, 1.0).toDouble();
+    }
+  }
+
+  Map<int, Map<String, dynamic>> _decodeAppearances(String? encoded) {
+    final result = <int, Map<String, dynamic>>{};
+    if (encoded == null || encoded.isEmpty) return result;
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is Map) {
+        for (final entry in decoded.entries) {
+          final id = int.tryParse(entry.key.toString());
+          if (id != null && pickable.contains(id) && entry.value is Map) {
+            result[id] = Map<String, dynamic>.from(entry.value as Map);
+          }
+        }
+      }
+    } catch (error) {
+      debugPrint('VYBE theme appearance profiles unreadable: $error');
+    }
+    return result;
+  }
+
+  Future<void> _saveAppearanceProfiles(SharedPreferences preferences) async {
+    if (_dirtyAppearanceThemes.isEmpty) return;
+    // Read the latest profiles instead of replacing another Flutter engine's
+    // changes to unrelated themes with this window's stale in-memory copy.
+    final merged = _decodeAppearances(
+        preferences.getString(_appearanceProfilesKey));
+    final snapshots = <int, String>{};
+    for (final id in _dirtyAppearanceThemes) {
+      final current = _appearanceProfiles[id];
+      if (current == null) continue;
+      merged[id] = current;
+      snapshots[id] = jsonEncode(current);
+    }
+    await preferences.setString(_appearanceProfilesKey, jsonEncode({
+      for (final entry in merged.entries) entry.key.toString(): entry.value,
+    }));
+    // A save can be in flight while a slider moves. Only clear a dirty flag
+    // if the stored snapshot is still equal to the theme's latest settings.
+    for (final entry in snapshots.entries) {
+      if (jsonEncode(_appearanceProfiles[entry.key]) == entry.value) {
+        _dirtyAppearanceThemes.remove(entry.key);
+      }
+    }
+    // Retain newer profiles learned from the other activity without
+    // overwriting any locally customized theme.
+    for (final entry in merged.entries) {
+      _appearanceProfiles.putIfAbsent(entry.key, () => entry.value);
+    }
+  }
+
+  void _rememberAppearance() {
+    final selected = _activeAppearanceTheme;
+    if (selected == null) return;
+    final snapshot = _captureAppearance();
+    if (jsonEncode(snapshot) != jsonEncode(_appearanceProfiles[selected])) {
+      _appearanceProfiles[selected] = snapshot;
+      _dirtyAppearanceThemes.add(selected);
+    }
+  }
+
+  void _switchAppearance(int selectedTheme) {
+    if (_activeAppearanceTheme == selectedTheme) return;
+    _rememberAppearance();
+    _activeAppearanceTheme = selectedTheme;
+    if (!_appearanceProfiles.containsKey(selectedTheme)) {
+      _appearanceProfiles[selectedTheme] = _freshAppearance();
+      _dirtyAppearanceThemes.add(selectedTheme);
+    }
+    _applyAppearance(_appearanceProfiles[selectedTheme]!);
+  }
+
+  // Migrate once: the user's previous global appearance becomes their active
+  // theme's initial profile. Other themes start with independent defaults.
+  bool _loadAppearances(SharedPreferences preferences) {
+    _appearanceProfiles
+      ..clear()
+      ..addAll(_decodeAppearances(
+          preferences.getString(_appearanceProfilesKey)));
+    _dirtyAppearanceThemes.clear();
+    _activeAppearanceTheme = theme;
+    _persistedTheme = theme;
+    if (_appearanceProfiles.isEmpty) {
+      _appearanceProfiles[theme] = _captureAppearance();
+      _dirtyAppearanceThemes.add(theme);
+      return true;
+    }
+    if (!_appearanceProfiles.containsKey(theme)) {
+      _appearanceProfiles[theme] = _freshAppearance();
+      _dirtyAppearanceThemes.add(theme);
+      _applyAppearance(_appearanceProfiles[theme]!);
+      return true;
+    }
+    _applyAppearance(_appearanceProfiles[theme]!);
+    return false;
+  }
+
   ArtPalette? get accentPalette =>
       (accent > 0 && accent < accents.length) ? accents[accent] : null;
 
@@ -233,10 +507,20 @@ class AppSettings extends ChangeNotifier {
     fanartMode = _int(p, 'fanartMode', 2, 0, 2);
     cinematicFallback = _int(p, 'cinematicFallback', 1, 0, 1);
     fanartThemeSource = _int(p, 'fanartThemeSource', 0, 0, 2);
+    fanartFallbackSource = _int(p, 'fanartFallbackSource',
+        fanartThemeSource == 2 ? 1 : 0, 0, 1);
+    fanartOverride = p.getBool('fanartOverride') ??
+        (fanartThemeSource != 0);
+    fanartCycleSeconds = _int(p, 'fanartCycleSeconds', 10, 5, 300);
+    useArtistClearLogo = p.getBool('useArtistClearLogo') ?? true;
+    artistLogoScale = (p.getDouble('artistLogoScale') ?? 1.0).clamp(0.5, 2.0).toDouble();
     animationUseAlbumColors = p.getBool('animationUseAlbumColors') ?? false;
     cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
-    if (cinematicPalette < 14 || cinematicPalette > 19) cinematicPalette = 15;
-    cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.30).clamp(0.0, 1.0).toDouble();
+    // Users who previously selected Rave land on Club Stage rather than
+    // silently showing an unrelated scene or retaining a hidden option.
+    if (cinematicPalette == 18) cinematicPalette = 16;
+    if (!premiumSceneIds.contains(cinematicPalette)) cinematicPalette = 15;
+    cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.0).clamp(0.0, 1.0).toDouble();
     cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
     cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
     cinematicAnimationSpeed = (p.getDouble('cinematicAnimationSpeed') ?? 1.0).clamp(0.0, 3.0).toDouble();
@@ -343,6 +627,7 @@ class AppSettings extends ChangeNotifier {
     }
     bgBlur = (p.getDouble('bgBlur') ?? 6.0).clamp(0.0, 18.0).toDouble();
     bgContrast = (p.getDouble('bgContrast') ?? 1.4).clamp(1.0, 2.0).toDouble();
+    if (_loadAppearances(p)) migrated = true;
     notifyListeners();
     if (migrated) save();
   }
@@ -357,15 +642,29 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('vizStyle', vizStyle);
   }
 
-  Future<void> saveTheme() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setInt('theme', theme);
+  Future<void> saveTheme() {
+    // The theme gallery applies without scheduling a full settings save,
+    // because Drive and the main window use independent Flutter engines.
+    // Persist the new theme and both profiles together in write order.
+    _rememberAppearance();
+    final selected = theme;
+    _persistedTheme = selected;
+    final next = _pendingSave.catchError((Object error) {
+      debugPrint('VYBE previous settings save failed: $error');
+    }).then((_) async {
+      final p = await SharedPreferences.getInstance();
+      await _saveAppearanceProfiles(p);
+      await p.setInt('theme', selected);
+    });
+    _pendingSave = next;
+    return next;
   }
 
   // Keep writes ordered: multiple toggles must not race whole-settings saves.
   Future<void> _pendingSave = Future<void>.value();
 
   Future<void> save() {
+    _rememberAppearance();
     final next = _pendingSave.catchError((Object error) {
       debugPrint('VYBE previous settings save failed: $error');
     }).then((_) => _saveToDisk());
@@ -375,13 +674,23 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> _saveToDisk() async {
     final p = await SharedPreferences.getInstance();
-    await p.setInt('theme', theme);
+    await _saveAppearanceProfiles(p);
+    // A transient Drive-window theme must not replace the user's preferred
+    // theme in the normal full-screen window.
+    await p.setInt('theme', _persistedTheme);
     await p.setBool('visualizer', visualizer);
     await p.setInt('diagonalWaveStyle', diagonalWaveStyle);
     await p.setInt('cinematicWaveStyle', cinematicWaveStyle);
     await p.setInt('fanartMode', fanartMode);
     await p.setInt('cinematicFallback', cinematicFallback);
-    await p.setInt('fanartThemeSource', fanartThemeSource);
+    await p.setInt('fanartFallbackSource', fanartFallbackSource);
+    await p.setBool('fanartOverride', fanartOverride);
+    await p.setInt('fanartCycleSeconds', fanartCycleSeconds);
+    await p.setBool('useArtistClearLogo', useArtistClearLogo);
+    await p.setDouble('artistLogoScale', artistLogoScale);
+    // Keep the old key meaningful for users upgrading from older builds.
+    await p.setInt('fanartThemeSource',
+        fanartOverride ? (fanartFallbackSource == 1 ? 2 : 1) : 0);
     await p.setBool('animationUseAlbumColors', animationUseAlbumColors);
     await p.setInt('cinematicPalette', cinematicPalette);
     await p.setDouble('cinematicDarkness', cinematicDarkness);
@@ -479,7 +788,14 @@ class AppSettings extends ChangeNotifier {
 
   /// Apply a change, tell listeners, and (by default) save it.
   void update(VoidCallback change, {bool persist = true}) {
+    final before = theme;
     change();
+    if (theme != before) {
+      _switchAppearance(theme);
+      if (persist) _persistedTheme = theme;
+    } else {
+      _rememberAppearance();
+    }
     notifyListeners();
     if (persist) save();
   }

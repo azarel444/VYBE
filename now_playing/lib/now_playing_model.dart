@@ -3,10 +3,12 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'lyrics.dart';
 import 'net.dart';
 import 'media_cache.dart';
+import 'local_artwork.dart';
 import 'palette.dart';
 
 /// Talks to the Kotlin side (MainActivity) which listens to the active
@@ -37,6 +39,7 @@ class NowPlayingModel extends ChangeNotifier {
   int _lyricsToken = 0;
   Timer? _netTimer;
   Timer? _artClearTimer;
+  Timer? _sessionVerificationTimer;
   Timer? _artRetryTimer;
   Timer? _sessionArtRetryTimer;
   int _sessionArtRetries = 0;
@@ -54,12 +57,78 @@ class NowPlayingModel extends ChangeNotifier {
       'Status: $artworkStatus\nFailure: $artworkFailure\n'
       'Cover displayed: ${art != null && !art!.flat}';
   Timer? _idleTimer;
+  Timer? _linkInactiveTimer;
+  Timer? _linkDisconnectTimer;
   String _albumKey = '';
   bool _needsArt = false; // album changed and the player sent no new cover yet
   String _sentLaunch = '';
   final Map<String, Uint8List> _artCache = {};
   // Reuse covers across songs on the same positively identified album.
   final Map<String, Uint8List> _albumArtCache = {};
+  // Detect a player-supplied placeholder or shared playlist cover when the
+  // identical image appears under unrelated artist/album identities.
+  final Map<int, Set<String>> _sessionArtOwners = {};
+  final Set<int> _sharedSessionImages = {};
+  final Set<int> _markedPlaceholders = {};
+  Uint8List? _latestSessionArtwork;
+  bool _placeholderHashesLoaded = false;
+
+  Future<void> _loadPlaceholderHashes() async {
+    if (_placeholderHashesLoaded) return;
+    final prefs = await SharedPreferences.getInstance();
+    _markedPlaceholders.addAll((prefs.getStringList('vybe_marked_placeholder_hashes') ?? <String>[])
+        .map(int.tryParse).whereType<int>());
+    _placeholderHashesLoaded = true;
+  }
+
+  bool get canMarkSessionPlaceholder => _latestSessionArtwork != null;
+
+  Future<bool> markCurrentSessionArtAsPlaceholder() async {
+    final bytes = _latestSessionArtwork;
+    if (bytes == null || bytes.isEmpty) return false;
+    await _loadPlaceholderHashes();
+    final hash = _imageFingerprint(bytes);
+    _markedPlaceholders.add(hash);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('vybe_marked_placeholder_hashes',
+        _markedPlaceholders.map((x) => x.toString()).toList());
+    _sharedSessionImages.add(hash);
+    _albumArtCache.remove(_albumArtKey(artist, album));
+    _artCache.remove('${artist.toLowerCase()}|${title.toLowerCase()}');
+    _sessionVerificationTimer?.cancel();
+    _artToken++;
+    art = null;
+    artworkSource = 'None';
+    sessionArtworkStatus = 'Rejected manually marked placeholder';
+    artworkStatus = 'Known player placeholder rejected';
+    artworkLookupState = 'Looking up real album artwork';
+    notifyListeners();
+    if (artLookupEnabled && title.isNotEmpty) _lookupArt(force: true);
+    return true;
+  }
+
+  int _imageFingerprint(Uint8List bytes) {
+    // FNV-1a over all bytes; no image decoding required.
+    var hash = 2166136261;
+    for (final value in bytes) {
+      hash = ((hash ^ value) * 16777619) & 0xffffffff;
+    }
+    return hash;
+  }
+
+  bool _isSharedSessionArtwork(Uint8List bytes) {
+    final hash = _imageFingerprint(bytes);
+    final owner = '${artist.trim().toLowerCase()}|${album.trim().toLowerCase()}';
+    final owners = _sessionArtOwners.putIfAbsent(hash, () => <String>{});
+    owners.add(owner);
+    if (owners.length >= 2 &&
+        owners.map((x) => x.split('|').first).toSet().length >= 2) {
+      _sharedSessionImages.add(hash);
+    }
+    if (_sessionArtOwners.length > 150) _sessionArtOwners.remove(_sessionArtOwners.keys.first);
+    return _markedPlaceholders.contains(hash) || _sharedSessionImages.contains(hash);
+  }
+
 
   String _albumArtKey(String artistName, String albumName) {
     final a = artistName.trim().toLowerCase();
@@ -112,9 +181,12 @@ class NowPlayingModel extends ChangeNotifier {
     _fftSub?.cancel();
     _netTimer?.cancel();
     _artClearTimer?.cancel();
+    _sessionVerificationTimer?.cancel();
     _artRetryTimer?.cancel();
     _sessionArtRetryTimer?.cancel();
     _idleTimer?.cancel();
+    _linkInactiveTimer?.cancel();
+    _linkDisconnectTimer?.cancel();
     super.dispose();
   }
 
@@ -129,21 +201,70 @@ class NowPlayingModel extends ChangeNotifier {
   }
 
   bool _linkReceiverActive = false;
-  void setLinkReceiverActive(bool on) {
-    _linkReceiverActive = on;
-    if (on) { _netTimer?.cancel(); _artRetryTimer?.cancel(); _artClearTimer?.cancel(); }
-    if (!on) { _clearAll(); active = false; notifyListeners(); }
+
+  /// A Link connection must never clear the native music state on a sender.
+  /// On receivers, a brief Wi-Fi interruption should retain the last song
+  /// instead of switching repeatedly to the empty-state screen.
+  void setLinkReceiverActive(bool on, {bool immediate = false}) {
+    _linkDisconnectTimer?.cancel();
+    _linkDisconnectTimer = null;
+    if (on) {
+      _linkReceiverActive = true;
+      _linkInactiveTimer?.cancel();
+      _linkInactiveTimer = null;
+      _idleTimer?.cancel();
+      _netTimer?.cancel();
+      _artRetryTimer?.cancel();
+      _artClearTimer?.cancel();
+      return;
+    }
+    if (!_linkReceiverActive) return; // Sender/disabled: no receiver state to reset.
+    void releaseReceiver() {
+      _linkDisconnectTimer = null;
+      if (!_linkReceiverActive) return;
+      _linkReceiverActive = false;
+      _linkInactiveTimer?.cancel();
+      _linkInactiveTimer = null;
+      _clearAll();
+      active = false;
+      playing = false;
+      notifyListeners();
+      // Resume reading the device's own media sessions if one is available.
+      _control.invokeMethod<void>('refresh').catchError((_) {});
+    }
+    if (immediate) {
+      releaseReceiver();
+    } else {
+      _linkDisconnectTimer = Timer(const Duration(seconds: 10), releaseReceiver);
+    }
   }
 
   void applyLinkMetadata({required String titleValue, required String artistValue,
       required String albumValue, required bool isPlaying, required bool isActive,
       required int duration, required int position, Uint8List? artwork}) {
     if (!_linkReceiverActive) return;
+
+    // The sender may briefly report an empty session while Android switches
+    // media controllers. Require a sustained inactive report before clearing.
+    // Cancel immediately when valid song information resumes.
+    if ((!isActive || titleValue.trim().isEmpty) && active && title.isNotEmpty) {
+      _linkInactiveTimer ??= Timer(const Duration(seconds: 7), () {
+        _linkInactiveTimer = null;
+        if (!_linkReceiverActive) return;
+        _clearAll();
+        active = false;
+        playing = false;
+        notifyListeners();
+      });
+      return;
+    }
+    _linkInactiveTimer?.cancel();
+    _linkInactiveTimer = null;
     final key = '$titleValue|$artistValue|$albumValue';
     final changed = key != _trackKey;
     if (changed) {
       _artToken++; _artRetryTimer?.cancel(); _artClearTimer?.cancel();
-      _artAttempts = 0; _lookupInFlight = ''; art = null;
+      _artAttempts = 0; _lookupInFlight = ''; // Retain previous cover until new art arrives.
       lyrics = null; _lyricsToken++;
     }
     title = titleValue; artist = artistValue; album = albumValue;
@@ -168,6 +289,10 @@ class NowPlayingModel extends ChangeNotifier {
     final m = Map<String, dynamic>.from(e as Map);
     accessGranted = m['access'] == true;
     final nowActive = m['active'] == true;
+    // Some players keep their session alive but publish an empty metadata
+    // snapshot while switching tracks. Treat that as transient too.
+    final missingMetadata = nowActive && active && title.isNotEmpty &&
+        ((m['title'] as String?) ?? '').trim().isEmpty;
 
     if (!accessGranted) {
       _idleTimer?.cancel();
@@ -177,18 +302,23 @@ class NowPlayingModel extends ChangeNotifier {
       return;
     }
 
-    if (!nowActive) {
-      // Players sometimes drop their session for a moment between songs or
-      // albums. Wait before treating it as "nothing playing", so the screen
-      // does not flash the empty state.
-      playing = false;
-      _idleTimer ??= Timer(const Duration(milliseconds: 2500), () {
-        _idleTimer = null;
-        active = false;
-        _clearAll();
-        notifyListeners();
-      });
-      notifyListeners();
+    if (!nowActive || missingMetadata) {
+      // A temporary missing session OR an empty metadata callback must
+      // not replace a real song with the placeholder.
+      // An empty getActiveSessions result is not evidence that the user
+      // stopped the music. Keep the last known track while the player
+      // replaces its media session; only clear after a sustained absence.
+      if (active && title.isNotEmpty) {
+        _idleTimer ??= Timer(const Duration(seconds: 7), () {
+          _idleTimer = null;
+          active = false;
+          playing = false;
+          _clearAll();
+          notifyListeners();
+        });
+      } else {
+        playing = false;
+      }
       return;
     }
     _idleTimer?.cancel();
@@ -215,6 +345,7 @@ class NowPlayingModel extends ChangeNotifier {
     if (changed) {
       _artToken++; // Invalidate lookups and decoding from the previous song.
       _artRetryTimer?.cancel();
+      _sessionVerificationTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
       _sessionArtRetries = 0;
       _artAttempts = 0;
@@ -225,8 +356,7 @@ class NowPlayingModel extends ChangeNotifier {
       artworkFailure = 'None';
       artworkLookupState = 'Idle';
       _artClearTimer?.cancel();
-      // Only reuse a cover when the album is positively identified as the same.
-      if (albumChanged || album.isEmpty) art = null;
+      // Keep outgoing cover until new artwork arrives, avoiding standby flashes.
       // Restore an already decoded cover from another track on this album.
       if (art == null && cacheAlbumKey.isNotEmpty) {
         final cached = _albumArtCache[cacheAlbumKey];
@@ -239,14 +369,53 @@ class NowPlayingModel extends ChangeNotifier {
 
     final artBytes = m['art'];
     if (artBytes is Uint8List && artBytes.isNotEmpty) {
+      _latestSessionArtwork = artBytes;
+      if (!_placeholderHashesLoaded) {
+        _loadPlaceholderHashes().then((_) {
+          if (_markedPlaceholders.contains(_imageFingerprint(artBytes)) &&
+              _trackKey == key) {
+            _albumArtCache.remove(cacheAlbumKey);
+            _artToken++;
+            art = null;
+            artworkSource = 'None';
+            sessionArtworkStatus = 'Rejected saved placeholder';
+            notifyListeners();
+            if (artLookupEnabled) _lookupArt(force: true);
+          }
+        });
+      }
+    } else if (changed) {
+      _latestSessionArtwork = null;
+    }
+    // Shared playlist artwork remains usable offline; never reject it
+    // merely because several tracks carry identical image bytes.
+    if (artBytes is Uint8List && artBytes.isNotEmpty) {
+      // Capture the current source before updating diagnostics. Repeated
+      // media-session callbacks must not undo a verified song-specific cover.
+      final hasVerifiedSongCover = artworkSource == 'Exact song catalog match' &&
+          !changed && art != null;
       sessionArtworkStatus = 'Received ${artBytes.length} bytes';
-      artworkSource = 'Android media session';
-      artworkStatus = 'Android media session artwork';
+      if (!hasVerifiedSongCover) {
+        artworkSource = 'Android media session';
+        artworkStatus = 'Android media session artwork';
+      }
       _artClearTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
       _needsArt = false;
-      if (art == null || !listEquals(art!.bytes, artBytes)) {
+      // A repeated media-session callback must not overwrite a verified
+      // song-specific upgrade for this same track. The original supplied
+      // image remains available as fallback on the next track or failed lookup.
+      if (!hasVerifiedSongCover &&
+          (art == null || !listEquals(art!.bytes, artBytes))) {
         _setArt(artBytes);
+      }
+      // Player artwork is displayed first; a strict song match may upgrade it.
+      if (changed && artLookupEnabled) {
+        final expectedTrack = key;
+        _sessionVerificationTimer?.cancel();
+        _sessionVerificationTimer = Timer(const Duration(milliseconds: 1500), () {
+          _findSongCoverUpgrade(expectedTrack);
+        });
       }
     } else if (changed && art != null) {
       sessionArtworkStatus = 'Missing (no bytes in media session)';
@@ -270,7 +439,8 @@ class NowPlayingModel extends ChangeNotifier {
     }
     _trackKey = key;
     _albumKey = albumKey;
-    if (art == null && title.isNotEmpty) _scheduleSessionArtRetry();
+    if ((artBytes is! Uint8List || artBytes.isEmpty) && title.isNotEmpty)
+      _scheduleSessionArtRetry();
 
     if (changed) {
       lyrics = null;
@@ -307,7 +477,9 @@ class NowPlayingModel extends ChangeNotifier {
     _trackKey = '';
     _albumKey = '';
     _needsArt = false;
+    _latestSessionArtwork = null;
     _artClearTimer?.cancel();
+    _sessionVerificationTimer?.cancel();
     _artRetryTimer?.cancel();
     _sessionArtRetryTimer?.cancel();
     _sessionArtRetries = 0;
@@ -319,13 +491,74 @@ class NowPlayingModel extends ChangeNotifier {
     _lyricsToken++;
   }
 
+  Future<void> _findSongCoverUpgrade(String expectedTrack) async {
+    if (!artLookupEnabled || _linkReceiverActive || expectedTrack != _trackKey ||
+        title.trim().isEmpty || artist.trim().isEmpty) return;
+    final requestedTitle = title;
+    final requestedArtist = artist;
+    // Keep the media-session (including compilation) cover visible while
+    // checking for a verified artist + song replacement. Reuse only a
+    // track-specific cache entry: album-level caches may hold compilation art.
+    final songKey = '${requestedArtist.trim().toLowerCase()}|${requestedTitle.trim().toLowerCase()}';
+    Uint8List? bytes = _artCache[songKey];
+    bytes ??= await MediaCache.getArt(songKey);
+    bytes ??= await fetchSongSpecificArtwork(requestedTitle, requestedArtist);
+    if (bytes == null || expectedTrack != _trackKey) return;
+    final decoded = await ArtAssets.load(bytes);
+    if (decoded == null || decoded.flat || expectedTrack != _trackKey) return;
+    final current = art;
+    if (current != null && listEquals(current.bytes, bytes)) return;
+    ++_artToken;
+    art = decoded;
+    artworkSource = 'Exact song catalog match';
+    artworkStatus = 'Song-specific cover found';
+    artworkLookupState = 'Exact artist and song match';
+    artworkFailure = 'None';
+    // A compilation's album tag is shared by unrelated songs. Do not cache
+    // this song-specific cover under that album name, or it can leak to
+    // another track in the compilation.
+    _artCache['${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}'] = bytes;
+    MediaCache.putArt('${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}', bytes);
+    notifyListeners();
+  }
+
   void _runNetwork() {
     if (title.isEmpty || _linkReceiverActive) return;
-    if (artLookupEnabled && art == null) _lookupArt();
+    if (artLookupEnabled && art == null) _lookupLocalFirst();
     if (lyricsEnabled) _fetchLyrics();
   }
 
-  Future<void> _lookupArt({bool force = false}) async {
+  Future<void> _verifySessionArtwork() async {
+    final token = _artToken;
+    final track = _trackKey;
+    final local = await LocalArtwork.instance.albumArt(artist, album);
+    if (token != _artToken || track != _trackKey) return;
+    if (local != null && local.isNotEmpty) {
+      artworkSource = 'Verified local album artwork';
+      _setArt(local);
+      return;
+    }
+    // Force a catalog query, bypassing potentially contaminated old caches.
+    // Retain the session image if no verified replacement is found.
+    _lookupArt(force: true, verifySession: true);
+  }
+
+  Future<void> _lookupLocalFirst() async {
+    final token = _artToken;
+    final track = _trackKey;
+    final bytes = await LocalArtwork.instance.albumArt(artist, album);
+    if (token != _artToken || track != _trackKey || art != null) return;
+    if (bytes != null && bytes.isNotEmpty) {
+      artworkSource = 'Local artwork index';
+      artworkStatus = 'Matched local album artwork';
+      _setArt(bytes);
+      notifyListeners();
+    } else {
+      _lookupArt();
+    }
+  }
+
+  Future<void> _lookupArt({bool force = false, bool verifySession = false}) async {
     if (_linkReceiverActive || !artLookupEnabled || title.trim().isEmpty) return;
     final token = _artToken;
     final track = _trackKey;
@@ -365,7 +598,7 @@ class NowPlayingModel extends ChangeNotifier {
           if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
           // Use decoded artwork directly: _setArt would invalidate this lookup's token.
           art = decoded;
-          artworkStatus = 'Artwork restored from cache or online catalog';
+          artworkStatus = verifySession ? 'Media-session cover verified/replaced by online catalog' : 'Artwork restored from cache or online catalog';
           artworkLookupState = 'Found and decoded';
           artworkFailure = 'None';
           _needsArt = false;
@@ -493,7 +726,10 @@ class NowPlayingModel extends ChangeNotifier {
       artworkFailure = 'None';
       artworkLookupState = 'Artwork displayed';
     }
-    if (art != null) _rememberAlbumArt(bytes, albumCacheKey);
+    // Keep usable media-session covers available while offline.
+    if (art != null) {
+      _rememberAlbumArt(bytes, albumCacheKey);
+    }
     if (art == null && artLookupEnabled && title.isNotEmpty) {
       // Avoid blocking the media-session event while lookup runs.
       _netTimer?.cancel();

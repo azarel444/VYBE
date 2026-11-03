@@ -148,7 +148,11 @@ class ReturnBubble(private val ctx: Context) {
     private fun openVybe() {
         try {
             val i = Intent(ctx, DriveActivity::class.java)
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            // Restore the existing Drive task instead of reordering its
+            // activity across Maps' task boundary. Reordering can cause Maps
+            // to treat the return as a new foreground transition and enter PiP.
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             ctx.startActivity(i)
         } catch (_: Exception) {
         }

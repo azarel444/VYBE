@@ -192,3 +192,28 @@ Future<Uint8List?> fetchCoverArtArchive(String artist, String album) async {
   }
   return null;
 }
+
+/// Strict song-specific cover lookup. Never fall back to an album-only search.
+/// Returns null when the artist and track cannot both be matched.
+Future<Uint8List?> fetchSongSpecificArtwork(String title, String artist) async {
+  if (_norm(title).isEmpty || _norm(artist).isEmpty) return null;
+  final term = '$artist $title';
+  final body = await httpGetString(Uri.https('itunes.apple.com', '/search', {
+    'term': term, 'entity': 'song', 'limit': '50',
+  }));
+  if (body == null) return null;
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is! Map || decoded['results'] is! List) return null;
+    for (final item in decoded['results'] as List) {
+      if (item is! Map) continue;
+      final foundArtist = item['artistName']?.toString() ?? '';
+      final foundTrack = item['trackName']?.toString() ?? '';
+      final url = item['artworkUrl100']?.toString() ?? '';
+      if (_norm(foundArtist) != _norm(artist) ||
+          _norm(foundTrack) != _norm(title) || url.isEmpty) continue;
+      return await _appleArtwork(url);
+    }
+  } catch (_) {}
+  return null;
+}

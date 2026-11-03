@@ -1,4 +1,6 @@
+import 'local_artwork_scan.dart';
 import 'vybe_link_settings.dart';
+import 'integration_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'native_preferences.dart';
@@ -10,6 +12,7 @@ import 'settings.dart';
 import 'fx_library.dart';
 import 'media_cache.dart';
 import 'artist_fanart.dart';
+import 'local_artwork.dart';
 
 const _cyan = Color(0xFF00E5FF);
 
@@ -28,6 +31,7 @@ class SettingsScreen extends StatelessWidget {
     'Navigation',
     'Permissions',
     'VYBE Link',
+    'Integrations',
   ];
 
   @override
@@ -90,6 +94,7 @@ class SettingsScreen extends StatelessWidget {
                       _page(_navigation(context)),
                       _page(_permissions(context)),
                       const VybeLinkSettings(),
+                      const IntegrationDiagnostics(),
                     ],
                   ),
                 ),
@@ -190,7 +195,79 @@ class SettingsScreen extends StatelessWidget {
               ),
             );
           }),
+      _section('Local artwork library'),
+      _action('Choose artwork folder and scan',
+          'Index local album covers, artist fanart and clearlogos',
+          'Choose folder', () async {
+            try {
+              final selected = await LocalArtwork.instance.chooseFolder();
+              if (!context.mounted || !selected) return;
+              await showLocalArtworkScan(context);
+            } catch (e) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Folder selection failed: $e')));
+            }
+          }),
+      _action('Rescan local artwork',
+          'Refresh the index after adding or changing artwork files',
+          'Rescan', () async {
+            await showLocalArtworkScan(context);
+          }),
+      _section('Auto-launch diagnostics'),
+      _action('Inspect auto-launch events',
+          'Playback and track-change events, launch attempts, and suppression reasons',
+          'Show Launch Log', () async {
+            String report;
+            try {
+              report = await const MethodChannel('nowplaying/control')
+                  .invokeMethod<String>('launchDiagnostics') ?? 'No events yet.';
+            } catch (e) {
+              report = 'Unable to read launch log: $e';
+            }
+            if (!context.mounted) return;
+            showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Auto-launch diagnostics'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: SingleChildScrollView(child: SelectableText(report)),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: report));
+                    },
+                    child: const Text('Copy Log'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      await const MethodChannel('nowplaying/control')
+                          .invokeMethod<void>('clearLaunchDiagnostics');
+                      if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    },
+                    child: const Text('Clear Log'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            );
+          }),
       _section('Artwork diagnostics'),
+      _action('Mark as Placeholder',
+          'Remember the current music player image and reject identical images in future sessions',
+          'Mark Placeholder', () async {
+            final marked = await model.markCurrentSessionArtAsPlaceholder();
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(marked
+                  ? 'Placeholder remembered. Searching for real album artwork.'
+                  : 'No music player artwork available to mark.')));
+          }),
       _action('Copy artwork diagnostics',
           'Track, media-session artwork, cache/online lookup and failure details',
           'Copy Diagnostics', () async {
@@ -256,30 +333,34 @@ class SettingsScreen extends StatelessWidget {
 
   List<Widget> _visuals(BuildContext context) {
     final s = settings;
+    final isFanartTheme = s.theme == AppSettings.tCinematic ||
+        s.theme == AppSettings.tEditorial;
     return [
       _section('Themes & backgrounds'),
       _themePreviewSelector(s),
+      const Text('Backgrounds and visual effects are saved separately for each theme. Switching back restores that theme\'s custom look.'),
       const Text('Choose a premium animated scene. Each scene has its own designed color palette.'),
       _choices('Animated background',
-        const ['Golden Hour', 'Neon Ribbons', 'Club Stage', 'Lightstorm',
-          'Rave', 'Neon Club'],
-        (s.cinematicPalette - 14).clamp(0, 5),
-        (i) => s.update(() => s.cinematicPalette = i + 14)),
+        AppSettings.premiumSceneNames,
+        AppSettings.premiumSceneIds.indexOf(s.cinematicPalette).clamp(0, 4),
+        (i) => s.update(() =>
+            s.cinematicPalette = AppSettings.premiumSceneIds[i])),
       _choices('Animation colors',
         const ['Default', 'Use album colors'],
         s.animationUseAlbumColors ? 1 : 0,
         (i) => s.update(() => s.animationUseAlbumColors = i == 1)),
       const Text('Default keeps each animated scene\'s original colors. '
           'Use album colors applies the current album artwork palette.'),
-      _choices('Theme background',
-        const ['Album Art', 'Artist Fanart', 'Animated Background'],
-        s.backgroundSource == 1 ? 2 : (s.backgroundSource == 6 ? 1 : 0),
-        (i) => s.update(() {
-          s.backgroundSource = i == 2 ? 1 : (i == 1 ? 6 : 0);
-          s.fanartMode = i == 1 ? 1 : 0;
-        })),
-      const Text('Standard themes default to blurred album art, then use the selected '
-          'animated scene when artwork is unavailable.'),
+      if (!isFanartTheme) ...[
+        _choices('Theme background',
+          const ['Album Art', 'Artist Fanart', 'Animated Background'],
+          s.backgroundSource == 1 ? 2 : (s.backgroundSource == 6 ? 1 : 0),
+          (i) => s.update(() {
+            s.backgroundSource = i == 2 ? 1 : (i == 1 ? 6 : 0);
+            s.fanartMode = i == 1 ? 1 : 0;
+          })),
+        const Text('Standard themes use the selected background.'),
+      ],
       _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
         s.bgOverlay, 0.0, 1.0,
         (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
@@ -292,32 +373,55 @@ class SettingsScreen extends StatelessWidget {
       _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
         s.templateBackgroundMotion, 0.0, 1.0,
         (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
-      _section('Fanart backgrounds'),
-      const Text('Cinematic and Editorial default to artist fanart, then album art, '
-          'then the selected animated scene when artwork is unavailable.'),
-      _choices('Fanart theme background',
-        const ['Artist Fanart', 'Album Art', 'Animated Background'],
-        s.fanartThemeSource,
-        (i) => s.update(() => s.fanartThemeSource = i)),
-      _slider('Fanart animation speed',
-          '${(s.cinematicAnimationSpeed * 100).round()}%',
-          s.cinematicAnimationSpeed, 0.0, 3.0,
-          (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
-          s.save),
-      _slider('Fanart darkness', '${(s.cinematicDarkness * 100).round()}%',
-        s.cinematicDarkness, 0.0, 1.0,
-        (v) => s.update(() => s.cinematicDarkness = v, persist: false), s.save),
-      _slider('Fanart blur', '${s.cinematicBlur.round()}',
-        s.cinematicBlur, 0.0, 18.0,
-        (v) => s.update(() => s.cinematicBlur = v, persist: false), s.save),
-      _slider('Fanart contrast', '${(s.cinematicContrast * 100).round()}%',
-        s.cinematicContrast, 1.0, 2.0,
-        (v) => s.update(() => s.cinematicContrast = v, persist: false), s.save),
+      _section('Artist name display'),
+      _choices('Display artist as', const ['Regular Text', 'Clear Logo'],
+          s.useArtistClearLogo ? 1 : 0,
+          (i) => s.update(() => s.useArtistClearLogo = i == 1)),
+      if (s.useArtistClearLogo)
+        _slider('Artist logo size', '${(s.artistLogoScale * 100).round()}%',
+            s.artistLogoScale, 0.5, 2.0,
+            (v) => s.update(() => s.artistLogoScale = v, persist: false),
+            s.save),
+      _section('Artist fanart slideshow'),
+      const Text('Randomly cycle through available artist images. Applies to every theme using artist fanart and to fanart sent over VYBE Connect.'),
+        _choices('Change artist image every',
+          const ['5 sec', '10 sec', '15 sec', '30 sec', '60 sec', '2 min', '5 min'],
+          const [5, 10, 15, 30, 60, 120, 300].indexOf(s.fanartCycleSeconds).clamp(0, 6),
+          (i) => s.update(() => s.fanartCycleSeconds = const [5, 10, 15, 30, 60, 120, 300][i])),
+      if (isFanartTheme) ...[
+        _section('Fanart backgrounds'),
+        const Text('Bigfan and Muzine display artist fanart whenever it is '
+            'available. Select what to show when it is unavailable.'),
+        _choices('If fanart is unavailable',
+          const ['Album Art', 'Animated Background'],
+          s.fanartFallbackSource,
+          (i) => s.update(() => s.fanartFallbackSource = i)),
+        _switch('Override fanart',
+          'Always show the selected background, even when artist fanart exists.',
+          s.fanartOverride,
+          (v) => s.update(() => s.fanartOverride = v)),
+        const Text('If Album Art is selected but no usable cover exists, '
+            'the selected animated background is used instead.'),
+        _slider('Fanart animation speed',
+            '${(s.cinematicAnimationSpeed * 100).round()}%',
+            s.cinematicAnimationSpeed, 0.0, 3.0,
+            (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
+            s.save),
+        _slider('Fanart darkness', '${(s.cinematicDarkness * 100).round()}%',
+          s.cinematicDarkness, 0.0, 1.0,
+          (v) => s.update(() => s.cinematicDarkness = v, persist: false), s.save),
+        _slider('Fanart blur', '${s.cinematicBlur.round()}',
+          s.cinematicBlur, 0.0, 18.0,
+          (v) => s.update(() => s.cinematicBlur = v, persist: false), s.save),
+        _slider('Fanart contrast', '${(s.cinematicContrast * 100).round()}%',
+          s.cinematicContrast, 1.0, 2.0,
+          (v) => s.update(() => s.cinematicContrast = v, persist: false), s.save),
+      ],
       _section('Visualizer'),
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
       if (s.visualizer) ...[
-        _choices('Cinematic waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+        _choices('Bigfan waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i)),
         _choices('Visualizer shape (including circular layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
@@ -345,8 +449,12 @@ class SettingsScreen extends StatelessWidget {
         _switch('24-hour time', 'Off uses 12-hour time with AM/PM',
           s.clock24h, (v) => s.update(() => s.clock24h = v)),
       _section('Performance'),
-      _switch('Performance mode',
-        'Reduce animated backgrounds and intensive visual effects on slower units',
+      _choices('FX quality',
+        const ['Auto', 'Performance', 'Maximum'],
+        s.fxPerformanceMode,
+        (i) => s.update(() { s.fxPerformanceMode = i; s.performance = false; })),
+      _switch('Legacy performance override',
+        'Apply the conservative FX budget without stopping animations',
         s.performance, (v) => s.update(() => s.performance = v)),
     ];
   }
@@ -612,9 +720,9 @@ class SettingsScreen extends StatelessWidget {
       );
 
   static const Map<int, String> _previewNames = {
-    0: 'focused', 1: 'side_by_side', 3: 'edge_to_edge',
+    0: 'orbit', 1: 'side_by_side', 3: 'edge_to_edge',
     4: 'drive', 5: 'fan', 6: 'diagonal', 7: 'record_cut',
-    8: 'typo', 9: 'orbit', 10: 'cinematic', 11: 'musiczine',
+    8: 'typo', 9: 'focused', 10: 'cinematic', 11: 'musiczine',
   };
 
   Widget _themePreviewSelector(AppSettings s) {

@@ -34,6 +34,64 @@ import kotlin.math.pow
 
 open class MainActivity : FlutterActivity() {
 
+    private var artworkFolderResult: MethodChannel.Result? = null
+    private val artworkRequestCode = 8943
+
+    @Deprecated("Legacy activity result used for Android 9 compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != artworkRequestCode) return
+        val pending = artworkFolderResult ?: return
+        artworkFolderResult = null
+        val uri = data?.data
+        if (resultCode != android.app.Activity.RESULT_OK || uri == null) {
+            pending.success(false)
+            return
+        }
+        try {
+            contentResolver.takePersistableUriPermission(uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE).edit()
+                .putString("tree", uri.toString()).apply()
+            pending.success(true)
+        } catch (e: Exception) { pending.error("folder", e.message, null) }
+    }
+
+    private fun scanArtworkTree(): List<Map<String, String>> {
+        val tree = getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE)
+            .getString("tree", null) ?: return emptyList()
+        val uri = Uri.parse(tree)
+        val authority = android.provider.DocumentsContract.getTreeDocumentId(uri)
+        val root = android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, authority)
+        val entries = mutableListOf<Map<String, String>>()
+        val queue = java.util.ArrayDeque<Pair<Uri, String>>()
+        queue.add(root to "")
+        while (!queue.isEmpty() && entries.size < 25000) {
+            val (folder, parent) = queue.removeFirst()
+            val id = android.provider.DocumentsContract.getDocumentId(folder)
+            val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(uri, id)
+            val columns = arrayOf(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE)
+            contentResolver.query(children, columns, null, null, null)?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val childId = cursor.getString(0)
+                    val name = cursor.getString(1) ?: continue
+                    val mime = cursor.getString(2) ?: ""
+                    val child = android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, childId)
+                    if (mime == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                        if (parent.count { it == '/' } < 12) queue.add(child to "$parent/$name")
+                    } else if (name.lowercase().matches(Regex(".*\\.(jpg|jpeg|png|webp)$"))) {
+                        entries.add(mapOf("uri" to child.toString(), "name" to name,
+                            "folder" to parent))
+                    }
+                }
+            }
+        }
+        return entries
+    }
+
     private var vybeDirect: VybeDirect? = null
     private var sink: EventChannel.EventSink? = null
     private var manager: MediaSessionManager? = null
@@ -63,6 +121,39 @@ open class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
 
+        MethodChannel(messenger, "vybe/local_art").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "chooseFolder" -> {
+                    if (artworkFolderResult != null) result.error("busy", "Folder chooser active", null)
+                    else {
+                        artworkFolderResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                        }
+                        startActivityForResult(intent, artworkRequestCode)
+                    }
+                }
+                "scan" -> Thread {
+                    try {
+                        val found = scanArtworkTree()
+                        runOnUiThread { result.success(found) }
+                    } catch (e: Exception) {
+                        runOnUiThread { result.error("scan", e.message, null) }
+                    }
+                }.start()
+                "read" -> Thread {
+                    try {
+                        val uri = Uri.parse(call.argument<String>("uri"))
+                        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        runOnUiThread { result.success(bytes) }
+                    } catch (e: Exception) {
+                        runOnUiThread { result.error("read", e.message, null) }
+                    }
+                }.start()
+                else -> result.notImplemented()
+            }
+        }
         // Dedicated, synchronously committed onboarding state. Avoid relying
         // solely on SharedPreferences' per-engine Dart cache.
         MethodChannel(messenger, "vybe/window_brightness").setMethodCallHandler { call, result ->
@@ -194,6 +285,7 @@ open class MainActivity : FlutterActivity() {
                 "previous" -> { controller?.transportControls?.skipToPrevious(); result.success(null) }
                 "refresh" -> { refresh(); result.success(null) }
                 "recheckArtwork" -> { push(true); result.success(null) }
+                "integrationDiagnostics" -> result.success(integrationDiagnostics(call.argument<String>("service") ?: ""))
                 "startVisualizer" -> result.success(startVisualizer())
                 "stopVisualizer" -> { stopVisualizer(); result.success(null) }
                 "openAccessSettings" -> { openAccessSettings(); result.success(null) }
@@ -311,6 +403,14 @@ open class MainActivity : FlutterActivity() {
                 "stopDrive" -> { MediaListenerService.instance?.stopDrive(); result.success(null) }
                 "driveRunning" -> result.success(MediaListenerService.instance?.driveRunning() == true)
                 "getPlayers" -> result.success(getPlayers())
+                "launchDiagnostics" -> result.success(
+                    getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+                        .getString("launch_diagnostics", "No launch events yet."))
+                "clearLaunchDiagnostics" -> {
+                    getSharedPreferences(PlayerFilter.PREFS, Context.MODE_PRIVATE)
+                        .edit().remove("launch_diagnostics").apply()
+                    result.success(null)
+                }
                 "setPlayerOverride" -> {
                     val pkg = call.argument<String>("pkg")
                     val mode = call.argument<String>("mode") ?: "auto"
@@ -335,6 +435,109 @@ open class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+
+    // Read-only inspection of the Android media-session contract. A published
+    // queue is NOT proof of playlist browsing or arbitrary track playback.
+    private fun integrationDiagnostics(service: String): Map<String, Any?> {
+        val target = when (service) {
+            "youtube_music" -> "com.google.android.apps.youtube.music"
+            else -> return mapOf("error" to "Unknown integration")
+        }
+        if (!hasAccess()) return mapOf(
+            "service" to service, "access" to false,
+            "assessment" to "Enable Notification Access for VYBE, then retry.")
+        return try {
+            val mgr = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val cn = ComponentName(this, MediaListenerService::class.java)
+            val sessions = mgr.getActiveSessions(cn)
+            val matches = sessions.filter { it.packageName == target }
+            val c = matches.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+                ?: matches.firstOrNull()
+            if (c == null) return mapOf(
+                "service" to service, "access" to true, "sessionFound" to false,
+                "activePackages" to sessions.map { it.packageName },
+                "assessment" to "No active media session for this app. Start playlist playback in the app and scan again.")
+            val md = c.metadata
+            val st = c.playbackState
+            val queue = try { c.queue } catch (_: Exception) { null }
+            val actions = st?.actions ?: 0L
+            val skipToQueue = actions and PlaybackState.ACTION_SKIP_TO_QUEUE_ITEM != 0L
+            val next = actions and PlaybackState.ACTION_SKIP_TO_NEXT != 0L
+            val seek = actions and PlaybackState.ACTION_SEEK_TO != 0L
+            val playFromId = actions and PlaybackState.ACTION_PLAY_FROM_MEDIA_ID != 0L
+            val playFromSearch = actions and PlaybackState.ACTION_PLAY_FROM_SEARCH != 0L
+            val tracks = queue?.take(100)?.mapIndexed { index, item ->
+                mapOf(
+                    "index" to index, "queueId" to item.queueId,
+                    "title" to item.description.title?.toString(),
+                    "subtitle" to item.description.subtitle?.toString(),
+                    "mediaId" to item.description.mediaId,
+                    "artworkUri" to item.description.iconUri?.toString(),
+                    "mediaUri" to item.description.mediaUri?.toString(),
+                    "extrasKeys" to (item.description.extras?.keySet()?.toList() ?: emptyList<String>())
+                )
+            } ?: emptyList()
+            val flags = c.flags
+            mapOf(
+                "service" to service, "package" to target, "access" to true,
+                "sessionFound" to true, "sessionCount" to matches.size,
+                "playbackState" to (st?.state ?: -1),
+                "scanTimeMs" to System.currentTimeMillis(),
+                "activeQueueItemId" to (st?.activeQueueItemId ?: -1L),
+                "playbackPositionMs" to (st?.position ?: -1L),
+                "playbackActionsMask" to actions,
+                "playbackExtrasKeys" to (st?.extras?.keySet()?.toList() ?: emptyList<String>()),
+                "metadata" to mapOf(
+                    "title" to md?.getString(MediaMetadata.METADATA_KEY_TITLE),
+                    "artist" to md?.getString(MediaMetadata.METADATA_KEY_ARTIST),
+                    "album" to md?.getString(MediaMetadata.METADATA_KEY_ALBUM),
+                    "albumArtist" to md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST),
+                    "mediaId" to md?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID),
+                    "artUri" to md?.getString(MediaMetadata.METADATA_KEY_ART_URI),
+                    "albumArtUri" to md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI),
+                    "displayIconUri" to md?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
+                    "durationMs" to md?.getLong(MediaMetadata.METADATA_KEY_DURATION),
+                    "hasEmbeddedArt" to (md?.getBitmap(MediaMetadata.METADATA_KEY_ART) != null),
+                    "hasEmbeddedAlbumArt" to (md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) != null),
+                    "keys" to (md?.keySet()?.toList() ?: emptyList<String>())
+                ),
+                "queueTitle" to c.queueTitle?.toString(),
+                "queueIds" to (queue?.map { it.queueId } ?: emptyList<Long>()),
+                "queueArtworkUrlCount" to (queue?.count { it.description.iconUri != null } ?: 0),
+                "queueMediaIdCount" to (queue?.count { it.description.mediaId != null } ?: 0),
+                "queuePublished" to (queue != null),
+                "queueLength" to (queue?.size ?: 0),
+                "queueTruncated" to ((queue?.size ?: 0) > 100),
+                "queue" to tracks,
+                "sessionFlags" to flags,
+                "actions" to mapOf(
+                    "skipNext" to next, "skipPrevious" to
+                        (actions and PlaybackState.ACTION_SKIP_TO_PREVIOUS != 0L),
+                    "skipToQueueItem" to skipToQueue, "seek" to seek,
+                    "playFromMediaId" to playFromId, "playFromSearch" to playFromSearch,
+                    "play" to (actions and PlaybackState.ACTION_PLAY != 0L),
+                    "pause" to (actions and PlaybackState.ACTION_PAUSE != 0L)
+                ),
+                "customActions" to (st?.customActions?.map { it.action } ?: emptyList<String>()),
+                "sessionExtrasKeys" to (c.extras?.keySet()?.toList() ?: emptyList<String>()),
+                "assessment" to when {
+                    queue == null -> "Queue not published. Cannot confirm Up Next or playlist browsing from this session."
+                    queue.isEmpty() -> "Queue is published but empty. No upcoming track data available."
+                    else -> "Queue entries available for inspection. Up Next may be possible. Track jumping requires skipToQueueItem support and a real playback test; full playlist browsing is not established."
+                },
+                "upNextCandidate" to (queue != null && queue.size > 1),
+                "activeItemInQueue" to (queue?.any { it.queueId == st?.activeQueueItemId } ?: false),
+                "queueJumpCandidate" to (queue != null && queue.isNotEmpty() && skipToQueue),
+                "fullPlaylistBrowsingVerified" to false,
+                "prefetchCandidate" to (queue != null && queue.size > 1),
+                "limitations" to "Android session queues may be partial, shuffled or different from playlists. No streaming API access is tested here."
+            )
+        } catch (e: Exception) {
+            mapOf("service" to service, "access" to true,
+                "error" to (e.javaClass.simpleName + ": " + (e.message ?: "unknown")))
         }
     }
 
@@ -707,21 +910,24 @@ open class MainActivity : FlutterActivity() {
         }
     }
 
-    // "On screen" means started, not resumed: in a split or freeform window
-    // VYBE can be paused (another window has focus) but still visible.
-    override fun onStart() {
-        super.onStart()
-        started++
+    // Auto-launch must check whether VYBE owns foreground focus, not
+    // whether its activity is merely started behind another music player.
+    override fun onResume() {
+        super.onResume()
+        resumedActivities++
         visible = true
         MediaListenerService.instance?.hideBubble()
         MediaListenerService.instance?.vybeVisible(true)
     }
 
-    override fun onStop() {
-        // Either VYBE screen counts: the normal one or the Drive window.
-        started = maxOf(0, started - 1)
-        visible = started > 0
+    override fun onPause() {
+        resumedActivities = maxOf(0, resumedActivities - 1)
+        visible = resumedActivities > 0
         MediaListenerService.instance?.vybeVisible(visible)
+        super.onPause()
+    }
+
+    override fun onStop() {
         stopVisualizer()
         super.onStop()
     }
@@ -729,7 +935,7 @@ open class MainActivity : FlutterActivity() {
     companion object {
         @Volatile
         var visible = false
-        private var started = 0
+        private var resumedActivities = 0
 
         private const val BANDS = 96
         private const val REQ_AUDIO = 4711

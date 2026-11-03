@@ -1,5 +1,6 @@
-#define SCENE 0
 #include <flutter/runtime_effect.glsl>
+
+// Club Stage — front-row view. Distinct from Rave, Neon Club and Golden Hour.
 uniform vec2 uSize;
 uniform float uTime;
 uniform vec3 uA;
@@ -7,154 +8,221 @@ uniform vec3 uB;
 uniform vec3 uC;
 uniform float uBass;
 out vec4 fragColor;
-float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
-float fog(vec3 p,float t){return .50*noise(p.xz*.36+vec2(t*.045,-t*.022))+.3*noise(p.xy*.85+vec2(t*.06,0.))+.2*noise(p.yz*1.8);}
-float gauss(float x,float w){return exp(-x*x/(w*w));}
-vec3 pal(float x){return x<.34?mix(uA,uB,x*2.94):mix(uB,uC,(x-.34)*1.51);}
-vec3 tone(vec3 c){return pow(vec3(1.)-exp(-max(c,vec3(0.))*1.3),vec3(.88));}
-void main(){
- vec2 uv=FlutterFragCoord().xy/uSize;
- vec2 p=(uv-.5)*vec2(uSize.x/uSize.y,1.);
- float t=uTime, bass=clamp(uBass,0.,1.);
- vec3 col=vec3(.003,.004,.014);
-#if SCENE == 0 || SCENE == 2
- // Stage: fixed audience camera, grounded perspective floor and overhead rig.
- vec3 ro=vec3(0.,1.65,6.8),rd=normalize(vec3(p.x*1.6,p.y*-1.22,-2.25));
- float floorD=(-ro.y)/min(rd.y,-.0001);
- if(rd.y<-.02&&floorD>0.){
-  vec3 hit=ro+rd*floorD;
-  float grain=noise(hit.xz*4.);
-  float grid=pow(1.-smoothstep(.015,.035,min(fract(hit.x*.72),fract(hit.z*.72))),1.5);
-  col+=vec3(.014,.013,.027)+grain*.014+grid*.009;
- }
- // Distinct physical spot fixtures above the stage, panning independently.
- for(int i=0;i<9;i++){
-  float fi=float(i);
-  float x=(fi-4.)*.82;
-  float side=mod(fi,2.)<.5?1.:-1.;
-  vec3 origin=vec3(x,4.8,-3.2-.7*mod(fi,3.));
-  vec3 target=vec3(x*.35+side*sin(t*(.27+.035*fi)+fi)*2.6,
-                   .0,-3.7+cos(t*.22+fi*1.9)*1.6);
-  vec3 axis=normalize(target-origin);
-  // Closest approach of camera ray to a finite beam axis.
-  vec3 w=ro-origin;
-  float ab=dot(rd,axis),den=max(.0001,1.-ab*ab);
-  float rayT=max(0.,(ab*dot(w,axis)-dot(w,rd))/den);
-  vec3 sampleP=ro+rd*rayT;
-  float beamT=dot(sampleP-origin,axis);
-  float radial=length(sampleP-origin-axis*beamT);
-  float spread=.065+max(0.,beamT)*.16;
-  float within=smoothstep(0.,.45,beamT)*(1.-smoothstep(6.3,8.3,beamT));
-  float cone=exp(-pow(radial/spread,2.)*1.65)*within;
-  float mist=.32+.9*fog(sampleP,t);
-  float pulse=.68+.35*sin(t*.85+fi*1.4)+bass*.75;
-  vec3 tint=pal(fract(fi*.385));
-  col+=tint*cone*mist*pulse*.45;
-  // Fixture hot spots: lens glow and controlled bloom.
-  vec3 lightDir=normalize(origin-ro);
-  float sparkle=gauss(length(rd-lightDir),.018);
-  col+=tint*sparkle*1.8+vec3(1.)*pow(sparkle,3.)*.65;
-  // Floor pools respond to beam target rather than screen-space painting.
-  if(rd.y<-.02&&floorD>0.){
-    vec3 hit=ro+rd*floorD;
-    float dist=length((hit-target).xz);
-    float pool=exp(-dist*dist*.55)*(.35+.65*bass);
-    col+=tint*pool*.25;
+
+float hash21(vec2 p) {
+  return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);
+}
+float noise2(vec2 p) {
+  vec2 i=floor(p), f=fract(p);
+  f=f*f*(3.-2.*f);
+  return mix(mix(hash21(i),hash21(i+vec2(1.,0.)),f.x),
+             mix(hash21(i+vec2(0.,1.)),hash21(i+vec2(1.,1.)),f.x),f.y);
+}
+float gauss(float x,float width) {
+  return exp(-pow(x/max(width,.0001),2.));
+}
+vec3 stageColor(float seed) {
+  float n=fract(seed);
+  vec3 c=n<.333 ? mix(uA,uB,n*3.)
+     : n<.666 ? mix(uB,uC,(n-.333)*3.)
+              : mix(uC,uA,(n-.666)*3.);
+  // Saturate the actual chosen stage/album palette, not a milky white wash.
+  float low=min(c.r,min(c.g,c.b));
+  return clamp(vec3(low)+(c-vec3(low))*1.60,0.,1.);
+}
+vec3 tonemap(vec3 c) {
+  // A quieter highlight shoulder preserves separation between colored
+  // fixtures even when multiple beams cross on a strong bass hit.
+  return pow(vec3(1.)-exp(-max(c,vec3(0.))*.91),vec3(.97));
+}
+
+// A tapering spotlight in camera space. Distinct core and smoky outer cone;
+// angled moving beams keep their fixture position while their targets sweep.
+float lightCone(vec2 p,vec2 origin,vec2 target,
+                float startWidth,float widening,float reach) {
+  vec2 ray=target-origin;
+  float len=max(length(ray),.001);
+  vec2 dir=ray/len;
+  vec2 v=p-origin;
+  float along=dot(v,dir);
+  float sideways=abs(v.x*dir.y-v.y*dir.x);
+  float width=startWidth+max(along,0.)*widening;
+  float cone=gauss(sideways,width);
+  return cone*smoothstep(-.025,.065,along)*
+      (1.-smoothstep(len*.82,len*reach,along));
+}
+vec3 neonBackdrop(vec2 p,float aspect,float time,float bass) {
+  // LED wall: consecutive nested X / chevron frames move OUT from a true
+  // central vanishing point. Their projected size and line width accelerate
+  // toward the audience, unlike uniformly sliding diagonal lines.
+  vec2 q=vec2(p.x/max(aspect*.79,.25),(p.y+.015)*1.55);
+  float radial=length(q);
+  float chevron=abs(abs(q.x)-abs(q.y));
+  float wallMask=(1.-smoothstep(.085,.21,p.y))*
+                 (1.-.62*smoothstep(.82,1.48,radial));
+  vec3 bg=vec3(0.);
+  for(int i=0;i<10;i++) {
+    float fi=float(i);
+    float depth=fract(fi/10.+time*.105);
+    float projected=.025+1.70*depth*depth;
+    float width=.0028+.010*depth;
+    // The paired outward-opening chevrons form successive moving X frames.
+    float d=abs(chevron-projected);
+    float line=gauss(d,width);
+    float glow=gauss(d,width*3.8);
+    // Each receding ring has a different saturated hue and a restrained halo.
+    vec3 tint=stageColor(fi*.295+.07);
+    float visibility=smoothstep(.02,.14,depth)*
+                     (1.-smoothstep(.86,1.0,depth));
+    float distanceGain=.20+.78*depth;
+    bg+=tint*(line*.47+glow*.085)*visibility*distanceGain;
   }
- }
- // Atmospheric backdrop with stage edge.
- float stage=gauss(p.y+.14,.009)*smoothstep(.8,.35,abs(p.x));
- col+=pal(.46)*stage*.18;
-#if SCENE == 2
- // Rave: foreground crowd silhouettes at staggered depths, with heads,
- // shoulders and raised arms. They remain opaque against the stage.
- for(int i=0;i<21;i++){
-  float fi=float(i),seed=hash(vec2(fi,6.));
-  float x=(fi/20.-.5)*2.25+(.5-seed)*.09;
-  float height=.18+.18*hash(vec2(fi,2.));
-  float baseY=.62+.065*hash(vec2(fi,4.));
-  float head=length((p-vec2(x,baseY-height*.77))*vec2(1.,1.28));
-  float body=length((p-vec2(x,baseY+.10))*vec2(.75,1.2));
-  float silhouette=max(1.-smoothstep(.045,.052,head),1.-smoothstep(.095,.16,body));
-  float handX=x+(.13+.1*seed)*sin(fi*3.);
-  float arm=length(p-vec2(handX,baseY-height*.86-.08*sin(t*.8+fi)));
-  silhouette=max(silhouette,1.-smoothstep(.023,.036,arm));
-  col=mix(col,vec3(.001,.001,.006),silhouette*.98);
- }
-#endif
-#elif SCENE == 1
- // Lightstorm: perspective radial tunnel, streaks and blazing moving fixtures.
- vec2 van=vec2(.10*sin(t*.09),.07*cos(t*.13));
- vec2 q=p-van;
- float r=length(q),a=atan(q.y,q.x);
- float depth=1./max(.10,r);
- float phase=depth*2.5-t*.95;
- float ribs=pow(max(0.,cos(a*22.+sin(depth*.7)*.4)),22.);
- float rings=pow(max(0.,cos(phase*4.)),30.);
- col+=pal(fract(a/6.283+.5))*ribs*(.08+.48*rings)*(.25+.75*exp(-r*.75));
- for(int i=0;i<90;i++){
-  float fi=float(i);
-  float ang=fi*2.39996;
-  float z=fract(fi*.618+t*(.055+.015*hash(vec2(fi,2.))));
-  float depthSize=.035/(.09+z);
-  vec2 pos=van+vec2(cos(ang),sin(ang))*(.045+z*z*1.55);
-  float streak=gauss(dot(p-pos,normalize(pos-van)),depthSize*2.)*
-    gauss(dot(p-pos,vec2(-sin(ang),cos(ang))),.002+.003*z);
-  col+=pal(fract(fi*.27))*streak*(.07+.33*z);
- }
- for(int i=0;i<4;i++){
-  float fi=float(i);
-  vec2 pos=vec2(.47*sin(fi*2.2+t*.15),.3*cos(fi*1.7+t*.21));
-  float d=length(p-pos);
-  float core=gauss(d,.014);
-  float halo=gauss(d,.16);
-  float cross=gauss(p.x-pos.x,.004)*gauss(p.y-pos.y,.16)+gauss(p.y-pos.y,.004)*gauss(p.x-pos.x,.16);
-  col+=pal(fract(fi*.37))*(core*3.+halo*.18+cross*.26)*(1.+bass*.9);
- }
-#elif SCENE == 3
- // Neon Club: ray-plane intersection for 3D floor, side walls and ceiling.
- vec3 ro=vec3(0.,1.7,0.);
- vec3 rd=normalize(vec3(p.x*1.7,-p.y*1.22,-1.9));
- float nearT=1000.;vec3 hit=vec3(0.);float face=0.;
- if(rd.y<-.0001){float d=-ro.y/rd.y;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=1.;}}
- if(rd.y>.0001){float d=(4.-ro.y)/rd.y;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=2.;}}
- if(rd.x<-.0001){float d=(-3.8-ro.x)/rd.x;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=3.;}}
- if(rd.x>.0001){float d=(3.8-ro.x)/rd.x;if(d>0.&&d<nearT){nearT=d;hit=ro+rd*d;face=4.;}}
- if(nearT<1000.&&hit.z<-.1){
-   vec2 tile=face<2.5?vec2(hit.x,hit.z):vec2(hit.z,hit.y);
-   float forward=-tile.y+t*.62;
-   vec2 cell=floor(vec2(tile.x*2.2,forward*1.6));
-   vec2 edge=abs(fract(vec2(tile.x*2.2,forward*1.6))-.5);
-   float panel=1.-smoothstep(.43,.49,max(edge.x,edge.y));
-   float seed=hash(cell);
-   float wave=.5+.5*sin(t*1.1+cell.x*.9+cell.y*.45);
-   vec3 light=pal(fract(seed*.8+floor(t*.12)*.07));
-   float focus=abs(nearT-6.);
-   // Depth-aware lens approximation: distance attenuates and softens panels.
-   float dof=clamp(focus*.026,0.,.25);
-   float softPanel=1.-smoothstep(.36-dof,.48+dof,max(edge.x,edge.y));
-   float brightness=(.16+.72*wave+bass*.55)*step(.22,seed);
-   col+=light*softPanel*brightness*(face==1.? .72:.42);
-   col+=vec3(.008,.009,.018);
-   col+=light*panel*.045;
-   float fogAmt=exp(-nearT*.055);
-   col*=fogAmt;
- }
- // Far tunnel lights and cross-beams through the center.
- for(int i=0;i<7;i++){
-   float fi=float(i);
-   vec2 pos=vec2(.48*sin(fi*1.9+t*.19),-.2+.28*cos(fi*2.1+t*.23));
-   float d=length(p-pos);
-   float halo=gauss(d,.19),core=gauss(d,.022);
-   vec3 tint=pal(fract(fi*.37));
-   col+=tint*(halo*.13+core*1.45)*(1.+bass*.6);
-   float beam=gauss(p.x-pos.x-.3*(p.y-pos.y),.045)*gauss(p.y-pos.y,.36);
-   col+=tint*beam*.16;
- }
-#endif
- // Filmic vignette, distant haze and highlight roll-off.
- float vignette=1.-.45*smoothstep(.3,1.7,dot(p,p));
- col*=vignette;
- fragColor=vec4(tone(col),1.);
+  // Keep the LED wall's black negative space. Bass changes individual
+  // highlights slightly, never the entire wall's brightness.
+  return bg*wallMask*(.92+.08*bass);
+}
+void main() {
+  vec2 uv=FlutterFragCoord().xy/uSize;
+  float aspect=uSize.x/max(uSize.y,1.);
+  vec2 p=(uv-.5)*vec2(aspect,1.);
+  // Portrait views need a much deeper light field: the original screen-space
+  // spotlight targets ended behind the cover, leaving the lower half empty.
+  float tall=1.-smoothstep(.72,1.10,aspect);
+  float t=uTime;
+  float bass=clamp(uBass,0.,1.);
+
+  // Layers are rendered back-to-front. Stage art remains responsive to the
+  // same portrait/landscape camera; no orientation-specific bitmap scaling.
+  vec3 col=vec3(.002,.002,.008);
+  // Keep the LED tunnel behind the stage, but extend its distant depth in
+  // portrait instead of restricting it to a narrow overhead strip.
+  col+=neonBackdrop(p,aspect,t,bass);
+
+  // Distant concert-hall haze separates the geometric LED wall from the
+  // moving lights. No bright floating horizon line.
+  float wallMist=gauss(p.y+.035,.28);
+  col+=mix(uA,uB,.54)*wallMist*.012;
+
+  // Rear rig: seven slim, saturated beams behind the main light heads.
+  // Lamps are small and rays end around the back of the stage.
+  for(int i=0;i<7;i++) {
+    float fi=float(i);
+    float side=(fi-3.)/3.;
+    vec2 src=vec2(side*aspect*.39,mix(-.355,-.425,tall));
+    vec2 dst=vec2(side*aspect*.20+
+        sin(t*(.33+.025*fi)+fi*1.48)*aspect*.21,
+        mix(.28,.70,tall));
+    vec3 tint=stageColor(fi*.273+.11);
+    float core=lightCone(p,src,dst,.010,.065,1.30);
+    float halo=lightCone(p,src,dst,.034,.125,1.36);
+    float energy=.68+.13*sin(t*.76+fi*1.20)+bass*.13;
+    col+=tint*(core*.54+halo*.055)*energy;
+    float lens=gauss(length(p-src),.013);
+    col+=tint*(lens*1.18+gauss(length(p-src),.047)*.075);
+  }
+
+  // Main moving heads: large, visibly panning spotlights at front-row
+  // distance, with sharper colored shafts and a drifting haze envelope.
+  for(int i=0;i<6;i++) {
+    float fi=float(i);
+    float side=(fi-2.5)/2.5;
+    vec2 src=vec2(side*aspect*.48,
+        mix(-.305,-.405,tall)+.015*sin(fi*2.3));
+    float pan=sin(t*(.42+.022*fi)+fi*1.57);
+    vec2 dst=vec2(side*aspect*.12+pan*aspect*.36,
+        mix(.48,.85,tall)+.035*cos(t*.29+fi));
+    vec3 tint=stageColor(fi*.297+.24);
+    float shaft=lightCone(p,src,dst,.018,.092,1.34);
+    float atmosphere=lightCone(p,src,dst,.075,.190,1.40);
+    float drift=.78+.22*noise2(p*vec2(4.2,7.4)+vec2(t*.16,fi*2.8));
+    float level=.65+.13*sin(t*.8+fi)+bass*.20;
+    col+=tint*(shaft*.82+atmosphere*.065)*drift*level;
+    // Real fixture bloom, with a small white-hot lamp at its root.
+    float lens=gauss(length(p-src),.017);
+    col+=tint*(lens*1.30+gauss(length(p-src),.065)*.13);
+    col+=vec3(1.)*pow(lens,2.)*.20;
+  }
+
+  // Physical dark stage floor. A gently curved/hazy join marks where the
+  // LED wall meets the deck, while receding rectangular seams and grazing
+  // reflections create a readable ground plane, including in portrait.
+  // Bring the actual floor forward in tall screens; the stage must remain
+  // visible behind/below the album cover rather than ending halfway down.
+  float horizon=mix(.105,-.035,tall);
+  float floorMask=smoothstep(horizon-.018,horizon+.078,p.y);
+  float depth=max(p.y-horizon,0.);
+  float perspective=1./max(depth+.064,.064);
+  vec2 ground=vec2(p.x*perspective*1.05,perspective*.85);
+  float tx=fract(ground.x*.40);
+  float tz=fract(ground.y*.35);
+  float lineX=1.-smoothstep(.005,.028,min(tx,1.-tx));
+  float lineZ=1.-smoothstep(.005,.027,min(tz,1.-tz));
+  float detail=noise2(ground*1.1+vec2(t*.004,0.));
+  float distanceFade=smoothstep(.015,.25,depth);
+  float seams=(lineX*.028+lineZ*.045)*distanceFade;
+  vec3 floorColor=mix(vec3(.012,.013,.026),
+                       vec3(.019,.020,.034),tall)*
+      (1.+.15*detail)+vec3(.025,.026,.045)*seams;
+
+  // Soft light pools stay localized and never create a solid pastel overlay.
+  // A few broken thin reflection streaks anchor the moving heads to the deck.
+  for(int i=0;i<6;i++) {
+    float fi=float(i);
+    float side=(fi-2.5)/2.5;
+    float pan=sin(t*(.42+.022*fi)+fi*1.57);
+    float targetX=side*aspect*.12+pan*aspect*.36;
+    float width=.07+depth*.55;
+    float pool=gauss(p.x-targetX,width)*
+        exp(-depth*mix(3.5,2.25,tall));
+    float micro=pow(max(0.,sin(ground.y*2.4+
+        detail*3.8+fi*1.4+t*.24)),10.);
+    vec3 tint=stageColor(fi*.297+.24);
+    floorColor+=tint*pool*(.065+.065*micro+.025*bass);
+  }
+  // Leave a visible stage lip at the back without a line across the sky.
+  float lip=gauss(p.y-horizon,.008)*
+      (1.-smoothstep(aspect*.54,aspect*.88,abs(p.x)));
+  floorColor+=stageColor(.46)*lip*.065;
+  // Ground is largely opaque: foreground beams can still cross it because
+  // their camera-pass layer remains above this stage surface.
+  col=mix(col,floorColor,floorMask*.98);
+  // NEAR CAMERA PASS: shallow-angle sweeps start at/outside the stage's
+  // edges and run past the viewer. In portrait they extend below the album
+  // art all the way toward the bottom, while retaining colored beam cores.
+  for(int i=0;i<5;i++) {
+    float fi=float(i);
+    float signX=mod(fi,2.)<.5 ? -1. : 1.;
+    float lane=floor(fi*.50);
+    vec2 src=vec2(signX*(aspect*.54+.055),
+        mix(-.59,-.42,tall)+lane*.095);
+    float sweep=sin(t*(.34+.049*fi)+fi*1.83);
+    vec2 dst=vec2(sweep*aspect*.58-signX*aspect*.12,
+        mix(.62,1.05,tall)+.13*sin(t*.27+fi*1.34));
+    vec3 tint=stageColor(fi*.292+.39);
+    float pass=lightCone(p,src,dst,.037,.095,1.55);
+    float nearMist=lightCone(p,src,dst,.115,.23,1.62);
+    col+=tint*(pass*.30+nearMist*.027)*(.72+.13*bass);
+  }
+  // A second, much closer pair grazes the camera at the sides. One cone
+  // sweeps from the left and the other from the right; small bright shafts
+  // and restrained glows provide parallax without washing out the UI.
+  for(int i=0;i<2;i++) {
+    float fi=float(i);
+    float side=i==0 ? -1. : 1.;
+    float phase=t*(.21+.047*fi)+fi*2.7;
+    vec2 src=vec2(side*(aspect*.71+.055),
+        mix(-.44,-.17,tall));
+    vec2 dst=vec2(-side*aspect*(.12+.46*sin(phase)),
+        mix(.70,1.16,tall));
+    vec3 tint=stageColor(.19+fi*.46);
+    float shaft=lightCone(p,src,dst,.055,.10,1.58);
+    float veil=lightCone(p,src,dst,.13,.21,1.65);
+    col+=tint*(shaft*.27+veil*.025)*(.83+.10*bass);
+  }
+
+  // Filmic vignette frames the stage without crushing center neon detail.
+  vec2 v=vec2(p.x/max(aspect*.80,.20),p.y*1.60);
+  float vignette=1.-.49*smoothstep(.52,1.55,length(v));
+  col*=vignette;
+  fragColor=vec4(tonemap(col),1.);
 }
