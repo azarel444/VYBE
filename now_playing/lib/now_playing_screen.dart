@@ -3833,7 +3833,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final ta = center ? TextAlign.center : TextAlign.right;
     final cross = center ? CrossAxisAlignment.center : CrossAxisAlignment.end;
     final artistSize = center ? h * 0.047 : h * 0.064;
-    final albumSize = center ? h * 0.022 : h * 0.031;
+    final albumSize = center ? h * 0.031 : h * 0.031;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: cross,
@@ -3862,7 +3862,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: center ? h * 0.037 : h * 0.052,
+            fontSize: center ? h * 0.075 : h * 0.075,
             fontWeight: FontWeight.w300,
             height: 1.05,
             color: _readableText(1),
