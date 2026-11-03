@@ -1029,7 +1029,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _edgyStandbyBackground() => AnimatedBuilder(
     animation: _slow,
     builder: (context, _) => CustomPaint(
-      painter: _EdgyStandbyPainter(time: _time, bass: sim.bass),
+      painter: _EdgyStandbyPainter(
+        time: _time,
+        bass: sim.bass,
+        motion: settings.templateBackgroundMotion,
+      ),
       child: const SizedBox.expand(),
     ),
   );
@@ -2315,7 +2319,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Rebuilding the screen-wide controls after a background tap must not
     // restart an image crossfade or temporarily replace the album cover.
     final art = model.art;
-    final radius = BorderRadius.circular(size * 0.07);
+    final radius = BorderRadius.circular(size * 0.018);
     return RepaintBoundary(
       child: Container(
         width: size,
@@ -2332,7 +2336,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: ClipRRect(
           borderRadius: radius,
           child: art == null || art.flat
-              ? Center(child: _brandIcon(size * 0.48))
+              ? Image.asset('assets/vybe_splash_portrait.png', fit: BoxFit.cover)
               : Image.memory(
                   art.bytes,
                   width: size,
@@ -3126,7 +3130,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 Positioned.fill(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(s * 0.07),
+                      borderRadius: BorderRadius.circular(s * 0.018),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withOpacity(0.7),
@@ -4465,16 +4469,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The clipped album image (or a placeholder), keyed so it can crossfade.
   Widget _artContent(double s) {
     final art = model.art;
-    final radius = s * 0.07;
+    final radius = s * 0.018;
     return ClipRRect(
       key: ValueKey<Object>(art ?? 'placeholder'),
       borderRadius: BorderRadius.circular(radius),
       child: art == null
-          ? Container(
+          ? Image.asset(
+              'assets/vybe_splash_portrait.png',
               width: s,
               height: s,
-              color: const Color(0xFF111827),
-              child: Center(child: _brandIcon(s * 0.55)),
+              fit: BoxFit.cover,
+              alignment: const Alignment(0, -0.16),
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.medium,
             )
           : Image.memory(
               art.bytes,
@@ -5250,55 +5257,66 @@ class _CinematicWavePainter extends CustomPainter {
 class _EdgyStandbyPainter extends CustomPainter {
   final double time;
   final double bass;
-  const _EdgyStandbyPainter({required this.time, required this.bass});
+  final double motion;
+  const _EdgyStandbyPainter({
+    required this.time, required this.bass, required this.motion});
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
+    final phase = time * motion.clamp(0.0, 1.0);
     canvas.drawRect(rect, Paint()..color = const Color(0xFF0B0B0F));
-    final center = Offset(size.width * .47, size.height * .39);
-    final radius = math.max(size.width, size.height) * .82;
     canvas.drawRect(rect, Paint()..shader = ui.Gradient.radial(
-      center, radius, [
-        const Color(0xFF4B0872),
-        const Color(0xFF260536),
-        const Color(0xFF0B0B0F),
-      ], [0, .46, 1]));
-    // Two opposing, slowly breathing neon light sources give the idle
-    // background depth without expensive image blurs or GPU shaders.
-    final pulse = .78 + .22 * math.sin(time * .65);
-    final pink = Offset(size.width * .22, size.height * .20);
-    final purple = Offset(size.width * .83, size.height * .75);
-    final glowCenters = <Offset>[pink, purple];
-    final glowColors = <Color>[
-      const Color(0xFFFF005E), const Color(0xFF8A00FF)];
-    final glowSizes = <double>[.56, .62];
-    for (var i = 0; i < glowCenters.length; i++) {
-      final origin = glowCenters[i];
-      final r = size.longestSide * glowSizes[i];
+      Offset(size.width * .48, size.height * .4),
+      size.longestSide * .8,
+      [const Color(0xFF340745), const Color(0xFF18051F),
+       const Color(0xFF0B0B0F)],
+      [0, .52, 1]));
+
+    // Broad translucent overlapping clouds approximate the smoke and
+    // illuminated atmosphere of the campaign art without GPU blur filters.
+    for (var i = 0; i < 9; i++) {
+      final k = i.toDouble();
+      final dx = math.sin(phase * .11 + k * 1.7) * size.width * .045;
+      final dy = math.cos(phase * .09 + k * 1.3) * size.height * .04;
+      final center = Offset(
+        size.width * (.12 + (i % 4) * .24) + dx,
+        size.height * (.16 + (i ~/ 4) * .28) + dy);
+      final radius = size.longestSide * (.25 + (i % 3) * .065);
+      final color = i.isEven
+          ? const Color(0xFFFF005E) : const Color(0xFF8A00FF);
       canvas.drawRect(rect, Paint()..shader = ui.Gradient.radial(
-        origin, r, [
-          glowColors[i].withOpacity(.40 * pulse),
-          glowColors[i].withOpacity(.14 * pulse),
-          glowColors[i].withOpacity(0),
-        ], [0, .32, 1]));
+        center, radius,
+        [color.withOpacity(.20), color.withOpacity(.07),
+         color.withOpacity(0)],
+        [0, .43, 1]));
     }
-    // Energetic diagonal streaks echo the magenta slashes in the campaign
-    // artwork. Their geometry is decorative; no theme element moves.
-    final streak = Paint()
-      ..color = const Color(0xFFFF005E).withOpacity(.12 + .06 * pulse)
-      ..strokeWidth = math.max(2, size.shortestSide * .009)
-      ..strokeCap = StrokeCap.round;
+
+    // Diagonal, gently drifting neon strokes: bright core, colored halo,
+    // and fine highlight. Their geometry stays fixed in performance mode.
+    final drift = math.sin(phase * .19) * size.width * .035;
     for (var i = 0; i < 3; i++) {
-      final x = size.width * (.52 + i * .045);
-      canvas.drawLine(
-        Offset(x, -size.height * .03),
-        Offset(x - size.width * .33, size.height * .33),
-        streak);
+      final start = Offset(size.width * (.69 + i * .07) + drift,
+          -size.height * .07);
+      final end = Offset(size.width * (.23 + i * .075) + drift,
+          size.height * (.48 + i * .065));
+      final color = i == 1
+          ? const Color(0xFF8A00FF) : const Color(0xFFFF005E);
+      for (final widthFactor in <double>[.028, .012, .003]) {
+        canvas.drawLine(start, end, Paint()
+          ..color = color.withOpacity(widthFactor == .003 ? .83 : .18)
+          ..strokeWidth = math.max(1.0, size.shortestSide * widthFactor)
+          ..strokeCap = StrokeCap.round);
+      }
     }
+    final shine = Offset(size.width * .9, size.height * .76);
+    canvas.drawRect(rect, Paint()..shader = ui.Gradient.radial(
+      shine, size.longestSide * .35,
+      [const Color(0xFFFF005E).withOpacity(.22),
+       const Color(0xFF8A00FF).withOpacity(0)]));
   }
 
   @override
   bool shouldRepaint(covariant _EdgyStandbyPainter old) =>
-      old.time != time || old.bass != bass;
+      old.time != time || old.bass != bass || old.motion != motion;
 }
