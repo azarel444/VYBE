@@ -2,6 +2,7 @@ import 'local_artwork_scan.dart';
 import 'vybe_link_settings.dart';
 import 'integration_diagnostics.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/services.dart';
 import 'native_preferences.dart';
 
@@ -14,7 +15,7 @@ import 'media_cache.dart';
 import 'artist_fanart.dart';
 import 'local_artwork.dart';
 
-const _cyan = Color(0xFF00E5FF);
+const _cyan = Color(0xFFFF005E);
 
 /// Full-screen settings page with large touch targets for head units.
 /// Split into tabs so each page stays short.
@@ -39,7 +40,7 @@ class SettingsScreen extends StatelessWidget {
     return DefaultTabController(
       length: _tabNames.length,
       child: Scaffold(
-        backgroundColor: const Color(0xFF05070D),
+        backgroundColor: const Color(0xFF0B0B0F),
         body: SafeArea(
           child: Column(
             children: [
@@ -50,12 +51,7 @@ class SettingsScreen extends StatelessWidget {
                     Expanded(
                       child: Row(
                         children: [
-                          Image.asset(
-                            'assets/vybe_logo.png',
-                            height: 34,
-                            errorBuilder: (context, error, stack) =>
-                                const SizedBox.shrink(),
-                          ),
+                          SvgPicture.asset('assets/vybe_edgy_logo.svg', height: 34),
                           const SizedBox(width: 18),
                           const Flexible(
                             child: Text('Settings',
@@ -786,7 +782,7 @@ class SettingsScreen extends StatelessWidget {
           'assets/theme_previews/${name}_${orientation}.jpg',
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => Container(
-            color: const Color(0xFF111B26),
+            color: const Color(0xFF15101F),
             alignment: Alignment.center,
             child: const Text('Preview pending',
               style: TextStyle(color: Colors.white54, fontSize: 13)),
@@ -837,12 +833,12 @@ class SettingsScreen extends StatelessWidget {
             key: ValueKey('selector_$title'),
             value: current,
             isExpanded: true,
-            dropdownColor: const Color(0xFF18212E),
+            dropdownColor: const Color(0xFF2B0A5E),
             style: const TextStyle(fontSize: 18, color: Colors.white),
             decoration: InputDecoration(
               isDense: true,
               filled: true,
-              fillColor: const Color(0xFF111B26),
+              fillColor: const Color(0xFF15101F),
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
@@ -1016,7 +1012,7 @@ class _PlayersScreenState extends State<PlayersScreen> {
   Widget build(BuildContext context) {
     final list = _players;
     return Scaffold(
-      backgroundColor: const Color(0xFF05070D),
+      backgroundColor: const Color(0xFF0B0B0F),
       body: SafeArea(
         child: Column(
           children: [
