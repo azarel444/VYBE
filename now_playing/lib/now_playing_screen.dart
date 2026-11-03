@@ -2205,19 +2205,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: Column(children: [
           SizedBox(height: topSpace),
           // Drive's clock is also provided by the popup controls.
-          if (hasLogo) ...[
-            SizedBox(width: w * .82, height: h * .09,
-              child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                gaplessPlayback: true, filterQuality: FilterQuality.medium)),
-            SizedBox(height: h * .006),
-          ],
+          // Reserve the same artist slot before and after ClearLogo loads.
+          SizedBox(width: w * .82, height: h * .09,
+            child: hasLogo
+              ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+                  gaplessPlayback: true, filterQuality: FilterQuality.medium)
+              : Center(child: _artist(h * .043, Alignment.center, false))),
+          SizedBox(height: h * .006),
           _driveArtwork(artSide),
           SizedBox(height: h * 0.012),
           _title(h * 0.031, Alignment.center, false),
-          if (!hasLogo) ...[
-            SizedBox(height: h * 0.004),
-            _artist(h * 0.017, Alignment.center, false),
-          ],
         ]),
       );
       if (host) {
@@ -2256,17 +2253,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (settings.useArtistClearLogo && _clearLogoBytes != null) ...[
-                  SizedBox(width: infoW * .9, height: h * .15,
-                    child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                      gaplessPlayback: true, filterQuality: FilterQuality.medium)),
-                  SizedBox(height: h * .008),
-                ],
+                // Stable artist-first hierarchy, even while logo is loading.
+                SizedBox(width: infoW * .9, height: h * .15,
+                  child: settings.useArtistClearLogo && _clearLogoBytes != null
+                    ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+                        gaplessPlayback: true, filterQuality: FilterQuality.medium)
+                    : Center(child: _artist(h * 0.065, Alignment.center, false))),
+                SizedBox(height: h * .008),
                 _title(h * 0.05, Alignment.center, false),
-                if (!settings.useArtistClearLogo || _clearLogoBytes == null) ...[
-                  SizedBox(height: h * 0.008),
-                  _artist(h * 0.026, Alignment.center, false),
-                ],
                 if (model.album.isNotEmpty && model.album != model.title) ...[
                   SizedBox(height: h * 0.008),
                   _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
