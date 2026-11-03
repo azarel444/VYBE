@@ -1408,24 +1408,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (portrait) ...[
         // Full-width artist branding, followed by vertically stacked metadata.
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
               SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null
                   ? math.min(h * .225, w * .45) : w * .22,
                 child: settings.useArtistClearLogo && _clearLogoBytes != null
                     ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                        alignment: Alignment.centerLeft,
+                        alignment: Alignment.center,
                         filterQuality: FilterQuality.medium)
                     : FittedBox(fit: BoxFit.contain,
-                        alignment: Alignment.centerLeft,
+                        alignment: Alignment.center,
                         child: Text(artist, maxLines: 1, softWrap: false,
                             style: titleStyle.copyWith(fontSize: w * .19)))),
               SizedBox(height: h * .008),
-              Text(song, maxLines: 2, overflow: TextOverflow.ellipsis,
+              Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
               if (model.album.isNotEmpty) ...[
                 SizedBox(height: h * .006),
-                Align(alignment: Alignment.centerLeft,
+                Align(alignment: Alignment.center,
                   child: _albumText(songStyle.fontSize! * .86)),
               ],
             ])),
@@ -1439,7 +1439,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .235, top: h * .043, width: w * .47,
           child: readable(
             settings.useArtistClearLogo && _clearLogoBytes != null
-              ? SizedBox(height: h * .32, width: w * .39,
+              ? SizedBox(height: h * .24, width: w * .34,
                   child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                     alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
                     filterQuality: FilterQuality.medium))
