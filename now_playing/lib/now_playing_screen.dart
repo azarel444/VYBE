@@ -1032,7 +1032,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ));
   }
 
+  /// Lightweight animated neon backdrop for the idle player. The portrait and
+  /// landscape splash illustrations remain exclusive to startup so their
+  /// baked-in lettering never competes with live track information.
+  Widget _edgyStandbyBackground() => AnimatedBuilder(
+    animation: _slow,
+    builder: (context, _) => CustomPaint(
+      painter: _EdgyStandbyPainter(time: _time, bass: sim.bass),
+      child: const SizedBox.expand(),
+    ),
+  );
+
   Widget _background() {
+    if (!model.active && !widget.driveHost) {
+      return _edgyStandbyBackground();
+    }
     if (!widget.driveHost &&
         (settings.theme == AppSettings.tCinematic ||
          settings.theme == AppSettings.tEditorial)) {
@@ -4863,13 +4877,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The VYBE icon, shown where there is no album art.
   Widget _brandIcon(double size) => Opacity(
         opacity: 0.9,
-        child: Image.asset(
-          'assets/vybe_icon.png',
+        child: SvgPicture.asset(
+          'assets/vybe_edgy_icon.svg',
           width: size,
           height: size,
           fit: BoxFit.contain,
-          errorBuilder: (context, error, stack) =>
-              Icon(Icons.music_note, size: size * 0.6, color: Colors.white24),
         ),
       );
 
@@ -5240,4 +5252,56 @@ class _CinematicWavePainter extends CustomPainter {
   @override
   bool shouldRepaint(_CinematicWavePainter old) =>
       old.color != color || old.gain != gain || old.style != style;
+}
+
+/// Obsidian / neon pink / electric purple idle animation. No shaders or
+/// offscreen blurs: safe for low-powered Android head units.
+class _EdgyStandbyPainter extends CustomPainter {
+  final double time;
+  final double bass;
+  const _EdgyStandbyPainter({required this.time, required this.bass});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(rect, Paint()..color = const Color(0xFF0B0B0F));
+    final center = Offset(size.width * .5, size.height * .45);
+    final radius = math.max(size.width, size.height) * .75;
+    final pulse = .84 + .16 * math.sin(time * .7);
+    canvas.drawRect(rect, Paint()
+      ..shader = ui.Gradient.radial(
+        center, radius,
+        [const Color(0xFF2B0A5E).withOpacity(.65 * pulse),
+         const Color(0xFF8A00FF).withOpacity(.13 * pulse),
+         const Color(0xFF0B0B0F).withOpacity(0)],
+        [0, .43, 1],
+      ));
+    final sweep = (math.sin(time * .32) + 1) * .5;
+    final glow = Offset(size.width * (.16 + .68 * sweep), size.height * .35);
+    canvas.drawCircle(glow, size.shortestSide * .42,
+      Paint()..shader = ui.Gradient.radial(
+        glow, size.shortestSide * .42,
+        [const Color(0xFFFF005E).withOpacity(.18 + .08 * bass.clamp(0, 1)),
+         const Color(0xFFFF005E).withOpacity(0)],
+      ));
+    final side = math.min(size.width * .025, 15.0);
+    final count = math.max(8, (size.height / 17).floor());
+    for (var i = 0; i < count; i++) {
+      final y = (i + .5) * size.height / count;
+      final wave = .5 + .5 * math.sin(time * 1.4 + i * .48);
+      final color = Color.lerp(const Color(0xFF8A00FF),
+          const Color(0xFFFF005E), wave)!;
+      final paint = Paint()..color = color.withOpacity(.26 + .48 * wave);
+      final barH = math.max(2.0, size.height / count * .34);
+      canvas.drawRRect(RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, y, side, barH), const Radius.circular(3)), paint);
+      canvas.drawRRect(RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.width - side, y, side, barH),
+        const Radius.circular(3)), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _EdgyStandbyPainter old) =>
+      old.time != time || old.bass != bass;
 }
