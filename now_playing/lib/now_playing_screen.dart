@@ -1151,8 +1151,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
     }
-    return AnimatedSwitcher(
-        duration: const Duration(milliseconds: 800), child: child);
+    return ClipRect(child: SizedBox.expand(child: AnimatedSwitcher(
+        layoutBuilder: (currentChild, previousChildren) => Stack(
+          fit: StackFit.expand,
+          children: [...previousChildren, if (currentChild != null) currentChild]),
+        duration: const Duration(milliseconds: 800), child: child)));
   }
 
   /// Slow pan and zoom. The blurred image is cached, so this only moves a
@@ -1172,8 +1175,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Transform.scale(
             // Overscan must cover the maximum pan in both axes, otherwise
             // the top/right edges can expose empty strips during motion.
-            scale: 1.0 + math.max(0.18 * motionSize,
-                0.20 * m.abs() * motionSize.abs()),
+            scale: 1.0 + math.max(0.28 * motionSize.abs(),
+                0.24 * m.abs() * motionSize.abs()),
             child: c),
         );
       },
@@ -1867,8 +1870,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _focused(double w, double h) {
     final portrait = h > w * 1.1;
     final barsMode = settings.focusedStyleFor(h > w * 1.1) == 1;
-    final lyricSlot = settings.lyrics ? h * 0.05 : 0.0;
-    final lyricGap = settings.lyrics ? _lyricGap(h) : 0.0;
+    final lyricSlot = _lyricTheme && settings.lyrics ? h * 0.05 : 0.0;
+    final lyricGap = _lyricTheme && settings.lyrics ? _lyricGap(h) : 0.0;
     final textH = h * 0.14 + lyricSlot + lyricGap; // artist header is separate
     final wLimit = portrait ? (barsMode ? w * 0.76 : w * 0.54) : (barsMode ? w * 0.55 : w * 0.4);
 
@@ -1929,8 +1932,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           SizedBox(height: h * 0.012),
           if (model.album.isNotEmpty)
             _shaded(_fit(_albumText(h * .028), Alignment.center)),
-          if (settings.lyrics) SizedBox(height: lyricGap),
-          if (settings.lyrics)
+          if (_lyricTheme && settings.lyrics) SizedBox(height: lyricGap),
+          if (_lyricTheme && settings.lyrics)
             SizedBox(
               height: lyricSlot,
               child: _hasLyrics
@@ -3229,7 +3232,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final edge = w * 0.105;
     // Match the bottom breathing room on the lead cover at the left edge.
     final fanLeftInset = h * 0.04;
-    final textLeft = math.max(w * 0.58, fanLeftInset + s * 1.45 + w * 0.03).toDouble();
+    final textLeft = math.max(w * 0.61, fanLeftInset + s * 1.45 + w * 0.05).toDouble();
     return Stack(
       children: [
         Positioned.fill(child: _bottomArtworkFade()),
@@ -4092,8 +4095,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The space between the song info and the lyrics, the same on every theme.
   double _lyricGap(double h) => h * 0.045;
 
+  bool get _lyricTheme => settings.theme == AppSettings.tTypo;
+
   bool get _hasLyrics =>
-      settings.lyrics && (model.lyrics?.isNotEmpty ?? false);
+      _lyricTheme && settings.lyrics && (model.lyrics?.isNotEmpty ?? false);
 
   String _lyricAt(int delta) {
     final l = model.lyrics;
