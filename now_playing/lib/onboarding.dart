@@ -28,7 +28,7 @@ class SplashScreen extends StatelessWidget {
             opacity: v,
             child: Transform.scale(scale: 0.92 + 0.08 * v, child: child),
           ),
-          child: SvgPicture.asset('assets/vybe_edgy_logo.svg', width: 460),
+          child: SvgPicture.asset('assets/vybe_edgy_logo.svg', width: MediaQuery.sizeOf(context).width * 0.62),
         ),
       ),
     );
