@@ -20,6 +20,7 @@ flutter:
     - assets/vybe_logo.png
     - assets/vybe_edgy_logo.svg
     - assets/vybe_edgy_icon.svg
+    - assets/vybe_album_placeholder.png
     - assets/vybe_splash_portrait.png
     - assets/vybe_splash_landscape.png
     - assets/theme_previews/

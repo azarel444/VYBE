@@ -4475,7 +4475,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       borderRadius: BorderRadius.circular(radius),
       child: art == null
           ? Image.asset(
-              'assets/vybe_splash_portrait.png',
+              'assets/vybe_album_placeholder.png',
               width: s,
               height: s,
               fit: BoxFit.cover,
