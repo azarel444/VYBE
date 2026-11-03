@@ -349,6 +349,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             child: Padding(
               padding: const EdgeInsets.only(bottom: 18),
               child: SvgPicture.asset('assets/vybe_edgy_logo.svg', width: 340),
+            ),
           )
         else if (icon != null)
           Padding(
