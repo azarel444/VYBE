@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_svg: ^2.0.10
   shared_preferences: ^2.2.0
   path_provider: ^2.1.2
 
@@ -17,6 +18,8 @@ flutter:
   assets:
     - assets/vybe_icon.png
     - assets/vybe_logo.png
+    - assets/vybe_edgy_logo.svg
+    - assets/vybe_edgy_icon.svg
     - assets/theme_previews/
   shaders:
     - shaders/vybe_refraction.frag
