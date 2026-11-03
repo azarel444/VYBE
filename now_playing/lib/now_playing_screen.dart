@@ -1162,7 +1162,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final dy = math.cos(_time * 0.06) * size.height * 0.055 * m * motionSize;
         return Transform.translate(
           offset: Offset(dx, dy),
-          child: Transform.scale(scale: 1.0 + 0.18 * motionSize, child: c),
+          child: Transform.scale(
+            // Overscan must cover the maximum pan in both axes, otherwise
+            // the top/right edges can expose empty strips during motion.
+            scale: 1.0 + math.max(0.18 * motionSize,
+                0.15 * m.abs() * motionSize.abs()),
+            child: c),
         );
       },
     );
