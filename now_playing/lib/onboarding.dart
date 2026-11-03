@@ -348,13 +348,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           Center(
             child: Padding(
               padding: const EdgeInsets.only(bottom: 18),
-              child: Image.asset(
-                'assets/vybe_logo.png',
-                width: 340,
-                errorBuilder: (context, error, stack) =>
-                    const SizedBox.shrink(),
-              ),
-            ),
+              child: SvgPicture.asset('assets/vybe_edgy_logo.svg', width: 340),
           )
         else if (icon != null)
           Padding(
