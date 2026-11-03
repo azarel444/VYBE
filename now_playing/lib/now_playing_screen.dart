@@ -130,16 +130,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The VHS look is an effect now: it can sit over any theme.
   bool get _vhsOn => settings.fxVhs;
 
-  // Brand accents are used by the interface and visualizers. Album art stays
-  // true-color; the user's explicit accent choice still takes precedence.
+  // Brand colors are the idle fallback only; active tracks retain their
+  // extracted album-art colors and existing custom/VHS palette overrides.
   static const ArtPalette _brandPalette = ArtPalette(
     Color(0xFFFF005E), Color(0xFF8A00FF), Color(0xFFCB32FF));
 
   ArtPalette get _palette {
     final custom = settings.accentPalette;
     if (custom != null) return custom;
+    if (_vhsOn && settings.vhsVaporwave) {
+      return AppSettings.vaporwave;
+    }
     final fromArt = model.art?.palette;
-    if (fromArt != null) _lastArtPalette = fromArt;
+    if (fromArt != null) {
+      _lastArtPalette = fromArt;
+      _artNullSince = -1;
+      return fromArt;
+    }
+    if (!model.active) return _brandPalette;
+    // Between tracks the art is briefly missing. Keep the last colors for a
+    // few seconds instead of flashing a different palette, then go neutral.
+    if (_artNullSince < 0) _artNullSince = _time;
+    if (_lastArtPalette != null && _time - _artNullSince < 4) {
+      return _lastArtPalette!;
+    }
     return _brandPalette;
   }
 
