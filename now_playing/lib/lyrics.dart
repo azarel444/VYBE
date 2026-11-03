@@ -33,7 +33,7 @@ Future<List<LyricLine>?> fetchSyncedLyrics(
   // LRCLIB is queried independently of any music player's lyrics screen.
   // Prefer exact metadata, then retry with release/mix suffixes removed.
   String clean(String value) => value.replaceAll(
-      RegExp(r'\\s*[\\(\\[][\\s\\S]*?(?:mix|version|remaster|edit|live|radio|extended)[\\s\\S]*?[\\)\\]]',
+      RegExp(r'\s*\([^)]*(?:mix|version|remaster|edit|live|radio|extended)[^)]*\)',
           caseSensitive: false), '').trim();
   final titles = <String>{title.trim(), clean(title)}.where((t) => t.isNotEmpty);
   final normalizedArtist = artist.trim();
