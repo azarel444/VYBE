@@ -30,36 +30,60 @@ List<LyricLine> parseLrc(String s) {
 /// song has none or the network is unavailable.
 Future<List<LyricLine>?> fetchSyncedLyrics(
     String title, String artist, int durationMs) async {
-  final body = await httpGetString(Uri.https('lrclib.net', '/api/search', {
-    'track_name': title,
-    if (artist.isNotEmpty) 'artist_name': artist,
-  }));
-  if (body == null) return null;
-  try {
-    final data = jsonDecode(body);
-    if (data is! List) return null;
-    Map? best;
-    var bestDiff = 1e12;
-    for (final item in data) {
-      if (item is! Map) continue;
-      final synced = item['syncedLyrics'];
-      if (synced is! String || synced.isEmpty) continue;
-      final dur = item['duration'];
-      final diff = (durationMs > 0 && dur is num)
-          ? (dur * 1000 - durationMs).abs().toDouble()
-          : 0.0;
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        best = item;
-      }
+  // LRCLIB is queried independently of any music player's lyrics screen.
+  // Prefer exact metadata, then retry with release/mix suffixes removed.
+  String clean(String value) => value.replaceAll(
+      RegExp(r'\\s*[\\(\\[][\\s\\S]*?(?:mix|version|remaster|edit|live|radio|extended)[\\s\\S]*?[\\)\\]]',
+          caseSensitive: false), '').trim();
+  final titles = <String>{title.trim(), clean(title)}.where((t) => t.isNotEmpty);
+  final normalizedArtist = artist.trim();
+  final candidates = <Map>[];
+  for (final track in titles) {
+    final urls = [
+      Uri.https('lrclib.net', '/api/search', {
+        'track_name': track,
+        if (normalizedArtist.isNotEmpty) 'artist_name': normalizedArtist,
+      }),
+      Uri.https('lrclib.net', '/api/search', {
+        'q': '$normalizedArtist $track'.trim(),
+      }),
+    ];
+    for (final url in urls) {
+      final body = await httpGetString(url);
+      if (body == null) continue;
+      try {
+        final data = jsonDecode(body);
+        if (data is List) candidates.addAll(data.whereType<Map>());
+      } catch (_) { /* Try the next lookup. */ }
+      if (candidates.isNotEmpty) break;
     }
-    if (best == null) return null;
-    // Players frequently report rounded or incorrect durations. Allow a modest
-    // mismatch rather than rejecting otherwise valid synchronized lyrics.
-    if (durationMs > 0 && bestDiff > 15000) return null;
-    final lines = parseLrc(best['syncedLyrics'] as String);
-    return lines.length >= 2 ? lines : null;
-  } catch (_) {
-    return null;
+    if (candidates.isNotEmpty) break;
   }
+  String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  final requested = norm(clean(title));
+  final requestedArtist = norm(normalizedArtist);
+  Map? best;
+  double bestScore = double.infinity;
+  for (final item in candidates) {
+    final synced = item['syncedLyrics'];
+    if (synced is! String || synced.isEmpty) continue;
+    final candidateTitle = norm(clean(item['trackName']?.toString() ?? ''));
+    final candidateArtist = norm(item['artistName']?.toString() ?? '');
+    if (requested.isEmpty || candidateTitle != requested) continue;
+    if (requestedArtist.isNotEmpty &&
+        candidateArtist != requestedArtist &&
+        !candidateArtist.contains(requestedArtist) &&
+        !requestedArtist.contains(candidateArtist)) continue;
+    final dur = item['duration'];
+    final diff = (durationMs > 0 && dur is num)
+        ? (dur * 1000 - durationMs).abs().toDouble() : 0.0;
+    if (durationMs > 0 && diff > 15000) continue;
+    if (diff < bestScore) {
+      bestScore = diff;
+      best = item;
+    }
+  }
+  if (best == null) return null;
+  final lines = parseLrc(best['syncedLyrics'] as String);
+  return lines.length >= 2 ? lines : null;
 }
