@@ -459,6 +459,9 @@ class SettingsScreen extends StatelessWidget {
           (v) => s.update(() => s.cinematicContrast = v, persist: false), s.save),
       ],
       _section('Visualizer'),
+      _switch('Use VYBE color palette',
+        'Keep neon pink and purple visualizer and effect colors instead of matching album artwork',
+        s.useVybePalette, (v) => s.update(() => s.useVybePalette = v)),
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
       if (s.visualizer) ...[

@@ -172,6 +172,7 @@ class AppSettings extends ChangeNotifier {
   bool lyrics = false; // synced lyrics from LRCLIB
   bool bootStart = false;
   bool musicStart = true;
+  bool useVybePalette = false; // Optional fixed brand palette; album colors by default.
   bool vhsVaporwave = false; // VHS: pink/cyan instead of album colors
   bool fxGlow = false;
   bool fxSweep = false;
@@ -266,6 +267,7 @@ class AppSettings extends ChangeNotifier {
     'kParticles': kParticles,
     'kMotion': kMotion,
     'vhsEffects': vhsEffects,
+    'useVybePalette': useVybePalette,
     'vhsVaporwave': vhsVaporwave,
     'fxGlow': fxGlow,
     'fxSweep': fxSweep,
@@ -353,6 +355,7 @@ class AppSettings extends ChangeNotifier {
     kParticles = number('kParticles', 1.0, 0.0, 1.0);
     kMotion = number('kMotion', 1.0, 0.0, 1.0);
     vhsEffects = number('vhsEffects', 0.7, 0.0, 1.0);
+    useVybePalette = flag('useVybePalette', false);
     vhsVaporwave = flag('vhsVaporwave', false);
     fxGlow = flag('fxGlow', false);
     fxSweep = flag('fxSweep', false);
@@ -615,6 +618,7 @@ class AppSettings extends ChangeNotifier {
     } catch (e) {
       debugPrint('VYBE native preference load failed: $e');
     }
+    useVybePalette = p.getBool('useVybePalette') ?? false;
     vhsVaporwave = p.getBool('vhsVaporwave') ?? false;
     fxGlow = p.getBool('fxGlow') ?? false;
     fxSweep = p.getBool('fxSweep') ?? false;
@@ -767,6 +771,7 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('burnIn', burnIn);
     // These four preferences have dedicated writes. A Drive engine or an
     // in-flight full save must never overwrite onboarding/user selections.
+    await p.setBool('useVybePalette', useVybePalette);
     await p.setBool('vhsVaporwave', vhsVaporwave);
     await p.setBool('fxGlow', fxGlow);
     await p.setBool('fxSweep', fxSweep);

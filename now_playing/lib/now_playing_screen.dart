@@ -136,6 +136,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     Color(0xFFFF005E), Color(0xFF8A00FF), Color(0xFFCB32FF));
 
   ArtPalette get _palette {
+    if (settings.useVybePalette) return _brandPalette;
     final custom = settings.accentPalette;
     if (custom != null) return custom;
     if (_vhsOn && settings.vhsVaporwave) {
