@@ -71,19 +71,30 @@ class _DriveOverlayProbeAppState extends State<_DriveOverlayProbeApp> {
       final data = await _channel.invokeMapMethod<String, dynamic>('track');
       if (!mounted || data == null) return;
       final nextArtKey = (data['artKey'] as String?) ?? '';
+      final nextTitle = (data['title'] as String?) ?? 'Nothing playing';
+      final nextArtist = (data['artist'] as String?) ?? '';
+      final nextNavTitle = (data['navTitle'] as String?) ?? '';
+      final nextNavText = (data['navText'] as String?) ?? '';
+      final nextPlaying = data['playing'] == true;
       final artworkChanged = nextArtKey != _artKey;
-      setState(() {
-        _title = (data['title'] as String?) ?? 'Nothing playing';
-        _artist = (data['artist'] as String?) ?? '';
-        _navTitle = (data['navTitle'] as String?) ?? '';
-        _navText = (data['navText'] as String?) ?? '';
-        _playing = data['playing'] == true;
-        if (artworkChanged) {
-          _artKey = nextArtKey;
-          _artwork = null;
-          _artworkAttempts = 0;
-        }
-      });
+      // The ATOTO is GPU-constrained. Poll the service every two seconds,
+      // but do not rebuild the Flutter overlay for an unchanged snapshot.
+      if (artworkChanged || nextTitle != _title || nextArtist != _artist ||
+          nextNavTitle != _navTitle || nextNavText != _navText ||
+          nextPlaying != _playing) {
+        setState(() {
+          _title = nextTitle;
+          _artist = nextArtist;
+          _navTitle = nextNavTitle;
+          _navText = nextNavText;
+          _playing = nextPlaying;
+          if (artworkChanged) {
+            _artKey = nextArtKey;
+            _artwork = null;
+            _artworkAttempts = 0;
+          }
+        });
+      }
       if (nextArtKey.isNotEmpty && _artwork == null &&
           !_artworkLoading && _artworkAttempts < _maxArtworkAttempts) {
         _loadArtwork(nextArtKey);
