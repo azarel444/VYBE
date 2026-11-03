@@ -1331,7 +1331,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final cover = hasCover
         ? Image.memory(art.bytes, fit: BoxFit.cover,
             gaplessPlayback: true, filterQuality: FilterQuality.high)
-        : const ColoredBox(color: Color(0xFF101418));
+        : Image.asset('assets/vybe_album_placeholder.png', fit: BoxFit.cover);
     // The enlarged monochrome album artwork is a SECOND visual layer behind
     // the diagonal cover, not the artist fanart and not an empty black wedge.
     final backing = Stack(fit: StackFit.expand, children: [
@@ -2336,7 +2336,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: ClipRRect(
           borderRadius: radius,
           child: art == null || art.flat
-              ? Image.asset('assets/vybe_album_placeholder.png', width: size, height: size, fit: BoxFit.contain)
+              ? Image.asset('assets/vybe_album_placeholder.png', width: size, height: size, fit: BoxFit.cover)
               : Image.memory(
                   art.bytes,
                   width: size,
