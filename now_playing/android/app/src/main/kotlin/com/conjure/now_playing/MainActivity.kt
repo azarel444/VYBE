@@ -346,6 +346,21 @@ open class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "openPlayer" -> result.success(openPlayer())
+                "openMapsPipSettings" -> {
+                    try {
+                        startActivity(Intent("android.settings.PICTURE_IN_PICTURE_SETTINGS",
+                            Uri.parse("package:com.google.android.apps.maps")))
+                        result.success(null)
+                    } catch (e: Exception) {
+                        try {
+                            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:com.google.android.apps.maps")))
+                            result.success(null)
+                        } catch (fallback: Exception) {
+                            result.error("MAPS_SETTINGS", fallback.message, null)
+                        }
+                    }
+                }
                 "openOverlaySettings" -> { openOverlaySettings(); result.success(null) }
                 "getContentChoices" -> {
                     val prefs = getSharedPreferences("vybe_content_choices", Context.MODE_PRIVATE)
