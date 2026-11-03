@@ -3,12 +3,13 @@ import 'local_artwork_scan.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'native.dart';
 import 'settings.dart';
 
-const _cyan = Color(0xFF00E5FF);
+const _cyan = Color(0xFFFF005E);
 
 /// The VYBE logo on black for a moment while the app starts.
 class SplashScreen extends StatelessWidget {
@@ -17,7 +18,7 @@ class SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF0B0B0F),
       body: Center(
         child: TweenAnimationBuilder<double>(
           tween: Tween<double>(begin: 0, end: 1),
@@ -27,14 +28,7 @@ class SplashScreen extends StatelessWidget {
             opacity: v,
             child: Transform.scale(scale: 0.92 + 0.08 * v, child: child),
           ),
-          child: Image.asset(
-            'assets/vybe_logo.png',
-            width: 460,
-            errorBuilder: (context, error, stack) => const Text(
-              'VYBE',
-              style: TextStyle(fontSize: 64, fontWeight: FontWeight.w300),
-            ),
-          ),
+          child: SvgPicture.asset('assets/vybe_edgy_logo.svg', width: 460),
         ),
       ),
     );
@@ -181,7 +175,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF05070D),
+      backgroundColor: const Color(0xFF0B0B0F),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
