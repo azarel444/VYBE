@@ -5269,17 +5269,18 @@ class _EdgyStandbyPainter extends CustomPainter {
     final pulse = .78 + .22 * math.sin(time * .65);
     final pink = Offset(size.width * .22, size.height * .20);
     final purple = Offset(size.width * .83, size.height * .75);
-    for (final entry in [
-      (pink, const Color(0xFFFF005E), .56),
-      (purple, const Color(0xFF8A00FF), .62),
-    ]) {
-      final origin = entry.$1;
-      final r = size.longestSide * entry.$3;
+    final glowCenters = <Offset>[pink, purple];
+    final glowColors = <Color>[
+      const Color(0xFFFF005E), const Color(0xFF8A00FF)];
+    final glowSizes = <double>[.56, .62];
+    for (var i = 0; i < glowCenters.length; i++) {
+      final origin = glowCenters[i];
+      final r = size.longestSide * glowSizes[i];
       canvas.drawRect(rect, Paint()..shader = ui.Gradient.radial(
         origin, r, [
-          entry.$2.withOpacity(.40 * pulse),
-          entry.$2.withOpacity(.14 * pulse),
-          entry.$2.withOpacity(0),
+          glowColors[i].withOpacity(.40 * pulse),
+          glowColors[i].withOpacity(.14 * pulse),
+          glowColors[i].withOpacity(0),
         ], [0, .32, 1]));
     }
     // Energetic diagonal streaks echo the magenta slashes in the campaign
