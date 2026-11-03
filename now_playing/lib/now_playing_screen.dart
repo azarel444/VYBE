@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -4881,14 +4882,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.asset(
-                'assets/vybe_logo.png',
-                width: 300,
-                errorBuilder: (context, error, stack) => const Icon(
-                    Icons.music_note,
-                    size: 56,
-                    color: Colors.white54),
-              ),
+              SvgPicture.asset('assets/vybe_edgy_logo.svg', width: 300),
               const SizedBox(height: 20),
               const Text(
                 'Allow notification access',
