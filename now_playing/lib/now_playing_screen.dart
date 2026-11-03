@@ -1434,24 +1434,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             height: h * .17,
             child: _lyricBlock(h, Alignment.center, vhs: false)),
       ] else ...[
-        // Artist branding and full-width song/album stack in landscape.
-        Positioned(left: w * .235, top: h * .043, width: w * .64,
-          child: readable(Column(
-            crossAxisAlignment: flipped
-                ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min, children: [
-              if (settings.useArtistClearLogo && _clearLogoBytes != null)
-                SizedBox(height: h * .32, width: w * .64,
+        // Keep artist branding at upper left; song and album form their
+        // own vertical stack at upper right, never beneath the artist.
+        Positioned(left: w * .235, top: h * .043, width: w * .47,
+          child: readable(
+            settings.useArtistClearLogo && _clearLogoBytes != null
+              ? SizedBox(height: h * .32, width: w * .47,
                   child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                     alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
                     filterQuality: FilterQuality.medium))
-              else
-                Text(artist,
-                  textAlign: flipped ? TextAlign.right : TextAlign.left,
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: titleStyle.copyWith(fontSize: h * .09)),
+              : Align(
+                  alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Text(artist,
+                    textAlign: flipped ? TextAlign.right : TextAlign.left,
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: titleStyle.copyWith(
+                      fontSize: songStyle.fontSize! * .86 * 2))))),
+        Positioned(right: w * .025, top: h * .043, width: w * .25,
+          child: readable(Column(
+            crossAxisAlignment: flipped
+                ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min, children: [
               Text(song,
-                textAlign: flipped ? TextAlign.right : TextAlign.left,
+                textAlign: flipped ? TextAlign.left : TextAlign.right,
                 maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
               if (model.album.isNotEmpty) ...[
