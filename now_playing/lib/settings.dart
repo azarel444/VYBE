@@ -60,9 +60,9 @@ class AppSettings extends ChangeNotifier {
   /// Index 0 (Auto) is null: the colors come from the album art.
   static const List<ArtPalette?> accents = [
     null,
-    ArtPalette(Color(0xFF01CDFE), Color(0xFFFF71CE), Color(0xFFB967FF)),
+    ArtPalette(Color(0xFF8A00FF), Color(0xFFFF71CE), Color(0xFFB967FF)),
     ArtPalette(Color(0xFFFF9A5A), Color(0xFFFF5C8A), Color(0xFFD65CFF)),
-    ArtPalette(Color(0xFF00E5FF), Color(0xFF3D8BFF), Color(0xFF7C5CFF)),
+    ArtPalette(Color(0xFFFF005E), Color(0xFF3D8BFF), Color(0xFF7C5CFF)),
     ArtPalette(Color(0xFF7CFF8A), Color(0xFF00E5B0), Color(0xFFE5FF5C)),
     ArtPalette(Color(0xFFFFFFFF), Color(0xFFD0D8E8), Color(0xFF9AA8C0)),
     ArtPalette(Color(0xFF9B5CFF), Color(0xFFFF4CD8), Color(0xFF417DFF)), // Cosmic
@@ -80,7 +80,7 @@ class AppSettings extends ChangeNotifier {
 
   /// Used by the VHS effect when the accent is left on Auto.
   static const vaporwave =
-      ArtPalette(Color(0xFF01CDFE), Color(0xFFFF71CE), Color(0xFFB967FF));
+      ArtPalette(Color(0xFF8A00FF), Color(0xFFFF71CE), Color(0xFFB967FF));
 
   static const barCounts = [32, 48, 64, 96];
 
