@@ -130,26 +130,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The VHS look is an effect now: it can sit over any theme.
   bool get _vhsOn => settings.fxVhs;
 
+  // Brand accents are used by the interface and visualizers. Album art stays
+  // true-color; the user's explicit accent choice still takes precedence.
+  static const ArtPalette _brandPalette = ArtPalette(
+    Color(0xFFFF005E), Color(0xFF8A00FF), Color(0xFFCB32FF));
+
   ArtPalette get _palette {
     final custom = settings.accentPalette;
     if (custom != null) return custom;
-    if (_vhsOn && settings.vhsVaporwave) {
-      return AppSettings.vaporwave;
-    }
     final fromArt = model.art?.palette;
-    if (fromArt != null) {
-      _lastArtPalette = fromArt;
-      _artNullSince = -1;
-      return fromArt;
-    }
-    if (!model.active) return ArtPalette.fallback;
-    // Between tracks the art is briefly missing. Keep the last colors for a
-    // few seconds instead of flashing a different palette, then go neutral.
-    if (_artNullSince < 0) _artNullSince = _time;
-    if (_lastArtPalette != null && _time - _artNullSince < 4) {
-      return _lastArtPalette!;
-    }
-    return ArtPalette.fallback;
+    if (fromArt != null) _lastArtPalette = fromArt;
+    return _brandPalette;
   }
 
   @override
@@ -2331,7 +2322,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         height: size,
         decoration: BoxDecoration(
           borderRadius: radius,
-          color: const Color(0xFF111827),
+          color: const Color(0xFF0B0B0F),
           border: Border.all(color: const Color(0xFFFF005E).withOpacity(.35), width: 1),
           boxShadow: [BoxShadow(
             color: const Color(0xFF8A00FF).withOpacity(0.22),
@@ -4448,9 +4439,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return Stack(
       children: [
         Transform.translate(
-            offset: Offset(-d, 0), child: build(const Color(0x99FF2E93))),
+            offset: Offset(-d, 0), child: build(const Color(0x99FF005E))),
         Transform.translate(
-            offset: Offset(d, 0), child: build(const Color(0x9905D9FF))),
+            offset: Offset(d, 0), child: build(const Color(0x998A00FF))),
         build(main),
       ],
     );
@@ -4545,7 +4536,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           clipBehavior: Clip.none,
           children: [
             ghost(const Color(0xFFFF2E93), -d),
-            ghost(const Color(0xFF05D9FF), d),
+            ghost(const Color(0xFF8A00FF), d),
             _artCard(s),
           ],
         ),
@@ -5265,39 +5256,44 @@ class _EdgyStandbyPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     canvas.drawRect(rect, Paint()..color = const Color(0xFF0B0B0F));
-    final center = Offset(size.width * .5, size.height * .45);
-    final radius = math.max(size.width, size.height) * .75;
-    final pulse = .84 + .16 * math.sin(time * .7);
-    canvas.drawRect(rect, Paint()
-      ..shader = ui.Gradient.radial(
-        center, radius,
-        [const Color(0xFF2B0A5E).withOpacity(.65 * pulse),
-         const Color(0xFF8A00FF).withOpacity(.13 * pulse),
-         const Color(0xFF0B0B0F).withOpacity(0)],
-        [0, .43, 1],
-      ));
-    final sweep = (math.sin(time * .32) + 1) * .5;
-    final glow = Offset(size.width * (.16 + .68 * sweep), size.height * .35);
-    canvas.drawCircle(glow, size.shortestSide * .42,
-      Paint()..shader = ui.Gradient.radial(
-        glow, size.shortestSide * .42,
-        [const Color(0xFFFF005E).withOpacity(.18 + .08 * bass.clamp(0.0, 1.0).toDouble()),
-         const Color(0xFFFF005E).withOpacity(0)],
-      ));
-    final side = math.min(size.width * .025, 15.0);
-    final count = math.max(8, (size.height / 17).floor());
-    for (var i = 0; i < count; i++) {
-      final y = (i + .5) * size.height / count;
-      final wave = .5 + .5 * math.sin(time * 1.4 + i * .48);
-      final color = Color.lerp(const Color(0xFF8A00FF),
-          const Color(0xFFFF005E), wave)!;
-      final paint = Paint()..color = color.withOpacity(.26 + .48 * wave);
-      final barH = math.max(2.0, size.height / count * .34);
-      canvas.drawRRect(RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, y, side, barH), const Radius.circular(3)), paint);
-      canvas.drawRRect(RRect.fromRectAndRadius(
-        Rect.fromLTWH(size.width - side, y, side, barH),
-        const Radius.circular(3)), paint);
+    final center = Offset(size.width * .47, size.height * .39);
+    final radius = math.max(size.width, size.height) * .82;
+    canvas.drawRect(rect, Paint()..shader = ui.Gradient.radial(
+      center, radius, [
+        const Color(0xFF4B0872),
+        const Color(0xFF260536),
+        const Color(0xFF0B0B0F),
+      ], [0, .46, 1]));
+    // Two opposing, slowly breathing neon light sources give the idle
+    // background depth without expensive image blurs or GPU shaders.
+    final pulse = .78 + .22 * math.sin(time * .65);
+    final pink = Offset(size.width * .22, size.height * .20);
+    final purple = Offset(size.width * .83, size.height * .75);
+    for (final entry in [
+      (pink, const Color(0xFFFF005E), .56),
+      (purple, const Color(0xFF8A00FF), .62),
+    ]) {
+      final origin = entry.$1;
+      final r = size.longestSide * entry.$3;
+      canvas.drawRect(rect, Paint()..shader = ui.Gradient.radial(
+        origin, r, [
+          entry.$2.withOpacity(.40 * pulse),
+          entry.$2.withOpacity(.14 * pulse),
+          entry.$2.withOpacity(0),
+        ], [0, .32, 1]));
+    }
+    // Energetic diagonal streaks echo the magenta slashes in the campaign
+    // artwork. Their geometry is decorative; no theme element moves.
+    final streak = Paint()
+      ..color = const Color(0xFFFF005E).withOpacity(.12 + .06 * pulse)
+      ..strokeWidth = math.max(2, size.shortestSide * .009)
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 3; i++) {
+      final x = size.width * (.52 + i * .045);
+      canvas.drawLine(
+        Offset(x, -size.height * .03),
+        Offset(x - size.width * .33, size.height * .33),
+        streak);
     }
   }
 
