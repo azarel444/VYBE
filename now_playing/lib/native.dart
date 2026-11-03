@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 class Native {
   static const _c = MethodChannel('nowplaying/control');
 
+  static Future<void> openMapsPipSettings() => _fire('openMapsPipSettings');
+
   static Future<Map<String, bool>> permissionStatus() async {
     try {
       final r = await _c.invokeMethod<Map<dynamic, dynamic>>('permissionStatus');
