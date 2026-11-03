@@ -263,6 +263,18 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 'Enable', () async { await Native.requestAudio(); _refresh(); }),
             _permissionRow('Display over apps · Optional', 'Auto-open VYBE with music and show Drive overlays.', 'overlay',
                 'Enable', Native.openOverlaySettings),
+            const Divider(height: 28),
+            const Text('Google Maps Drive setup · Optional',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            const Text('Google Maps picture-in-picture can cover VYBE when returning to Drive. Turn off Allow picture-in-picture for Maps to avoid the popup.'),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: Native.openMapsPipSettings,
+                child: const Text('Open Google Maps PiP settings'),
+              ),
+            ),
           ]),
         );
       case 1:
