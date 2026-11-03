@@ -2336,7 +2336,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: ClipRRect(
           borderRadius: radius,
           child: art == null || art.flat
-              ? Image.asset('assets/vybe_splash_portrait.png', fit: BoxFit.cover)
+              ? Image.asset('assets/vybe_album_placeholder.png', width: size, height: size, fit: BoxFit.contain)
               : Image.memory(
                   art.bytes,
                   width: size,
@@ -2345,7 +2345,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   gaplessPlayback: true,
                   filterQuality: FilterQuality.medium,
                   errorBuilder: (context, error, stackTrace) =>
-                      Center(child: _brandIcon(size * 0.48)),
+                      Image.asset('assets/vybe_album_placeholder.png', width: size, height: size, fit: BoxFit.contain),
                 ),
         ),
       ),
@@ -2425,7 +2425,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ? Container(
                   color: const Color(0xFF111827),
                   child: Center(
-                    child: _brandIcon(h * 0.3),
+                    child: Image.asset('assets/vybe_album_placeholder.png', fit: BoxFit.cover),
                   ),
                 )
               : Image.memory(
@@ -2735,7 +2735,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
             child: ClipOval(
               child: art == null
-                  ? Center(child: _brandIcon(lab * 0.7))
+                  ? Image.asset('assets/vybe_album_placeholder.png', width: lab, height: lab, fit: BoxFit.cover)
                   : Image.memory(
                       art.bytes,
                       width: lab,
@@ -2842,14 +2842,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       );
     }
     final Widget inner = ClipOval(
-      child: art == null
-          ? const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  colors: [Color(0xFF2A2440), Color(0xFF0B0A18)],
-                ),
-              ),
-            )
+      child: art == null ? Image.asset('assets/vybe_album_placeholder.png', width: big, height: big, fit: BoxFit.cover)
           : ColorFiltered(
               colorFilter: _grayDisc,
               child: ImageFiltered(
@@ -3316,7 +3309,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final gray = ClipPath(
       clipper: PolyClipper(poly),
       child: art == null
-          ? const ColoredBox(color: Color(0xFF14161B))
+          ? Image.asset('assets/vybe_album_placeholder.png', fit: BoxFit.cover)
           : SizedBox.expand(
               child: ColorFiltered(
                 colorFilter: _grayDark,
@@ -3518,7 +3511,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     width: inner,
                     height: inner,
                     color: const Color(0xFF111827),
-                    child: Center(child: _brandIcon(inner * 0.55)),
+                    child: Image.asset('assets/vybe_album_placeholder.png', width: inner, height: inner, fit: BoxFit.cover),
                   )
                 : Image.memory(
                     art.bytes,
