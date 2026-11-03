@@ -44,6 +44,19 @@ jobs:
           done
           test -f "$ANDROID_HOME/ndk/28.2.13676358/source.properties"
 
+      - name: Generate experimental branded Android launcher icons
+        run: |
+          python3 -m pip install --quiet cairosvg
+          python3 - <<'PY'
+          import cairosvg
+          from pathlib import Path
+          svg = Path('assets/vybe_edgy_icon.svg').read_bytes()
+          for density, size in [('mdpi', 48), ('hdpi', 72), ('xhdpi', 96), ('xxhdpi', 144), ('xxxhdpi', 192)]:
+              output = Path('android/app/src/main/res') / ('mipmap-' + density) / 'ic_launcher.png'
+              output.parent.mkdir(parents=True, exist_ok=True)
+              cairosvg.svg2png(bytestring=svg, write_to=str(output), output_width=size, output_height=size)
+          PY
+
       - run: flutter pub get
 
       # Each APK needs a monotonically increasing Android versionCode. Without
