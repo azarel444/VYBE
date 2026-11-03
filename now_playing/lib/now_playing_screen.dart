@@ -500,13 +500,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Applied once, after background rendering, before foreground FX/UI.
             Positioned.fill(child: IgnorePointer(child: ColoredBox(
               color: Colors.black.withOpacity(((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial) && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
-            if (heavy && model.active) _shaderFxLayer(),
-            if (heavy && model.active) ..._extraFx(),
+            if (heavy) _shaderFxLayer(),
+            if (heavy) ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
               opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
               child: Transform.scale(scale: settings.fxSize['VHS'] ?? 1.0,
                 child: Stack(fit: StackFit.expand, children: _vhsBackdrop(fx)))),
-            if (settings.bgEffects && settings.particles && heavy && model.active)
+            if (settings.bgEffects && settings.particles && heavy)
               IgnorePointer(
                 child: Transform.scale(
                   scale: settings.fxSize['Floating Particles'] ?? 1.0,
@@ -531,9 +531,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 // then song info and lyrics) when the screen gets narrow.
                 final narrow = w < h * 1.3;
                 final Widget layout;
-                if (!model.active && !widget.driveHost) {
-                  layout = _edgyIdleLayout(w, h);
-                } else if (widget.driveHost) {
+                if (widget.driveHost) {
                   // The transparent Drive activity has its own Flutter engine.
                   // Never render a persisted normal theme (Focused, etc.) here.
                   layout = _driveLayout(w, h, narrow);
@@ -1032,37 +1030,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       lightOrigin: sceneIndex == 0 ? _goldenHourLightOrigin() : null,
       shaderAsset: sceneAssets[sceneIndex],
     ));
-  }
-
-  /// A genuine branded idle state, not the previous album-card layout.
-  /// Use the supplied orientation-specific campaign artwork and avoid
-  /// painting a second placeholder card, cyan outline, or edge bars over it.
-  Widget _edgyIdleLayout(double w, double h) {
-    final portrait = h > w;
-    return Stack(fit: StackFit.expand, children: [
-      Image.asset(
-        portrait ? 'assets/vybe_splash_portrait.png'
-                 : 'assets/vybe_splash_landscape.png',
-        fit: BoxFit.cover,
-        alignment: Alignment.center,
-        gaplessPlayback: true,
-        filterQuality: FilterQuality.medium,
-      ),
-      Positioned(
-        left: w * .10, right: w * .10,
-        bottom: h * (portrait ? .07 : .045),
-        child: Text('START MUSIC IN ANY PLAYER',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: math.min(h * (portrait ? .018 : .029), 18),
-            fontWeight: FontWeight.w500,
-            letterSpacing: 2,
-            color: const Color(0xFFF2F2F5).withOpacity(.78),
-            shadows: const [Shadow(color: Colors.black, blurRadius: 12)],
-          ),
-        ),
-      ),
-    ]);
   }
 
   /// Lightweight animated neon backdrop for the idle player. The portrait and
