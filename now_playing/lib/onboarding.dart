@@ -19,17 +19,27 @@ class SplashScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0B0B0F),
-      body: Center(
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: 1),
-          duration: const Duration(milliseconds: 900),
-          curve: Curves.easeOut,
-          builder: (context, v, child) => Opacity(
-            opacity: v,
-            child: Transform.scale(scale: 0.92 + 0.08 * v, child: child),
-          ),
-          child: SvgPicture.asset('assets/vybe_edgy_logo.svg', width: MediaQuery.sizeOf(context).width * 0.62),
-        ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final landscape = constraints.maxWidth > constraints.maxHeight;
+          return SizedBox.expand(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 900),
+              curve: Curves.easeOut,
+              builder: (context, value, child) =>
+                  Opacity(opacity: value, child: child),
+              child: Image.asset(
+                landscape
+                    ? 'assets/vybe_splash_landscape.png'
+                    : 'assets/vybe_splash_portrait.png',
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+                gaplessPlayback: true,
+              ),
+            ),
+          );
+        },
       ),
     );
   }
