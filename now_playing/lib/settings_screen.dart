@@ -16,6 +16,9 @@ import 'artist_fanart.dart';
 import 'local_artwork.dart';
 
 const _cyan = Color(0xFFFF005E);
+// Retain troubleshooting tools for pre-release testing without exposing them
+// in the normal settings UI.
+const bool _showDiagnostics = false;
 
 /// Full-screen settings page with large touch targets for head units.
 /// Split into tabs so each page stays short.
@@ -32,7 +35,7 @@ class SettingsScreen extends StatelessWidget {
     'Navigation',
     'Permissions',
     'VYBE Link',
-    'Integrations',
+    if (_showDiagnostics) 'Integrations',
   ];
 
   @override
@@ -90,7 +93,7 @@ class SettingsScreen extends StatelessWidget {
                       _page(_navigation(context)),
                       _page(_permissions(context)),
                       const VybeLinkSettings(),
-                      const IntegrationDiagnostics(),
+                      if (_showDiagnostics) const IntegrationDiagnostics(),
                     ],
                   ),
                 ),
@@ -124,6 +127,7 @@ class SettingsScreen extends StatelessWidget {
       _switch('Show lyrics',
           'When off, themes use the available space for artwork and song details',
           s.lyrics, (v) => s.setLaunchOrContentChoice('lyrics', v)),
+      if (_showDiagnostics) ...[
       _section('Settings storage diagnostics'),
       _action('Inspect saved settings',
           'Show current, Flutter, and Android values on screen',
@@ -191,6 +195,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             );
           }),
+      ],
       _section('Local artwork library'),
       _action('Choose artwork folder and scan',
           'Index local album covers, artist fanart and clearlogos',
@@ -212,6 +217,7 @@ class SettingsScreen extends StatelessWidget {
             await showLocalArtworkScan(context);
             if (context.mounted) s.update(() {}, persist: false);
           }),
+      if (_showDiagnostics) ...[
       _action('Diagnose local fanart',
           'Check matching images and whether this theme will display them',
           'Test fanart', () async {
@@ -255,6 +261,8 @@ class SettingsScreen extends StatelessWidget {
               ),
             );
           }),
+      if (_showDiagnostics) ...[
+      ],
       _section('Auto-launch diagnostics'),
       _action('Inspect auto-launch events',
           'Playback and track-change events, launch attempts, and suppression reasons',
@@ -298,6 +306,8 @@ class SettingsScreen extends StatelessWidget {
               ),
             );
           }),
+      if (_showDiagnostics) ...[
+      ],
       _section('Artwork diagnostics'),
       _action('Mark as Placeholder',
           'Remember the current music player image and reject identical images in future sessions',
@@ -318,6 +328,8 @@ class SettingsScreen extends StatelessWidget {
           }),
       Text(model.artworkDiagnostics,
           style: const TextStyle(fontSize: 13, color: Colors.white70)),
+      if (_showDiagnostics) ...[
+      ],
       _section('Fanart diagnostics'),
       _action('Copy fanart diagnostics',
           'Timing of cache, MusicBrainz, Fanart.tv and image downloads',
@@ -329,6 +341,7 @@ class SettingsScreen extends StatelessWidget {
           }),
       Text(ArtistFanartCache.diagnostics,
           style: const TextStyle(fontSize: 13, color: Colors.white70)),
+      ],
       _section('Offline media cache'),
       _action('Clear cached artwork and lyrics',
           'Delete downloaded artwork and synced lyrics stored on this device',
