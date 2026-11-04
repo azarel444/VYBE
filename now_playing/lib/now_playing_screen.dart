@@ -1982,6 +1982,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Focused: lower the album/ring assembly and let its reflection extend
       // behind the song labels. Draw text last so it stays on top.
       final content = Stack(clipBehavior: Clip.none, children: [
+        _focusedBottomBlend(h),
         Positioned(left: 0, right: 0, top: h * .135,
           child: Center(child: artistHeader)),
         Positioned(
@@ -2010,6 +2011,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Keep the album reflection behind (rather than above) the song info.
     // Paint the text last so it remains legible over the reflection.
     final centered = Stack(clipBehavior: Clip.none, children: [
+      _focusedBottomBlend(h),
       Positioned(top: h * .055, left: 0, right: 0,
         child: Center(child: artistHeader)),
       Positioned(
@@ -2031,6 +2033,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       Positioned.fill(child: centered),
     ]);
   }
+
+  // Feather the bottom edge of Focused's blurred artwork background instead
+  // of leaving an abrupt dark seam at the screen boundary.
+  Widget _focusedBottomBlend(double h) => Positioned(
+    left: 0, right: 0, bottom: 0, height: h * 0.14,
+    child: const IgnorePointer(child: DecoratedBox(
+      decoration: BoxDecoration(gradient: LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: [Color(0x00000000), Color(0x55000000), Color(0xD9000000)],
+        stops: [0.0, 0.65, 1.0])))),
+  );
 
   /// Art on the left, text and bars on the right (Side by Side and VHS).
   /// The art card is centered on the screen. The bottom of the bars lines up
