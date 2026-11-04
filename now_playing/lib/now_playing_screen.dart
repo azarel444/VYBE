@@ -2041,8 +2041,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     child: const IgnorePointer(child: DecoratedBox(
       decoration: BoxDecoration(gradient: LinearGradient(
         begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        colors: [Color(0x00000000), Color(0x55000000), Color(0xD9000000)],
-        stops: [0.0, 0.65, 1.0])))),
+        colors: [Color(0x00000000), Color(0x55000000), Color(0x00000000)],
+        stops: [0.0, 0.48, 1.0])))),
   );
 
   /// Art on the left, text and bars on the right (Side by Side and VHS).
@@ -2558,7 +2558,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Padding(
             // Keep the metadata visually centered in the lower panel,
             // with breathing room above the bottom screen edge.
-            padding: EdgeInsets.only(bottom: h * 0.10),
+            padding: EdgeInsets.only(top: h * 0.025, bottom: h * 0.20),
             child: Center(
             child: FittedBox(
               fit: BoxFit.scaleDown,
@@ -3438,7 +3438,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             left: w * 0.08,
             right: w * 0.08,
             top: h * 0.64,
-            bottom: h * 0.03,
+            bottom: h * 0.13,
             child: Center(
               child: FittedBox(
                 fit: BoxFit.scaleDown,
@@ -3450,11 +3450,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       _artist(h * 0.044, Alignment.center, false),
                       SizedBox(height: h * 0.009),
                       _title(h * 0.037, Alignment.center, false),
-                      if (model.album.isNotEmpty && model.album != model.title) ...[
-                        SizedBox(height: h * 0.008),
-                        _fixedAlbum(h * 0.026, Alignment.center),
-                      ],
-                      if (_hasLyrics) ...[
+                                            if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(h)),
                         _lyricBlock(h * 0.75, Alignment.center, vhs: false),
                       ],
@@ -3464,6 +3460,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
           ),
+          if (model.album.isNotEmpty && model.album != model.title)
+            Positioned(
+              left: w * .10, right: w * .10, bottom: h * .045,
+              child: Center(child: _shaded(_fit(
+                _albumText(h * .026), Alignment.center))),
+            ),
         ],
       );
     }
