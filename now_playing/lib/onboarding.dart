@@ -272,11 +272,21 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
             const Text('Google Maps picture-in-picture can cover VYBE when returning to Drive. Turn off Allow picture-in-picture for Maps to avoid the popup.'),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
                 onPressed: Native.openMapsPipSettings,
-                child: const Text('Open Google Maps PiP settings'),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Open Picture-in-Picture Settings'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF005E),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18, vertical: 15),
+                  textStyle: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
           ]),
