@@ -1410,7 +1410,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: 0, right: 0, top: 0, height: h * .20,
           child: ClipRect(child: backing)),
         Positioned(left: 0, right: 0, top: h * .20,
-          child: Container(height: 2, color: accent.withOpacity(.88))),
+          child: Container(height: 2, decoration: BoxDecoration(
+            color: accent.withOpacity(.88),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(.68),
+              offset: const Offset(0, 4), blurRadius: 8, spreadRadius: 2)]))),
         // A black gradient falls away from the divider behind the portrait
         // visualizer, preserving contrast without obscuring the lower fanart.
         Positioned(left: 0, right: 0, top: h * .20, height: h * .145,
@@ -1428,7 +1431,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: 0, top: 0, bottom: 0, width: w * .20,
           child: ClipRect(child: backing)),
         Positioned(left: w * .198, top: 0, bottom: 0,
-          child: Container(width: 3, color: accent.withOpacity(.85))),
+          child: Container(width: 3, decoration: BoxDecoration(
+            color: accent.withOpacity(.85),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(.68),
+              offset: const Offset(5, 0), blurRadius: 9, spreadRadius: 2)]))),
         // Musiczine landscape's intentional bottom readability fade.
         // Independent of Background darkness, just like portrait.
         Positioned(left: 0, right: 0, bottom: 0, height: h * .36,
