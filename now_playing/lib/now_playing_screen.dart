@@ -2542,7 +2542,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
           ),
         Expanded(
-          child: Center(
+          child: Padding(
+            // Keep the metadata visually centered in the lower panel,
+            // with breathing room above the bottom screen edge.
+            padding: EdgeInsets.only(bottom: h * 0.10),
+            child: Center(
             child: FittedBox(
               fit: BoxFit.scaleDown,
               child: SizedBox(
@@ -2564,6 +2568,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   ],
                 ),
               ),
+            ),
             ),
           ),
         ),
@@ -3432,6 +3437,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       _artist(h * 0.044, Alignment.center, false),
                       SizedBox(height: h * 0.009),
                       _title(h * 0.037, Alignment.center, false),
+                      if (model.album.isNotEmpty && model.album != model.title) ...[
+                        SizedBox(height: h * 0.008),
+                        _fixedAlbum(h * 0.026, Alignment.center),
+                      ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(h)),
                         _lyricBlock(h * 0.75, Alignment.center, vhs: false),
