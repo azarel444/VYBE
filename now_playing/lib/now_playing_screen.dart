@@ -1392,8 +1392,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final artist = model.artist.isEmpty ? 'ARTIST' : model.artist.toUpperCase();
     final song = model.title.isEmpty ? 'Nothing playing' : model.title;
     final titleStyle = TextStyle(
+      fontFamily: 'VYBERiot',
+      fontFamilyFallback: const ['Roboto'],
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
-      fontWeight: FontWeight.w400, letterSpacing: .3,
+      fontWeight: FontWeight.w400, letterSpacing: portrait ? -w * .015 : -h * .018,
       shadows: const [Shadow(color: Colors.black, blurRadius: 9),
         Shadow(color: Colors.black, blurRadius: 17, offset: Offset(1, 2))]);
     final songStyle = TextStyle(
@@ -1491,11 +1493,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     filterQuality: FilterQuality.medium))
               : Align(
                   alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Text(artist,
-                    textAlign: flipped ? TextAlign.right : TextAlign.left,
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: titleStyle.copyWith(
-                      fontSize: songStyle.fontSize! * .86 * 2))))),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Text(artist,
+                      textAlign: flipped ? TextAlign.right : TextAlign.left,
+                      maxLines: 1, softWrap: false,
+                      style: titleStyle.copyWith(
+                        fontSize: songStyle.fontSize! * 3.6))))),
         Positioned(right: w * .025, top: h * .043, width: w * .25,
           child: readable(Column(
             crossAxisAlignment: flipped
