@@ -4405,9 +4405,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         _artistStr.toUpperCase(),
         maxLines: 1,
         style: TextStyle(
+          fontFamily: 'VYBERiot',
+          fontFamilyFallback: const ['Roboto'],
           fontSize: size,
           fontWeight: FontWeight.w400,
-          letterSpacing: model.active ? size * 0.38 : size * 0.12,
+          // The vector brush glyphs have broad swashes; avoid the old
+          // 38%-of-font-size tracking that breaks up the wordmark.
+          letterSpacing: model.active ? size * 0.025 : size * 0.015,
           color: color ?? _readableText(_nearWhiteText ? .82 : .62),
           shadows: _cleanTextShadows,
         ),
