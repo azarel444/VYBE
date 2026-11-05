@@ -1500,7 +1500,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       textAlign: flipped ? TextAlign.right : TextAlign.left,
                       maxLines: 1, softWrap: false,
                       style: titleStyle.copyWith(
-                        fontSize: songStyle.fontSize! * 3.6))))),
+                        fontSize: songStyle.fontSize! * 3.6)))))),
         Positioned(right: w * .025, top: h * .043, width: w * .25,
           child: readable(Column(
             crossAxisAlignment: flipped
