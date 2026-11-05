@@ -1975,15 +1975,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
 
-    final artistHeader = SizedBox(width: w * (portrait ? .83 : .72), height: h * (portrait ? .115 : .165),
-      child: Center(child: _artist(h * .055, Alignment.center, false)));
+    final artistHeader = SizedBox(width: w * (portrait ? .94 : .88), height: h * (portrait ? .18 : .22),
+      child: Center(child: _artist(h * .065, Alignment.center, false)));
 
     if (portrait) {
       // Focused: lower the album/ring assembly and let its reflection extend
       // behind the song labels. Draw text last so it stays on top.
       final content = Stack(clipBehavior: Clip.none, children: [
         _focusedBottomBlend(h),
-        Positioned(left: 0, right: 0, top: h * .135,
+        Positioned(left: 0, right: 0, top: h * .105,
           child: Center(child: artistHeader)),
         Positioned(
           left: 0, right: 0, top: h * 0.265,
@@ -2012,7 +2012,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Paint the text last so it remains legible over the reflection.
     final centered = Stack(clipBehavior: Clip.none, children: [
       _focusedBottomBlend(h),
-      Positioned(top: h * .055, left: 0, right: 0,
+      Positioned(top: h * .025, left: 0, right: 0,
         child: Center(child: artistHeader)),
       Positioned(
         top: h * 0.32, left: 0, right: 0,
@@ -4409,11 +4409,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fontFamilyFallback: const ['Roboto'],
           // The alpha font's brush outlines occupy a smaller portion of its
           // em square than Roboto. Compensate until the final TTF metrics land.
-          fontSize: size * (model.active ? 1.85 : 1.45),
+          fontSize: size * (model.active ? 3.0 : 1.45),
           fontWeight: FontWeight.w400,
           // Close up the naturally wide alpha glyph side bearings. The
           // surrounding FittedBox still scales very long artist names down.
-          letterSpacing: model.active ? -size * 0.07 : -size * 0.035,
+          letterSpacing: model.active ? -size * 0.30 : -size * 0.035,
           color: color ?? Colors.white,
           shadows: const [
             Shadow(color: Color(0xE6000000), offset: Offset(0, 2), blurRadius: 4),
