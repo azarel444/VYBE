@@ -2004,6 +2004,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (!barsMode || !settings.visualizer) return content;
       final edge = w * 0.075;
       return Stack(children: [
+        _focusedEdgeShadows(edge),
         Positioned(left: 0, top: 0, bottom: 0, width: edge,
           child: _edgeBars(edge, leftEdge: true)),
         Positioned(right: 0, top: 0, bottom: 0, width: edge,
@@ -2031,6 +2032,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (!barsMode || !settings.visualizer) return centered;
     final edge = w * 0.115;
     return Stack(children: [
+      _focusedEdgeShadows(edge),
       Positioned(left: 0, top: 0, bottom: 0, width: edge,
         child: _edgeBars(edge, leftEdge: true)),
       Positioned(right: 0, top: 0, bottom: 0, width: edge,
@@ -2643,33 +2645,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// A strip of vertical bars on a black shadow that is darkest at the screen
   /// (or art) edge and fades out as it goes inward, so the bars pop.
+  // Full-height edge fades are siblings of the visualizer bars, not
+  // overflowing children of a narrow edge box. This prevents hard seams
+  // where the shadow was clipped at the edge-bar widget boundary.
+  Widget _focusedEdgeShadows(double edge) => Positioned.fill(
+    child: IgnorePointer(child: Stack(fit: StackFit.expand, children: [
+      Positioned(left: 0, top: 0, bottom: 0, width: edge * 2.8,
+        child: const DecoratedBox(decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft, end: Alignment.centerRight,
+            colors: [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
+            stops: [0.0, .45, 1.0])))),
+      Positioned(right: 0, top: 0, bottom: 0, width: edge * 2.8,
+        child: const DecoratedBox(decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerRight, end: Alignment.centerLeft,
+            colors: [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
+            stops: [0.0, .45, 1.0])))),
+    ])),
+  );
+
   Widget _edgeBars(double edge, {required bool leftEdge}) {
-    final shade = DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: leftEdge ? Alignment.centerLeft : Alignment.centerRight,
-          end: leftEdge ? Alignment.centerRight : Alignment.centerLeft,
-          colors: const [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
-          stops: const [0.0, 0.45, 1.0],
-        ),
-      ),
-    );
     return SizedBox(
       width: edge,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            left: leftEdge ? 0 : null,
-            right: leftEdge ? null : 0,
-            top: 0,
-            bottom: 0,
-            width: edge * 1.9,
-            child: IgnorePointer(child: shade),
-          ),
-          Positioned.fill(child: leftEdge ? _vBars() : _flipX(_vBars())),
-        ],
-      ),
+      child: leftEdge ? _vBars() : _flipX(_vBars()),
     );
   }
 
