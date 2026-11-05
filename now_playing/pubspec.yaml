@@ -15,6 +15,10 @@ dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: VYBERiot
+      fonts:
+        - asset: assets/fonts/VYBE_Riot.ttf
   assets:
     - assets/vybe_icon.png
     - assets/vybe_logo.png
