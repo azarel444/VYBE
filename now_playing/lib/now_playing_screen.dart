@@ -4407,13 +4407,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         style: TextStyle(
           fontFamily: 'VYBERiot',
           fontFamilyFallback: const ['Roboto'],
-          fontSize: size,
+          // The alpha font's brush outlines occupy a smaller portion of its
+          // em square than Roboto. Compensate until the final TTF metrics land.
+          fontSize: size * (model.active ? 1.85 : 1.45),
           fontWeight: FontWeight.w400,
-          // The vector brush glyphs have broad swashes; avoid the old
-          // 38%-of-font-size tracking that breaks up the wordmark.
-          letterSpacing: model.active ? size * 0.025 : size * 0.015,
-          color: color ?? _readableText(_nearWhiteText ? .82 : .62),
-          shadows: _cleanTextShadows,
+          // Close up the naturally wide alpha glyph side bearings. The
+          // surrounding FittedBox still scales very long artist names down.
+          letterSpacing: model.active ? -size * 0.07 : -size * 0.035,
+          color: color ?? Colors.white,
+          shadows: const [
+            Shadow(color: Color(0xE6000000), offset: Offset(0, 2), blurRadius: 4),
+            Shadow(color: Color(0xB0000000), offset: Offset(0, 4), blurRadius: 10),
+          ],
         ),
       );
 
