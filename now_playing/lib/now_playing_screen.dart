@@ -4408,42 +4408,60 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Build the artist wordmark from individually sized word initials. Tight
   // tracking and a shear give the original vector brush shapes the connected,
   // forward-sweeping character of the approved reference.
+  // The alpha TTF has uneven side bearings. Position glyphs by measured
+  // advances with a controlled overlap instead of Flutter's letterSpacing
+  // (which produced large D/A and E/A gaps in the preview).
   Widget _artistText(double size, {Color? color}) {
     final words = _artistStr.toUpperCase().trim().split(RegExp(r'\s+'));
     final base = size * (model.active ? 3.0 : 1.45);
     final ink = color ?? Colors.white;
-    TextStyle style(double fontSize) => TextStyle(
-      fontFamily: 'VYBERiot',
-      fontFamilyFallback: const ['Roboto'],
-      fontSize: fontSize,
-      fontWeight: FontWeight.w400,
-      height: 1.05,
-      letterSpacing: -base * .22,
-      color: ink,
-      shadows: const [
-        Shadow(color: Color(0xB8FF005E), offset: Offset(1, 1), blurRadius: 5),
-        Shadow(color: Color(0xAAFF005E), offset: Offset(0, 0), blurRadius: 9),
-        Shadow(color: Color(0xD9000000), offset: Offset(0, 3), blurRadius: 5),
-      ],
-    );
+    final letters = <Widget>[];
+    final offsets = <double>[];
+    double cursor = 0;
+    double maxHeight = base * 1.7;
+    for (var wi = 0; wi < words.length; wi++) {
+      if (wi > 0) cursor += base * .30;
+      final word = words[wi];
+      for (var ci = 0; ci < word.length; ci++) {
+        final glyph = word.substring(ci, ci + 1);
+        final fontSize = base * (ci == 0 ? 1.27 : 1.0);
+        final style = TextStyle(
+          fontFamily: 'VYBERiot',
+          fontFamilyFallback: const ['Roboto'],
+          fontSize: fontSize,
+          fontWeight: FontWeight.w400,
+          height: 1.0,
+          color: ink,
+          shadows: const [
+            // Pink light catches the downward razor points only.
+            Shadow(color: Color(0xAFFF005E), offset: Offset(1, 5), blurRadius: 3),
+            Shadow(color: Color(0xC8000000), offset: Offset(0, 3), blurRadius: 5),
+          ],
+        );
+        final painter = TextPainter(
+          text: TextSpan(text: glyph, style: style),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+        )..layout();
+        final advance = painter.width;
+        offsets.add(cursor);
+        letters.add(Text(glyph, style: style, softWrap: false));
+        // Uniform overlap proportional to each glyph's actual advance.
+        // Never overlap so far that very narrow characters disappear.
+        cursor += advance * (ci == word.length - 1 ? 1.0 : .69);
+        maxHeight = math.max(maxHeight, painter.height + base * .15);
+      }
+    }
     return Transform(
       alignment: Alignment.center,
-      transform: Matrix4.skewX(-.13),
-      child: Row(mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          for (var i = 0; i < words.length; i++) ...[
-            if (i > 0) SizedBox(width: base * .18),
-            if (words[i].isNotEmpty)
-              RichText(maxLines: 1, softWrap: false,
-                text: TextSpan(children: [
-                  TextSpan(text: words[i].substring(0, 1),
-                    style: style(base * 1.28)),
-                  if (words[i].length > 1)
-                    TextSpan(text: words[i].substring(1), style: style(base)),
-                ])),
-          ],
-        ],
+      transform: Matrix4.skewX(-.19),
+      child: SizedBox(
+        width: cursor + base * .12,
+        height: maxHeight,
+        child: Stack(clipBehavior: Clip.none, children: [
+          for (var i = 0; i < letters.length; i++)
+            Positioned(left: offsets[i], bottom: 0, child: letters[i]),
+        ]),
       ),
     );
   }
@@ -4543,9 +4561,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _artContent(double s) {
     final art = model.art;
     final radius = s * 0.018;
-    return ClipRRect(
+    return ClipPath(
       key: ValueKey<Object>(art ?? 'placeholder'),
-      borderRadius: BorderRadius.circular(radius),
+      clipper: const _VybeAlbumCornerClipper(),
       child: art == null
           ? Image.asset(
               'assets/vybe_album_placeholder.png',
@@ -4575,7 +4593,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         height: s,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(s * 0.018),
-          border: Border.all(color: const Color(0xFFFF005E).withOpacity(0.35), width: 1),
           boxShadow: [
             BoxShadow(
                 color: const Color(0xFFFF005E).withOpacity(0.20),
@@ -4588,7 +4605,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ],
         ),
         child: CustomPaint(
-          foregroundPainter: _VybeAngularAlbumFrame(_palette.a),
+          foregroundPainter: _VybeAngularAlbumFrame(p.a),
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 500),
             child: _artContent(s),
@@ -5435,4 +5452,23 @@ class _VybeAngularAlbumFrame extends CustomPainter {
   @override
   bool shouldRepaint(covariant _VybeAngularAlbumFrame old) =>
       old.accent != accent;
+}
+
+
+/// Actual cut corners: the image is clipped to match the visible frame,
+/// instead of drawing diagonal lines over an unchanged rounded square.
+class _VybeAlbumCornerClipper extends CustomClipper<Path> {
+  const _VybeAlbumCornerClipper();
+  @override
+  Path getClip(Size size) {
+    final w = size.width, h = size.height;
+    final c = math.min(w, h) * .035;
+    return Path()
+      ..moveTo(c, 0)..lineTo(w - c, 0)
+      ..lineTo(w, c)..lineTo(w, h - c)
+      ..lineTo(w - c, h)..lineTo(c, h)
+      ..lineTo(0, h - c)..lineTo(0, c)..close();
+  }
+  @override
+  bool shouldReclip(covariant _VybeAlbumCornerClipper oldClipper) => false;
 }
