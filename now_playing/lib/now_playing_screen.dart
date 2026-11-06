@@ -4475,16 +4475,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
-  Widget _albumText(double size) => DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(3),
-        ),
+  // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
+  Widget _albumText(double size) => CustomPaint(
+        painter: _VybeAlbumLabelFrame(_palette.a),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          padding: EdgeInsets.symmetric(horizontal: size * .85, vertical: size * .24),
           child: Text(model.album.toUpperCase(), maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: _albumLabelTextStyle(size)),
+            overflow: TextOverflow.ellipsis,
+            style: _albumLabelTextStyle(size)),
         ),
       );
 
@@ -4561,9 +4559,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _artContent(double s) {
     final art = model.art;
     final radius = s * 0.018;
-    return ClipPath(
+    return ClipRRect(
       key: ValueKey<Object>(art ?? 'placeholder'),
-      clipper: const _VybeAlbumCornerClipper(),
+      borderRadius: BorderRadius.circular(radius),
       child: art == null
           ? Image.asset(
               'assets/vybe_album_placeholder.png',
@@ -4586,13 +4584,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _artCard(double s) {
-    final p = _palette;
     return RepaintBoundary(
       child: Container(
         width: s,
         height: s,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(s * 0.018),
+          border: Border.all(color: const Color(0xFFFF005E).withOpacity(0.35), width: 1),
           boxShadow: [
             BoxShadow(
                 color: const Color(0xFFFF005E).withOpacity(0.20),
@@ -4604,12 +4602,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 offset: Offset(s * 0.03, 0)),
           ],
         ),
-        child: CustomPaint(
-          foregroundPainter: _VybeAngularAlbumFrame(p.a),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 500),
-            child: _artContent(s),
-          ),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 500),
+          child: _artContent(s),
         ),
       ),
     );
@@ -5415,60 +5410,33 @@ class _EdgyStandbyPainter extends CustomPainter {
 }
 
 
-/// Thin angular accent lines over the album edge. The original artwork stays
-/// intact; this painter only supplies the beveled neon frame treatment.
-class _VybeAngularAlbumFrame extends CustomPainter {
-  final Color accent;
-  const _VybeAngularAlbumFrame(this.accent);
 
+class _VybeAlbumLabelFrame extends CustomPainter {
+  final Color accent;
+  const _VybeAlbumLabelFrame(this.accent);
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    final cut = math.min(w, h) * .035;
+    final cut = h * .27;
     final path = Path()
-      ..moveTo(cut, 0)..lineTo(w - cut, 0)
-      ..lineTo(w, cut)..lineTo(w, h - cut)
-      ..lineTo(w - cut, h)..lineTo(cut, h)
-      ..lineTo(0, h - cut)..lineTo(0, cut)..close();
-    canvas.drawPath(path, Paint()
-      ..color = accent.withOpacity(.90)
+      ..moveTo(cut, 0)..lineTo(w, 0)
+      ..lineTo(w - cut, h)..lineTo(0, h)..close();
+    canvas.drawPath(path, Paint()..color = Colors.black.withOpacity(.92));
+    final border = Paint()
+      ..color = accent
       ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(1.4, w * .005)
-      ..strokeJoin = StrokeJoin.bevel);
+      ..strokeWidth = math.max(1.4, h * .045);
+    canvas.drawPath(path, border);
     canvas.drawPath(path, Paint()
-      ..color = accent.withOpacity(.35)
+      ..color = accent.withOpacity(.6)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(3.0, w * .014)
+      ..strokeWidth = math.max(2, h * .1)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
-    final line = Paint()
-      ..color = accent.withOpacity(.8)
-      ..strokeWidth = math.max(1, w * .003);
-    canvas.drawLine(Offset(cut * 1.2, h - cut * .45),
-      Offset(w * .27, h - cut * .45), line);
-    canvas.drawLine(Offset(w * .73, h - cut * .45),
-      Offset(w - cut * 1.2, h - cut * .45), line);
-  }
-
-  @override
-  bool shouldRepaint(covariant _VybeAngularAlbumFrame old) =>
-      old.accent != accent;
-}
-
-
-/// Actual cut corners: the image is clipped to match the visible frame,
-/// instead of drawing diagonal lines over an unchanged rounded square.
-class _VybeAlbumCornerClipper extends CustomClipper<Path> {
-  const _VybeAlbumCornerClipper();
-  @override
-  Path getClip(Size size) {
-    final w = size.width, h = size.height;
-    final c = math.min(w, h) * .035;
-    return Path()
-      ..moveTo(c, 0)..lineTo(w - c, 0)
-      ..lineTo(w, c)..lineTo(w, h - c)
-      ..lineTo(w - c, h)..lineTo(c, h)
-      ..lineTo(0, h - c)..lineTo(0, c)..close();
+    final flourish = Paint()..color = accent.withOpacity(.9)
+      ..strokeWidth = math.max(1, h * .035);
+    canvas.drawLine(Offset(cut * .15, h * .97), Offset(-h * .28, h * 1.13), flourish);
+    canvas.drawLine(Offset(w - cut * .15, h * .97), Offset(w + h * .28, h * .85), flourish);
   }
   @override
-  bool shouldReclip(covariant _VybeAlbumCornerClipper oldClipper) => false;
+  bool shouldRepaint(covariant _VybeAlbumLabelFrame old) => old.accent != accent;
 }
