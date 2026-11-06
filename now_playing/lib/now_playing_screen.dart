@@ -4409,7 +4409,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // tracking and a shear give the original vector brush shapes the connected,
   // forward-sweeping character of the approved reference.
   Widget _artistText(double size, {Color? color}) {
-    final words = _artistStr.toUpperCase().trim().split(RegExp(r'\\s+'));
+    final words = _artistStr.toUpperCase().trim().split(RegExp(r'\s+'));
     final base = size * (model.active ? 3.0 : 1.45);
     final ink = color ?? Colors.white;
     TextStyle style(double fontSize) => TextStyle(
