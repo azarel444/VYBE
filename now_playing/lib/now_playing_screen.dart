@@ -4405,26 +4405,48 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
-  Text _artistText(double size, {Color? color}) => Text(
-        _artistStr.toUpperCase(),
-        maxLines: 1,
-        style: TextStyle(
-          fontFamily: 'VYBERiot',
-          fontFamilyFallback: const ['Roboto'],
-          // The alpha font's brush outlines occupy a smaller portion of its
-          // em square than Roboto. Compensate until the final TTF metrics land.
-          fontSize: size * (model.active ? 3.0 : 1.45),
-          fontWeight: FontWeight.w400,
-          // Close up the naturally wide alpha glyph side bearings. The
-          // surrounding FittedBox still scales very long artist names down.
-          letterSpacing: model.active ? -size * 0.30 : -size * 0.035,
-          color: color ?? Colors.white,
-          shadows: const [
-            Shadow(color: Color(0xE6000000), offset: Offset(0, 2), blurRadius: 4),
-            Shadow(color: Color(0xB0000000), offset: Offset(0, 4), blurRadius: 10),
+  // Build the artist wordmark from individually sized word initials. Tight
+  // tracking and a shear give the original vector brush shapes the connected,
+  // forward-sweeping character of the approved reference.
+  Widget _artistText(double size, {Color? color}) {
+    final words = _artistStr.toUpperCase().trim().split(RegExp(r'\\s+'));
+    final base = size * (model.active ? 3.0 : 1.45);
+    final ink = color ?? Colors.white;
+    TextStyle style(double fontSize) => TextStyle(
+      fontFamily: 'VYBERiot',
+      fontFamilyFallback: const ['Roboto'],
+      fontSize: fontSize,
+      fontWeight: FontWeight.w400,
+      height: 1.05,
+      letterSpacing: -base * .22,
+      color: ink,
+      shadows: const [
+        Shadow(color: Color(0xB8FF005E), offset: Offset(1, 1), blurRadius: 5),
+        Shadow(color: Color(0xAAFF005E), offset: Offset(0, 0), blurRadius: 9),
+        Shadow(color: Color(0xD9000000), offset: Offset(0, 3), blurRadius: 5),
+      ],
+    );
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.skewX(-.13),
+      child: Row(mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          for (var i = 0; i < words.length; i++) ...[
+            if (i > 0) SizedBox(width: base * .18),
+            if (words[i].isNotEmpty)
+              RichText(maxLines: 1, softWrap: false,
+                text: TextSpan(children: [
+                  TextSpan(text: words[i].substring(0, 1),
+                    style: style(base * 1.28)),
+                  if (words[i].length > 1)
+                    TextSpan(text: words[i].substring(1), style: style(base)),
+                ])),
           ],
-        ),
-      );
+        ],
+      ),
+    );
+  }
 
   TextStyle _albumLabelTextStyle(double size) => TextStyle(
         fontSize: size,
