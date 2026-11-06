@@ -4587,9 +4587,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 offset: Offset(s * 0.03, 0)),
           ],
         ),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 500),
-          child: _artContent(s),
+        child: CustomPaint(
+          foregroundPainter: _VybeAngularAlbumFrame(_palette.a),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 500),
+            child: _artContent(s),
+          ),
         ),
       ),
     );
@@ -5392,4 +5395,44 @@ class _EdgyStandbyPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _EdgyStandbyPainter old) =>
       old.time != time || old.bass != bass || old.motion != motion;
+}
+
+
+/// Thin angular accent lines over the album edge. The original artwork stays
+/// intact; this painter only supplies the beveled neon frame treatment.
+class _VybeAngularAlbumFrame extends CustomPainter {
+  final Color accent;
+  const _VybeAngularAlbumFrame(this.accent);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final cut = math.min(w, h) * .035;
+    final path = Path()
+      ..moveTo(cut, 0)..lineTo(w - cut, 0)
+      ..lineTo(w, cut)..lineTo(w, h - cut)
+      ..lineTo(w - cut, h)..lineTo(cut, h)
+      ..lineTo(0, h - cut)..lineTo(0, cut)..close();
+    canvas.drawPath(path, Paint()
+      ..color = accent.withOpacity(.90)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.4, w * .005)
+      ..strokeJoin = StrokeJoin.bevel);
+    canvas.drawPath(path, Paint()
+      ..color = accent.withOpacity(.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(3.0, w * .014)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
+    final line = Paint()
+      ..color = accent.withOpacity(.8)
+      ..strokeWidth = math.max(1, w * .003);
+    canvas.drawLine(Offset(cut * 1.2, h - cut * .45),
+      Offset(w * .27, h - cut * .45), line);
+    canvas.drawLine(Offset(w * .73, h - cut * .45),
+      Offset(w - cut * 1.2, h - cut * .45), line);
+  }
+
+  @override
+  bool shouldRepaint(covariant _VybeAngularAlbumFrame old) =>
+      old.accent != accent;
 }
