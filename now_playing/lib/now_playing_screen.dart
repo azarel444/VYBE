@@ -4584,6 +4584,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _artCard(double s) {
+    // The secondary album-art hue keeps the halo distinct from the cover.
+    // Only the explicit VYBE palette override uses the brand neon colors.
+    final glow = settings.useVybePalette ? _brandPalette.b : _palette.b;
+    final glowSecondary = settings.useVybePalette ? _brandPalette.a : _palette.c;
     return RepaintBoundary(
       child: Container(
         width: s,
@@ -4593,11 +4597,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           border: Border.all(color: const Color(0xFFFF005E).withOpacity(0.35), width: 1),
           boxShadow: [
             BoxShadow(
-                color: const Color(0xFFFF005E).withOpacity(0.20),
+                color: glow.withOpacity(0.20),
                 blurRadius: s * 0.12,
                 spreadRadius: 1),
             BoxShadow(
-                color: const Color(0xFF8A00FF).withOpacity(0.17),
+                color: glowSecondary.withOpacity(0.17),
                 blurRadius: s * 0.2,
                 offset: Offset(s * 0.03, 0)),
           ],
