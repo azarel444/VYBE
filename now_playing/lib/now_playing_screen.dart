@@ -4419,26 +4419,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // advances with a controlled overlap instead of Flutter's letterSpacing
   // (which produced large D/A and E/A gaps in the preview).
   Widget _artistText(double size, {Color? color}) {
-    // One continuous run of normalized Riot glyphs. Do not split the
-    // initials into separate spans: differing font sizes created phantom
-    // word-internal gaps despite the font's trimmed side bearings.
+    // The VYBE Riot font now has its glyph side bearings removed in the
+    // actual TTF. Render the entire artist as one text run so Flutter can
+    // apply its advances without per-character or per-word spacing hacks.
     return Transform(
       alignment: Alignment.center,
-      transform: Matrix4.skewX(-.12),
+      transform: Matrix4.skewX(-.16),
       child: Text(
-        _artistStr.toUpperCase().trim().replaceAll(RegExp(r'\s+'), ' '),
+        _artistStr.toUpperCase(),
         maxLines: 1,
         softWrap: false,
-        overflow: TextOverflow.clip,
+        overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.center,
         style: TextStyle(
           fontFamily: 'VYBERiot',
           fontFamilyFallback: const ['Roboto'],
           fontSize: size * 1.45,
           height: 1.0,
-          // Tight optical tracking, applied uniformly across every word.
-          letterSpacing: -size * .12,
-          wordSpacing: size * .30,
+          letterSpacing: 0,
+          wordSpacing: 0,
           color: color ?? Colors.white,
           shadows: const [
             Shadow(color: Color(0xAA000000), offset: Offset(1, 2), blurRadius: 3),
