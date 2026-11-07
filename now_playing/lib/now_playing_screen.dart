@@ -4494,7 +4494,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _albumText(double size) => CustomPaint(
         painter: _VybeAlbumLabelFrame(_palette.a),
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: size * 1.10, vertical: size * .24),
+          padding: EdgeInsets.symmetric(horizontal: size * 2.30, vertical: size * .24),
           child: Text(model.album.toUpperCase(), maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: _albumLabelTextStyle(size)),
@@ -5433,34 +5433,59 @@ class _EdgyStandbyPainter extends CustomPainter {
 class _VybeAlbumLabelFrame extends CustomPainter {
   final Color accent;
   const _VybeAlbumLabelFrame(this.accent);
+
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    final cut = h * .27;
-    final inset = h * .28;
-    final path = Path()
-      ..moveTo(inset + cut, 0)..lineTo(w - inset, 0)
-      ..lineTo(w - inset - cut, h)..lineTo(inset, h)..close();
-    canvas.drawPath(path, Paint()..color = Colors.black.withOpacity(.92));
-    final border = Paint()
+    // Reserve real width for the diagonal wings. Both extensions attach
+    // directly to the frame rather than floating as decorative slashes.
+    final wing = math.min(h * 1.12, w * .17);
+    final cut = h * .29;
+    final left = wing;
+    final right = w - wing;
+    final frame = Path()
+      ..moveTo(left + cut, h * .08)
+      ..lineTo(right, h * .08)
+      ..lineTo(right - cut, h * .90)
+      ..lineTo(left, h * .90)
+      ..close();
+
+    final fill = Paint()..color = Colors.black.withOpacity(.92);
+    canvas.drawPath(frame, fill);
+
+    final strokeWidth = math.max(1.4, h * .045);
+    final line = Paint()
       ..color = accent
       ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(1.4, h * .045);
-    canvas.drawPath(path, border);
-    canvas.drawPath(path, Paint()
-      ..color = accent.withOpacity(.6)
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.square
+      ..strokeJoin = StrokeJoin.miter;
+    final glow = Paint()
+      ..color = accent.withOpacity(.65)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(2, h * .1)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
-    final flourish = Paint()..color = accent.withOpacity(.9)
-      ..strokeWidth = math.max(1, h * .035);
-    canvas.drawLine(Offset(inset + cut * .65, h * .82), Offset(0, h * .97), flourish);
-    canvas.drawLine(Offset(w - inset - cut * .65, h * .82), Offset(w, h * .97), flourish);
-  }
-  @override
-  bool shouldRepaint(covariant _VybeAlbumLabelFrame old) => old.accent != accent;
-}
+      ..strokeWidth = math.max(2.2, h * .11)
+      ..strokeCap = StrokeCap.square
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
 
+    // The diagonal wing is a continuation of each lower frame corner.
+    // Its endpoint follows the same angle as the frame's cut edges.
+    final wings = Path()
+      ..moveTo(left, h * .90)
+      ..lineTo(left - wing * .72, h * .90)
+      ..lineTo(left - wing * .72 + cut * .80, h * .08)
+      ..moveTo(right - cut, h * .90)
+      ..lineTo(right - cut + wing * .72, h * .90)
+      ..lineTo(right - cut + wing * .72 + cut * .80, h * .08);
+    canvas.drawPath(frame, glow);
+    canvas.drawPath(wings, glow);
+    canvas.drawPath(frame, line);
+    canvas.drawPath(wings, line);
+  }
+
+  @override
+  bool shouldRepaint(covariant _VybeAlbumLabelFrame old) =>
+      old.accent != accent;
+}
 
 /// Restricts neon underpainting to the lower tips of brush lettering.
 class _VybeLowerEdgeClipper extends CustomClipper<Rect> {
