@@ -2002,12 +2002,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       height: h * (portrait ? .20 : .25),
       child: Center(
         child: useTwoLines
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _artistText(h * (portrait ? .061 : .073), letteringOverride: firstLine),
-                  _artistText(h * (portrait ? .061 : .073), letteringOverride: secondLine),
-                ],
+            ? _compactRiotLines(
+                [firstLine, secondLine],
+                h * (portrait ? .061 : .073),
+                Alignment.center,
+                (line) => _artistText(h * (portrait ? .061 : .073),
+                    letteringOverride: line),
               )
             : _artist(h * (portrait ? .10 : .115), Alignment.center, false),
       ),
@@ -2018,7 +2018,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // behind the song labels. Draw text last so it stays on top.
       final content = Stack(clipBehavior: Clip.none, children: [
         _focusedBottomBlend(h),
-        Positioned(left: 0, right: 0, top: h * .105,
+        Positioned(left: 0, right: 0, top: h * (useTwoLines ? .080 : .105),
           child: Center(child: artistHeader)),
         Positioned(
           left: 0, right: 0, top: h * 0.265,
@@ -4492,6 +4492,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
 
+  // The Riot font's line box is taller than the visible brush strokes.
+  // A normal Column leaves a huge gap between stacked artist-name words.
+  // Position the lines at a compact optical pitch instead, while keeping
+  // their individual font sizes, first-letter scale, and kerning unchanged.
+  Widget _compactRiotLines(List<String> lines, double size, Alignment align,
+      Widget Function(String) buildLine) {
+    if (lines.isEmpty) return const SizedBox.shrink();
+    if (lines.length == 1) return Align(alignment: align, child: buildLine(lines.first));
+    final lineHeight = size * 1.45 * _riotWordInitialScale;
+    final lineStep = lineHeight * .56;
+    return SizedBox(
+      height: lineHeight + lineStep * (lines.length - 1),
+      child: Stack(clipBehavior: Clip.none, children: [
+        for (var i = 0; i < lines.length; i++)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: i * lineStep,
+            child: Align(alignment: align, child: buildLine(lines[i])),
+          ),
+      ]),
+    );
+  }
+
   // Calculate widths with the SAME optical overlaps as the approved glyphs.
   // Width measurement is cached so visualizer frames don't repeatedly measure.
   double _artistRunWidth(String lettering, double size) {
@@ -4654,14 +4678,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ? box.maxWidth : screen.width * .88;
       final lines = _artistLines(_artistStr.toUpperCase().trim(),
           size, available);
-      return _shaded(Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final line in lines)
-            Align(alignment: a, child: lineWidget(line)),
-        ],
-      ));
+      return _shaded(
+        lines.length > 1
+            ? _compactRiotLines(lines, size, a, lineWidget)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [Align(alignment: a, child: lineWidget(lines.first))],
+              ),
+      );
     });
   }
 
