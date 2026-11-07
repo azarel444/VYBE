@@ -4403,6 +4403,41 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // The alpha TTF has uneven side bearings. Position glyphs by measured
   // advances with a controlled overlap instead of Flutter's letterSpacing
   // (which produced large D/A and E/A gaps in the preview).
+  // Optical pair spacing for the custom Riot lettering. The font's F has
+  // a long empty right-side bearing; E also leaves too much whitespace.
+  // This one method is used by both glyph placement and line measurement.
+  double _riotPairOverlap(String previous, String character,
+      double fontSize, double glyphWidth) {
+    final pair = previous + character;
+    // F's brush silhouette is much narrower than its glyph advance. FL
+    // needs slightly more correction than FE; both occur in FEARLESS FLYERS.
+    if (pair == 'FL') {
+      return math.min(fontSize * .47, glyphWidth * .74);
+    }
+    if (pair == 'FE') {
+      return math.min(fontSize * .41, glyphWidth * .70);
+    }
+    if (previous == 'F') {
+      return math.min(fontSize * .34, glyphWidth * .61);
+    }
+    // Close the unnatural trailing gaps after E without altering the
+    // already-approved interlocking diagonal/T/A pairs.
+    if (previous == 'E') {
+      return math.min(fontSize * .30, glyphWidth * .62);
+    }
+    // Preserve the previously accepted kerning everywhere else.
+    final overlap = pair == 'TA' ? .42 : (pair == 'AT' || pair == 'AV' ||
+            pair == 'VA' || pair == 'WA' || pair == 'AW' ||
+            pair == 'YA' || pair == 'AY' || pair == 'LT' ||
+            pair == 'LY' || pair == 'TY')
+        ? .29
+        : (previous == 'T' || previous == 'L' ||
+                character == 'A' || character == 'V' || character == 'Y')
+            ? .21
+            : .14;
+    return math.min(fontSize * overlap, glyphWidth * (pair == 'TA' ? .66 : .45));
+  }
+
   // The first glyph in each WORD is larger, with equal extension above and
   // below the rest of the word. Keep the approved per-pair optical kerning.
   static const double _riotWordInitialScale = 1.27;
@@ -4451,18 +4486,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           // Keep the approved word spacing exactly as it was.
           x += character == ' ' ? 0 : fontSize * .06;
         } else {
-          // Optical overlap is unchanged from the already-approved lettering.
-          final pair = previous + character;
-          final overlap = pair == 'TA' ? .42 : (pair == 'AT' || pair == 'AV' ||
-                  pair == 'VA' || pair == 'WA' || pair == 'AW' ||
-                  pair == 'YA' || pair == 'AY' || pair == 'LT' ||
-                  pair == 'LY' || pair == 'TY')
-              ? .29
-              : (previous == 'T' || previous == 'F' || previous == 'L' ||
-                      character == 'A' || character == 'V' || character == 'Y')
-                  ? .21
-                  : .14;
-          x -= math.min(fontSize * overlap, glyphWidth * (pair == 'TA' ? .66 : .45));
+          x -= _riotPairOverlap(previous, character, fontSize, glyphWidth);
         }
       }
       glyphCharacters.add(character);
@@ -4501,7 +4525,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (lines.isEmpty) return const SizedBox.shrink();
     if (lines.length == 1) return Align(alignment: align, child: buildLine(lines.first));
     final lineHeight = size * 1.45 * _riotWordInitialScale;
-    final lineStep = lineHeight * .56;
+    // Keep consecutive wordmarks close; the tall font metrics previously
+    // created conspicuous blank strips between wrapped lines.
+    final lineStep = lineHeight * .41;
     return SizedBox(
       height: lineHeight + lineStep * (lines.length - 1),
       child: Stack(clipBehavior: Clip.none, children: [
@@ -4543,16 +4569,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (c == ' ' || prev == ' ') {
           x += c == ' ' ? 0 : fontSize * .06;
         } else {
-          final pair = prev + c;
-          final overlap = pair == 'TA' ? .42 : (pair == 'AT' || pair == 'AV' ||
-                  pair == 'VA' || pair == 'WA' || pair == 'AW' ||
-                  pair == 'YA' || pair == 'AY' || pair == 'LT' ||
-                  pair == 'LY' || pair == 'TY')
-              ? .29
-              : (prev == 'T' || prev == 'F' || prev == 'L' ||
-                      c == 'A' || c == 'V' || c == 'Y') ? .21 : .14;
-          x -= math.min(fontSize * overlap,
-              width * (pair == 'TA' ? .66 : .45));
+          x -= _riotPairOverlap(prev, c, fontSize, width);
         }
       }
       x += width;
