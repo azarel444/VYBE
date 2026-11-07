@@ -4425,7 +4425,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       fontSize: fontSize,
       fontWeight: FontWeight.w400,
       height: 1.0,
-      letterSpacing: -fontSize * .045,
+      letterSpacing: 0,
       color: tint,
     );
     List<InlineSpan> makeSpans(Color tint) {

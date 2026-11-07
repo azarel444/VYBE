@@ -57,6 +57,38 @@ jobs:
               cairosvg.svg2png(bytestring=svg, write_to=str(output), output_width=size, output_height=size)
           PY
 
+      - name: Normalize VYBE Riot glyph side bearings
+        run: |
+          python3 -m pip install --quiet fonttools
+          python3 - <<'PY'
+          from fontTools.ttLib import TTFont
+          from pathlib import Path
+          path = Path('assets/fonts/VYBE_Riot.ttf')
+          font = TTFont(path)
+          glyf = font['glyf']
+          metrics = font['hmtx'].metrics
+          # Trim invisible padding around outlined glyphs. This is uniform
+          # across the alphabet, not a list of word-specific kerning hacks.
+          for name in font.getGlyphOrder():
+              glyph = glyf[name]
+              if glyph.isComposite() or glyph.numberOfContours <= 0:
+                  continue
+              glyph.recalcBounds(glyf)
+              width = glyph.xMax - glyph.xMin
+              if width <= 0:
+                  continue
+              dx = 8 - glyph.xMin
+              coords, end_pts, flags = glyph.getCoordinates(glyf)
+              for i in range(len(coords)):
+                  x, y = coords[i]
+                  coords[i] = (x + dx, y)
+              glyph.coordinates = coords
+              glyph.recalcBounds(glyf)
+              metrics[name] = (width + 16, 8)
+          font.save(path)
+          print('VYBE Riot: normalized outlined glyphs to 8-unit side bearings')
+          PY
+
       - run: flutter pub get
 
       # Each APK needs a monotonically increasing Android versionCode. Without
