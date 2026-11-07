@@ -4406,58 +4406,48 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Optical pair spacing for the custom Riot lettering. The font's F has
   // a long empty right-side bearing; E also leaves too much whitespace.
   // This one method is used by both glyph placement and line measurement.
-  // Optical spacing in design units: a glyph's advance does not describe
-  // where the slanted brush stroke appears to end. Particularly after an
-  // enlarged first letter, capping overlap to the following narrow glyph's
-  // width leaves false gaps (F-L, T-H, J-A). Apply one shared set of
-  // corrections in both rendering and width measurement.
   double _riotPairOverlap(String previous, String character,
-      double fontSize, double previousWidth, double glyphWidth) {
+      double fontSize, double glyphWidth) {
     final pair = previous + character;
-
-    // Hand-inspected troublesome brush combinations. The remaining pairs
-    // retain the established optical rules, with a cap based on BOTH glyphs.
-    const refinements = <String, double>{
-      'FL': .48, 'FE': .42, 'FA': .38, 'FR': .37,
-      'TH': .44, 'TE': .31, 'TO': .30, 'TI': .30,
-      'JA': .45, 'JE': .35, 'JO': .33,
-      'EA': .30, 'EL': .33, 'ER': .30, 'ES': .30, 'ET': .30,
-      'YE': .25, 'LE': .25, 'HE': .20, 'KE': .23,
-      'RL': .20, 'AC': .19, 'CK': .20, 'DE': .21,
-      // ROOSEVELT: make O-S flow into the S like the preceding O-O pair.
-      'OS': .41,
-    };
-
-    // The T-A overhang is already approved; keep its original cap.
-    if (pair == 'TA') {
-      return math.min(fontSize * .42, glyphWidth * .66);
+    // Limited optical corrections only. These four gaps were reported in
+    // screenshots, so leave every OTHER pair at the tested build #605 values.
+    // Avoid the broad overlap/cap increase that made build #606 run together.
+    if (pair == 'FL') {
+      return math.min(fontSize * .47, glyphWidth * .82);
     }
-    final double tracking;
-    if (refinements.containsKey(pair)) {
-      tracking = refinements[pair]!;
-    } else if (previous == 'F') {
-      tracking = .36;
-    } else if (previous == 'J') {
-      tracking = .30;
-    } else if (previous == 'E') {
-      tracking = .30;
-    } else if (previous == 'T') {
-      tracking = .28;
-    } else if (pair == 'AT' || pair == 'AV' || pair == 'VA' ||
-        pair == 'WA' || pair == 'AW' || pair == 'YA' ||
-        pair == 'AY' || pair == 'LT' || pair == 'LY' ||
-        pair == 'TY') {
-      tracking = .29;
-    } else if (previous == 'L' || character == 'A' ||
-        character == 'V' || character == 'Y') {
-      tracking = .21;
-    } else {
-      tracking = .14;
+    if (pair == 'TH') {
+      return math.min(fontSize * .26, glyphWidth * .50);
     }
-    // Narrow second glyphs such as L cannot determine the entire allowed
-    // overlap. Use both glyph advances, including the 27%-larger word initial.
-    final safeOverlap = math.max(previousWidth * .80, glyphWidth * .62);
-    return math.min(fontSize * tracking, safeOverlap);
+    if (pair == 'JA') {
+      return math.min(fontSize * .26, glyphWidth * .50);
+    }
+    if (pair == 'OS') {
+      return math.min(fontSize * .23, glyphWidth * .52);
+    }
+    // F's brush silhouette is much narrower than its glyph advance. FL
+    // needs slightly more correction than FE; both occur in FEARLESS FLYERS.
+    if (pair == 'FE') {
+      return math.min(fontSize * .41, glyphWidth * .70);
+    }
+    if (previous == 'F') {
+      return math.min(fontSize * .34, glyphWidth * .61);
+    }
+    // Close the unnatural trailing gaps after E without altering the
+    // already-approved interlocking diagonal/T/A pairs.
+    if (previous == 'E') {
+      return math.min(fontSize * .30, glyphWidth * .62);
+    }
+    // Preserve the previously accepted kerning everywhere else.
+    final overlap = pair == 'TA' ? .42 : (pair == 'AT' || pair == 'AV' ||
+            pair == 'VA' || pair == 'WA' || pair == 'AW' ||
+            pair == 'YA' || pair == 'AY' || pair == 'LT' ||
+            pair == 'LY' || pair == 'TY')
+        ? .29
+        : (previous == 'T' || previous == 'L' ||
+                character == 'A' || character == 'V' || character == 'Y')
+            ? .21
+            : .14;
+    return math.min(fontSize * overlap, glyphWidth * (pair == 'TA' ? .66 : .45));
   }
 
   // The first glyph in each WORD is larger, with equal extension above and
@@ -4488,7 +4478,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final glyphHeights = <double>[];
     var x = 0.0;
     var previous = '';
-    var previousWidth = 0.0;
     var maxHeight = fontSize;
     for (final rune in lettering.runes) {
       final character = String.fromCharCode(rune);
@@ -4509,8 +4498,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           // Keep the approved word spacing exactly as it was.
           x += character == ' ' ? 0 : fontSize * .06;
         } else {
-          x -= _riotPairOverlap(previous, character, fontSize,
-              previousWidth, glyphWidth);
+          x -= _riotPairOverlap(previous, character, fontSize, glyphWidth);
         }
       }
       glyphCharacters.add(character);
@@ -4518,7 +4506,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       glyphPositions.add(x);
       glyphHeights.add(painter.height);
       x += glyphWidth;
-      previousWidth = glyphWidth;
       previous = character;
     }
     return Transform(
@@ -4579,7 +4566,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         fontSize: fontSize, letterSpacing: 0, wordSpacing: 0);
     var x = 0.0;
     var prev = '';
-    var previousWidth = 0.0;
     for (final rune in lettering.runes) {
       final c = String.fromCharCode(rune);
       // Mirror the displayed initial size so line wrapping never underestimates
@@ -4595,12 +4581,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (c == ' ' || prev == ' ') {
           x += c == ' ' ? 0 : fontSize * .06;
         } else {
-          x -= _riotPairOverlap(prev, c, fontSize,
-              previousWidth, width);
+          x -= _riotPairOverlap(prev, c, fontSize, width);
         }
       }
       x += width;
-      previousWidth = width;
       prev = c;
     }
     if (_artistWidthCache.length > 256) _artistWidthCache.clear();
