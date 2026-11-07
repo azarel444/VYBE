@@ -572,24 +572,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fit: StackFit.expand,
                     children: [
                       layout,
-                      // Paint the idle instruction above the layout and its
-                      // artwork/standby layers. Previously the text lived
-                      // inside the theme layout and could disappear behind
-                      // its full-screen visual effects.
-                      if (!model.active && !widget.driveHost)
-                        Positioned(
-                          top: narrow ? h * .07 : h * .035,
-                          left: w * .045,
-                          right: w * .045,
-                          child: IgnorePointer(
-                            child: Center(
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: _artistText(h * .055),
-                              ),
-                            ),
-                          ),
-                        ),
                       // Clock is displayed only with the popup controls.
                       if (vhs && !widget.driveHost && settings.theme != 4) _osd(h, compact: narrow),
                     ],
@@ -1407,7 +1389,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             : cover),
       ),
     );
-    final artist = model.artist.isEmpty ? 'ARTIST' : model.artist.toUpperCase();
+    final artist = model.active ? model.artist.toUpperCase() : 'START MUSIC IN ANY PLAYER APP';
     final song = model.title.isEmpty ? 'Nothing playing' : model.title;
     final titleStyle = TextStyle(
       fontFamily: 'VYBERiot',
@@ -1476,9 +1458,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null
+              SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
                   ? math.min(h * .225, w * .45) : w * .22,
-                child: settings.useArtistClearLogo && _clearLogoBytes != null
+                child: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
                     ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                         alignment: Alignment.center,
                         filterQuality: FilterQuality.medium)
@@ -2001,9 +1983,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final artistHeader = SizedBox(
       width: w * (portrait ? .94 : .88),
       height: h * (portrait ? .18 : .22),
-      child: Center(child: model.active
-          ? _artist(h * .065, Alignment.center, false)
-          : const SizedBox.shrink()),
+      child: Center(child: _artist(h * .065, Alignment.center, false)),
     );
 
     if (portrait) {
@@ -2329,7 +2309,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               children: [
                 // Stable artist-first hierarchy, even while logo is loading.
                 SizedBox(width: infoW * .9, height: h * .15,
-                  child: settings.useArtistClearLogo && _clearLogoBytes != null
+                  child: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
                     ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                         gaplessPlayback: true, filterQuality: FilterQuality.medium)
                     : Center(child: _artist(h * 0.065, Alignment.center, false))),
@@ -3913,16 +3893,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: _artist(artistSize, center ? Alignment.center : Alignment.centerRight, false),
           )
         else
-          Text(
-            _artistStr.toUpperCase(),
-            textAlign: ta,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: artistSize,
-              letterSpacing: artistSize * 0.3,
-              color: _readableText(.82),
-              shadows: _cleanTextShadows,
+          Align(
+            alignment: center ? Alignment.center : Alignment.centerRight,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: _artistText(artistSize, color: _readableText(.82)),
             ),
           ),
         Text(
