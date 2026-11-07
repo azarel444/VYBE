@@ -1987,7 +1987,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final useTwoLines = model.active &&
         _clearLogoBytes == null &&
         artistWords.length > 1 &&
-        artistName.length > (portrait ? 17 : 27);
+        artistName.length > (portrait ? 14 : 20);
     String firstLine = artistName;
     String secondLine = '';
     if (useTwoLines) {
@@ -2007,17 +2007,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     final artistHeader = SizedBox(
       width: w * (portrait ? .94 : .88),
-      height: h * (portrait ? .18 : .22),
+      height: h * (portrait ? .20 : .25),
       child: Center(
         child: useTwoLines
             ? Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _artistText(h * .044, letteringOverride: firstLine),
-                  _artistText(h * .044, letteringOverride: secondLine),
+                  _artistText(h * (portrait ? .061 : .073), letteringOverride: firstLine),
+                  _artistText(h * (portrait ? .061 : .073), letteringOverride: secondLine),
                 ],
               )
-            : _artist(h * .065, Alignment.center, false),
+            : _artist(h * (portrait ? .10 : .115), Alignment.center, false),
       ),
     );
 
@@ -4484,15 +4484,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           // The T overhang must sit above the following A, not push it away.
           // Other diagonal and brush strokes likewise interlock optically.
           final pair = previous + character;
-          final overlap = pair == 'TA' ? .48 : (pair == 'AT' || pair == 'AV' ||
+          final overlap = pair == 'TA' ? .42 : (pair == 'AT' || pair == 'AV' ||
                   pair == 'VA' || pair == 'WA' || pair == 'AW' ||
                   pair == 'YA' || pair == 'AY' || pair == 'LT' ||
                   pair == 'LY' || pair == 'TY')
-              ? .34
+              ? .29
               : (previous == 'T' || previous == 'F' || previous == 'L' ||
                       character == 'A' || character == 'V' || character == 'Y')
-                  ? .25
-                  : .18;
+                  ? .21
+                  : .14;
           x -= math.min(fontSize * overlap, glyphWidth * (pair == 'TA' ? .66 : .45));
         }
       }
