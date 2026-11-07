@@ -4449,7 +4449,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           // The T overhang must sit above the following A, not push it away.
           // Other diagonal and brush strokes likewise interlock optically.
           final pair = previous + character;
-          final overlap = (pair == 'TA' || pair == 'AT' || pair == 'AV' ||
+          final overlap = pair == 'TA' ? .48 : (pair == 'AT' || pair == 'AV' ||
                   pair == 'VA' || pair == 'WA' || pair == 'AW' ||
                   pair == 'YA' || pair == 'AY' || pair == 'LT' ||
                   pair == 'LY' || pair == 'TY')
@@ -4458,7 +4458,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       character == 'A' || character == 'V' || character == 'Y')
                   ? .25
                   : .18;
-          x -= math.min(fontSize * overlap, glyphWidth * .45);
+          x -= math.min(fontSize * overlap, glyphWidth * (pair == 'TA' ? .66 : .45));
         }
       }
       glyphs.add(Positioned(
@@ -4494,7 +4494,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _albumText(double size) => CustomPaint(
         painter: _VybeAlbumLabelFrame(_palette.a),
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: size * 2.30, vertical: size * .24),
+          padding: EdgeInsets.symmetric(horizontal: size * 3.30, vertical: size * .24),
           child: Text(model.album.toUpperCase(), maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: _albumLabelTextStyle(size)),
@@ -5437,17 +5437,19 @@ class _VybeAlbumLabelFrame extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    // Reserve real width for the diagonal wings. Both extensions attach
-    // directly to the frame rather than floating as decorative slashes.
-    final wing = math.min(h * 1.12, w * .17);
-    final cut = h * .29;
+    // Reference: steep parallelogram with two *separate*, parallel
+    // diagonal accent strokes. No horizontal joining bars on the wings.
+    final wing = math.min(h * 1.05, w * .13);
+    final cut = h * .64;
     final left = wing;
     final right = w - wing;
+    final top = h * .08;
+    final bottom = h * .90;
     final frame = Path()
-      ..moveTo(left + cut, h * .08)
-      ..lineTo(right, h * .08)
-      ..lineTo(right - cut, h * .90)
-      ..lineTo(left, h * .90)
+      ..moveTo(left + cut, top)
+      ..lineTo(right, top)
+      ..lineTo(right - cut, bottom)
+      ..lineTo(left, bottom)
       ..close();
 
     final fill = Paint()..color = Colors.black.withOpacity(.92);
@@ -5467,15 +5469,14 @@ class _VybeAlbumLabelFrame extends CustomPainter {
       ..strokeCap = StrokeCap.square
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
 
-    // The diagonal wing is a continuation of each lower frame corner.
-    // Its endpoint follows the same angle as the frame's cut edges.
+    // Accent slashes run alongside the two slanted frame edges, with a
+    // deliberate narrow gap; they do not touch the frame or each other.
+    final offset = h * .26;
     final wings = Path()
-      ..moveTo(left, h * .90)
-      ..lineTo(left - wing * .72, h * .90)
-      ..lineTo(left - wing * .72 + cut * .80, h * .08)
-      ..moveTo(right - cut, h * .90)
-      ..lineTo(right - cut + wing * .72, h * .90)
-      ..lineTo(right - cut + wing * .72 + cut * .80, h * .08);
+      ..moveTo(left + cut - offset, top)
+      ..lineTo(left - offset, bottom)
+      ..moveTo(right + offset, top)
+      ..lineTo(right - cut + offset, bottom);
     canvas.drawPath(frame, glow);
     canvas.drawPath(wings, glow);
     canvas.drawPath(frame, line);
