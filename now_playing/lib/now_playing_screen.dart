@@ -4409,19 +4409,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _riotPairOverlap(String previous, String character,
       double fontSize, double glyphWidth) {
     final pair = previous + character;
-    // F's brush silhouette is much narrower than its glyph advance. FL
-    // needs slightly more correction than FE; both occur in FEARLESS FLYERS.
-    if (pair == 'FE') {
-      return math.min(fontSize * .41, glyphWidth * .70);
-    }
-    if (previous == 'F') {
-      return math.min(fontSize * .34, glyphWidth * .61);
-    }
-    // Close the unnatural trailing gaps after E without altering the
-    // already-approved interlocking diagonal/T/A pairs.
-    if (previous == 'E') {
-      return math.min(fontSize * .30, glyphWidth * .62);
-    }
     // Limited optical corrections only. These four gaps were reported in
     // screenshots, so leave every OTHER pair at the tested build #605 values.
     // Avoid the broad overlap/cap increase that made build #606 run together.
@@ -4436,6 +4423,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     if (pair == 'OS') {
       return math.min(fontSize * .23, glyphWidth * .52);
+    }
+    // F's brush silhouette is much narrower than its glyph advance. FL
+    // needs slightly more correction than FE; both occur in FEARLESS FLYERS.
+    if (pair == 'FE') {
+      return math.min(fontSize * .41, glyphWidth * .70);
+    }
+    if (previous == 'F') {
+      return math.min(fontSize * .34, glyphWidth * .61);
+    }
+    // Close the unnatural trailing gaps after E without altering the
+    // already-approved interlocking diagonal/T/A pairs.
+    if (previous == 'E') {
+      return math.min(fontSize * .30, glyphWidth * .62);
     }
     // Preserve the previously accepted kerning everywhere else.
     final overlap = pair == 'TA' ? .42 : (pair == 'AT' || pair == 'AV' ||
