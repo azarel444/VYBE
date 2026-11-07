@@ -1980,10 +1980,45 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
 
+    // Keep the artist visually dominant. Long names break at word
+    // boundaries into two display-lettering lines rather than scaling down.
+    final artistName = _artistStr.trim();
+    final artistWords = artistName.split(RegExp(r'\\s+'));
+    final useTwoLines = model.active &&
+        _clearLogoBytes == null &&
+        artistWords.length > 1 &&
+        artistName.length > (portrait ? 17 : 27);
+    String firstLine = artistName;
+    String secondLine = '';
+    if (useTwoLines) {
+      var bestSplit = 1;
+      var bestDifference = 1 << 30;
+      for (var i = 1; i < artistWords.length; i++) {
+        final left = artistWords.take(i).join(' ');
+        final right = artistWords.skip(i).join(' ');
+        final difference = (left.length - right.length).abs();
+        if (difference < bestDifference) {
+          bestDifference = difference;
+          bestSplit = i;
+        }
+      }
+      firstLine = artistWords.take(bestSplit).join(' ');
+      secondLine = artistWords.skip(bestSplit).join(' ');
+    }
     final artistHeader = SizedBox(
       width: w * (portrait ? .94 : .88),
       height: h * (portrait ? .18 : .22),
-      child: Center(child: _artist(h * .065, Alignment.center, false)),
+      child: Center(
+        child: useTwoLines
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _artistText(h * .044, letteringOverride: firstLine),
+                  _artistText(h * .044, letteringOverride: secondLine),
+                ],
+              )
+            : _artist(h * .065, Alignment.center, false),
+      ),
     );
 
     if (portrait) {
@@ -4409,11 +4444,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // The alpha TTF has uneven side bearings. Position glyphs by measured
   // advances with a controlled overlap instead of Flutter's letterSpacing
   // (which produced large D/A and E/A gaps in the preview).
-  Widget _artistText(double size, {Color? color}) {
+  Widget _artistText(double size, {Color? color, String? letteringOverride}) {
     // VYBE Riot is display lettering: adjacent outlines are intentionally
     // allowed to overlap, just as they would in a manually kerned wordmark.
     // A single Text run cannot provide this per-pair optical positioning.
-    final lettering = _artistStr.toUpperCase();
+    final lettering = (letteringOverride ?? _artistStr).toUpperCase();
     final fontSize = size * 1.45;
     final style = TextStyle(
       fontFamily: 'VYBERiot',
