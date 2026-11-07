@@ -4419,26 +4419,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // advances with a controlled overlap instead of Flutter's letterSpacing
   // (which produced large D/A and E/A gaps in the preview).
   Widget _artistText(double size, {Color? color}) {
-    // The experimental Riot glyphs have inconsistent visible side bearings:
-    // names such as WAX TAYLOR become unreadable even after normalization.
-    // Keep fallback names readable until the font is redesigned as a proper
-    // connected wordmark. No per-letter widgets, clipping or glow overlays.
-    return Text(
-      _artistStr.toUpperCase(),
-      maxLines: 1,
-      softWrap: false,
-      overflow: TextOverflow.ellipsis,
-      textAlign: TextAlign.center,
-      style: TextStyle(
-        fontFamily: 'Roboto',
-        fontSize: size * (model.active ? 1.12 : 1.0),
-        fontWeight: FontWeight.w800,
-        fontStyle: FontStyle.italic,
-        letterSpacing: size * .015,
-        color: color ?? Colors.white,
-        shadows: const [
-          Shadow(color: Color(0xB0000000), offset: Offset(1, 2), blurRadius: 5),
-        ],
+    // One continuous run of normalized Riot glyphs. Do not split the
+    // initials into separate spans: differing font sizes created phantom
+    // word-internal gaps despite the font's trimmed side bearings.
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.skewX(-.12),
+      child: Text(
+        _artistStr.toUpperCase().trim().replaceAll(RegExp(r'\s+'), ' '),
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.clip,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontFamily: 'VYBERiot',
+          fontFamilyFallback: const ['Roboto'],
+          fontSize: size * 1.45,
+          height: 1.0,
+          // Tight optical tracking, applied uniformly across every word.
+          letterSpacing: -size * .12,
+          wordSpacing: size * .30,
+          color: color ?? Colors.white,
+          shadows: const [
+            Shadow(color: Color(0xAA000000), offset: Offset(1, 2), blurRadius: 3),
+            Shadow(color: Color(0x99FF005E), offset: Offset(0, 2), blurRadius: 2),
+          ],
+        ),
       ),
     );
   }
