@@ -4424,6 +4424,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       'EA': .30, 'EL': .33, 'ER': .30, 'ES': .30, 'ET': .30,
       'YE': .25, 'LE': .25, 'HE': .20, 'KE': .23,
       'RL': .20, 'AC': .19, 'CK': .20, 'DE': .21,
+      // ROOSEVELT: make O-S flow into the S like the preceding O-O pair.
+      'OS': .41,
     };
 
     // The T-A overhang is already approved; keep its original cap.
