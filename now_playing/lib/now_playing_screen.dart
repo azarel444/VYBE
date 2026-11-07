@@ -572,6 +572,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fit: StackFit.expand,
                     children: [
                       layout,
+                      // Paint the idle instruction above the layout and its
+                      // artwork/standby layers. Previously the text lived
+                      // inside the theme layout and could disappear behind
+                      // its full-screen visual effects.
+                      if (!model.active && !widget.driveHost)
+                        Positioned(
+                          top: narrow ? h * .07 : h * .035,
+                          left: w * .045,
+                          right: w * .045,
+                          child: IgnorePointer(
+                            child: Center(
+                              child: Text(
+                                'START MUSIC IN ANY PLAYER APP',
+                                maxLines: 2,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontFamily: 'Roboto',
+                                  fontSize: math.min(h * .058, w * .075),
+                                  fontWeight: FontWeight.w800,
+                                  fontStyle: FontStyle.italic,
+                                  color: Colors.white,
+                                  shadows: const [
+                                    Shadow(color: Colors.black, blurRadius: 8,
+                                      offset: Offset(0, 2)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       // Clock is displayed only with the popup controls.
                       if (vhs && !widget.driveHost && settings.theme != 4) _osd(h, compact: narrow),
                     ],
@@ -1980,15 +2010,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
     );
 
-    final artistHeader = SizedBox(width: w * (portrait ? .94 : .88), height: h * (portrait ? .18 : .22),
-      child: Center(child: !model.active
-        ? Text('START MUSIC IN ANY PLAYER APP', maxLines: 2,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontFamily: 'Roboto', fontSize: h * .055,
-              fontWeight: FontWeight.w800, fontStyle: FontStyle.italic,
-              color: Colors.white, shadows: const [
-                Shadow(color: Color(0xAA000000), blurRadius: 6)]))
-        : _artist(h * .065, Alignment.center, false)));
+    final artistHeader = SizedBox(
+      width: w * (portrait ? .94 : .88),
+      height: h * (portrait ? .18 : .22),
+      child: Center(child: model.active
+          ? _artist(h * .065, Alignment.center, false)
+          : const SizedBox.shrink()),
+    );
 
     if (portrait) {
       // Focused: lower the album/ring assembly and let its reflection extend
