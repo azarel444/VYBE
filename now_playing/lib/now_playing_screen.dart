@@ -583,21 +583,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           right: w * .045,
                           child: IgnorePointer(
                             child: Center(
-                              child: Text(
-                                'START MUSIC IN ANY PLAYER APP',
-                                maxLines: 2,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontFamily: 'Roboto',
-                                  fontSize: math.min(h * .058, w * .075),
-                                  fontWeight: FontWeight.w800,
-                                  fontStyle: FontStyle.italic,
-                                  color: Colors.white,
-                                  shadows: const [
-                                    Shadow(color: Colors.black, blurRadius: 8,
-                                      offset: Offset(0, 2)),
-                                  ],
-                                ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: _artistText(h * .055),
                               ),
                             ),
                           ),
