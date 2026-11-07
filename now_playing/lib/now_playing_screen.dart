@@ -4415,7 +4415,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Render text in a single paragraph. WidgetSpan initials and stacked
     // full-size neon copies produced oversized compositing surfaces during
     // active playback, especially on low-end head units.
-    final words = _artistStr.toUpperCase().trim().split(RegExp(r'\\s+'));
+    final words = _artistStr.toUpperCase().trim().split(RegExp(r'\s+'));
     final base = size * 1.45;
     final ink = color ?? Colors.white;
     final spans = <InlineSpan>[];
