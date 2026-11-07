@@ -2649,14 +2649,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // overflowing children of a narrow edge box. This prevents hard seams
   // where the shadow was clipped at the edge-bar widget boundary.
   Widget _focusedEdgeShadows(double edge) => Positioned.fill(
-    child: IgnorePointer(child: Stack(fit: StackFit.expand, children: [
-      Positioned(left: 0, top: 0, bottom: 0, width: edge * 2.8,
+    child: IgnorePointer(child: Stack(clipBehavior: Clip.none, fit: StackFit.expand, children: [
+      Positioned(left: 0, top: -12, bottom: -12, width: edge * 2.8,
         child: const DecoratedBox(decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.centerLeft, end: Alignment.centerRight,
             colors: [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
             stops: [0.0, .45, 1.0])))),
-      Positioned(right: 0, top: 0, bottom: 0, width: edge * 2.8,
+      Positioned(right: 0, top: -12, bottom: -12, width: edge * 2.8,
         child: const DecoratedBox(decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.centerRight, end: Alignment.centerLeft,
@@ -4420,7 +4420,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     double cursor = 0;
     double maxHeight = base * 1.7;
     for (var wi = 0; wi < words.length; wi++) {
-      if (wi > 0) cursor += base * .30;
+      if (wi > 0) cursor += base * .22;
       final word = words[wi];
       for (var ci = 0; ci < word.length; ci++) {
         final glyph = word.substring(ci, ci + 1);
@@ -4448,7 +4448,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         letters.add(Text(glyph, style: style, softWrap: false));
         // Uniform overlap proportional to each glyph's actual advance.
         // Never overlap so far that very narrow characters disappear.
-        cursor += advance * (ci == word.length - 1 ? 1.0 : .69);
+        cursor += advance * (ci == word.length - 1 ? 1.0 : .59);
         maxHeight = math.max(maxHeight, painter.height + base * .15);
       }
     }
@@ -4479,7 +4479,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _albumText(double size) => CustomPaint(
         painter: _VybeAlbumLabelFrame(_palette.a),
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: size * .85, vertical: size * .24),
+          padding: EdgeInsets.symmetric(horizontal: size * 1.10, vertical: size * .24),
           child: Text(model.album.toUpperCase(), maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: _albumLabelTextStyle(size)),
@@ -5422,9 +5422,10 @@ class _VybeAlbumLabelFrame extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
     final cut = h * .27;
+    final inset = h * .28;
     final path = Path()
-      ..moveTo(cut, 0)..lineTo(w, 0)
-      ..lineTo(w - cut, h)..lineTo(0, h)..close();
+      ..moveTo(inset + cut, 0)..lineTo(w - inset, 0)
+      ..lineTo(w - inset - cut, h)..lineTo(inset, h)..close();
     canvas.drawPath(path, Paint()..color = Colors.black.withOpacity(.92));
     final border = Paint()
       ..color = accent
@@ -5438,8 +5439,8 @@ class _VybeAlbumLabelFrame extends CustomPainter {
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
     final flourish = Paint()..color = accent.withOpacity(.9)
       ..strokeWidth = math.max(1, h * .035);
-    canvas.drawLine(Offset(cut * .15, h * .97), Offset(-h * .28, h * 1.13), flourish);
-    canvas.drawLine(Offset(w - cut * .15, h * .97), Offset(w + h * .28, h * .85), flourish);
+    canvas.drawLine(Offset(inset + cut * .65, h * .82), Offset(0, h * .97), flourish);
+    canvas.drawLine(Offset(w - inset - cut * .65, h * .82), Offset(w, h * .97), flourish);
   }
   @override
   bool shouldRepaint(covariant _VybeAlbumLabelFrame old) => old.accent != accent;
