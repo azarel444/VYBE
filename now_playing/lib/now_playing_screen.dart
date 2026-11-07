@@ -4425,7 +4425,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
     // Measure glyphs first, then center every glyph within the tallest line
     // box. This centers the enlarged initial both above and below its word.
-    final glyphs = <({double left, double height, String character, TextStyle style})>[];
+    final glyphCharacters = <String>[];
+    final glyphStyles = <TextStyle>[];
+    final glyphPositions = <double>[];
+    final glyphHeights = <double>[];
     var x = 0.0;
     var previous = '';
     var maxHeight = fontSize;
@@ -4462,12 +4465,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           x -= math.min(fontSize * overlap, glyphWidth * (pair == 'TA' ? .66 : .45));
         }
       }
-      glyphs.add((
-        left: x,
-        height: painter.height,
-        character: character,
-        style: glyphStyle,
-      ));
+      glyphCharacters.add(character);
+      glyphStyles.add(glyphStyle);
+      glyphPositions.add(x);
+      glyphHeights.add(painter.height);
       x += glyphWidth;
       previous = character;
     }
@@ -4478,12 +4479,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         width: math.max(1, x),
         height: maxHeight,
         child: Stack(clipBehavior: Clip.none, children: [
-          for (final glyph in glyphs)
+          for (var i = 0; i < glyphCharacters.length; i++)
             Positioned(
-              left: glyph.left,
-              top: (maxHeight - glyph.height) / 2,
-              child: Text(glyph.character, maxLines: 1,
-                  softWrap: false, style: glyph.style),
+              left: glyphPositions[i],
+              top: (maxHeight - glyphHeights[i]) / 2,
+              child: Text(glyphCharacters[i], maxLines: 1,
+                  softWrap: false, style: glyphStyles[i]),
             ),
         ]),
       ),
