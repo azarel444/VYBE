@@ -1983,7 +1983,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Keep the artist visually dominant. Long names break at word
     // boundaries into two display-lettering lines rather than scaling down.
     final artistName = _artistStr.trim();
-    final artistWords = artistName.split(RegExp(r'\\s+'));
+    final artistWords = artistName.split(RegExp(r'\s+'));
     final useTwoLines = model.active &&
         _clearLogoBytes == null &&
         artistWords.length > 1 &&
