@@ -4403,10 +4403,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // The alpha TTF has uneven side bearings. Position glyphs by measured
   // advances with a controlled overlap instead of Flutter's letterSpacing
   // (which produced large D/A and E/A gaps in the preview).
+  // The first glyph in each WORD is larger, with equal extension above and
+  // below the rest of the word. Keep the approved per-pair optical kerning.
+  static const double _riotWordInitialScale = 1.27;
+
   Widget _artistText(double size, {Color? color, String? letteringOverride}) {
-    // VYBE Riot is display lettering: adjacent outlines are intentionally
-    // allowed to overlap, just as they would in a manually kerned wordmark.
-    // A single Text run cannot provide this per-pair optical positioning.
     final lettering = (letteringOverride ?? _artistStr).toUpperCase();
     final fontSize = size * 1.45;
     final style = TextStyle(
@@ -4422,14 +4423,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Shadow(color: Color(0x99FF005E), offset: Offset(0, 2), blurRadius: 2),
       ],
     );
-    final glyphs = <Widget>[];
+    // Measure glyphs first, then center every glyph within the tallest line
+    // box. This centers the enlarged initial both above and below its word.
+    final glyphs = <({double left, double height, String character, TextStyle style})>[];
     var x = 0.0;
     var previous = '';
     var maxHeight = fontSize;
     for (final rune in lettering.runes) {
       final character = String.fromCharCode(rune);
+      final isWordInitial = character != ' ' &&
+          (previous.isEmpty || previous == ' ');
+      final glyphStyle = isWordInitial
+          ? style.copyWith(fontSize: fontSize * _riotWordInitialScale)
+          : style;
       final painter = TextPainter(
-        text: TextSpan(text: character, style: style),
+        text: TextSpan(text: character, style: glyphStyle),
         textDirection: TextDirection.ltr,
         maxLines: 1,
       )..layout();
@@ -4437,11 +4445,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       maxHeight = math.max(maxHeight, painter.height);
       if (previous.isNotEmpty) {
         if (character == ' ' || previous == ' ') {
-          // Only word boundaries should have obvious whitespace.
+          // Keep the approved word spacing exactly as it was.
           x += character == ' ' ? 0 : fontSize * .06;
         } else {
-          // The T overhang must sit above the following A, not push it away.
-          // Other diagonal and brush strokes likewise interlock optically.
+          // Optical overlap is unchanged from the already-approved lettering.
           final pair = previous + character;
           final overlap = pair == 'TA' ? .42 : (pair == 'AT' || pair == 'AV' ||
                   pair == 'VA' || pair == 'WA' || pair == 'AW' ||
@@ -4455,10 +4462,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           x -= math.min(fontSize * overlap, glyphWidth * (pair == 'TA' ? .66 : .45));
         }
       }
-      glyphs.add(Positioned(
+      glyphs.add((
         left: x,
-        top: 0,
-        child: Text(character, maxLines: 1, softWrap: false, style: style),
+        height: painter.height,
+        character: character,
+        style: glyphStyle,
       ));
       x += glyphWidth;
       previous = character;
@@ -4469,7 +4477,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: SizedBox(
         width: math.max(1, x),
         height: maxHeight,
-        child: Stack(clipBehavior: Clip.none, children: glyphs),
+        child: Stack(clipBehavior: Clip.none, children: [
+          for (final glyph in glyphs)
+            Positioned(
+              left: glyph.left,
+              top: (maxHeight - glyph.height) / 2,
+              child: Text(glyph.character, maxLines: 1,
+                  softWrap: false, style: glyph.style),
+            ),
+        ]),
       ),
     );
   }
@@ -4489,7 +4505,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     var prev = '';
     for (final rune in lettering.runes) {
       final c = String.fromCharCode(rune);
-      final p = TextPainter(text: TextSpan(text: c, style: style),
+      // Mirror the displayed initial size so line wrapping never underestimates
+      // the actual wordmark width or forces the artist back to a smaller size.
+      final isWordInitial = c != ' ' && (prev.isEmpty || prev == ' ');
+      final glyphStyle = isWordInitial
+          ? style.copyWith(fontSize: fontSize * _riotWordInitialScale)
+          : style;
+      final p = TextPainter(text: TextSpan(text: c, style: glyphStyle),
           textDirection: TextDirection.ltr, maxLines: 1)..layout();
       final width = p.width;
       if (prev.isNotEmpty) {
