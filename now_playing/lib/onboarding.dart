@@ -303,7 +303,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             const SizedBox(height: 6),
             const Text('Choose your music folder to find album covers, artist fanart and clearlogos. Subfolders are included.'),
             const SizedBox(height: 8),
-            OutlinedButton.icon(
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF005E),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                  textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                ),
               onPressed: _choosingArtwork ? null : () async {
                 setState(() => _choosingArtwork = true);
                 try {
@@ -320,7 +328,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 }
               },
               icon: const Icon(Icons.folder_open),
-              label: const Text('Choose music folder'),
+              label: const Text('SELECT LOCAL MUSIC FOLDER'),
+              ),
             ),
             Text(_localArtStatus, style: const TextStyle(color: Colors.white70)),
             const SizedBox(height: 14),

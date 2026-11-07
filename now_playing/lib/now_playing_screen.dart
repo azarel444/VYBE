@@ -4415,6 +4415,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Shape complete words instead of positioning isolated glyphs. The old
     // advance * .59 cursor created unpredictable internal gaps (e.g. ST ART).
     // Text shaping preserves the font's own kerning and natural side bearings.
+    if (!model.active) {
+      return Text(_artistStr.toUpperCase(), maxLines: 1, softWrap: false,
+        style: TextStyle(fontFamily: 'VYBERiot', fontSize: size * 1.45,
+          color: color ?? Colors.white, height: 1.15,
+          shadows: const [Shadow(color: Color(0xAA000000),
+            offset: Offset(1, 2), blurRadius: 3)]));
+    }
     final words = _artistStr.toUpperCase().trim().split(RegExp(r'\s+'));
     final base = size * (model.active ? 3.0 : 1.45);
     final ink = color ?? Colors.white;
@@ -4437,8 +4444,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           result.add(TextSpan(text: ' ', style: style(base, tint)
               .copyWith(letterSpacing: 0, wordSpacing: base * .10)));
         }
-        result.add(TextSpan(text: word.substring(0, 1),
-            style: style(base * 1.27, tint)));
+        result.add(WidgetSpan(
+          alignment: PlaceholderAlignment.baseline,
+          baseline: TextBaseline.alphabetic,
+          child: Transform.translate(
+            offset: Offset(0, base * .12),
+            child: Text(word.substring(0, 1), style: style(base * 1.27, tint)),
+          ),
+        ));
         if (word.length > 1) {
           result.add(TextSpan(text: word.substring(1), style: style(base, tint)));
         }
@@ -4464,11 +4477,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         width: textWidth + base * .12,
         height: textHeight + 8,
         child: Stack(clipBehavior: Clip.none, children: [
-          Positioned(left: 0, right: 0, bottom: 5,
-            child: Container(height: math.max(1, base * .016),
-              decoration: const BoxDecoration(boxShadow: [
-                BoxShadow(color: Color(0xBBFF005E), blurRadius: 6),
-              ], color: Color(0xBFFF005E)))),
           Positioned(left: 0, bottom: 0, child: ClipRect(
             clipper: _VybeLowerEdgeClipper(),
             child: Transform.translate(
