@@ -4435,31 +4435,72 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // advances with a controlled overlap instead of Flutter's letterSpacing
   // (which produced large D/A and E/A gaps in the preview).
   Widget _artistText(double size, {Color? color}) {
-    // The VYBE Riot font now has its glyph side bearings removed in the
-    // actual TTF. Render the entire artist as one text run so Flutter can
-    // apply its advances without per-character or per-word spacing hacks.
+    // VYBE Riot is display lettering: adjacent outlines are intentionally
+    // allowed to overlap, just as they would in a manually kerned wordmark.
+    // A single Text run cannot provide this per-pair optical positioning.
+    final lettering = _artistStr.toUpperCase();
+    final fontSize = size * 1.45;
+    final style = TextStyle(
+      fontFamily: 'VYBERiot',
+      fontFamilyFallback: const ['Roboto'],
+      fontSize: fontSize,
+      height: 1.0,
+      letterSpacing: 0,
+      wordSpacing: 0,
+      color: color ?? Colors.white,
+      shadows: const [
+        Shadow(color: Color(0xAA000000), offset: Offset(1, 2), blurRadius: 3),
+        Shadow(color: Color(0x99FF005E), offset: Offset(0, 2), blurRadius: 2),
+      ],
+    );
+    final glyphs = <Widget>[];
+    var x = 0.0;
+    var previous = '';
+    var maxHeight = fontSize;
+    for (final rune in lettering.runes) {
+      final character = String.fromCharCode(rune);
+      final painter = TextPainter(
+        text: TextSpan(text: character, style: style),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+      final glyphWidth = painter.width;
+      maxHeight = math.max(maxHeight, painter.height);
+      if (previous.isNotEmpty) {
+        if (character == ' ' || previous == ' ') {
+          // Only word boundaries should have obvious whitespace.
+          x += character == ' ' ? 0 : fontSize * .06;
+        } else {
+          // The T overhang must sit above the following A, not push it away.
+          // Other diagonal and brush strokes likewise interlock optically.
+          final pair = previous + character;
+          final overlap = (pair == 'TA' || pair == 'AT' || pair == 'AV' ||
+                  pair == 'VA' || pair == 'WA' || pair == 'AW' ||
+                  pair == 'YA' || pair == 'AY' || pair == 'LT' ||
+                  pair == 'LY' || pair == 'TY')
+              ? .34
+              : (previous == 'T' || previous == 'F' || previous == 'L' ||
+                      character == 'A' || character == 'V' || character == 'Y')
+                  ? .25
+                  : .18;
+          x -= math.min(fontSize * overlap, glyphWidth * .45);
+        }
+      }
+      glyphs.add(Positioned(
+        left: x,
+        top: 0,
+        child: Text(character, maxLines: 1, softWrap: false, style: style),
+      ));
+      x += glyphWidth;
+      previous = character;
+    }
     return Transform(
       alignment: Alignment.center,
       transform: Matrix4.skewX(-.16),
-      child: Text(
-        _artistStr.toUpperCase(),
-        maxLines: 1,
-        softWrap: false,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontFamily: 'VYBERiot',
-          fontFamilyFallback: const ['Roboto'],
-          fontSize: size * 1.45,
-          height: 1.0,
-          letterSpacing: 0,
-          wordSpacing: 0,
-          color: color ?? Colors.white,
-          shadows: const [
-            Shadow(color: Color(0xAA000000), offset: Offset(1, 2), blurRadius: 3),
-            Shadow(color: Color(0x99FF005E), offset: Offset(0, 2), blurRadius: 2),
-          ],
-        ),
+      child: SizedBox(
+        width: math.max(1, x),
+        height: maxHeight,
+        child: Stack(clipBehavior: Clip.none, children: glyphs),
       ),
     );
   }
