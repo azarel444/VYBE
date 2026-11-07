@@ -1981,7 +1981,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
 
     final artistHeader = SizedBox(width: w * (portrait ? .94 : .88), height: h * (portrait ? .18 : .22),
-      child: Center(child: _artist(h * .065, Alignment.center, false)));
+      child: Center(child: !model.active
+        ? Text('START MUSIC IN ANY PLAYER APP', maxLines: 2,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontFamily: 'Roboto', fontSize: h * .055,
+              fontWeight: FontWeight.w800, fontStyle: FontStyle.italic,
+              color: Colors.white, shadows: const [
+                Shadow(color: Color(0xAA000000), blurRadius: 6)]))
+        : _artist(h * .065, Alignment.center, false)));
 
     if (portrait) {
       // Focused: lower the album/ring assembly and let its reflection extend
@@ -4412,46 +4419,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // advances with a controlled overlap instead of Flutter's letterSpacing
   // (which produced large D/A and E/A gaps in the preview).
   Widget _artistText(double size, {Color? color}) {
-    // Render text in a single paragraph. WidgetSpan initials and stacked
-    // full-size neon copies produced oversized compositing surfaces during
-    // active playback, especially on low-end head units.
-    final words = _artistStr.toUpperCase().trim().split(RegExp(r'\s+'));
-    final base = size * 1.45;
-    final ink = color ?? Colors.white;
-    final spans = <InlineSpan>[];
-    TextStyle glyphStyle(double scale) => TextStyle(
-      fontFamily: 'VYBERiot',
-      fontFamilyFallback: const ['Roboto'],
-      fontSize: base * scale,
-      height: 1.0,
-      letterSpacing: -base * .035,
-      color: ink,
-      shadows: const [
-        Shadow(color: Color(0xAA000000), offset: Offset(1, 2), blurRadius: 3),
-        Shadow(color: Color(0x99FF005E), offset: Offset(0, 2), blurRadius: 2),
-      ],
-    );
-    for (var i = 0; i < words.length; i++) {
-      final word = words[i];
-      if (word.isEmpty) continue;
-      if (i > 0) {
-        spans.add(TextSpan(text: ' ', style: glyphStyle(1.0)
-            .copyWith(letterSpacing: 0, wordSpacing: 0)));
-      }
-      spans.add(TextSpan(text: word.substring(0, 1), style: glyphStyle(1.20)));
-      if (word.length > 1) {
-        spans.add(TextSpan(text: word.substring(1), style: glyphStyle(1.0)));
-      }
-    }
-    return Transform(
-      alignment: Alignment.center,
-      transform: Matrix4.skewX(-.16),
-      child: Text.rich(
-        TextSpan(children: spans),
-        maxLines: 1,
-        softWrap: false,
-        overflow: TextOverflow.clip,
-        textAlign: TextAlign.center,
+    // The experimental Riot glyphs have inconsistent visible side bearings:
+    // names such as WAX TAYLOR become unreadable even after normalization.
+    // Keep fallback names readable until the font is redesigned as a proper
+    // connected wordmark. No per-letter widgets, clipping or glow overlays.
+    return Text(
+      _artistStr.toUpperCase(),
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontFamily: 'Roboto',
+        fontSize: size * (model.active ? 1.12 : 1.0),
+        fontWeight: FontWeight.w800,
+        fontStyle: FontStyle.italic,
+        letterSpacing: size * .015,
+        color: color ?? Colors.white,
+        shadows: const [
+          Shadow(color: Color(0xB0000000), offset: Offset(1, 2), blurRadius: 5),
+        ],
       ),
     );
   }
