@@ -4412,75 +4412,77 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // advances with a controlled overlap instead of Flutter's letterSpacing
   // (which produced large D/A and E/A gaps in the preview).
   Widget _artistText(double size, {Color? color}) {
+    // Shape complete words instead of positioning isolated glyphs. The old
+    // advance * .59 cursor created unpredictable internal gaps (e.g. ST ART).
+    // Text shaping preserves the font's own kerning and natural side bearings.
     final words = _artistStr.toUpperCase().trim().split(RegExp(r'\s+'));
     final base = size * (model.active ? 3.0 : 1.45);
     final ink = color ?? Colors.white;
-    final letters = <Widget>[];
-    final offsets = <double>[];
-    double cursor = 0;
-    double maxHeight = base * 1.7;
-    for (var wi = 0; wi < words.length; wi++) {
-      if (wi > 0) cursor += base * .23;
-      final word = words[wi];
-      for (var ci = 0; ci < word.length; ci++) {
-        final glyph = word.substring(ci, ci + 1);
-        final fontSize = base * (ci == 0 ? 1.27 : 1.0);
-        TextStyle glyphStyle(Color tint) => TextStyle(
-          fontFamily: 'VYBERiot',
-          fontFamilyFallback: const ['Roboto'],
-          fontSize: fontSize,
-          fontWeight: FontWeight.w400,
-          height: 1.0,
-          color: tint,
-        );
-        final painter = TextPainter(
-          text: TextSpan(text: glyph, style: glyphStyle(ink)),
-          textDirection: TextDirection.ltr,
-          maxLines: 1,
-        )..layout();
-        final advance = painter.width;
-        offsets.add(cursor);
-        // Offset the hot-pink copy down and mask it to the lower quarter:
-        // the body stays white and only downward blade edges catch neon.
-        final glyphHeight = painter.height;
-        letters.add(SizedBox(
-          width: advance + 5,
-          height: glyphHeight + 8,
-          child: Stack(clipBehavior: Clip.none, children: [
-            Positioned(left: 0, top: 0, child: ClipRect(
-              clipper: _VybeLowerEdgeClipper(),
-              child: Transform.translate(
-                offset: Offset(0, math.max(2, fontSize * .055)),
-                child: Text(glyph, style: glyphStyle(const Color(0xFFFF005E)),
-                  softWrap: false),
-              ),
-            )),
-            Positioned(left: 0, top: 0, child: Text(glyph, softWrap: false,
-              style: glyphStyle(ink).copyWith(shadows: const [
-                Shadow(color: Color(0x90000000), offset: Offset(1, 3),
-                  blurRadius: 3),
-              ]))),
-          ]),
-        ));
-        cursor += advance * (ci == word.length - 1 ? 1.0 : .59);
-        maxHeight = math.max(maxHeight, glyphHeight + base * .15);
+    final spans = <InlineSpan>[];
+    TextStyle style(double fontSize, Color tint) => TextStyle(
+      fontFamily: 'VYBERiot',
+      fontFamilyFallback: const ['Roboto'],
+      fontSize: fontSize,
+      fontWeight: FontWeight.w400,
+      height: 1.0,
+      letterSpacing: -fontSize * .045,
+      color: tint,
+    );
+    List<InlineSpan> makeSpans(Color tint) {
+      final result = <InlineSpan>[];
+      for (var wi = 0; wi < words.length; wi++) {
+        final word = words[wi];
+        if (word.isEmpty) continue;
+        if (wi > 0) {
+          result.add(TextSpan(text: ' ', style: style(base, tint)
+              .copyWith(letterSpacing: 0, wordSpacing: base * .10)));
+        }
+        result.add(TextSpan(text: word.substring(0, 1),
+            style: style(base * 1.27, tint)));
+        if (word.length > 1) {
+          result.add(TextSpan(text: word.substring(1), style: style(base, tint)));
+        }
       }
+      return result;
     }
+    spans.addAll(makeSpans(ink));
+    final main = TextPainter(
+      text: TextSpan(children: spans),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    final textWidth = main.width;
+    final textHeight = main.height;
+    final neon = Text.rich(TextSpan(children: makeSpans(const Color(0xFFFF005E))),
+        maxLines: 1, softWrap: false);
+    final white = Text.rich(TextSpan(children: spans), maxLines: 1,
+        softWrap: false);
     return Transform(
       alignment: Alignment.center,
       transform: Matrix4.skewX(-.19),
       child: SizedBox(
-        width: cursor + base * .12,
-        height: maxHeight + 8,
+        width: textWidth + base * .12,
+        height: textHeight + 8,
         child: Stack(clipBehavior: Clip.none, children: [
-          // The reference has a razor-thin pink streak under the lettering.
           Positioned(left: 0, right: 0, bottom: 5,
             child: Container(height: math.max(1, base * .016),
               decoration: const BoxDecoration(boxShadow: [
                 BoxShadow(color: Color(0xBBFF005E), blurRadius: 6),
               ], color: Color(0xBFFF005E)))),
-          for (var i = 0; i < letters.length; i++)
-            Positioned(left: offsets[i], bottom: 0, child: letters[i]),
+          Positioned(left: 0, bottom: 0, child: ClipRect(
+            clipper: _VybeLowerEdgeClipper(),
+            child: Transform.translate(
+              offset: Offset(0, math.max(2, base * .055)),
+              child: neon,
+            ),
+          )),
+          Positioned(left: 0, bottom: 0, child: Text.rich(
+            TextSpan(children: spans, style: const TextStyle(shadows: [
+              Shadow(color: Color(0x90000000),
+                  offset: Offset(1, 3), blurRadius: 3),
+            ])),
+            maxLines: 1, softWrap: false,
+          )),
         ]),
       ),
     );
