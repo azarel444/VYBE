@@ -4527,7 +4527,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final lineHeight = size * 1.45 * _riotWordInitialScale;
     // Keep consecutive wordmarks close; the tall font metrics previously
     // created conspicuous blank strips between wrapped lines.
-    final lineStep = lineHeight * .41;
+    final lineStep = lineHeight * .47;
     return SizedBox(
       height: lineHeight + lineStep * (lines.length - 1),
       child: Stack(clipBehavior: Clip.none, children: [
