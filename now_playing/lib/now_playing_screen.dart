@@ -1460,16 +1460,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(height: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
-                  ? math.min(h * .225, w * .45) : w * .22,
+              SizedBox(height: math.min(h * .225, w * .45),
                 child: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
                     ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                         alignment: Alignment.center,
                         filterQuality: FilterQuality.medium)
-                    : FittedBox(fit: BoxFit.contain,
-                        alignment: Alignment.center,
-                        child: Text(artist, maxLines: 1, softWrap: false,
-                            style: titleStyle.copyWith(fontSize: w * .19)))),
+                    : _artist(w * .075, Alignment.center, false)),
               SizedBox(height: h * .008),
               Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
@@ -1493,16 +1489,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
                     alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
                     filterQuality: FilterQuality.medium))
-              : Align(
-                  alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Text(artist,
-                      textAlign: flipped ? TextAlign.right : TextAlign.left,
-                      maxLines: 1, softWrap: false,
-                      style: titleStyle.copyWith(
-                        fontSize: songStyle.fontSize! * 3.6)))))),
+              : SizedBox(height: h * .34,
+                  child: _artist(h * .085,
+                    flipped ? Alignment.centerRight : Alignment.centerLeft,
+                    false)))),
         Positioned(right: w * .025, top: h * .043, width: w * .25,
           child: readable(Column(
             crossAxisAlignment: flipped
@@ -2337,9 +2327,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       top: h * 0.11,
       bottom: reserve,
       child: Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: SizedBox(
+        child: SizedBox(
             width: infoW,
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -2365,7 +2353,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ],
             ),
           ),
-        ),
       ),
     );
     return Stack(
@@ -2606,9 +2593,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // with breathing room above the bottom screen edge.
             padding: EdgeInsets.only(top: h * 0.025, bottom: h * 0.045),
             child: Center(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: SizedBox(
+            child: SizedBox(
                 width: w * 0.84,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -2627,7 +2612,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   ],
                 ),
               ),
-            ),
             ),
           ),
         ),
@@ -3087,9 +3071,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             bottom: h * 0.02,
             child: Align(
               alignment: Alignment.center,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: SizedBox(
+              child: SizedBox(
                   width: w * 0.88,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -3108,7 +3090,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ],
                   ),
                 ),
-              ),
             ),
           ),
         ],
@@ -3275,9 +3256,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           Positioned.fill(
             top: barsH,
             child: Center(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: SizedBox(
+              child: SizedBox(
                   width: w * 0.9,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -3299,7 +3278,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ],
                   ),
                 ),
-              ),
             ),
           ),
         ],
@@ -3483,9 +3461,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             top: h * 0.575,
             bottom: h * 0.105,
             child: Center(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: SizedBox(
+              child: SizedBox(
                   width: w * 0.84,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -3500,7 +3476,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ],
                   ),
                 ),
-              ),
             ),
           ),
           if (model.album.isNotEmpty && model.album != model.title)
@@ -3831,9 +3806,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           height: math.max(1.0, c.dy - ringEdge - infoTop).toDouble(),
           child: Align(
             alignment: Alignment.center,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: SizedBox(
+            child: SizedBox(
                 width: w * 0.88,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -3848,7 +3821,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   ],
                 ),
               ),
-            ),
           ),
         ),
       );
@@ -4072,9 +4044,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             top: 0,
             bottom: 0,
             child: Center(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: SizedBox(
+              child: SizedBox(
                   width: cw,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -4098,7 +4068,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ],
                   ),
                 ),
-              ),
             ),
           ),
         ],
