@@ -4481,8 +4481,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     var maxHeight = fontSize;
     for (final rune in lettering.runes) {
       final character = String.fromCharCode(rune);
-      final isWordInitial = character != ' ' &&
-          (previous.isEmpty || previous == ' ');
+      // Use an explicit, modest word gap. Measuring a fallback-font space
+      // previously added too much whitespace between words.
+      if (character == ' ') {
+        if (previous.isNotEmpty && previous != ' ') {
+          x += fontSize * .22;
+          previous = ' ';
+        }
+        continue;
+      }
+      final isWordInitial = previous.isEmpty || previous == ' ';
       final glyphStyle = isWordInitial
           ? style.copyWith(fontSize: fontSize * _riotWordInitialScale)
           : style;
@@ -4493,13 +4501,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       )..layout();
       final glyphWidth = painter.width;
       maxHeight = math.max(maxHeight, painter.height);
-      if (previous.isNotEmpty) {
-        if (character == ' ' || previous == ' ') {
-          // Keep the approved word spacing exactly as it was.
-          x += character == ' ' ? 0 : fontSize * .06;
-        } else {
-          x -= _riotPairOverlap(previous, character, fontSize, glyphWidth);
-        }
+      if (previous.isNotEmpty && previous != ' ') {
+        x -= _riotPairOverlap(previous, character, fontSize, glyphWidth);
       }
       glyphCharacters.add(character);
       glyphStyles.add(glyphStyle);
@@ -4568,21 +4571,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     var prev = '';
     for (final rune in lettering.runes) {
       final c = String.fromCharCode(rune);
-      // Mirror the displayed initial size so line wrapping never underestimates
-      // the actual wordmark width or forces the artist back to a smaller size.
-      final isWordInitial = c != ' ' && (prev.isEmpty || prev == ' ');
+      // Match the exact gap and initial sizing used in _artistText so
+      // line-breaking widths stay faithful to what is drawn on screen.
+      if (c == ' ') {
+        if (prev.isNotEmpty && prev != ' ') {
+          x += fontSize * .22;
+          prev = ' ';
+        }
+        continue;
+      }
+      final isWordInitial = prev.isEmpty || prev == ' ';
       final glyphStyle = isWordInitial
           ? style.copyWith(fontSize: fontSize * _riotWordInitialScale)
           : style;
       final p = TextPainter(text: TextSpan(text: c, style: glyphStyle),
           textDirection: TextDirection.ltr, maxLines: 1)..layout();
       final width = p.width;
-      if (prev.isNotEmpty) {
-        if (c == ' ' || prev == ' ') {
-          x += c == ' ' ? 0 : fontSize * .06;
-        } else {
-          x -= _riotPairOverlap(prev, c, fontSize, width);
-        }
+      if (prev.isNotEmpty && prev != ' ') {
+        x -= _riotPairOverlap(prev, c, fontSize, width);
       }
       x += width;
       prev = c;
@@ -4787,7 +4793,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         height: s,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(s * 0.018),
-          border: Border.all(color: const Color(0xFFFF005E).withOpacity(0.35), width: 1),
+          border: Border.all(color: _palette.a.withOpacity(0.68), width: 1),
           boxShadow: [
             BoxShadow(
                 color: glow.withOpacity(0.20),
