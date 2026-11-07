@@ -4420,36 +4420,50 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     double cursor = 0;
     double maxHeight = base * 1.7;
     for (var wi = 0; wi < words.length; wi++) {
-      if (wi > 0) cursor += base * .22;
+      if (wi > 0) cursor += base * .23;
       final word = words[wi];
       for (var ci = 0; ci < word.length; ci++) {
         final glyph = word.substring(ci, ci + 1);
         final fontSize = base * (ci == 0 ? 1.27 : 1.0);
-        final style = TextStyle(
+        TextStyle glyphStyle(Color tint) => TextStyle(
           fontFamily: 'VYBERiot',
           fontFamilyFallback: const ['Roboto'],
           fontSize: fontSize,
           fontWeight: FontWeight.w400,
           height: 1.0,
-          color: ink,
-          shadows: const [
-            // Pink light catches the downward razor points only.
-            Shadow(color: Color(0xAFFF005E), offset: Offset(1, 5), blurRadius: 3),
-            Shadow(color: Color(0xC8000000), offset: Offset(0, 3), blurRadius: 5),
-          ],
+          color: tint,
         );
         final painter = TextPainter(
-          text: TextSpan(text: glyph, style: style),
+          text: TextSpan(text: glyph, style: glyphStyle(ink)),
           textDirection: TextDirection.ltr,
           maxLines: 1,
         )..layout();
         final advance = painter.width;
         offsets.add(cursor);
-        letters.add(Text(glyph, style: style, softWrap: false));
-        // Uniform overlap proportional to each glyph's actual advance.
-        // Never overlap so far that very narrow characters disappear.
+        // Offset the hot-pink copy down and mask it to the lower quarter:
+        // the body stays white and only downward blade edges catch neon.
+        final glyphHeight = painter.height;
+        letters.add(SizedBox(
+          width: advance + 5,
+          height: glyphHeight + 8,
+          child: Stack(clipBehavior: Clip.none, children: [
+            Positioned(left: 0, top: 0, child: ClipRect(
+              clipper: _VybeLowerEdgeClipper(),
+              child: Transform.translate(
+                offset: Offset(0, math.max(2, fontSize * .055)),
+                child: Text(glyph, style: glyphStyle(const Color(0xFFFF005E)),
+                  softWrap: false),
+              ),
+            )),
+            Positioned(left: 0, top: 0, child: Text(glyph, softWrap: false,
+              style: glyphStyle(ink).copyWith(shadows: const [
+                Shadow(color: Color(0x90000000), offset: Offset(1, 3),
+                  blurRadius: 3),
+              ]))),
+          ]),
+        ));
         cursor += advance * (ci == word.length - 1 ? 1.0 : .59);
-        maxHeight = math.max(maxHeight, painter.height + base * .15);
+        maxHeight = math.max(maxHeight, glyphHeight + base * .15);
       }
     }
     return Transform(
@@ -4457,8 +4471,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       transform: Matrix4.skewX(-.19),
       child: SizedBox(
         width: cursor + base * .12,
-        height: maxHeight,
+        height: maxHeight + 8,
         child: Stack(clipBehavior: Clip.none, children: [
+          // The reference has a razor-thin pink streak under the lettering.
+          Positioned(left: 0, right: 0, bottom: 5,
+            child: Container(height: math.max(1, base * .016),
+              decoration: const BoxDecoration(boxShadow: [
+                BoxShadow(color: Color(0xBBFF005E), blurRadius: 6),
+              ], color: Color(0xBFFF005E)))),
           for (var i = 0; i < letters.length; i++)
             Positioned(left: offsets[i], bottom: 0, child: letters[i]),
         ]),
@@ -4470,6 +4490,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         fontSize: size,
         fontWeight: FontWeight.w500,
         letterSpacing: size * 0.23,
+        fontStyle: FontStyle.italic,
         color: Colors.white,
       );
 
@@ -5444,4 +5465,14 @@ class _VybeAlbumLabelFrame extends CustomPainter {
   }
   @override
   bool shouldRepaint(covariant _VybeAlbumLabelFrame old) => old.accent != accent;
+}
+
+
+/// Restricts neon underpainting to the lower tips of brush lettering.
+class _VybeLowerEdgeClipper extends CustomClipper<Rect> {
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTWH(0, size.height * .70, size.width, size.height * .30);
+  @override
+  bool shouldReclip(covariant _VybeLowerEdgeClipper oldClipper) => false;
 }
