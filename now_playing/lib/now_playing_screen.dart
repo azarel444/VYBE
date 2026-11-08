@@ -1305,8 +1305,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final titleStyle = TextStyle(
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
       fontWeight: FontWeight.w400, letterSpacing: .3,
-      shadows: const [Shadow(color: Colors.black, blurRadius: 9),
-        Shadow(color: Colors.black, blurRadius: 17, offset: Offset(1, 2))]);
+      // Only the text fallback glows; clearlogos remain as supplied.
+      shadows: _artistNeonShadows);
     final songStyle = TextStyle(
       color: Colors.white, fontSize: portrait ? w * .049 : h * .052,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
@@ -3895,7 +3895,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               fontSize: artistSize,
               letterSpacing: artistSize * 0.3,
               color: _readableText(.82),
-              shadows: _cleanTextShadows,
+              shadows: _artistNeonShadows,
             ),
           ),
         Text(
@@ -4305,6 +4305,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     Shadow(color: Color(0x77000000), offset: Offset(0, 2), blurRadius: 8),
   ];
 
+  // Read colors directly from the cover: a user-selected UI accent palette
+  // must not change the artist's album-matched neon lettering.
+  ArtPalette get _artistNeonPalette =>
+      model.art?.palette ?? _lastArtPalette ?? ArtPalette.neutral;
+
+  // Keep lettering white/readable, tint only its halo with the cover.
+  // No extra image layers or animation are needed on low-end head units.
+  List<Shadow> get _artistNeonShadows {
+    if (!model.active) return _cleanTextShadows;
+    final p = _artistNeonPalette;
+    return [
+      const Shadow(color: Color(0xB0000000),
+          offset: Offset(0, 1), blurRadius: 3.5),
+      Shadow(color: p.a.withOpacity(.58), blurRadius: 8),
+      Shadow(color: p.b.withOpacity(.36), blurRadius: 16),
+    ];
+  }
+
   /// Compositional fade (not a text backdrop), placed beneath foreground art.
   Widget _bottomArtworkFade() => const IgnorePointer(
         child: DecoratedBox(
@@ -4418,7 +4436,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           fontWeight: FontWeight.w400,
           letterSpacing: model.active ? size * 0.38 : size * 0.12,
           color: color ?? _readableText(_nearWhiteText ? .82 : .62),
-          shadows: _cleanTextShadows,
+          shadows: _artistNeonShadows,
         ),
       );
 
@@ -4455,21 +4473,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     return _shaded(_fit(
         (vhs || _vhsOn)
-            ? _split((c) => _artistText(size, color: c), main: Colors.white70)
+            ? _split((c) => _artistText(size, color: c),
+                main: Colors.white70,
+                leftGhost: _artistNeonPalette.a.withOpacity(.60),
+                rightGhost: _artistNeonPalette.b.withOpacity(.60))
             : _artistText(size),
         a,
       ));
   }
 
   /// RGB split: a pink and a cyan ghost behind the sharp text.
-  Widget _split(Widget Function(Color) build, {Color main = Colors.white}) {
+  Widget _split(Widget Function(Color) build, {Color main = Colors.white,
+      Color leftGhost = const Color(0x99FF2E93),
+      Color rightGhost = const Color(0x9905D9FF)}) {
     final d = 1.0 + 2.5 * settings.vhsEffects;
     return Stack(
       children: [
         Transform.translate(
-            offset: Offset(-d, 0), child: build(const Color(0x99FF2E93))),
+            offset: Offset(-d, 0), child: build(leftGhost)),
         Transform.translate(
-            offset: Offset(d, 0), child: build(const Color(0x9905D9FF))),
+            offset: Offset(d, 0), child: build(rightGhost)),
         build(main),
       ],
     );
