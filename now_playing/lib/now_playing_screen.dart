@@ -1396,7 +1396,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // inside the sleeve so its label stays covered, leaving roughly
     // half the disc exposed. Natural screen clipping is intentional.
     // Landscape: upper-right edge. Portrait: lower-left edge.
-    const vinylEdgeInset = .055;
+    // Portrait needs a little more tuck so the visible vinyl stays aligned
+    // with the diagonal sleeve's leading edge rather than hanging below it.
+    final vinylEdgeInset = portrait ? .090 : .055;
     final vinylEdgeOffset = .3535533905932738 - vinylEdgeInset;
     final musiczineVinylCenterX =
         sleeveCenterX + sleeveSize * (portrait ? -vinylEdgeOffset : vinylEdgeOffset);
