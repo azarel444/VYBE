@@ -61,6 +61,11 @@ class VybeLink extends ChangeNotifier {
   String _currentSenderArtist = '';
   int _sentFanartHash = 0;
   int _fanartGeneration = 0;
+  Uint8List? receivedClearLogo;
+  String receivedClearLogoArtist = '';
+  String _sentClearLogoArtist = '';
+  int _sentClearLogoHash = 0;
+  int _clearLogoGeneration = 0;
 
   static const MethodChannel _direct = MethodChannel('vybe/direct');
   bool directAvailable = false;
@@ -319,6 +324,8 @@ class VybeLink extends ChangeNotifier {
     _sentFanartArtist = ''; _currentSenderArtist = '';
     _sentFanartHash = 0; _fanartGeneration++;
     receivedFanart = null; receivedFanartArtist = '';
+    receivedClearLogo = null; receivedClearLogoArtist = '';
+    _sentClearLogoArtist = ''; _sentClearLogoHash = 0; ++_clearLogoGeneration;
     _lastMetadataSentAt = 0; _lastMetadataState = '';
 
     // The sender must never clear its own media playback. A receiver retains
@@ -450,7 +457,6 @@ class VybeLink extends ChangeNotifier {
     }
     if (generation != _generation || !identical(socket, _socket)) return;
     status = 'Connected to $address';
-    notifyListeners();
     // The original working method transmitted immediately upon TCP connect.
     // Do not wait for a hello packet, which could prevent all song data.
     final peer = socket;
@@ -485,6 +491,9 @@ class VybeLink extends ChangeNotifier {
         onError: (_) => _senderDisconnected(peer), cancelOnError: true);
     _sendTimer = Timer.periodic(const Duration(seconds: 2), (_) => _send());
     _send();
+    // Send cached clearlogos only after the first metadata packet, so the
+    // receiver already knows which artist a logo belongs to.
+    notifyListeners();
   }
 
   void _receiverDisconnected(Socket client) {
@@ -598,6 +607,41 @@ class VybeLink extends ChangeNotifier {
     }();
   }
 
+  /// Send transparent artist logos separately from covers and fanart.
+  /// The receiver can use its own local logo instead when available.
+  void sendClearLogo(String artist, Uint8List? bytes) {
+    final socket = _socket;
+    if (socket == null || !enabled || role != 'sender' || artist.isEmpty ||
+        bytes == null || bytes.isEmpty) return;
+    final hash = Object.hash(bytes.length, bytes.first,
+        bytes[bytes.length ~/ 2], bytes.last);
+    if (_sentClearLogoArtist == artist && _sentClearLogoHash == hash) return;
+    _sentClearLogoArtist = artist;
+    _sentClearLogoHash = hash;
+    final token = ++_clearLogoGeneration;
+    () async {
+      try {
+        final codec = await ui.instantiateImageCodec(bytes, targetWidth: 640);
+        final frame = await codec.getNextFrame();
+        // PNG is required: JPEG would destroy the logo's transparency.
+        final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+        frame.image.dispose(); codec.dispose();
+        if (data == null || token != _clearLogoGeneration ||
+            !identical(socket, _socket) || artist != _model?.artist.trim()) return;
+        final compact = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+        if (compact.length > 950000) {
+          artworkStatus = 'Clearlogo too large after resize';
+          notifyListeners();
+          return;
+        }
+        socket.write('${jsonEncode({'v': 2, 'kind': 'clearlogo', 'artist': artist, 'art': base64Encode(compact)})}\n');
+      } catch (e) {
+        artworkStatus = 'Clearlogo transfer error: $e';
+        notifyListeners();
+      }
+    }();
+  }
+
   // Socket data is ordered, but asynchronous artwork decoding must not allow
   // an older cover to overwrite a newly selected track.
   void _receive(String line) {
@@ -632,6 +676,10 @@ class VybeLink extends ChangeNotifier {
         if (incomingArtist != receivedFanartArtist) {
           receivedFanart = null; receivedFanartArtist = incomingArtist; notifyListeners();
         }
+        if (incomingArtist != receivedClearLogoArtist) {
+          receivedClearLogo = null; receivedClearLogoArtist = incomingArtist;
+          notifyListeners();
+        }
         metadataReceived++;
         _model?.applyLinkMetadata(
           titleValue: data['title'] is String ? data['title'] : '',
@@ -647,6 +695,12 @@ class VybeLink extends ChangeNotifier {
           data['artist'] == receivedFanartArtist) {
         try {
           receivedFanart = base64Decode(data['art'] as String);
+          notifyListeners();
+        } catch (_) { artworkErrors++; }
+      } else if (data['kind'] == 'clearlogo' && data['art'] is String &&
+          data['artist'] == receivedClearLogoArtist) {
+        try {
+          receivedClearLogo = base64Decode(data['art'] as String);
           notifyListeners();
         } catch (_) { artworkErrors++; }
       } else if (data['kind'] == 'art' && track == lastReceivedTrack && data['art'] is String) {
