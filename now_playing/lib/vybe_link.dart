@@ -457,7 +457,6 @@ class VybeLink extends ChangeNotifier {
     }
     if (generation != _generation || !identical(socket, _socket)) return;
     status = 'Connected to $address';
-    notifyListeners();
     // The original working method transmitted immediately upon TCP connect.
     // Do not wait for a hello packet, which could prevent all song data.
     final peer = socket;
@@ -492,6 +491,9 @@ class VybeLink extends ChangeNotifier {
         onError: (_) => _senderDisconnected(peer), cancelOnError: true);
     _sendTimer = Timer.periodic(const Duration(seconds: 2), (_) => _send());
     _send();
+    // Send cached clearlogos only after the first metadata packet, so the
+    // receiver already knows which artist a logo belongs to.
+    notifyListeners();
   }
 
   void _receiverDisconnected(Socket client) {
