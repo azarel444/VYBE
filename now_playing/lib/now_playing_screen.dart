@@ -1177,15 +1177,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Image.memory(_fanartBytes!, fit: BoxFit.cover, gaplessPlayback: true,
             filterQuality: FilterQuality.low),
         ),
-        // A single darkness layer controlled entirely by Background darkness.
-        // Zero means no dimming for artist photos, just like album covers.
-
+        // Independent fanart darkness for themes using artist photos.
+        ColoredBox(color: Colors.black.withOpacity(
+          settings.cinematicDarkness.clamp(0.0, 1.0))),
       ]);
       if (settings.bgEffects) {
         fanart = FxComposite(
           mode: settings.fxBlendMode['Background Motion'] ?? 0,
           opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
-          child: _drift(fanart));
+          child: _drift(fanart, speed: settings.cinematicAnimationSpeed * 2.5));
       }
       return fanart;
     }
@@ -1248,7 +1248,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Slow pan and zoom. The blurred image is cached, so this only moves a
   /// finished layer around.
-  Widget _drift(Widget child) {
+  Widget _drift(Widget child, {double speed = 1.0}) {
     return AnimatedBuilder(
       animation: _tick,
       child: child,
@@ -1256,8 +1256,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final size = MediaQuery.of(context).size;
         final m = settings.kMotion;
         final motionSize = settings.fxSize['Background Motion'] ?? 1.0;
-        final dx = math.sin(_time * 0.08) * size.width * 0.085 * m * motionSize;
-        final dy = math.cos(_time * 0.06) * size.height * 0.075 * m * motionSize;
+        final dx = math.sin(_time * 0.08 * speed) * size.width * 0.085 * m * motionSize;
+        final dy = math.cos(_time * 0.06 * speed) * size.height * 0.075 * m * motionSize;
         return Transform.translate(
           offset: Offset(dx, dy),
           child: Transform.scale(
@@ -1310,6 +1310,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : ColorFiltered(
             colorFilter: _contrastFilter(settings.cinematicContrast),
             child: background);
+    // Bigfan/Muzine fanart must respond to Background Motion; only the
+    // cached image moves, leaving album sleeve, vinyl and info stationary.
+    final movingImage = showFanart && settings.bgEffects &&
+            settings.cinematicAnimationSpeed > 0
+        ? _drift(RepaintBoundary(child: image),
+            speed: settings.cinematicAnimationSpeed * 2.5)
+        : image;
     return Stack(fit: StackFit.expand, children: [
       AnimatedSwitcher(
         duration: const Duration(milliseconds: 700),
@@ -1317,7 +1324,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           key: ValueKey(showFanart ? 'fanart:${_fanartArtist}:$_fanartGalleryIndex' :
               useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
               'cinematic-template:${settings.cinematicPalette}'),
-          child: image)),
+          child: movingImage)),
       // A blurred copy of the artwork, masked to the outer edges.
       // The middle stays sharp and the blur fades inward smoothly.
       if (hasImage)
@@ -4053,7 +4060,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 textAlign: ta,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: big * 0.55, color: Colors.white30),
+                style: TextStyle(fontSize: big * 0.55, color: Colors.white30, shadows: _lyricShadows),
               ),
               SizedBox(height: big * 0.25),
               Text(
@@ -4066,6 +4073,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   fontWeight: FontWeight.w400,
                   height: 1.15,
                   color: Colors.white,
+                  shadows: _lyricShadows,
                 ),
               ),
               SizedBox(height: big * 0.25),
@@ -4074,7 +4082,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 textAlign: ta,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: big * 0.6, color: Colors.white38),
+                style: TextStyle(fontSize: big * 0.6, color: Colors.white38, shadows: _lyricShadows),
               ),
             ],
           ),
@@ -4248,7 +4256,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             fontSize: size,
             fontWeight: FontWeight.w400,
             color: Colors.white.withOpacity(0.85),
-            shadows: _cleanTextShadows,
+            shadows: _lyricShadows,
           ),
         ),
         a,
@@ -4286,6 +4294,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       color: Colors.white,
                       shadows: (vhs || _vhsOn)
                           ? const [
+                              Shadow(color: Color(0xE6000000),
+                                  offset: Offset(1, 2), blurRadius: 4),
+                              Shadow(color: Color(0xC0000000),
+                                  offset: Offset(0, 3), blurRadius: 11),
                               Shadow(
                                   color: Color(0x99FF2E93), offset: Offset(-1.5, 0)),
                               Shadow(
@@ -4304,7 +4316,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     style: TextStyle(
                       fontSize: h * 0.026,
                       color: Colors.white38,
-                      shadows: _cleanTextShadows,
+                      shadows: _lyricShadows,
                     ),
                   ),
                   a,
@@ -4380,6 +4392,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   List<Shadow> get _cleanTextShadows => const [
     Shadow(color: Color(0xB0000000), offset: Offset(0, 1), blurRadius: 3.5),
     Shadow(color: Color(0x77000000), offset: Offset(0, 2), blurRadius: 8),
+  ];
+
+  // Readable white lyrics on bright fanart and pale album art.
+  static const List<Shadow> _lyricShadows = [
+    Shadow(color: Color(0xE6000000), offset: Offset(1, 2), blurRadius: 4),
+    Shadow(color: Color(0xC0000000), offset: Offset(0, 3), blurRadius: 11),
   ];
 
   // Artist-name-only neon is sampled from the current album cover, even
