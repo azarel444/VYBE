@@ -49,6 +49,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final _fanart = ArtistFanartCache();
   Uint8List? _fanartBytes;
   Uint8List? _clearLogoBytes;
+  bool _clearLogoIsLocal = false;
   String _clearLogoArtist = '';
   int _clearLogoRequest = 0;
   Timer? _clearLogoRetryTimer;
@@ -265,8 +266,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _onLinkFanart() {
-    if (!mounted || VybeLink.instance.role != 'receiver') return;
+    if (!mounted) return;
     final link = VybeLink.instance;
+    if (link.role == 'sender') {
+      // Replay the current logo after initial metadata is sent on reconnect.
+      if (settings.useArtistClearLogo &&
+          _clearLogoArtist == model.artist.trim()) {
+        link.sendClearLogo(_clearLogoArtist, _clearLogoBytes);
+      }
+      return;
+    }
+    if (link.role != 'receiver') return;
+    final artist = model.artist.trim();
+    final logo = link.receivedClearLogo;
+    // Local head-unit art always takes priority over the phone.
+    if (settings.useArtistClearLogo &&
+        link.receivedClearLogoArtist == artist &&
+        logo != null && logo.isNotEmpty && !_clearLogoIsLocal &&
+        !identical(logo, _clearLogoBytes)) {
+      _clearLogoArtist = artist;
+      _clearLogoRetryTimer?.cancel();
+      _clearLogoRetryCount = 0;
+      setState(() => _clearLogoBytes = logo);
+    }
     if (link.receivedFanartArtist != model.artist ||
         (_fanartGalleryIsLocal && _fanartArtist == model.artist && _fanartGallery.isNotEmpty)) return;
     final incoming = link.receivedFanart;
@@ -744,6 +766,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (!settings.useArtistClearLogo || artist.isEmpty) {
       _clearLogoRetryTimer?.cancel();
       _clearLogoRetryCount = 0;
+      _clearLogoIsLocal = false;
       if (_clearLogoBytes != null || _clearLogoArtist.isNotEmpty) {
         ++_clearLogoRequest;
         _clearLogoArtist = '';
@@ -751,12 +774,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       }
       return;
     }
-    if (_clearLogoArtist == artist && _clearLogoBytes != null) return;
+    if (_clearLogoArtist == artist && _clearLogoBytes != null) {
+      if (!widget.driveHost && VybeLink.instance.enabled &&
+          VybeLink.instance.role == 'sender') {
+        VybeLink.instance.sendClearLogo(artist, _clearLogoBytes);
+      }
+      return;
+    }
     if (_clearLogoLoadingArtist == artist) return;
     if (_clearLogoArtist != artist) {
       _clearLogoRetryTimer?.cancel();
       _clearLogoRetryCount = 0;
       _clearLogoArtist = artist;
+      _clearLogoIsLocal = false;
       if (_clearLogoBytes != null && mounted) {
         setState(() => _clearLogoBytes = null);
       }
@@ -764,14 +794,39 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _clearLogoLoadingArtist = artist;
     final request = ++_clearLogoRequest;
     Uint8List? bytes;
+    bool localLogo = false;
+    bool transferred = false;
     try {
+      // The receiver's own on-disk logo is the first choice.
       bytes = await LocalArtwork.instance.clearLogo(artist);
-      if (bytes == null && settings.fanartProjectKey.isNotEmpty) {
+      localLogo = bytes != null && bytes.isNotEmpty;
+      if (!localLogo && !widget.driveHost) {
+        final link = VybeLink.instance;
+        if (link.enabled && link.role == 'receiver' &&
+            link.receivedClearLogoArtist == artist &&
+            link.receivedClearLogo?.isNotEmpty == true) {
+          bytes = link.receivedClearLogo;
+          transferred = true;
+        }
+      }
+      if ((bytes == null || bytes.isEmpty) && settings.fanartProjectKey.isNotEmpty) {
         bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
             personalKey: settings.fanartApiKey);
+        transferred = false;
       }
-      if (bytes != null && bytes.isNotEmpty) {
+      // Keep the latest Riot ClearLogo alpha-padding trim for local/online
+      // artwork. The sender has already trimmed transferred images.
+      if (!transferred && bytes != null && bytes.isNotEmpty) {
         bytes = await _trimClearLogoPadding(bytes);
+      }
+      // A logo could arrive while an online lookup was pending.
+      if (!localLogo && !widget.driveHost) {
+        final link = VybeLink.instance;
+        if (link.enabled && link.role == 'receiver' &&
+            link.receivedClearLogoArtist == artist &&
+            link.receivedClearLogo?.isNotEmpty == true) {
+          bytes = link.receivedClearLogo;
+        }
       }
     } catch (e) {
       debugPrint('VYBE clearlogo lookup failed for $artist: $e');
@@ -783,7 +838,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (bytes != null && bytes.isNotEmpty) {
       _clearLogoRetryTimer?.cancel();
       _clearLogoRetryCount = 0;
+      _clearLogoIsLocal = localLogo;
       setState(() => _clearLogoBytes = bytes);
+      if (!widget.driveHost && VybeLink.instance.enabled &&
+          VybeLink.instance.role == 'sender') {
+        VybeLink.instance.sendClearLogo(artist, bytes);
+      }
     } else {
       _scheduleClearLogoRetry(artist);
     }
@@ -844,6 +904,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ++_clearLogoRequest;
       _clearLogoArtist = '';
       _clearLogoLoadingArtist = '';
+      _clearLogoIsLocal = false;
       _clearLogoBytes = null;
     }
     _loadClearLogo();
@@ -1398,8 +1459,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       fontFamilyFallback: const ['Roboto'],
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
       fontWeight: FontWeight.w400, letterSpacing: portrait ? -w * .015 : -h * .018,
-      shadows: const [Shadow(color: Colors.black, blurRadius: 9),
-        Shadow(color: Colors.black, blurRadius: 17, offset: Offset(1, 2))]);
+      shadows: _artistNeonShadows);
     final songStyle = TextStyle(
       color: Colors.white, fontSize: portrait ? w * .043 : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
@@ -4295,6 +4355,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     Shadow(color: Color(0x77000000), offset: Offset(0, 2), blurRadius: 8),
   ];
 
+  // Artist-name-only neon is sampled from the current album cover, even
+  // when the user's theme palette uses the separate VYBE brand colors.
+  ArtPalette get _artistNeonPalette =>
+      model.art?.palette ?? _lastArtPalette ?? ArtPalette.neutral;
+
+  List<Shadow> get _artistNeonShadows {
+    if (!model.active) return _cleanTextShadows;
+    final p = _artistNeonPalette;
+    return [
+      const Shadow(color: Color(0xAA000000),
+          offset: Offset(1, 2), blurRadius: 3),
+      Shadow(color: p.a.withOpacity(.60), offset: const Offset(0, 2),
+          blurRadius: 5),
+      Shadow(color: p.b.withOpacity(.35), blurRadius: 13),
+    ];
+  }
+
   /// Compositional fade (not a text backdrop), placed beneath foreground art.
   Widget _bottomArtworkFade() => const IgnorePointer(
         child: DecoratedBox(
@@ -4468,10 +4545,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       letterSpacing: 0,
       wordSpacing: 0,
       color: color ?? Colors.white,
-      shadows: const [
-        Shadow(color: Color(0xAA000000), offset: Offset(1, 2), blurRadius: 3),
-        Shadow(color: Color(0x99FF005E), offset: Offset(0, 2), blurRadius: 2),
-      ],
+      shadows: _artistNeonShadows,
     );
     // Measure glyphs first, then center every glyph within the tallest line
     // box. This centers the enlarged initial both above and below its word.
@@ -4732,7 +4806,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     Widget lineWidget(String line) => (vhs || _vhsOn)
         ? _split((c) => _artistText(size, color: c, letteringOverride: line),
-            main: textColor ?? Colors.white70)
+            main: textColor ?? Colors.white70,
+            leftGhost: _artistNeonPalette.a.withOpacity(.60),
+            rightGhost: _artistNeonPalette.b.withOpacity(.60))
         : _artistText(size, color: textColor, letteringOverride: line);
     // Focused remains exactly as approved, including its explicit line breaks.
     if (settings.theme == 0 && !widget.driveHost) {
@@ -4757,14 +4833,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   /// RGB split: a pink and a cyan ghost behind the sharp text.
-  Widget _split(Widget Function(Color) build, {Color main = Colors.white}) {
+  Widget _split(Widget Function(Color) build, {
+      Color main = Colors.white,
+      Color leftGhost = const Color(0x99FF005E),
+      Color rightGhost = const Color(0x998A00FF)}) {
     final d = 1.0 + 2.5 * settings.vhsEffects;
     return Stack(
       children: [
         Transform.translate(
-            offset: Offset(-d, 0), child: build(const Color(0x99FF005E))),
+            offset: Offset(-d, 0), child: build(leftGhost)),
         Transform.translate(
-            offset: Offset(d, 0), child: build(const Color(0x998A00FF))),
+            offset: Offset(d, 0), child: build(rightGhost)),
         build(main),
       ],
     );
