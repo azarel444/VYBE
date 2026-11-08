@@ -1177,15 +1177,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: Image.memory(_fanartBytes!, fit: BoxFit.cover, gaplessPlayback: true,
             filterQuality: FilterQuality.low),
         ),
-        // A single darkness layer controlled entirely by Background darkness.
-        // Zero means no dimming for artist photos, just like album covers.
-
+        // Independent fanart darkness for themes using artist photos.
+        ColoredBox(color: Colors.black.withOpacity(
+          settings.cinematicDarkness.clamp(0.0, 1.0))),
       ]);
       if (settings.bgEffects) {
         fanart = FxComposite(
           mode: settings.fxBlendMode['Background Motion'] ?? 0,
           opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
-          child: _drift(fanart));
+          child: _drift(fanart, speed: settings.cinematicAnimationSpeed * 2.5));
       }
       return fanart;
     }
@@ -1248,7 +1248,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Slow pan and zoom. The blurred image is cached, so this only moves a
   /// finished layer around.
-  Widget _drift(Widget child) {
+  Widget _drift(Widget child, {double speed = 1.0}) {
     return AnimatedBuilder(
       animation: _tick,
       child: child,
@@ -1256,8 +1256,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final size = MediaQuery.of(context).size;
         final m = settings.kMotion;
         final motionSize = settings.fxSize['Background Motion'] ?? 1.0;
-        final dx = math.sin(_time * 0.08) * size.width * 0.085 * m * motionSize;
-        final dy = math.cos(_time * 0.06) * size.height * 0.075 * m * motionSize;
+        final dx = math.sin(_time * 0.08 * speed) * size.width * 0.085 * m * motionSize;
+        final dy = math.cos(_time * 0.06 * speed) * size.height * 0.075 * m * motionSize;
         return Transform.translate(
           offset: Offset(dx, dy),
           child: Transform.scale(
@@ -1310,6 +1310,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : ColorFiltered(
             colorFilter: _contrastFilter(settings.cinematicContrast),
             child: background);
+    // Bigfan/Muzine fanart must respond to Background Motion; only the
+    // cached image moves, leaving album sleeve, vinyl and info stationary.
+    final movingImage = showFanart && settings.bgEffects &&
+            settings.cinematicAnimationSpeed > 0
+        ? _drift(RepaintBoundary(child: image),
+            speed: settings.cinematicAnimationSpeed * 2.5)
+        : image;
     return Stack(fit: StackFit.expand, children: [
       AnimatedSwitcher(
         duration: const Duration(milliseconds: 700),
@@ -1317,7 +1324,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           key: ValueKey(showFanart ? 'fanart:${_fanartArtist}:$_fanartGalleryIndex' :
               useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
               'cinematic-template:${settings.cinematicPalette}'),
-          child: image)),
+          child: movingImage)),
       // A blurred copy of the artwork, masked to the outer edges.
       // The middle stays sharp and the blur fades inward smoothly.
       if (hasImage)
@@ -1396,7 +1403,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // inside the sleeve so its label stays covered, leaving roughly
     // half the disc exposed. Natural screen clipping is intentional.
     // Landscape: upper-right edge. Portrait: lower-left edge.
-    const vinylEdgeInset = .055;
+    // Portrait needs a little more tuck so the visible vinyl stays aligned
+    // with the diagonal sleeve's leading edge rather than hanging below it.
+    final vinylEdgeInset = portrait ? .090 : .055;
     final vinylEdgeOffset = .3535533905932738 - vinylEdgeInset;
     final musiczineVinylCenterX =
         sleeveCenterX + sleeveSize * (portrait ? -vinylEdgeOffset : vinylEdgeOffset);
@@ -1460,6 +1469,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
       fontWeight: FontWeight.w400, letterSpacing: portrait ? -w * .015 : -h * .018,
       shadows: _artistNeonShadows);
+    // Reserve a taller slot for multi-line artist names and real clearlogos,
+    // not a quarter of the screen for every one-line name.
+    final portraitHasLogo = settings.useArtistClearLogo &&
+        _clearLogoBytes != null && model.active;
+    final portraitArtistLines = portrait
+        ? _artistLines(artist, w * .075, w * .85).length : 1;
+    final portraitBrandingHeight = portraitHasLogo
+        ? math.min(h * .145, w * .31)
+        : portraitArtistLines > 1 ? h * .18 : h * .10;
     final songStyle = TextStyle(
       color: Colors.white, fontSize: portrait ? w * .043 : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
@@ -1520,11 +1538,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(height: math.min(h * .225, w * .45),
-                child: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
-                    ? _scaledClearLogo()
-                    : _artist(w * .075, Alignment.center, false)),
-              SizedBox(height: h * .008),
+              // Keep the artist's visible lettering immediately above the song.
+              SizedBox(height: portraitBrandingHeight,
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: portraitHasLogo
+                      ? _scaledClearLogo()
+                      : _artist(w * .075, Alignment.center, false))),
+              SizedBox(height: h * .006),
               Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
               if (model.album.isNotEmpty) ...[
@@ -2152,8 +2173,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// with the bottom of the art, and the bar reflection lines up with the
   /// art reflection. Song info and lyrics sit above the bars.
   Widget _sideLayout(double w, double h, {required bool vhs}) {
-    final textAlignment = settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft;
-    final textCrossAlignment = settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    // Anchor the metadata to the outer edge of its column.
+    final textAlignment = settings.layoutSwap
+        ? Alignment.centerLeft : Alignment.centerRight;
+    final textCrossAlignment = settings.layoutSwap
+        ? CrossAxisAlignment.start : CrossAxisAlignment.end;
     final s = math.min(h * 0.62, w * 0.36);
     final u = s / 0.62; // text scale: equals h unless the screen is narrow
     final artTop = (h - s) / 2;
@@ -2175,23 +2199,31 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   left: 0,
                   right: 0,
                   top: artTop,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: textCrossAlignment,
-                    children: [
-                      _artist(u * 0.087, textAlignment, vhs),
-                      SizedBox(height: u * 0.009),
-                      _fixedTitle(u * 0.044, textAlignment),
-                      if (model.album.isNotEmpty &&
-                          model.album != model.title) ...[
-                        SizedBox(height: u * 0.006),
-                        _fixedAlbum(u * 0.032, textAlignment),
-                      ],
-                      if (_hasLyrics) ...[
-                        SizedBox(height: _lyricGap(u)),
-                        _lyricBlock(u, textAlignment, vhs: vhs),
-                      ],
-                    ],
+                  height: math.max(1.0, artBottom - barsMax - artTop),
+                  child: Center(
+                    // Give Riot lettering a finite width so long names wrap
+                    // rather than laying out wider than the metadata panel.
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: textCrossAlignment,
+                        children: [
+                          _artist(u * 0.087, textAlignment, vhs),
+                          SizedBox(height: u * 0.009),
+                          _fixedTitle(u * 0.044, textAlignment),
+                          if (model.album.isNotEmpty &&
+                              model.album != model.title) ...[
+                            SizedBox(height: u * 0.006),
+                            _fixedAlbum(u * 0.032, textAlignment, flushFrame: true),
+                          ],
+                          if (_hasLyrics) ...[
+                            SizedBox(height: _lyricGap(u)),
+                            _lyricBlock(u, textAlignment, vhs: vhs),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 if (settings.visualizer)
@@ -2207,7 +2239,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
           ),
         ),
-        SizedBox(width: w * 0.05),
+        // Trim the outer inset so album label frame and lines sit closer
+        // to the right screen edge, aligned with the typography above.
+        SizedBox(width: w * 0.025),
     ];
     return Row(children: settings.layoutSwap ? children.reversed.toList() : children);
   }
@@ -4026,7 +4060,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 textAlign: ta,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: big * 0.55, color: Colors.white30),
+                style: TextStyle(fontSize: big * 0.55, color: Colors.white30, shadows: _lyricShadows),
               ),
               SizedBox(height: big * 0.25),
               Text(
@@ -4039,6 +4073,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   fontWeight: FontWeight.w400,
                   height: 1.15,
                   color: Colors.white,
+                  shadows: _lyricShadows,
                 ),
               ),
               SizedBox(height: big * 0.25),
@@ -4047,7 +4082,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 textAlign: ta,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: big * 0.6, color: Colors.white38),
+                style: TextStyle(fontSize: big * 0.6, color: Colors.white38, shadows: _lyricShadows),
               ),
             ],
           ),
@@ -4221,7 +4256,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             fontSize: size,
             fontWeight: FontWeight.w400,
             color: Colors.white.withOpacity(0.85),
-            shadows: _cleanTextShadows,
+            shadows: _lyricShadows,
           ),
         ),
         a,
@@ -4259,6 +4294,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       color: Colors.white,
                       shadows: (vhs || _vhsOn)
                           ? const [
+                              Shadow(color: Color(0xE6000000),
+                                  offset: Offset(1, 2), blurRadius: 4),
+                              Shadow(color: Color(0xC0000000),
+                                  offset: Offset(0, 3), blurRadius: 11),
                               Shadow(
                                   color: Color(0x99FF2E93), offset: Offset(-1.5, 0)),
                               Shadow(
@@ -4277,7 +4316,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     style: TextStyle(
                       fontSize: h * 0.026,
                       color: Colors.white38,
-                      shadows: _cleanTextShadows,
+                      shadows: _lyricShadows,
                     ),
                   ),
                   a,
@@ -4353,6 +4392,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   List<Shadow> get _cleanTextShadows => const [
     Shadow(color: Color(0xB0000000), offset: Offset(0, 1), blurRadius: 3.5),
     Shadow(color: Color(0x77000000), offset: Offset(0, 2), blurRadius: 8),
+  ];
+
+  // Readable white lyrics on bright fanart and pale album art.
+  static const List<Shadow> _lyricShadows = [
+    Shadow(color: Color(0xE6000000), offset: Offset(1, 2), blurRadius: 4),
+    Shadow(color: Color(0xC0000000), offset: Offset(0, 3), blurRadius: 11),
   ];
 
   // Artist-name-only neon is sampled from the current album cover, even
@@ -4734,8 +4779,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
   // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
-  Widget _albumText(double size) => CustomPaint(
-        painter: _VybeAlbumLabelFrame(_palette.a),
+  Widget _albumText(double size, {Alignment? flushFrame}) => CustomPaint(
+        painter: _VybeAlbumLabelFrame(_palette.a,
+            flushRight: flushFrame == Alignment.centerRight,
+            flushLeft: flushFrame == Alignment.centerLeft),
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: size * 3.30, vertical: size * .24),
           child: Text(model.album.toUpperCase(), maxLines: 1,
@@ -4752,9 +4799,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           style: _titleText(size).style),
       ));
 
-  Widget _fixedAlbum(double size, Alignment align) => Align(
+  Widget _fixedAlbum(double size, Alignment align,
+      {bool flushFrame = false}) => Align(
         alignment: align,
-        child: _albumText(size),
+        child: _albumText(size, flushFrame: flushFrame ? align : null),
       );
 
   Widget _title(double size, Alignment a, bool vhs) => _shaded(_fit(
@@ -5726,7 +5774,10 @@ class _EdgyStandbyPainter extends CustomPainter {
 
 class _VybeAlbumLabelFrame extends CustomPainter {
   final Color accent;
-  const _VybeAlbumLabelFrame(this.accent);
+  final bool flushRight;
+  final bool flushLeft;
+  const _VybeAlbumLabelFrame(this.accent,
+      {this.flushRight = false, this.flushLeft = false});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -5735,8 +5786,12 @@ class _VybeAlbumLabelFrame extends CustomPainter {
     // diagonal accent strokes. No horizontal joining bars on the wings.
     final wing = math.min(h * 1.05, w * .13);
     final cut = h * .64;
-    final left = wing;
-    final right = w - wing;
+    final offset = h * .26;
+    final edgeMargin = math.max(1.5, h * .05);
+    // Side-by-Side's outside-facing accent slash ends at the same edge
+    // as the text column, without the unused wing margin.
+    final left = flushLeft ? offset + edgeMargin : wing;
+    final right = flushRight ? w - offset - edgeMargin : w - wing;
     final top = h * .08;
     final bottom = h * .90;
     final frame = Path()
@@ -5765,7 +5820,6 @@ class _VybeAlbumLabelFrame extends CustomPainter {
 
     // Accent slashes run alongside the two slanted frame edges, with a
     // deliberate narrow gap; they do not touch the frame or each other.
-    final offset = h * .26;
     final wings = Path()
       ..moveTo(left + cut - offset, top)
       ..lineTo(left - offset, bottom)
@@ -5779,7 +5833,8 @@ class _VybeAlbumLabelFrame extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _VybeAlbumLabelFrame old) =>
-      old.accent != accent;
+      old.accent != accent || old.flushRight != flushRight ||
+      old.flushLeft != flushLeft;
 }
 
 /// Restricts neon underpainting to the lower tips of brush lettering.
