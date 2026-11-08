@@ -2199,20 +2199,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: textCrossAlignment,
-                      children: [
-                      _artist(u * 0.087, textAlignment, vhs),
-                      SizedBox(height: u * 0.009),
-                      _fixedTitle(u * 0.044, textAlignment),
-                      if (model.album.isNotEmpty &&
-                          model.album != model.title) ...[
-                        SizedBox(height: u * 0.006),
-                        _fixedAlbum(u * 0.032, textAlignment, flushFrame: true),
-                      ],
-                      if (_hasLyrics) ...[
-                        SizedBox(height: _lyricGap(u)),
-                        _lyricBlock(u, textAlignment, vhs: vhs),
-                      ],
-                      ],
+                        children: [
+                          _artist(u * 0.087, textAlignment, vhs),
+                          SizedBox(height: u * 0.009),
+                          _fixedTitle(u * 0.044, textAlignment),
+                          if (model.album.isNotEmpty &&
+                              model.album != model.title) ...[
+                            SizedBox(height: u * 0.006),
+                            _fixedAlbum(u * 0.032, textAlignment, flushFrame: true),
+                          ],
+                          if (_hasLyrics) ...[
+                            SizedBox(height: _lyricGap(u)),
+                            _lyricBlock(u, textAlignment, vhs: vhs),
+                          ],
+                        ],
                       ),
                     ),
                   ),
