@@ -1559,23 +1559,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             height: h * .17,
             child: _lyricBlock(h, Alignment.center, vhs: false)),
       ] else ...[
-        // Keep artist branding at upper left; song and album form their
-        // own vertical stack at upper right, never beneath the artist.
-        Positioned(left: w * .235, top: h * .043, width: w * .47,
-          child: readable(
-            settings.useArtistClearLogo && _clearLogoBytes != null
-              ? SizedBox(height: h * .24, width: w * .34,
-                  child: _scaledClearLogo(
-                    alignment: flipped ? Alignment.centerRight : Alignment.centerLeft))
-              : SizedBox(height: h * .34,
-                  child: _artist(h * .085,
-                    flipped ? Alignment.centerRight : Alignment.centerLeft,
-                    false)))),
-        Positioned(right: w * .025, top: h * .043, width: w * .25,
+        // Landscape Muzine: the artist/logo, song and album must live
+        // together. The earlier split positioning left the artist near the
+        // left divider and the title disconnected at the far right.
+        Positioned(right: w * .04, top: h * .055, width: w * .56,
           child: readable(Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: flipped
                 ? CrossAxisAlignment.start : CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min, children: [
+            children: [
+              if (settings.useArtistClearLogo &&
+                  _clearLogoBytes != null && model.active)
+                SizedBox(width: w * .44, height: h * .19,
+                  child: _scaledClearLogo(alignment: flipped
+                      ? Alignment.centerLeft : Alignment.centerRight))
+              else
+                _artist(h * .085,
+                  flipped ? Alignment.centerLeft : Alignment.centerRight,
+                  false),
+              SizedBox(height: h * .009),
               Text(song,
                 textAlign: flipped ? TextAlign.left : TextAlign.right,
                 maxLines: 2, overflow: TextOverflow.ellipsis,
@@ -2173,11 +2175,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// with the bottom of the art, and the bar reflection lines up with the
   /// art reflection. Song info and lyrics sit above the bars.
   Widget _sideLayout(double w, double h, {required bool vhs}) {
-    // Anchor the metadata to the outer edge of its column.
-    final textAlignment = settings.layoutSwap
-        ? Alignment.centerLeft : Alignment.centerRight;
-    final textCrossAlignment = settings.layoutSwap
-        ? CrossAxisAlignment.start : CrossAxisAlignment.end;
+    // Center the complete artist/title/album block in the space beside
+    // the cover. Alignment is independent of which side the art occupies.
+    final textAlignment = Alignment.center;
+    final textCrossAlignment = CrossAxisAlignment.center;
     final s = math.min(h * 0.62, w * 0.36);
     final u = s / 0.62; // text scale: equals h unless the screen is narrow
     final artTop = (h - s) / 2;
@@ -2215,7 +2216,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           if (model.album.isNotEmpty &&
                               model.album != model.title) ...[
                             SizedBox(height: u * 0.006),
-                            _fixedAlbum(u * 0.032, textAlignment, flushFrame: true),
+                            _fixedAlbum(u * 0.032, textAlignment),
                           ],
                           if (_hasLyrics) ...[
                             SizedBox(height: _lyricGap(u)),
@@ -2239,9 +2240,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
           ),
         ),
-        // Trim the outer inset so album label frame and lines sit closer
-        // to the right screen edge, aligned with the typography above.
-        SizedBox(width: w * 0.025),
+        // Balanced exterior padding; the metadata group is centered
+        // within its own column rather than pushed against this edge.
+        SizedBox(width: w * 0.05),
     ];
     return Row(children: settings.layoutSwap ? children.reversed.toList() : children);
   }
