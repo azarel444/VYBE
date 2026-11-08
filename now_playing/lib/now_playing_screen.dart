@@ -1469,15 +1469,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
       fontWeight: FontWeight.w400, letterSpacing: portrait ? -w * .015 : -h * .018,
       shadows: _artistNeonShadows);
-    // Reserve a taller slot for multi-line artist names and real clearlogos,
-    // not a quarter of the screen for every one-line name.
+    // Both Muzine orientations use a single stacked metadata hierarchy.
+    // A text artist uses its natural height; only logos need a bounded slot.
     final portraitHasLogo = settings.useArtistClearLogo &&
         _clearLogoBytes != null && model.active;
-    final portraitArtistLines = portrait
-        ? _artistLines(artist, w * .075, w * .85).length : 1;
-    final portraitBrandingHeight = portraitHasLogo
-        ? math.min(h * .145, w * .31)
-        : portraitArtistLines > 1 ? h * .18 : h * .10;
     final songStyle = TextStyle(
       color: Colors.white, fontSize: portrait ? w * .043 : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
@@ -1538,17 +1533,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
-              // Keep the artist's visible lettering immediately above the song.
-              SizedBox(height: portraitBrandingHeight,
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: portraitHasLogo
-                      ? _scaledClearLogo()
-                      : _artist(w * .075, Alignment.center, false))),
+              // No reserved blank area above/below fallback artist text.
+              // Logo sits on the same baseline as text before the song.
+              if (portraitHasLogo)
+                SizedBox(height: math.min(h * .12, w * .30),
+                  child: _scaledClearLogo(alignment: Alignment.bottomCenter))
+              else
+                _artist(w * .075, Alignment.center, false),
               SizedBox(height: h * .006),
               Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
-              if (model.album.isNotEmpty) ...[
+              if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
                 Align(alignment: Alignment.center,
                   child: _albumText(songStyle.fontSize! * .86)),
@@ -1582,7 +1577,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 textAlign: flipped ? TextAlign.left : TextAlign.right,
                 maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
-              if (model.album.isNotEmpty) ...[
+              if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
                 _albumText(songStyle.fontSize! * .86),
               ],
@@ -1649,7 +1644,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         SizedBox(height: h * 0.008),
         _title(titleSize, textAlign, false),
         SizedBox(height: h * 0.008),
-        if (model.album.isNotEmpty)
+        if (_showAlbumLabel)
           Align(alignment: textAlign,
             child: _albumText(titleSize * .7)),
       ]));
@@ -1687,7 +1682,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _artist(h * .067, Alignment.center, false),
                 SizedBox(height: h * .008),
                 _title(h * .035, Alignment.center, false),
-                if (model.album.isNotEmpty && model.album != model.title) ...[
+                if (_showAlbumLabel) ...[
                   SizedBox(height: h * .006),
                   _fixedAlbum(h * .025, Alignment.center),
                 ],
@@ -2038,7 +2033,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         children: [
           _title(h * 0.062, Alignment.center, false),
           SizedBox(height: h * 0.012),
-          if (model.album.isNotEmpty)
+          if (_showAlbumLabel)
             _shaded(_fit(_albumText(h * .028), Alignment.center)),
           if (_lyricTheme && settings.lyrics) SizedBox(height: lyricGap),
           if (_lyricTheme && settings.lyrics)
@@ -2213,8 +2208,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           _artist(u * 0.087, textAlignment, vhs),
                           SizedBox(height: u * 0.009),
                           _fixedTitle(u * 0.044, textAlignment),
-                          if (model.album.isNotEmpty &&
-                              model.album != model.title) ...[
+                          if (_showAlbumLabel) ...[
                             SizedBox(height: u * 0.006),
                             _fixedAlbum(u * 0.032, textAlignment),
                           ],
@@ -2279,8 +2273,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final s = math.min(w * 0.62, h * 0.34);
     final cw = w * 0.84;
     final gap = h * 0.018;
-    final showAlbum =
-        !vhs && model.album.isNotEmpty && model.album != model.title;
+    final showAlbum = _showAlbumLabel;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -2438,7 +2431,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     : Center(child: _artist(h * 0.082, Alignment.center, false))),
                 SizedBox(height: h * .008),
                 _title(h * 0.05, Alignment.center, false),
-                if (model.album.isNotEmpty && model.album != model.title) ...[
+                if (_showAlbumLabel) ...[
                   SizedBox(height: h * 0.008),
                   _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
                 ],
@@ -2639,7 +2632,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             _artist(h * 0.098, textAlign, false),
             SizedBox(height: h * 0.012),
             _title(h * 0.08, textAlign, false),
-            if (model.album.isNotEmpty && model.album != model.title) ...[
+            if (_showAlbumLabel) ...[
               SizedBox(height: h * 0.012),
               _shaded(_fit(_albumText(h * 0.026), textAlign)),
             ],
@@ -2699,7 +2692,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     _artist(h * 0.073, Alignment.center, false),
                     SizedBox(height: h * 0.009),
                     _title(h * 0.037, Alignment.center, false),
-                    if (model.album.isNotEmpty && model.album != model.title) ...[
+                    if (_showAlbumLabel) ...[
                         SizedBox(height: h * 0.008),
                         _fixedAlbum(h * 0.026, Alignment.center),
                       ],
@@ -3177,7 +3170,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       _artist(h * 0.073, Alignment.center, false),
                       SizedBox(height: h * 0.009),
                       _title(h * 0.037, Alignment.center, false),
-                      if (model.album.isNotEmpty && model.album != model.title) ...[
+                      if (_showAlbumLabel) ...[
                         SizedBox(height: h * 0.008),
                         _fixedAlbum(h * 0.026, Alignment.center),
                       ],
@@ -3237,7 +3230,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _artist(h * 0.090, Alignment.center, false),
               SizedBox(height: h * 0.012),
               _title(h * 0.085, Alignment.center, false),
-              if (model.album.isNotEmpty && model.album != model.title) ...[
+              if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
                 _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
               ],
@@ -3364,8 +3357,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       _artist(h * 0.073, Alignment.center, false),
                       SizedBox(height: h * 0.009),
                       _title(h * 0.037, Alignment.center, false),
-                      if (model.album.isNotEmpty &&
-                          model.album != model.title) ...[
+                      if (_showAlbumLabel) ...[
                         SizedBox(height: h * 0.008),
                         _fixedAlbum(h * 0.026, Alignment.center),
                       ],
@@ -3413,7 +3405,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _artist(h * 0.090, Alignment.center, false),
               SizedBox(height: h * 0.012),
               _title(h * 0.085, Alignment.center, false),
-              if (model.album.isNotEmpty && model.album != model.title) ...[
+              if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
                 _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
               ],
@@ -3576,7 +3568,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 ),
             ),
           ),
-          if (model.album.isNotEmpty && model.album != model.title)
+          if (_showAlbumLabel)
             Positioned(
               left: w * .10, right: w * .10, bottom: h * .045,
               child: Center(child: _shaded(_fit(
@@ -3621,7 +3613,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _artist(h * 0.090, Alignment.center, false),
               SizedBox(height: h * 0.012),
               _title(h * 0.085, Alignment.center, false),
-              if (model.album.isNotEmpty && model.album != model.title) ...[
+              if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
                 _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
               ],
@@ -3912,7 +3904,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     _artist(h * 0.073, Alignment.center, false),
                     SizedBox(height: h * 0.009),
                     _title(h * 0.037, Alignment.center, false),
-                    if (model.album.isNotEmpty && model.album != model.title) ...[
+                    if (_showAlbumLabel) ...[
                       SizedBox(height: h * 0.008),
                       _fixedAlbum(h * 0.026, Alignment.center),
                     ],
@@ -3963,7 +3955,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _artist(h * 0.080, Alignment.center, false),
               SizedBox(height: h * 0.014),
               _title(h * 0.06, Alignment.center, false),
-              if (model.album.isNotEmpty && model.album != model.title) ...[
+              if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.014),
                 _shaded(_fit(_albumText(h * 0.022), Alignment.center)),
               ],
@@ -4009,7 +4001,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ),
         ),
         SizedBox(height: h * 0.008),
-        if (model.album.isNotEmpty && model.album != model.title) ...[
+        if (_showAlbumLabel) ...[
           SizedBox(height: h * 0.005),
           Align(
             alignment: center ? Alignment.center : Alignment.centerRight,
@@ -4777,6 +4769,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         color: Colors.white,
       );
 
+  // A single album-label rule for every layout and both orientations.
+  // Singles legitimately have the same song and album name: don't hide them.
+  // If a media player omits the album, show an honest fallback rather than
+  // silently removing the entire framed label.
+  bool get _showAlbumLabel => model.active;
+  String get _albumDisplayName {
+    final value = model.album.trim();
+    return value.isEmpty ? 'ALBUM UNKNOWN' : value.toUpperCase();
+  }
+
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
   // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
@@ -4786,7 +4788,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             flushLeft: flushFrame == Alignment.centerLeft),
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: size * 3.30, vertical: size * .24),
-          child: Text(model.album.toUpperCase(), maxLines: 1,
+          child: Text(_albumDisplayName, maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: _albumLabelTextStyle(size)),
         ),
