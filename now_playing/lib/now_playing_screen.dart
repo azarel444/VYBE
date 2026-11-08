@@ -1460,6 +1460,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
       fontWeight: FontWeight.w400, letterSpacing: portrait ? -w * .015 : -h * .018,
       shadows: _artistNeonShadows);
+    // Reserve a taller slot for multi-line artist names and real clearlogos,
+    // not a quarter of the screen for every one-line name.
+    final portraitHasLogo = settings.useArtistClearLogo &&
+        _clearLogoBytes != null && model.active;
+    final portraitArtistLines = portrait
+        ? _artistLines(artist, w * .075, w * .85).length : 1;
+    final portraitBrandingHeight = portraitHasLogo
+        ? math.min(h * .145, w * .31)
+        : portraitArtistLines > 1 ? h * .18 : h * .10;
     final songStyle = TextStyle(
       color: Colors.white, fontSize: portrait ? w * .043 : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
@@ -1520,11 +1529,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .075, right: w * .075, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(height: math.min(h * .225, w * .45),
-                child: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
-                    ? _scaledClearLogo()
-                    : _artist(w * .075, Alignment.center, false)),
-              SizedBox(height: h * .008),
+              // Keep the artist's visible lettering immediately above the song.
+              SizedBox(height: portraitBrandingHeight,
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: portraitHasLogo
+                      ? _scaledClearLogo()
+                      : _artist(w * .075, Alignment.center, false))),
+              SizedBox(height: h * .006),
               Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
               if (model.album.isNotEmpty) ...[
@@ -2152,8 +2164,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// with the bottom of the art, and the bar reflection lines up with the
   /// art reflection. Song info and lyrics sit above the bars.
   Widget _sideLayout(double w, double h, {required bool vhs}) {
-    final textAlignment = settings.layoutSwap ? Alignment.centerRight : Alignment.centerLeft;
-    final textCrossAlignment = settings.layoutSwap ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    // Anchor the metadata to the outer edge of its column.
+    final textAlignment = settings.layoutSwap
+        ? Alignment.centerLeft : Alignment.centerRight;
+    final textCrossAlignment = settings.layoutSwap
+        ? CrossAxisAlignment.start : CrossAxisAlignment.end;
     final s = math.min(h * 0.62, w * 0.36);
     final u = s / 0.62; // text scale: equals h unless the screen is narrow
     final artTop = (h - s) / 2;
@@ -2175,10 +2190,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   left: 0,
                   right: 0,
                   top: artTop,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: textCrossAlignment,
-                    children: [
+                  height: math.max(1.0, artBottom - barsMax - artTop),
+                  child: Center(
+                    // Center the whole artist/song/album stack above the bars.
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: textCrossAlignment,
+                      children: [
                       _artist(u * 0.087, textAlignment, vhs),
                       SizedBox(height: u * 0.009),
                       _fixedTitle(u * 0.044, textAlignment),
@@ -2192,6 +2210,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         _lyricBlock(u, textAlignment, vhs: vhs),
                       ],
                     ],
+                    ),
                   ),
                 ),
                 if (settings.visualizer)
@@ -2207,7 +2226,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ),
           ),
         ),
-        SizedBox(width: w * 0.05),
+        // Trim the outer inset so album label frame and lines sit closer
+        // to the right screen edge, aligned with the typography above.
+        SizedBox(width: w * 0.025),
     ];
     return Row(children: settings.layoutSwap ? children.reversed.toList() : children);
   }
