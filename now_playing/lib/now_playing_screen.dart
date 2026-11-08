@@ -48,6 +48,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final _fanart = ArtistFanartCache();
   Uint8List? _fanartBytes;
   Uint8List? _clearLogoBytes;
+  bool _clearLogoIsLocal = false;
   String _clearLogoArtist = '';
   int _clearLogoRequest = 0;
   Timer? _clearLogoRetryTimer;
@@ -255,8 +256,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _onLinkFanart() {
-    if (!mounted || VybeLink.instance.role != 'receiver') return;
+    if (!mounted) return;
     final link = VybeLink.instance;
+    if (link.role == 'sender') {
+      // A new TCP connection must resend the logo already cached by the UI.
+      if (settings.useArtistClearLogo &&
+          _clearLogoArtist == model.artist.trim()) {
+        link.sendClearLogo(_clearLogoArtist, _clearLogoBytes);
+      }
+      return;
+    }
+    if (link.role != 'receiver') return;
+    final artist = model.artist.trim();
+    final logo = link.receivedClearLogo;
+    if (settings.useArtistClearLogo && link.receivedClearLogoArtist == artist &&
+        logo != null && logo.isNotEmpty && !_clearLogoIsLocal &&
+        !identical(logo, _clearLogoBytes)) {
+      _clearLogoArtist = artist;
+      _clearLogoRetryTimer?.cancel();
+      _clearLogoRetryCount = 0;
+      setState(() => _clearLogoBytes = logo);
+    }
     if (link.receivedFanartArtist != model.artist ||
         (_fanartGalleryIsLocal && _fanartArtist == model.artist && _fanartGallery.isNotEmpty)) return;
     final incoming = link.receivedFanart;
@@ -662,6 +682,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (!settings.useArtistClearLogo || artist.isEmpty) {
       _clearLogoRetryTimer?.cancel();
       _clearLogoRetryCount = 0;
+      _clearLogoIsLocal = false;
       if (_clearLogoBytes != null || _clearLogoArtist.isNotEmpty) {
         ++_clearLogoRequest;
         _clearLogoArtist = '';
@@ -669,12 +690,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       }
       return;
     }
-    if (_clearLogoArtist == artist && _clearLogoBytes != null) return;
+    if (_clearLogoArtist == artist && _clearLogoBytes != null) {
+      if (!widget.driveHost && VybeLink.instance.enabled &&
+          VybeLink.instance.role == 'sender') {
+        VybeLink.instance.sendClearLogo(artist, _clearLogoBytes);
+      }
+      return;
+    }
     if (_clearLogoLoadingArtist == artist) return;
     if (_clearLogoArtist != artist) {
       _clearLogoRetryTimer?.cancel();
       _clearLogoRetryCount = 0;
       _clearLogoArtist = artist;
+      _clearLogoIsLocal = false;
       if (_clearLogoBytes != null && mounted) {
         setState(() => _clearLogoBytes = null);
       }
@@ -682,11 +710,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _clearLogoLoadingArtist = artist;
     final request = ++_clearLogoRequest;
     Uint8List? bytes;
+    bool localLogo = false;
     try {
       bytes = await LocalArtwork.instance.clearLogo(artist);
-      if (bytes == null && settings.fanartProjectKey.isNotEmpty) {
+      localLogo = bytes != null && bytes.isNotEmpty;
+      if (!localLogo && !widget.driveHost) {
+        final link = VybeLink.instance;
+        if (link.enabled && link.role == 'receiver' &&
+            link.receivedClearLogoArtist == artist) {
+          bytes = link.receivedClearLogo;
+        }
+      }
+      if ((bytes == null || bytes.isEmpty) && settings.fanartProjectKey.isNotEmpty) {
         bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
             personalKey: settings.fanartApiKey);
+      }
+      // If a transferred logo arrived while an online lookup was pending,
+      // prefer it over the online result (but never over a local logo).
+      if (!localLogo && !widget.driveHost) {
+        final link = VybeLink.instance;
+        if (link.enabled && link.role == 'receiver' &&
+            link.receivedClearLogoArtist == artist &&
+            link.receivedClearLogo?.isNotEmpty == true) {
+          bytes = link.receivedClearLogo;
+        }
       }
     } catch (e) {
       debugPrint('VYBE clearlogo lookup failed for $artist: $e');
@@ -698,7 +745,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (bytes != null && bytes.isNotEmpty) {
       _clearLogoRetryTimer?.cancel();
       _clearLogoRetryCount = 0;
+      _clearLogoIsLocal = localLogo;
       setState(() => _clearLogoBytes = bytes);
+      if (!widget.driveHost && VybeLink.instance.enabled &&
+          VybeLink.instance.role == 'sender') {
+        VybeLink.instance.sendClearLogo(artist, bytes);
+      }
     } else {
       _scheduleClearLogoRetry(artist);
     }
