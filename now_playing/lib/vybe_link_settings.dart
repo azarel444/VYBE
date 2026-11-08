@@ -27,11 +27,18 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
         SwitchListTile(title: const Text('Enable VYBE Link'), value: link.enabled,
           onChanged: (v) => link.configure(isEnabled: v)),
         const SizedBox(height: 12),
-        const Text('Device role', style: TextStyle(fontSize: 18)),
-        RadioListTile<String>(title: const Text('Sender — phone'), value: 'sender',
-          groupValue: link.role, onChanged: (v) { if (v != null) link.configure(deviceRole: v); }),
-        RadioListTile<String>(title: const Text('Receiver — head unit'), value: 'receiver',
-          groupValue: link.role, onChanged: (v) { if (v != null) link.configure(deviceRole: v); }),
+        const Text('Device type', style: TextStyle(fontSize: 18)),
+        ListTile(
+          leading: Icon(link.deviceType == 'head_unit'
+              ? Icons.directions_car : Icons.smartphone),
+          title: Text(link.deviceType == 'head_unit' ? 'Head unit' : 'Phone'),
+          subtitle: Text(link.role == 'receiver'
+              ? 'Receives music and artwork from your phone'
+              : 'Sends music and artwork to your head unit'),
+          trailing: const Icon(Icons.check_circle_outline),
+        ),
+        const Text('Selected during Quick Setup. To change it, replay Setup in VYBE Settings.',
+            style: TextStyle(color: Colors.white70)),
         SwitchListTile(title: const Text('Reconnect automatically'),
           subtitle: const Text('Remember this head unit and reconnect when the network is available'),
           value: link.autoConnect, onChanged: (v) => link.configure(automatic: v)),

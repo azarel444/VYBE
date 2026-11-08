@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'native.dart';
 import 'settings.dart';
+import 'vybe_link.dart';
 
 const _cyan = Color(0xFFFF005E);
 
@@ -76,6 +77,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _lyrics = false;
   bool _boot = false;
   bool _music = false;
+  String _deviceType = 'phone';
+  bool _deviceChoiceTouched = false;
+  Future<void> _pendingDeviceTypeWrite = Future<void>.value();
   String _localArtStatus = 'Optional — you can set this up later.';
   bool _choosingArtwork = false;
   Timer? _poll;
@@ -110,6 +114,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       _lyrics = p.getBool('lyrics') ?? false;
       _boot = p.getBool('bootStart') ?? false;
       _music = p.getBool('musicStart') ?? false;
+      if (!_deviceChoiceTouched) {
+        _deviceType = p.getString('vybe_device_type') ??
+            ((p.getString('link_role') ?? 'sender') == 'receiver'
+                ? 'head_unit' : 'phone');
+      }
     });
   }
 
@@ -161,8 +170,25 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   bool _granted(String k) => _perm[k] == true;
 
+  void _chooseDeviceType(String choice) {
+    if (choice != 'phone' && choice != 'head_unit') return;
+    setState(() {
+      _deviceType = choice;
+      _deviceChoiceTouched = true;
+    });
+    // Persist during Quick Setup, well before the final Launch button.
+    // A replay of onboarding also switches an already active Connect role.
+    _pendingDeviceTypeWrite = _pendingDeviceTypeWrite
+        .catchError((Object _) {})
+        .then((_) => VybeLink.instance.setDeviceType(choice));
+  }
+
   Future<void> _next() async {
     if (_step >= _lastStep) {
+      // Finish the device role choice before the receiver/sender starts.
+      await _pendingDeviceTypeWrite.catchError((Object error) {
+        debugPrint('VYBE: device setup save failed: $error');
+      });
       // Do not gate entry into VYBE on a potentially stalled preference write.
       // The selected values are captured from UI state and committed by the
       // root before its main screen is shown.
@@ -297,7 +323,28 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           title: 'Quick setup',
           body: 'Choose what VYBE does. Change any option later in Settings. Online artwork and lyrics searches send song title and artist to their providers.',
           extra: Column(children: [
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
+            const Text('Where is VYBE installed?',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment<String>(
+                    value: 'phone', label: Text('Phone'),
+                    icon: Icon(Icons.smartphone)),
+                ButtonSegment<String>(
+                    value: 'head_unit', label: Text('Head unit'),
+                    icon: Icon(Icons.directions_car)),
+              ],
+              selected: {_deviceType},
+              onSelectionChanged: (choices) => _chooseDeviceType(choices.first),
+            ),
+            const SizedBox(height: 6),
+            Text(_deviceType == 'head_unit'
+                ? 'VYBE Connect will receive music information and artwork from your phone.'
+                : 'VYBE Connect will send music information and artwork to your head unit.',
+                style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 18),
             const Text('Local music & artwork',
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
