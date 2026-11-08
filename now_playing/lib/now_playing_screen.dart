@@ -2203,7 +2203,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       if (model.album.isNotEmpty &&
                           model.album != model.title) ...[
                         SizedBox(height: u * 0.006),
-                        _fixedAlbum(u * 0.032, textAlignment),
+                        _fixedAlbum(u * 0.032, textAlignment, flushFrame: true),
                       ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(u)),
@@ -4755,8 +4755,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
   // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
-  Widget _albumText(double size) => CustomPaint(
-        painter: _VybeAlbumLabelFrame(_palette.a),
+  Widget _albumText(double size, {Alignment? flushFrame}) => CustomPaint(
+        painter: _VybeAlbumLabelFrame(_palette.a,
+            flushRight: flushFrame == Alignment.centerRight,
+            flushLeft: flushFrame == Alignment.centerLeft),
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: size * 3.30, vertical: size * .24),
           child: Text(model.album.toUpperCase(), maxLines: 1,
@@ -4773,9 +4775,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           style: _titleText(size).style),
       ));
 
-  Widget _fixedAlbum(double size, Alignment align) => Align(
+  Widget _fixedAlbum(double size, Alignment align,
+      {bool flushFrame = false}) => Align(
         alignment: align,
-        child: _albumText(size),
+        child: _albumText(size, flushFrame: flushFrame ? align : null),
       );
 
   Widget _title(double size, Alignment a, bool vhs) => _shaded(_fit(
@@ -5747,7 +5750,10 @@ class _EdgyStandbyPainter extends CustomPainter {
 
 class _VybeAlbumLabelFrame extends CustomPainter {
   final Color accent;
-  const _VybeAlbumLabelFrame(this.accent);
+  final bool flushRight;
+  final bool flushLeft;
+  const _VybeAlbumLabelFrame(this.accent,
+      {this.flushRight = false, this.flushLeft = false});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -5756,8 +5762,12 @@ class _VybeAlbumLabelFrame extends CustomPainter {
     // diagonal accent strokes. No horizontal joining bars on the wings.
     final wing = math.min(h * 1.05, w * .13);
     final cut = h * .64;
-    final left = wing;
-    final right = w - wing;
+    final offset = h * .26;
+    final edgeMargin = math.max(1.5, h * .05);
+    // Side-by-Side's outside-facing accent slash ends at the same edge
+    // as the text column, without the unused wing margin.
+    final left = flushLeft ? offset + edgeMargin : wing;
+    final right = flushRight ? w - offset - edgeMargin : w - wing;
     final top = h * .08;
     final bottom = h * .90;
     final frame = Path()
@@ -5786,7 +5796,6 @@ class _VybeAlbumLabelFrame extends CustomPainter {
 
     // Accent slashes run alongside the two slanted frame edges, with a
     // deliberate narrow gap; they do not touch the frame or each other.
-    final offset = h * .26;
     final wings = Path()
       ..moveTo(left + cut - offset, top)
       ..lineTo(left - offset, bottom)
@@ -5800,7 +5809,8 @@ class _VybeAlbumLabelFrame extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _VybeAlbumLabelFrame old) =>
-      old.accent != accent;
+      old.accent != accent || old.flushRight != flushRight ||
+      old.flushLeft != flushLeft;
 }
 
 /// Restricts neon underpainting to the lower tips of brush lettering.
