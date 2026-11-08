@@ -1462,9 +1462,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             mainAxisSize: MainAxisSize.min, children: [
               SizedBox(height: math.min(h * .225, w * .45),
                 child: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
-                    ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                        alignment: Alignment.center,
-                        filterQuality: FilterQuality.medium)
+                    ? _scaledClearLogo()
                     : _artist(w * .075, Alignment.center, false)),
               SizedBox(height: h * .008),
               Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
@@ -1486,9 +1484,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: readable(
             settings.useArtistClearLogo && _clearLogoBytes != null
               ? SizedBox(height: h * .24, width: w * .34,
-                  child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                    alignment: flipped ? Alignment.centerRight : Alignment.centerLeft,
-                    filterQuality: FilterQuality.medium))
+                  child: _scaledClearLogo(
+                    alignment: flipped ? Alignment.centerRight : Alignment.centerLeft))
               : SizedBox(height: h * .34,
                   child: _artist(h * .085,
                     flipped ? Alignment.centerRight : Alignment.centerLeft,
@@ -2297,8 +2294,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           // Reserve the same artist slot before and after ClearLogo loads.
           SizedBox(width: w * .82, height: h * .14,
             child: hasLogo
-              ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                  gaplessPlayback: true, filterQuality: FilterQuality.medium)
+              ? _scaledClearLogo()
               : Center(child: _artist(h * .058, Alignment.center, false))),
           SizedBox(height: h * .006),
           _driveArtwork(artSide),
@@ -2343,8 +2339,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 // Stable artist-first hierarchy, even while logo is loading.
                 SizedBox(width: infoW * .9, height: h * .25,
                   child: settings.useArtistClearLogo && _clearLogoBytes != null && model.active
-                    ? Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
-                        gaplessPlayback: true, filterQuality: FilterQuality.medium)
+                    ? _scaledClearLogo()
                     : Center(child: _artist(h * 0.082, Alignment.center, false))),
                 SizedBox(height: h * .008),
                 _title(h * 0.05, Alignment.center, false),
@@ -4693,19 +4688,47 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         a,
       ));
 
+  // Shared responsive clearlogo renderer. Scale in both directions within
+  // the allocated artist slot; never let larger logos cover album art.
+  Widget _scaledClearLogo({Alignment alignment = Alignment.center}) {
+    return LayoutBuilder(builder: (context, box) {
+      final screen = MediaQuery.sizeOf(context);
+      final slotWidth = box.maxWidth.isFinite ? box.maxWidth : screen.width * .90;
+      final slotHeight = box.maxHeight.isFinite ? box.maxHeight : screen.height * .22;
+      // The entire 50%-200% slider range is active inside safe bounds.
+      final fraction =
+          (0.44 + 0.28 * settings.artistLogoScale).clamp(.58, 1.0).toDouble();
+      return Align(
+        alignment: alignment,
+        child: SizedBox(
+          width: math.max(1.0, slotWidth * fraction),
+          height: math.max(1.0, slotHeight * fraction),
+          child: Image.memory(_clearLogoBytes!, fit: BoxFit.contain,
+              alignment: alignment, gaplessPlayback: true,
+              filterQuality: FilterQuality.medium),
+        ),
+      );
+    });
+  }
+
   Widget _artist(double size, Alignment a, bool vhs, {Color? textColor}) {
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
-      final screen = MediaQuery.sizeOf(context);
-      final maxLogoWidth = screen.width * (screen.width < screen.height ? .94 : .90);
-      final logoHeight = (settings.theme == 0
-          ? math.max(size * 3.4, screen.height * (screen.width > screen.height * 1.1 ? .22 : .16))
-          : math.max(math.min(size * 4.0, screen.height * .25), screen.height * .17)) *
-          settings.artistLogoScale;
-      return _shaded(ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxLogoWidth),
-        child: Image.memory(_clearLogoBytes!, gaplessPlayback: true,
-          width: maxLogoWidth, height: logoHeight, fit: BoxFit.contain, alignment: a,
-          filterQuality: FilterQuality.medium)));
+      return _shaded(LayoutBuilder(builder: (context, box) {
+        final screen = MediaQuery.sizeOf(context);
+        final maxWidth = box.maxWidth.isFinite
+            ? math.min(box.maxWidth, screen.width * .94)
+            : screen.width * .90;
+        final naturalHeight = math.min(screen.height * .25,
+            math.max(screen.height * .14, size * 3.0));
+        final maxHeight = box.maxHeight.isFinite
+            ? math.min(box.maxHeight, naturalHeight)
+            : naturalHeight;
+        return SizedBox(
+          width: math.max(1.0, maxWidth),
+          height: math.max(1.0, maxHeight),
+          child: _scaledClearLogo(alignment: a),
+        );
+      }));
     }
     Widget lineWidget(String line) => (vhs || _vhsOn)
         ? _split((c) => _artistText(size, color: c, letteringOverride: line),
