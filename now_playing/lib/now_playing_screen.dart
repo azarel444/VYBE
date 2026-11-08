@@ -1997,6 +1997,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       firstLine = artistWords.take(bestSplit).join(' ');
       secondLine = artistWords.skip(bestSplit).join(' ');
     }
+    // A clearlogo can use the full portrait header height; reserve a real
+    // gap before the artwork instead of centering that tall logo on top of it.
+    final hasArtistLogo = model.active &&
+        settings.useArtistClearLogo && _clearLogoBytes != null;
     final artistHeader = SizedBox(
       width: w * (portrait ? .94 : .88),
       height: h * (portrait ? .20 : .25),
@@ -2018,7 +2022,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // behind the song labels. Draw text last so it stays on top.
       final content = Stack(clipBehavior: Clip.none, children: [
         _focusedBottomBlend(h),
-        Positioned(left: 0, right: 0, top: h * (useTwoLines ? .080 : .105),
+        Positioned(
+          left: 0, right: 0,
+          // Header is .20h high and artwork begins at .265h. Moving a
+          // clearlogo to .045h keeps its full box above the cover (.245h).
+          top: h * (hasArtistLogo ? .045 : (useTwoLines ? .080 : .105)),
           child: Center(child: artistHeader)),
         Positioned(
           left: 0, right: 0, top: h * 0.265,
