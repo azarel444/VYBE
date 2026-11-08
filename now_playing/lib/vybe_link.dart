@@ -28,6 +28,7 @@ class VybeLink extends ChangeNotifier {
   String _lastMetadataState = '';
   bool enabled = false;
   String role = 'sender';
+  String deviceType = 'phone';
   bool autoConnect = true;
   String receiverAddress = '';
   String status = 'Disabled';
@@ -172,7 +173,12 @@ class VybeLink extends ChangeNotifier {
     _model = model;
     final p = await SharedPreferences.getInstance();
     enabled = p.getBool('link_enabled') ?? false;
-    role = p.getString('link_role') ?? 'sender';
+    // New installs choose this during onboarding. For existing users,
+    // preserve their previously configured sender/receiver role.
+    final savedRole = p.getString('link_role') ?? 'sender';
+    deviceType = p.getString('vybe_device_type') ??
+        (savedRole == 'receiver' ? 'head_unit' : 'phone');
+    role = deviceType == 'head_unit' ? 'receiver' : 'sender';
     autoConnect = p.getBool('link_auto') ?? true;
     receiverAddress = (p.getString('link_address') ?? '').trim();
     pairedReceiverId = p.getString('link_paired_receiver') ?? '';
@@ -246,6 +252,17 @@ class VybeLink extends ChangeNotifier {
     if (_connecting) return;
     if (role == 'receiver' && _server == null) { connect(); return; }
     if (role == 'sender' && _socket == null) connect();
+  }
+
+  /// Choose the installed device once, instead of asking the user to pick
+  /// sender/receiver again in Connect settings.
+  Future<void> setDeviceType(String type) async {
+    if (type != 'phone' && type != 'head_unit') return;
+    deviceType = type;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString('vybe_device_type', type);
+    await configure(deviceRole: type == 'head_unit' ? 'receiver' : 'sender');
   }
 
   // Apply UI changes synchronously. Network and disk operations must never
