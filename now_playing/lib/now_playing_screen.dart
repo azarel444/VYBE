@@ -2192,10 +2192,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   top: artTop,
                   height: math.max(1.0, artBottom - barsMax - artTop),
                   child: Center(
-                    // Center the whole artist/song/album stack above the bars.
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: textCrossAlignment,
+                    // Give Riot lettering a finite width so long names wrap
+                    // rather than laying out wider than the metadata panel.
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: textCrossAlignment,
                       children: [
                       _artist(u * 0.087, textAlignment, vhs),
                       SizedBox(height: u * 0.009),
@@ -2209,7 +2212,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         SizedBox(height: _lyricGap(u)),
                         _lyricBlock(u, textAlignment, vhs: vhs),
                       ],
-                    ],
+                      ],
+                      ),
                     ),
                   ),
                 ),
