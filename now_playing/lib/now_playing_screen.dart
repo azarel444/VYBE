@@ -833,9 +833,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     bool localLogo = false;
     bool transferred = false;
     try {
-      // The receiver's own on-disk logo is the first choice.
-      bytes = await LocalArtwork.instance.clearLogo(artist);
-      localLogo = bytes != null && bytes.isNotEmpty;
+      // Read VYBE Cache BEFORE attempting the local artwork index scan.
+      // Missing named local files previously caused a full music-folder
+      // rescan before reaching this already-downloaded clearlogo.
+      bytes = await _fanart.getCachedClearLogo(artist);
+      if (bytes != null && bytes.isNotEmpty &&
+          mounted && request == _clearLogoRequest &&
+          _clearLogoArtist == artist) {
+        // Publish instantly, before expensive alpha trimming or a manual
+        // local-art scan. A manual artist logo may replace this image later.
+        setState(() => _clearLogoBytes = bytes);
+        final link = VybeLink.instance;
+        if (!widget.driveHost && link.enabled && link.role == 'sender') {
+          link.sendClearLogo(artist, bytes);
+        }
+      }
+      final manualLogo = await LocalArtwork.instance.clearLogo(artist);
+      if (manualLogo != null && manualLogo.isNotEmpty) {
+        bytes = manualLogo;
+        localLogo = true;
+      }
       if (!localLogo && !widget.driveHost) {
         final link = VybeLink.instance;
         if (link.enabled && link.role == 'receiver' &&
@@ -1019,11 +1036,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fanartLoadingArtist = artist;
     final request = ++_fanartRequest;
     try {
+      // Cache hits must be visible immediately, not after a potentially
+      // expensive scan of the user's music-folder tree.
+      final cached = await _fanart.getCachedFanart(artist);
+      if (cached != null && cached.isNotEmpty && mounted &&
+          request == _fanartRequest && _fanartArtist == artist) {
+        setState(() => _fanartBytes = cached);
+        if (linkSender) link.sendFanart(artist, cached);
+      }
       final localGallery = await LocalArtwork.instance.fanartGallery(artist);
       final localBytes = localGallery.isEmpty ? null : localGallery.first;
-      final bytes = localBytes ?? (settings.fanartProjectKey.isEmpty ? null :
-          await _fanart.get(artist, settings.fanartProjectKey,
-              personalKey: settings.fanartApiKey));
+      final bytes = localBytes ?? cached ??
+          (settings.fanartProjectKey.isEmpty ? null :
+              await _fanart.get(artist, settings.fanartProjectKey,
+                  personalKey: settings.fanartApiKey));
       if (mounted && request == _fanartRequest && _fanartArtist == artist) {
         _fanartLastFailure = bytes == null ? DateTime.now() : null;
         if (bytes == null) _scheduleFanartRetry(artist);
