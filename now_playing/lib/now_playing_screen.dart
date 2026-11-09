@@ -4832,9 +4832,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   // Prefer two balanced lines. Never shrink the lettering to make it fit.
-  List<String> _artistLines(String text, double size, double width) {
+  // Muzine portrait has a broad, centered info area. The generic size*.8
+  // side reserve can consume 80+ logical pixels on a phone and orphan the
+  // final letter of an otherwise fitting artist name. Use only a small
+  // optical allowance for the sheared brush strokes in that layout.
+  List<String> _artistLines(String text, double size, double width,
+      {bool useFullPortraitWidth = false}) {
     if (text.isEmpty) return const [''];
-    final limit = math.max(1.0, width - size * .8);
+    final safety = useFullPortraitWidth
+        ? math.min(size * .12, width * .015)
+        : size * .8;
+    final limit = math.max(1.0, width - safety);
     if (_artistRunWidth(text, size) <= limit) return [text];
     final words = text.split(RegExp(r'\s+'));
     List<String>? best;
@@ -5001,8 +5009,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final screen = MediaQuery.sizeOf(context);
       final available = box.maxWidth.isFinite
           ? box.maxWidth : screen.width * .88;
+      final muzinePortrait = settings.theme == AppSettings.tEditorial &&
+          screen.height > screen.width * 1.1;
       final lines = _artistLines(_artistStr.toUpperCase().trim(),
-          size, available);
+          size, available, useFullPortraitWidth: muzinePortrait);
       return _shaded(
         lines.length > 1
             ? _compactRiotLines(lines, size, a, lineWidget)
