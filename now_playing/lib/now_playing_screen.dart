@@ -4596,6 +4596,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'OS') {
       return math.min(fontSize * .23, glyphWidth * .52);
     }
+    // Riot's W has visible space inside its measured advance. Tighten only
+    // the W→O (WORLD) and W→N (RENOWN) transitions seen in testing.
+    if (pair == 'WO' || pair == 'WN') {
+      return math.min(fontSize * .28, glyphWidth * .57);
+    }
+    // BROVAZ: the generic V correction pulled V halfway through O.
+    // Keep the letters close without placing the V over the O's body.
+    if (pair == 'OV') {
+      return math.min(fontSize * .075, glyphWidth * .22);
+    }
     // F's brush silhouette is much narrower than its glyph advance. FL
     // needs slightly more correction than FE; both occur in FEARLESS FLYERS.
     if (pair == 'FE') {
