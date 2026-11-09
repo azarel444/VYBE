@@ -155,14 +155,36 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
     ];
 
     return Material(
-      color: const Color(0xFF11141C),
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-      child: SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * .82),
-          child: Padding(
+      color: Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xEB11141D),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: const Color(0x45FFFFFF), width: .7),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0xB8000000),
+              blurRadius: 26, spreadRadius: 2, offset: Offset(0, -9)),
+            BoxShadow(
+              color: Color(0x77000000),
+              blurRadius: 20, offset: Offset(0, 12)),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // Same neon gradient as the controls bar, but floating
+            // inside a softly rounded translucent card.
+            Container(height: 3,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: [
+                  Color(0xFFFF27A8), Color(0xFF995CFF),
+                  Color(0xFF05E2F3)]))),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * .72),
+              child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min,
@@ -247,7 +269,10 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
             ),
           ),
         ),
+          ],
+        ),
       ),
-    );
+    ),
+  );
   }
 }
