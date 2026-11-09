@@ -23,6 +23,7 @@ import 'orbit.dart';
 import 'palette.dart';
 import 'settings.dart';
 import 'settings_screen.dart';
+import 'song_title_marquee.dart';
 import 'quick_customize.dart';
 import 'fx_library.dart';
 import 'spectrum.dart';
@@ -1589,8 +1590,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               else
                 _artist(w * .103, Alignment.center, false),
               SizedBox(height: h * .006),
-              Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: songStyle),
+              SongTitleMarquee(
+                title: song, alignment: Alignment.center, style: songStyle,
+                animation: _tick, elapsedSeconds: () => _time),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
                 Align(alignment: Alignment.center,
@@ -1621,10 +1623,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   flipped ? Alignment.centerLeft : Alignment.centerRight,
                   false),
               SizedBox(height: h * .009),
-              Text(song,
-                textAlign: flipped ? TextAlign.left : TextAlign.right,
-                maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: songStyle),
+              SongTitleMarquee(
+                title: song,
+                alignment: flipped ? Alignment.centerLeft : Alignment.centerRight,
+                style: songStyle,
+                animation: _tick, elapsedSeconds: () => _time),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
                 _albumText(songStyle.fontSize! * .86,
@@ -2160,8 +2163,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         Positioned(
           left: 0, right: 0, top: h * 0.79,
-          child: Center(child: FittedBox(
-            fit: BoxFit.scaleDown, child: text)),
+          child: Center(child: text),
         ),
       ]);
       if (!barsMode || !settings.visualizer) return content;
@@ -2189,7 +2191,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
       Positioned(
         bottom: h * 0.035, left: 0, right: 0,
-        child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: text)),
+        child: Center(child: text),
       ),
     ]);
     if (!barsMode || !settings.visualizer) return centered;
@@ -4040,13 +4042,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       children: [
         _artist(artistSize, center ? Alignment.center : Alignment.centerRight,
           false, textColor: _readableText(.82)),
-        Text(
-          _titleStr,
-          textAlign: ta,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
+        SongTitleMarquee(
+          title: _titleStr,
+          alignment: center ? Alignment.center : Alignment.centerRight,
+          animation: _tick, elapsedSeconds: () => _time,
           style: TextStyle(
-            fontSize: center ? h * 0.075 : h * 0.075,
+            fontSize: h * 0.075,
             fontWeight: FontWeight.w300,
             height: 1.05,
             color: _readableText(1),
@@ -4853,13 +4854,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
-  // Fixed-size metadata labels: long song/album names ellipsize rather than
-  // shrinking the entire information group to an unreadable size.
-  Widget _fixedTitle(double size, Alignment align) => _shaded(Align(
-        alignment: align,
-        child: Text(_titleStr, maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: _titleText(size).style),
-      ));
+  // Keep titles at their designed font size. Long songs scroll horizontally
+  // inside their available column with feathered edges, never scale down.
+  Widget _fixedTitle(double size, Alignment align) => _shaded(
+    SongTitleMarquee(title: _titleStr,
+      style: _titleText(size).style!, alignment: align,
+      animation: _tick, elapsedSeconds: () => _time));
 
   Widget _fixedAlbum(double size, Alignment align,
       {bool flushFrame = false}) => Align(
@@ -4867,10 +4867,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: _albumText(size, flushFrame: flushFrame ? align : null),
       );
 
-  Widget _title(double size, Alignment a, bool vhs) => _shaded(_fit(
-        (vhs || _vhsOn) ? _split((c) => _titleText(size, color: c)) : _titleText(size),
-        a,
-      ));
+  Widget _title(double size, Alignment a, bool vhs) {
+    final standard = _titleText(size).style!;
+    final activeStyle = (vhs || _vhsOn)
+        ? standard.copyWith(shadows: [
+            ..._cleanTextShadows,
+            Shadow(color: const Color(0x99FF2E93),
+              offset: Offset(-1.5 - settings.vhsEffects, 0)),
+            Shadow(color: const Color(0x9905D9FF),
+              offset: Offset(1.5 + settings.vhsEffects, 0)),
+          ])
+        : standard;
+    return _shaded(SongTitleMarquee(
+      title: _titleStr, style: activeStyle, alignment: a,
+      animation: _tick, elapsedSeconds: () => _time));
+  }
 
   // Shared responsive clearlogo renderer. Scale in both directions within
   // the allocated artist slot; never let larger logos cover album art.

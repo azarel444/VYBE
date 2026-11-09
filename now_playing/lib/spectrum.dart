@@ -311,7 +311,7 @@ class VerticalBarsPainter extends CustomPainter {
     final n = count;
     final step = size.height / n;
     final th = step * 0.55;
-    final maxLen = size.width * 0.92;
+    final maxLen = size.width * 0.96;
     final p = Paint()
       ..strokeCap = StrokeCap.round
       ..strokeWidth = th;
@@ -323,8 +323,14 @@ class VerticalBarsPainter extends CustomPainter {
       final y = size.height - step * (i + 0.5);
       final t = (math.min(f, 1 - f) / 0.12).clamp(0.0, 1.0).toDouble();
       p.color = palette.at(f).withOpacity(t * t * (3 - 2 * t));
-      if (style == 0) canvas.drawLine(Offset(th / 2, y), Offset(th / 2 + len, y), p);
-      else if (style == 2) canvas.drawCircle(Offset(th/2+len,y), math.max(1.5,th*.35), p..style=PaintingStyle.fill);
+      // The Focused edge-bar strips are flush with the outer screen edge.
+      // Start just beyond the clip boundary; centering the rounded stroke
+      // inside the strip could leave a visible narrow dark gutter.
+      if (style == 0) canvas.drawLine(
+        Offset(-th * 0.5, y), Offset(len, y), p);
+      else if (style == 2) canvas.drawCircle(
+        Offset(th/2+len,y), math.max(1.5,th*.35),
+        p..style=PaintingStyle.fill);
       else { if (i==0) wave.moveTo(th/2+len,y); else wave.lineTo(th/2+len,y); }
     }
     if (style == 1) canvas.drawPath(wave, Paint()..style=PaintingStyle.stroke..strokeWidth=math.max(2,th*.65)..strokeCap=StrokeCap.round..strokeJoin=StrokeJoin.round..shader=LinearGradient(begin:Alignment.bottomCenter,end:Alignment.topCenter,colors:[palette.a.withOpacity(0),palette.a,palette.b,palette.c.withOpacity(0)],stops:const [0,.12,.85,1]).createShader(Offset.zero & size));
