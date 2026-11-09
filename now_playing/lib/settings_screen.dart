@@ -392,12 +392,8 @@ class SettingsScreen extends StatelessWidget {
     return [
       _section('Backgrounds & visual effects'),
       const Text('Choose a theme in the Theme Library on the playback controls. Use Customize for the most common adjustments; these advanced visual settings remain available here.'),
-      const Text('Choose a premium animated scene. Each scene has its own designed color palette.'),
-      _choices('Animated background',
-        AppSettings.premiumSceneNames,
-        AppSettings.premiumSceneIds.indexOf(s.cinematicPalette).clamp(0, 4),
-        (i) => s.update(() =>
-            s.cinematicPalette = AppSettings.premiumSceneIds[i])),
+      // Animated scene selection now lives beside the source selection in
+      // Quick Customize. Keep advanced animation colors and motion here.
       _choices('Animation colors',
         const ['Default', 'Use album colors'],
         s.animationUseAlbumColors ? 1 : 0,
