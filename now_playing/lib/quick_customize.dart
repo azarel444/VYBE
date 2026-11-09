@@ -22,6 +22,10 @@ class QuickCustomizeSheet extends StatefulWidget {
 
 class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
   AppSettings get s => widget.settings;
+  // Some album palettes are almost black; keep slider tracks and selected
+  // chips visible without abandoning the artwork-derived accent.
+  Color get _controlAccent =>
+      Color.lerp(widget.accent, Colors.white, .52)!;
 
   bool get _fanartTheme =>
       s.theme == AppSettings.tCinematic || s.theme == AppSettings.tEditorial;
@@ -83,7 +87,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
             value: value.clamp(min, max).toDouble(),
             min: min,
             max: max,
-            activeColor: widget.accent,
+            activeColor: _controlAccent,
             inactiveColor: Colors.white24,
             onChanged: (v) => s.update(() => change(v), persist: false),
             onChangeEnd: (_) => s.save(),
@@ -102,7 +106,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
           fontSize: 13, color: selected ? Colors.black : Colors.white)),
       selected: selected,
       showCheckmark: false,
-      selectedColor: widget.accent,
+      selectedColor: _controlAccent,
       backgroundColor: const Color(0xFF242833),
       side: const BorderSide(color: Colors.white24),
       visualDensity: VisualDensity.compact,
@@ -165,7 +169,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(children: [
-                    Icon(Icons.tune_rounded, color: widget.accent, size: 22),
+                    Icon(Icons.tune_rounded, color: _controlAccent, size: 22),
                     const SizedBox(width: 8),
                     const Expanded(child: Text('Quick Customize',
                       style: TextStyle(fontSize: 19,
