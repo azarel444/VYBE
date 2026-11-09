@@ -200,7 +200,9 @@ class NowPlayingModel extends ChangeNotifier {
     if (_albumArtCache.length > 24) {
       _albumArtCache.remove(_albumArtCache.keys.first);
     }
-    MediaCache.putArt(albumKey, bytes);
+    // Do not persist unverified media-session images under broad album
+    // keys. Old caches could otherwise store a generic player's icon.
+    // Strictly verified downloaded covers are cached by artist + song.
   }
   final Map<String, List<LyricLine>?> _lyricsCache = {};
   StreamSubscription? _sub;
@@ -437,25 +439,32 @@ class NowPlayingModel extends ChangeNotifier {
     if (artBytes is Uint8List && artBytes.isNotEmpty) {
       _latestSessionArtwork = artBytes;
       if (!_placeholderHashesLoaded) {
-        _loadPlaceholderHashes().then((_) {
-          if (_markedPlaceholders.contains(_imageFingerprint(artBytes)) &&
-              _trackKey == key) {
-            _albumArtCache.remove(cacheAlbumKey);
+        unawaited(_loadPlaceholderHashes().then((_) {
+          if (_disposed || _trackKey != key ||
+              !_markedPlaceholders.contains(_imageFingerprint(artBytes))) return;
+          // Only remove this exact player image, never a verified catalog
+          // cover which might have been loaded while preferences were read.
+          if (art != null && listEquals(art!.bytes, artBytes)) {
             _artToken++;
             art = null;
             artworkSource = 'None';
-            sessionArtworkStatus = 'Rejected saved placeholder';
+            _albumArtCache.remove(cacheAlbumKey);
+            sessionArtworkStatus = 'Rejected saved player placeholder';
             notifyListeners();
-            if (artLookupEnabled) _lookupArt(force: true);
+            if (artLookupEnabled) unawaited(_lookupLocalFirst());
           }
-        });
+        }));
       }
     } else if (changed) {
       _latestSessionArtwork = null;
     }
-    // Shared playlist artwork remains usable offline; never reject it
-    // merely because several tracks carry identical image bytes.
-    if (artBytes is Uint8List && artBytes.isNotEmpty) {
+    // Manual placeholder marks apply to every metadata event, not only the
+    // first callback. Legitimate compilation/shared covers stay usable.
+    final rejectedSessionImage = artBytes is Uint8List &&
+        artBytes.isNotEmpty && _placeholderHashesLoaded &&
+        _markedPlaceholders.contains(_imageFingerprint(artBytes));
+    if (artBytes is Uint8List && artBytes.isNotEmpty &&
+        !rejectedSessionImage) {
       // Capture the current source before updating diagnostics. Repeated
       // media-session callbacks must not undo a verified song-specific cover.
       final hasVerifiedSongCover = artworkSource == 'Exact song catalog match' &&
@@ -482,6 +491,20 @@ class NowPlayingModel extends ChangeNotifier {
         _sessionVerificationTimer = Timer(const Duration(milliseconds: 1500), () {
           _findSongCoverUpgrade(expectedTrack);
         });
+      }
+    } else if (rejectedSessionImage) {
+      sessionArtworkStatus = 'Known player placeholder rejected';
+      final currentIsRejected = art != null &&
+          artBytes is Uint8List && listEquals(art!.bytes, artBytes);
+      if (changed || currentIsRejected) {
+        _artToken++;
+        art = null;
+        artworkSource = 'None';
+        _albumArtCache.remove(cacheAlbumKey);
+        if (artLookupEnabled && title.isNotEmpty) {
+          // Local artwork first; then strict online matching.
+          unawaited(_lookupLocalFirst());
+        }
       }
     } else if (changed && art != null) {
       sessionArtworkStatus = 'Missing (no bytes in media session)';
@@ -649,7 +672,8 @@ class NowPlayingModel extends ChangeNotifier {
       Uint8List? bytes = force ? null : _artCache[k];
       bytes ??= force || albumCacheKey.isEmpty ? null : _albumArtCache[albumCacheKey];
       bytes ??= force ? null : await MediaCache.getArt(k);
-      bytes ??= force || albumCacheKey.isEmpty ? null : await MediaCache.getArt(albumCacheKey);
+      // Ignore legacy album-wide disk entries: these could contain a
+      // player display icon from older versions. Exact song caches remain.
       if (bytes != null) artworkSource = 'Memory or disk cache';
       if (bytes == null) {
         artworkStatus = 'Searching online catalogs';
