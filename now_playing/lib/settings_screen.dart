@@ -12,6 +12,7 @@ import 'onboarding.dart';
 import 'settings.dart';
 import 'fx_library.dart';
 import 'media_cache.dart';
+import 'portable_media_cache.dart';
 import 'artist_fanart.dart';
 import 'local_artwork.dart';
 
@@ -216,6 +217,50 @@ class SettingsScreen extends StatelessWidget {
           'Rescan', () async {
             await showLocalArtworkScan(context);
             if (context.mounted) s.update(() {}, persist: false);
+          }),
+      _action('Verify saved VYBE Cache artwork',
+          'Check current artist fanart and clearlogo without any download',
+          'Check cache', () async {
+            final artist = model.artist.trim();
+            String report;
+            if (artist.isEmpty) {
+              report = 'Play a song first to select an artist.';
+            } else {
+              final started = Stopwatch()..start();
+              final fanart = await PortableMediaCache.get('fanart', artist);
+              final fanartResult = PortableMediaCache.lastReadStatus;
+              final clearlogo = await PortableMediaCache.get('clearlogo', artist);
+              final clearlogoResult = PortableMediaCache.lastReadStatus;
+              report = 'Artist: $artist\n\n'
+                  'Fanart: ${fanart == null ? "NOT FOUND" : "FOUND (${fanart.length} bytes)"}\n'
+                  '$fanartResult\n\n'
+                  'Clearlogo: ${clearlogo == null ? "NOT FOUND" : "FOUND (${clearlogo.length} bytes)"}\n'
+                  '$clearlogoResult\n\n'
+                  'Last portable cache write:\n'
+                  '${PortableMediaCache.lastWriteStatus}\n\n'
+                  'Cache-only check completed in ${started.elapsedMilliseconds} ms.\n'
+                  'No online artwork lookup was made by this check.';
+            }
+            if (!context.mounted) return;
+            await showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('VYBE Cache verification'),
+                content: SingleChildScrollView(
+                    child: SelectableText(report)),
+                actions: [
+                  TextButton(
+                    onPressed: () => Clipboard.setData(
+                        ClipboardData(text: report)),
+                    child: const Text('Copy'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            );
           }),
       if (_showDiagnostics) ...[
       _action('Diagnose local fanart',
