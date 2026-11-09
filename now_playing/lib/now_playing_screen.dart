@@ -1425,6 +1425,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ]);
   }
 
+  // Muzine and Bigfan both use 84% of portrait width for song details.
+  // Keep their artist, song, and album font sizes identical.
+  static const double _portraitFeatureArtistRatio = .067;
+  static const double _portraitFeatureTitleRatio = .035;
+  static const double _portraitFeatureAlbumRatio = .025;
+
   /// Editorial: an angled, recognizable album sleeve over full-bleed
   /// artist photography. Both orientations have their own composition.
   /// Editorial: full-bleed fanart, a grayscale album-art backing and a
@@ -1506,7 +1512,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         child: ClipRRect(borderRadius: BorderRadius.circular(sleeveSize * .061),
           child: portrait
-            ? Transform.rotate(angle: math.pi, child: cover)
+            // The record emerges from the lower-left diagonal sleeve edge.
+            // Turn the COVER'S TOP toward that opening. Its former 180-degree
+            // rotation pointed the top away from the vinyl in portrait.
+            ? Transform.rotate(angle: -math.pi / 2, child: cover)
             : cover),
       ),
     );
@@ -1523,7 +1532,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final portraitHasLogo = settings.useArtistClearLogo &&
         _clearLogoBytes != null && model.active;
     final songStyle = TextStyle(
-      color: Colors.white, fontSize: portrait ? w * .051 : h * .046,
+      color: Colors.white,
+      fontSize: portrait ? h * _portraitFeatureTitleRatio : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     final composition = Stack(fit: StackFit.expand, children: [
@@ -1579,7 +1589,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ],
       if (portrait) ...[
         // Full-width artist branding, followed by vertically stacked metadata.
-        Positioned(left: w * .075, right: w * .075, bottom: h * .046,
+        Positioned(left: w * .08, right: w * .08, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
               // No reserved blank area above/below fallback artist text.
@@ -1588,7 +1598,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 SizedBox(height: math.min(h * .12, w * .30),
                   child: _scaledClearLogo(alignment: Alignment.bottomCenter))
               else
-                _artist(w * .103, Alignment.center, false),
+                _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
               SizedBox(height: h * .006),
               SongTitleMarquee(
                 title: song, alignment: Alignment.center, style: songStyle,
@@ -1596,7 +1606,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
                 Align(alignment: Alignment.center,
-                  child: _albumText(songStyle.fontSize! * .94)),
+                  child: _albumText(h * _portraitFeatureAlbumRatio)),
               ],
             ])),
         if (_hasLyrics)
@@ -1728,16 +1738,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: h * .205,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             GestureDetector(key: _artKey, onTap: _openPlayer,
-              child: _artCard(math.min(w * .31, h * .15))),
+              // Approximately as wide as the prominent artist wordmark.
+              child: _artCard(math.min(w * .64, h * .34))),
             SizedBox(height: h * .014),
             SizedBox(width: w * .84,
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                _artist(h * .067, Alignment.center, false),
+                _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
                 SizedBox(height: h * .008),
-                _title(h * .035, Alignment.center, false),
+                _title(h * _portraitFeatureTitleRatio, Alignment.center, false),
                 if (_showAlbumLabel) ...[
                   SizedBox(height: h * .006),
-                  _fixedAlbum(h * .025, Alignment.center),
+                  _fixedAlbum(h * _portraitFeatureAlbumRatio, Alignment.center),
                 ],
               ])),
           ])),
