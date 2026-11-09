@@ -4677,23 +4677,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'FI') {
       return math.min(fontSize * .45, glyphWidth * .78);
     }
-    // Optical gaps identified in real Riot wordmarks:
-    // NEUROTICS (C-S), BUSH (U-S), YOUNGSTA'S (G-S),
-    // GOATS (T-S), BOYZ (Y-Z), and FINGAZ (F-I).
-    // These operate on GLYPH shapes, not artist names, and both render and
-    // measured line widths use this same function.
-    if (character == 'S' && 'CUGT'.contains(previous)) {
-      final correction = previous == 'G' ? .34
-          : previous == 'U' ? .32
-          : previous == 'C' ? .30 : .30;
-      return math.min(fontSize * correction, glyphWidth * .60);
-    }
-    if (pair == 'YZ') {
-      return math.min(fontSize * .32, glyphWidth * .62);
-    }
-    if (pair == 'FI') {
-      return math.min(fontSize * .43, glyphWidth * .76);
-    }
     // Riot's W has visible space inside its measured advance. Tighten only
     // the W→O (WORLD) and W→N (RENOWN) transitions seen in testing.
     if (pair == 'WO' || pair == 'WN') {
