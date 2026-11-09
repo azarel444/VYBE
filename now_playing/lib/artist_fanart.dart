@@ -14,6 +14,69 @@ class ArtistFanartCache {
   static String diagnostics = 'No fanart lookup recorded yet';
   final Map<String, String> _requestDetails = {};
 
+  /// Return existing fanart immediately; never consult MusicBrainz or Fanart.tv.
+  /// Called before the optional full local-artwork index scan after reinstall.
+  Future<Uint8List?> getCachedFanart(String artist) async {
+    final key = artist.toLowerCase().trim();
+    if (key.isEmpty) return null;
+    final memory = _memory[key];
+    if (memory != null && memory.isNotEmpty) return memory;
+    try {
+      final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
+      final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
+      final file = File('${folder.path}/$name.jpg');
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        if (bytes.isNotEmpty) {
+          _memory[key] = bytes;
+          lastStatus = 'Internal fanart cache hit';
+          return bytes;
+        }
+      }
+      final restored = await PortableMediaCache.get('fanart', key);
+      if (restored != null && restored.isNotEmpty) {
+        // The external music-folder copy survives an app uninstall.
+        await folder.create(recursive: true);
+        try { await file.writeAsBytes(restored, flush: false); } catch (_) {}
+        _memory[key] = restored;
+        lastStatus = 'Persistent music-folder fanart cache hit';
+        return restored;
+      }
+    } catch (e) {
+      lastStatus = 'Cached fanart read failed: $e';
+    }
+    return null;
+  }
+
+  /// Same cache-only lookup for transparent clearlogos. Do not make network
+  /// requests or rescan the user's music library before displaying a hit.
+  Future<Uint8List?> getCachedClearLogo(String artist) async {
+    final key = artist.toLowerCase().trim();
+    if (key.isEmpty) return null;
+    try {
+      final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
+      final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
+      final file = File('${folder.path}/$name.clearlogo.png');
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        if (bytes.isNotEmpty) {
+          lastStatus = 'Internal clearlogo cache hit';
+          return bytes;
+        }
+      }
+      final restored = await PortableMediaCache.get('clearlogo', key);
+      if (restored != null && restored.isNotEmpty) {
+        await folder.create(recursive: true);
+        try { await file.writeAsBytes(restored, flush: false); } catch (_) {}
+        lastStatus = 'Persistent music-folder clearlogo cache hit';
+        return restored;
+      }
+    } catch (e) {
+      lastStatus = 'Cached clearlogo read failed: $e';
+    }
+    return null;
+  }
+
   Future<Uint8List?> get(String artist, String projectKey, {String personalKey = ''}) {
     final key = artist.toLowerCase().trim();
     final existing = _inFlight[key];
