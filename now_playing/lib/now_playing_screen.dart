@@ -1591,7 +1591,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _artist(w * .103, Alignment.center, false),
               SizedBox(height: h * .006),
               SongTitleMarquee(
-                title: song, alignment: Alignment.center, style: songStyle),
+                title: song, alignment: Alignment.center, style: songStyle,
+                animation: _tick, elapsedSeconds: () => _time),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
                 Align(alignment: Alignment.center,
@@ -1625,7 +1626,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               SongTitleMarquee(
                 title: song,
                 alignment: flipped ? Alignment.centerLeft : Alignment.centerRight,
-                style: songStyle),
+                style: songStyle,
+                animation: _tick, elapsedSeconds: () => _time),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
                 _albumText(songStyle.fontSize! * .86,
@@ -4043,6 +4045,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         SongTitleMarquee(
           title: _titleStr,
           alignment: center ? Alignment.center : Alignment.centerRight,
+          animation: _tick, elapsedSeconds: () => _time,
           style: TextStyle(
             fontSize: h * 0.075,
             fontWeight: FontWeight.w300,
@@ -4855,7 +4858,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // inside their available column with feathered edges, never scale down.
   Widget _fixedTitle(double size, Alignment align) => _shaded(
     SongTitleMarquee(title: _titleStr,
-      style: _titleText(size).style!, alignment: align));
+      style: _titleText(size).style!, alignment: align,
+      animation: _tick, elapsedSeconds: () => _time));
 
   Widget _fixedAlbum(double size, Alignment align,
       {bool flushFrame = false}) => Align(
@@ -4875,7 +4879,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ])
         : standard;
     return _shaded(SongTitleMarquee(
-      title: _titleStr, style: activeStyle, alignment: a));
+      title: _titleStr, style: activeStyle, alignment: a,
+      animation: _tick, elapsedSeconds: () => _time));
   }
 
   // Shared responsive clearlogo renderer. Scale in both directions within
