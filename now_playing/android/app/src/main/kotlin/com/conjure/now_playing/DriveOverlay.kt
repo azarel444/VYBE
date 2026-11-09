@@ -42,14 +42,15 @@ import kotlin.math.sqrt
 /** Pulls the best artwork out of a media session's metadata. */
 object MediaArt {
     fun bitmap(ctx: Context, md: MediaMetadata?): Bitmap? {
+        // Android DISPLAY_ICON is a player's generic play/music icon, not
+        // verified album artwork. Use VYBE's own placeholder when ART and
+        // ALBUM_ART (including their URIs) are absent.
         if (md == null) return null
         var bmp: Bitmap? = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: md.getBitmap(MediaMetadata.METADATA_KEY_ART)
-            ?: md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
         if (bmp == null) {
             val uri = md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
                 ?: md.getString(MediaMetadata.METADATA_KEY_ART_URI)
-                ?: md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
             if (uri != null && (uri.startsWith("content:") || uri.startsWith("file:"))) {
                 try {
                     ctx.contentResolver.openInputStream(Uri.parse(uri))?.use {

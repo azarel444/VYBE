@@ -1428,8 +1428,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Muzine and Bigfan both use 84% of portrait width for song details.
   // Keep their artist, song, and album font sizes identical.
   static const double _portraitFeatureArtistRatio = .067;
-  static const double _portraitFeatureTitleRatio = .035;
-  static const double _portraitFeatureAlbumRatio = .025;
+  // Consistent readable typography floor for every Now Playing theme:
+  // artist remains the headline; song text outranks the album label.
+  static const double _portraitFeatureTitleRatio = .042;
+  static const double _portraitFeatureAlbumRatio = .021;
+  static const double _landscapeSongMinRatio = .065;
+  static const double _landscapeAlbumMaxRatio = .025;
+
+  double _songFontSize(double requested) {
+    final screen = MediaQuery.sizeOf(context);
+    final portrait = screen.height > screen.width * 1.1;
+    final floor = screen.height *
+        (portrait ? _portraitFeatureTitleRatio : _landscapeSongMinRatio);
+    // This floor never lowers themes that deliberately use larger type.
+    return math.max(requested, floor).toDouble();
+  }
+
+  double _albumFontSize(double requested) {
+    final screen = MediaQuery.sizeOf(context);
+    final portrait = screen.height > screen.width * 1.1;
+    final cap = screen.height *
+        (portrait ? _portraitFeatureAlbumRatio : _landscapeAlbumMaxRatio);
+    // A framed album label must never appear larger than the song title.
+    return math.min(requested, cap).toDouble();
+  }
 
   /// Editorial: an angled, recognizable album sleeve over full-bleed
   /// artist photography. Both orientations have their own composition.
@@ -1531,7 +1553,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // including the user's clearlogo-size setting.
     final songStyle = TextStyle(
       color: Colors.white,
-      fontSize: portrait ? h * _portraitFeatureTitleRatio : h * .046,
+      fontSize: _songFontSize(
+          portrait ? h * _portraitFeatureTitleRatio : h * _landscapeSongMinRatio),
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     final composition = Stack(fit: StackFit.expand, children: [
@@ -1634,7 +1657,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 animation: _tick, elapsedSeconds: () => _time),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
-                _albumText(songStyle.fontSize! * .86,
+                _albumText(songStyle.fontSize! * .39,
                   flushFrame: flipped ? Alignment.centerLeft
                       : Alignment.centerRight),
               ],
@@ -4832,9 +4855,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   // Prefer two balanced lines. Never shrink the lettering to make it fit.
-  List<String> _artistLines(String text, double size, double width) {
+  // Muzine portrait has a broad, centered info area. The generic size*.8
+  // side reserve can consume 80+ logical pixels on a phone and orphan the
+  // final letter of an otherwise fitting artist name. Use only a small
+  // optical allowance for the sheared brush strokes in that layout.
+  List<String> _artistLines(String text, double size, double width,
+      {bool useFullPortraitWidth = false}) {
     if (text.isEmpty) return const [''];
-    final limit = math.max(1.0, width - size * .8);
+    final safety = useFullPortraitWidth
+        ? math.min(size * .12, width * .015)
+        : size * .8;
+    final limit = math.max(1.0, width - safety);
     if (_artistRunWidth(text, size) <= limit) return [text];
     final words = text.split(RegExp(r'\s+'));
     List<String>? best;
@@ -4859,30 +4890,65 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       } else {
         line = joined;
       }
-      // Break a single oversized word only if necessary.
-      if (_artistRunWidth(line, size) > limit) {
-        var segment = '';
-        for (final rune in line.runes) {
-          final c = String.fromCharCode(rune);
-          if (segment.isNotEmpty &&
-              _artistRunWidth('$segment$c', size) > limit) {
-            lines.add(segment);
-            segment = c;
-          } else {
-            segment += c;
-          }
-        }
-        line = segment;
-      }
+      // Never split a word in the middle. If an individual word exceeds
+      // the slot it stays intact and the renderer scrolls that whole word
+      // through a clipped, edge-faded viewport at its original font size.
     }
     if (line.isNotEmpty) lines.add(line);
     return lines.isEmpty ? [text] : lines;
   }
 
+  /// Very long single words retain their full Riot typography and scroll
+  /// as ONE word instead of wrapping the last letter onto the next line.
+  /// Reuse the capped VYBE frame ticker rather than creating a new ticker
+  /// for every artist line on the ATOTO head unit.
+  Widget _overflowRiotWord(String line, double size, double available,
+      Widget Function(String) render) {
+    final wordWidth = _artistRunWidth(line, size) + size * .10;
+    final travel = math.max(0.0, wordWidth - available);
+    final lineHeight = size * 1.45 * _riotWordInitialScale * 1.12;
+    final seconds = (travel / 42.0 + 4.0).clamp(9.0, 40.0).toDouble();
+    return SizedBox(
+      width: available,
+      height: lineHeight,
+      child: ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (bounds) => const LinearGradient(
+          colors: [Colors.transparent, Colors.white,
+            Colors.white, Colors.transparent],
+          stops: [0, .035, .965, 1],
+        ).createShader(bounds),
+        child: ClipRect(
+          child: AnimatedBuilder(
+            animation: _tick,
+            builder: (context, _) {
+              final t = (_time % seconds) / seconds;
+              final p = t < .17
+                  ? 0.0
+                  : t < .70
+                      ? Curves.easeInOut.transform((t - .17) / .53)
+                      : t < .86
+                          ? 1.0
+                          : 1.0 - Curves.easeInOut.transform((t - .86) / .14);
+              return Stack(clipBehavior: Clip.hardEdge, children: [
+                Positioned(
+                  left: -(travel * p),
+                  top: 0,
+                  width: wordWidth,
+                  child: render(line),
+                ),
+              ]);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   TextStyle _albumLabelTextStyle(double size) => TextStyle(
         fontSize: size,
-        fontWeight: FontWeight.w500,
-        letterSpacing: size * 0.23,
+        fontWeight: FontWeight.w400,
+        letterSpacing: size * 0.14,
         fontStyle: FontStyle.italic,
         color: Colors.white,
       );
@@ -4898,29 +4964,34 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
   // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
-  Widget _albumText(double size, {Alignment? flushFrame}) => CustomPaint(
-        painter: _VybeAlbumLabelFrame(_palette.a,
-            flushRight: flushFrame == Alignment.centerRight,
-            flushLeft: flushFrame == Alignment.centerLeft),
-        child: Padding(
-          // Keep the text clear of the slanted frame while eliminating
-          // Muzine's large empty padding at the outside-aligned edge.
-          padding: EdgeInsets.fromLTRB(
-            flushFrame == Alignment.centerLeft ? size * 1.55 : size * 3.30,
-            size * .24,
-            flushFrame == Alignment.centerRight ? size * 1.55 : size * 3.30,
-            size * .24),
-          child: Text(_albumDisplayName, maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: _albumLabelTextStyle(size)),
-        ),
-      );
+  Widget _albumText(double size, {Alignment? flushFrame}) {
+    final labelSize = _albumFontSize(size);
+    return CustomPaint(
+      painter: _VybeAlbumLabelFrame(_palette.a,
+        flushRight: flushFrame == Alignment.centerRight,
+        flushLeft: flushFrame == Alignment.centerLeft),
+      child: Padding(
+        // Base the background and padding on the actual displayed font,
+        // not a larger requested size from a particular theme.
+        padding: EdgeInsets.fromLTRB(
+          flushFrame == Alignment.centerLeft
+              ? labelSize * 1.55 : labelSize * 3.30,
+          labelSize * .24,
+          flushFrame == Alignment.centerRight
+              ? labelSize * 1.55 : labelSize * 3.30,
+          labelSize * .24),
+        child: Text(_albumDisplayName, maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _albumLabelTextStyle(labelSize)),
+      ),
+    );
+  }
 
   // Keep titles at their designed font size. Long songs scroll horizontally
   // inside their available column with feathered edges, never scale down.
   Widget _fixedTitle(double size, Alignment align) => _shaded(
     SongTitleMarquee(title: _titleStr,
-      style: _titleText(size).style!, alignment: align,
+      style: _titleText(_songFontSize(size)).style!, alignment: align,
       animation: _tick, elapsedSeconds: () => _time));
 
   Widget _fixedAlbum(double size, Alignment align,
@@ -4930,7 +5001,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       );
 
   Widget _title(double size, Alignment a, bool vhs) {
-    final standard = _titleText(size).style!;
+    final standard = _titleText(_songFontSize(size)).style!;
     final activeStyle = (vhs || _vhsOn)
         ? standard.copyWith(shadows: [
             ..._cleanTextShadows,
@@ -5001,15 +5072,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final screen = MediaQuery.sizeOf(context);
       final available = box.maxWidth.isFinite
           ? box.maxWidth : screen.width * .88;
+      final muzinePortrait = settings.theme == AppSettings.tEditorial &&
+          screen.height > screen.width * 1.1;
       final lines = _artistLines(_artistStr.toUpperCase().trim(),
-          size, available);
+          size, available, useFullPortraitWidth: muzinePortrait);
+      // _artistLines only breaks at spaces. A single oversized word gets
+      // its own fixed-width marquee, never a smaller font or orphaned glyph.
+      Widget renderedLine(String line) =>
+          _artistRunWidth(line, size) > available
+              ? _overflowRiotWord(line, size, available, lineWidget)
+              : lineWidget(line);
       return _shaded(
         lines.length > 1
-            ? _compactRiotLines(lines, size, a, lineWidget)
+            ? _compactRiotLines(lines, size, a, renderedLine)
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [Align(alignment: a, child: lineWidget(lines.first))],
+                children: [Align(alignment: a, child: renderedLine(lines.first))],
               ),
       );
     });
