@@ -103,10 +103,13 @@ class PortableMediaCache {
         if (await file.length() > 12 * 1024 * 1024) return;
         final bytes = await file.readAsBytes();
         if (bytes.isEmpty) return;
-        await _channel.invokeMethod<bool>('cacheWrite', {
+        final saved = await _channel.invokeMethod<bool>('cacheWrite', {
           'name': filename,
           'bytes': bytes,
         });
+        if (saved != true) {
+          lastWriteStatus = 'FAILED BACKUP $filename: Android rejected cacheWrite';
+        }
       } catch (_) {
         // A read-only cloud provider or unplugged drive cannot break setup.
       }
