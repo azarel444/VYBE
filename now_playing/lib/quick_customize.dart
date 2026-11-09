@@ -222,12 +222,6 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                             s.update(() => s.useVybePalette = v),
                         visualDensity: VisualDensity.compact),
                       FilterChip(
-                        label: const Text('Visualizer'),
-                        selected: s.visualizer,
-                        onSelected: (v) =>
-                            s.update(() => s.visualizer = v),
-                        visualDensity: VisualDensity.compact),
-                      FilterChip(
                         label: const Text('Motion'),
                         selected: s.bgEffects,
                         onSelected: (v) =>
