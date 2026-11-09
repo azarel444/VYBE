@@ -9,11 +9,17 @@ class SongTitleMarquee extends StatefulWidget {
   final String title;
   final TextStyle style;
   final Alignment alignment;
+  // Reuse VYBE's existing 30-fps clock; no separate marquee ticker
+  // consuming frames on underpowered Android head units.
+  final Listenable animation;
+  final double Function() elapsedSeconds;
 
   const SongTitleMarquee({
     super.key,
     required this.title,
     required this.style,
+    required this.animation,
+    required this.elapsedSeconds,
     this.alignment = Alignment.center,
   });
 
@@ -21,28 +27,22 @@ class SongTitleMarquee extends StatefulWidget {
   State<SongTitleMarquee> createState() => _SongTitleMarqueeState();
 }
 
-class _SongTitleMarqueeState extends State<SongTitleMarquee>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _scroll = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 13),
-  )..repeat();
+class _SongTitleMarqueeState extends State<SongTitleMarquee> {
+  late double _startTime;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTime = widget.elapsedSeconds();
+  }
 
   @override
   void didUpdateWidget(covariant SongTitleMarquee oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.title != widget.title) {
-      // New tracks start with the first words fully visible.
-      _scroll
-        ..reset()
-        ..repeat();
+      // New tracks always start with their opening words fully visible.
+      _startTime = widget.elapsedSeconds();
     }
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
   }
 
   double _scrollFraction(double p) {
@@ -87,6 +87,7 @@ class _SongTitleMarqueeState extends State<SongTitleMarquee>
           Positioned(
             left: x,
             top: 3,
+            width: textWidth,
             child: Text(widget.title,
               maxLines: 1,
               softWrap: false,
@@ -107,9 +108,16 @@ class _SongTitleMarqueeState extends State<SongTitleMarquee>
           stops: [0.0, .042, .958, 1.0],
         ).createShader(bounds),
         child: AnimatedBuilder(
-          animation: _scroll,
-          builder: (context, _) =>
-              textAt(-travel * _scrollFraction(_scroll.value)),
+          animation: widget.animation,
+          builder: (context, _) {
+            // Longer titles pan at a readable pace instead of flying by.
+            final seconds = (travel / 46.0 * 1.6 + 3.5)
+                .clamp(9.0, 32.0).toDouble();
+            final elapsed = math.max(0.0,
+                widget.elapsedSeconds() - _startTime);
+            final progress = (elapsed % seconds) / seconds;
+            return textAt(-travel * _scrollFraction(progress));
+          },
         ),
       );
     });
