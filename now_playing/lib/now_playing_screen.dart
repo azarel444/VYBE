@@ -34,6 +34,8 @@ import 'club_background.dart';
 import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
 
+enum _VybeTextRole { artist, title, album }
+
 class NowPlayingScreen extends StatefulWidget {
   /// True when this is the see-through Drive window that sits over the map.
   final bool driveHost;
@@ -1425,44 +1427,58 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ]);
   }
 
-  // Muzine and Bigfan both use 84% of portrait width for song details.
-  // Keep their artist, song, and album font sizes identical.
-  static const double _portraitFeatureArtistRatio = .067;
-  // Consistent readable typography floor for every Now Playing theme:
-  // artist remains the headline; song text outranks the album label.
-  static const double _portraitFeatureTitleRatio = .042;
+  // ONE typography scale for every theme. Layouts control placement, not
+  // letter sizes. The Riot glyph/kerning engine is likewise shared.
+  // The artist size is the pre-Riot base; _artistText scales it by 1.45.
+  static const double _portraitFeatureArtistRatio = .054;
+  static const double _portraitFeatureTitleRatio = .040;
   static const double _portraitFeatureAlbumRatio = .021;
-  static const double _landscapeSongMinRatio = .065;
-  static const double _landscapeAlbumMaxRatio = .025;
-  // Artist fallback lettering is a headline on every theme, not just
-  // Focused. Keep one orientation-specific minimum independent of layout.
-  static const double _landscapeArtistMinRatio = .112;
-  static const double _portraitArtistMinRatio = .073;
+  static const double _landscapeArtistRatio = .085;
+  static const double _landscapeTitleRatio = .057;
+  static const double _landscapeAlbumRatio = .025;
+  static const double _portraitIdleArtistRatio = .028;
+  static const double _landscapeIdleArtistRatio = .046;
+  static const double _portraitIdleTitleRatio = .028;
+  static const double _landscapeIdleTitleRatio = .041;
 
-  double _artistFontSize(double requested) {
+  bool get _textPortrait {
     final screen = MediaQuery.sizeOf(context);
-    final portrait = screen.height > screen.width * 1.1;
-    return math.max(requested, screen.height *
-        (portrait ? _portraitArtistMinRatio : _landscapeArtistMinRatio))
-        .toDouble();
+    return screen.height > screen.width * 1.1;
   }
 
-  double _songFontSize(double requested) {
+  double _artistFontSize(double unusedRequested) {
     final screen = MediaQuery.sizeOf(context);
-    final portrait = screen.height > screen.width * 1.1;
-    final floor = screen.height *
-        (portrait ? _portraitFeatureTitleRatio : _landscapeSongMinRatio);
-    // This floor never lowers themes that deliberately use larger type.
-    return math.max(requested, floor).toDouble();
+    return screen.height * (model.active
+        ? (_textPortrait ? _portraitFeatureArtistRatio : _landscapeArtistRatio)
+        : (_textPortrait ? _portraitIdleArtistRatio : _landscapeIdleArtistRatio));
   }
 
-  double _albumFontSize(double requested) {
+  double _songFontSize(double unusedRequested) {
     final screen = MediaQuery.sizeOf(context);
-    final portrait = screen.height > screen.width * 1.1;
-    // All themes share the exact album-label font size for this orientation.
-    // Length affects scroll distance, NEVER type size or frame scaling.
-    return screen.height *
-        (portrait ? _portraitFeatureAlbumRatio : _landscapeAlbumMaxRatio);
+    return screen.height * (model.active
+        ? (_textPortrait ? _portraitFeatureTitleRatio : _landscapeTitleRatio)
+        : (_textPortrait ? _portraitIdleTitleRatio : _landscapeIdleTitleRatio));
+  }
+
+  double _albumFontSize(double unusedRequested) {
+    final screen = MediaQuery.sizeOf(context);
+    return screen.height * (_textPortrait
+        ? _portraitFeatureAlbumRatio : _landscapeAlbumRatio);
+  }
+
+  // Single role-aware widget used by every theme. No local per-theme
+  // typography decisions: artist, song, and album are rendered identically
+  // in a given orientation, including the complete idle fallback text.
+  Widget _metadataText(_VybeTextRole role, Alignment alignment,
+      {bool vhs = false, Color? textColor, Alignment? flushFrame}) {
+    switch (role) {
+      case _VybeTextRole.artist:
+        return _drawArtist(alignment, vhs, textColor: textColor);
+      case _VybeTextRole.title:
+        return _drawTitle(alignment, vhs);
+      case _VybeTextRole.album:
+        return _drawAlbum(flushFrame: flushFrame);
+    }
   }
 
   /// Editorial: an angled, recognizable album sleeve over full-bleed
@@ -1634,9 +1650,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               // ratio as Bigfan; only their artwork compositions differ.
               _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
               SizedBox(height: h * .006),
-              SongTitleMarquee(
-                title: song, alignment: Alignment.center, style: songStyle,
-                animation: _tick, elapsedSeconds: () => _time),
+              _metadataText(_VybeTextRole.title, Alignment.center),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
                 Align(alignment: Alignment.center,
@@ -1667,11 +1681,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   flipped ? Alignment.centerLeft : Alignment.centerRight,
                   false),
               SizedBox(height: h * .009),
-              SongTitleMarquee(
-                title: song,
-                alignment: flipped ? Alignment.centerLeft : Alignment.centerRight,
-                style: songStyle,
-                animation: _tick, elapsedSeconds: () => _time),
+              _metadataText(_VybeTextRole.title,
+                  flipped ? Alignment.centerLeft : Alignment.centerRight),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
                 _albumText(songStyle.fontSize! * .39,
@@ -2124,104 +2135,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       );
     }
 
-    // The idle prompt is UI status, not a song title. Keep it inside the
-    // portrait metadata column instead of applying the active-song font floor
-    // and marquee sizing (which can clip "Nothing playing" on narrow phones).
+    // Focused now uses the SAME song, artist, and album widgets as every
+    // other theme. Never replace the idle copy with a local alternate string.
     final text = SizedBox(
-      width: w * (model.active ? 0.8 : 0.9),
-      child: model.active
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _title(h * 0.062, Alignment.center, false),
-                SizedBox(height: h * 0.012),
-                if (_showAlbumLabel)
-                  _shaded(_albumText(h * .028)),
-                if (_lyricTheme && settings.lyrics) SizedBox(height: lyricGap),
-                if (_lyricTheme && settings.lyrics)
-                  SizedBox(
-                    height: lyricSlot,
-                    child: _hasLyrics
-                        ? Center(child: _lyricLine(h * 0.03, Alignment.center))
-                        : null,
-                  ),
-              ],
-            )
-          : Center(
-              child: Text(
-                'Nothing playing',
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: portrait ? w * 0.061 : h * 0.067,
-                  fontWeight: FontWeight.w300,
-                  color: _readableText(1),
-                  shadows: _cleanTextShadows,
-                  height: 1.1,
-                ),
-              ),
-            ),
+      width: w * .90,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        _metadataText(_VybeTextRole.title, Alignment.center),
+        if (_showAlbumLabel) ...[
+          SizedBox(height: h * .012),
+          _metadataText(_VybeTextRole.album, Alignment.center),
+        ],
+        if (_lyricTheme && settings.lyrics) SizedBox(height: lyricGap),
+        if (_lyricTheme && settings.lyrics)
+          SizedBox(height: lyricSlot,
+            child: _hasLyrics
+                ? Center(child: _lyricLine(h * .03, Alignment.center))
+                : null),
+      ]),
     );
-
-    // Keep the artist visually dominant. Long names break at word
-    // boundaries into two display-lettering lines rather than scaling down.
-    final artistName = _artistStr.trim();
-    final artistWords = artistName.split(RegExp(r'\s+'));
-    final useTwoLines = model.active &&
-        _clearLogoBytes == null &&
-        artistWords.length > 1 &&
-        artistName.length > (portrait ? 14 : 20);
-    String firstLine = artistName;
-    String secondLine = '';
-    if (useTwoLines) {
-      var bestSplit = 1;
-      var bestDifference = 1 << 30;
-      for (var i = 1; i < artistWords.length; i++) {
-        final left = artistWords.take(i).join(' ');
-        final right = artistWords.skip(i).join(' ');
-        final difference = (left.length - right.length).abs();
-        if (difference < bestDifference) {
-          bestDifference = difference;
-          bestSplit = i;
-        }
-      }
-      firstLine = artistWords.take(bestSplit).join(' ');
-      secondLine = artistWords.skip(bestSplit).join(' ');
-    }
-    // A clearlogo can use the full portrait header height; reserve a real
-    // gap before the artwork instead of centering that tall logo on top of it.
-    final hasArtistLogo = model.active &&
-        settings.useArtistClearLogo && _clearLogoBytes != null;
-    // The inactive fallback sentence must never pass through the artist
-    // renderer: its oversized Riot display rules are meant for music artists.
-    // Render a short, contained idle heading above the record instead.
+    final hasArtistLogo = model.active && settings.useArtistClearLogo &&
+        _clearLogoBytes != null;
     final artistHeader = SizedBox(
       width: w * (portrait ? .94 : .88),
       height: h * (portrait ? .20 : .25),
-      child: Center(
-        child: !model.active
-            ? Text(
-                'START MUSIC',
-                maxLines: 1,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'VYBERiot',
-                  fontFamilyFallback: const ['Roboto'],
-                  fontSize: portrait ? w * .078 : h * .094,
-                  color: Colors.white,
-                  shadows: _artistNeonShadows,
-                ),
-              )
-            : useTwoLines
-                ? _compactRiotLines(
-                    [firstLine, secondLine],
-                    h * (portrait ? .061 : .073),
-                    Alignment.center,
-                    (line) => _artistText(h * (portrait ? .061 : .073),
-                        letteringOverride: line),
-                  )
-                : _artist(h * (portrait ? .10 : .115), Alignment.center, false),
-      ),
+      child: Center(child: _metadataText(_VybeTextRole.artist, Alignment.center)),
     );
 
     if (portrait) {
@@ -2233,7 +2170,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           left: 0, right: 0,
           // Header is .20h high and artwork begins at .265h. Moving a
           // clearlogo to .045h keeps its full box above the cover (.245h).
-          top: h * (hasArtistLogo ? .045 : (useTwoLines ? .080 : .105)),
+          top: h * (hasArtistLogo ? .045 : .050),
           child: Center(child: artistHeader)),
         Positioned(
           left: 0, right: 0, top: h * 0.265,
@@ -4169,18 +4106,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       children: [
         _artist(artistSize, center ? Alignment.center : Alignment.centerRight,
           false, textColor: _readableText(.82)),
-        SongTitleMarquee(
-          title: _titleStr,
-          alignment: center ? Alignment.center : Alignment.centerRight,
-          animation: _tick, elapsedSeconds: () => _time,
-          style: TextStyle(
-            fontSize: h * 0.075,
-            fontWeight: FontWeight.w300,
-            height: 1.05,
-            color: _readableText(1),
-            shadows: _cleanTextShadows,
-          ),
-        ),
+        _metadataText(_VybeTextRole.title,
+            center ? Alignment.center : Alignment.centerRight),
         SizedBox(height: h * 0.008),
         if (_showAlbumLabel) ...[
           SizedBox(height: h * 0.005),
@@ -5024,8 +4951,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
   // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
-  Widget _albumText(double size, {Alignment? flushFrame}) {
-    final labelSize = _albumFontSize(size);
+  Widget _albumText(double unusedSize, {Alignment? flushFrame}) =>
+      _metadataText(_VybeTextRole.album, Alignment.center,
+          flushFrame: flushFrame);
+
+  Widget _drawAlbum({Alignment? flushFrame}) {
+    final labelSize = _albumFontSize(0);
     final albumStyle = _albumLabelTextStyle(labelSize);
     return LayoutBuilder(builder: (context, bounds) {
       final screen = MediaQuery.sizeOf(context);
@@ -5085,21 +5016,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     });
   }
 
-  // Keep titles at their designed font size. Long songs scroll horizontally
-  // inside their available column with feathered edges, never scale down.
-  Widget _fixedTitle(double size, Alignment align) => _shaded(
-    SongTitleMarquee(title: _titleStr,
-      style: _titleText(_songFontSize(size)).style!, alignment: align,
-      animation: _tick, elapsedSeconds: () => _time));
+  // Compatibility wrappers: old layout calls now all converge on the same
+  // role-aware metadata widget. Their former size arguments do not affect type.
+  Widget _fixedTitle(double unusedSize, Alignment align) =>
+      _metadataText(_VybeTextRole.title, align);
 
-  Widget _fixedAlbum(double size, Alignment align,
-      {bool flushFrame = false}) => Align(
-        alignment: align,
-        child: _albumText(size, flushFrame: flushFrame ? align : null),
-      );
+  Widget _fixedAlbum(double unusedSize, Alignment align,
+      {bool flushFrame = false}) =>
+      _metadataText(_VybeTextRole.album, align,
+          flushFrame: flushFrame ? align : null);
 
-  Widget _title(double size, Alignment a, bool vhs) {
-    final standard = _titleText(_songFontSize(size)).style!;
+  Widget _title(double unusedSize, Alignment a, bool vhs) =>
+      _metadataText(_VybeTextRole.title, a, vhs: vhs);
+
+  Widget _drawTitle(Alignment a, bool vhs) {
+    final standard = _titleText(_songFontSize(0)).style!;
     final activeStyle = (vhs || _vhsOn)
         ? standard.copyWith(shadows: [
             ..._cleanTextShadows,
@@ -5137,9 +5068,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     });
   }
 
-  Widget _artist(double size, Alignment a, bool vhs, {Color? textColor}) {
-    // Apply typography minimum centrally, preserving logo-specific scaling.
-    final fontSize = _artistFontSize(size);
+  Widget _artist(double unusedSize, Alignment a, bool vhs,
+      {Color? textColor}) =>
+      _metadataText(_VybeTextRole.artist, a,
+          vhs: vhs, textColor: textColor);
+
+  Widget _drawArtist(Alignment a, bool vhs, {Color? textColor}) {
+    final fontSize = _artistFontSize(0);
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
       return _shaded(LayoutBuilder(builder: (context, box) {
         final screen = MediaQuery.sizeOf(context);
@@ -5147,7 +5082,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ? math.min(box.maxWidth, screen.width * .94)
             : screen.width * .90;
         final naturalHeight = math.min(screen.height * .25,
-            math.max(screen.height * .14, size * 3.0));
+            math.max(screen.height * .14, fontSize * 3.0));
         final maxHeight = box.maxHeight.isFinite
             ? math.min(box.maxHeight, naturalHeight)
             : naturalHeight;
