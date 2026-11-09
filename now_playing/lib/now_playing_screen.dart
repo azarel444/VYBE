@@ -4827,17 +4827,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return x;
   }
 
-  // Prefer two balanced lines. Never shrink the lettering to make it fit.
-  // Muzine portrait has a broad, centered info area. The generic size*.8
-  // side reserve can consume 80+ logical pixels on a phone and orphan the
-  // final letter of an otherwise fitting artist name. Use only a small
-  // optical allowance for the sheared brush strokes in that layout.
-  List<String> _artistLines(String text, double size, double width,
-      {bool useFullPortraitWidth = false}) {
+  // One line-break rule for ALL themes. Match the precise Riot glyph width
+  // and leave only a small optical buffer for skewed brush strokes.
+  // Artist names never shrink: multiword names wrap; one long word scrolls.
+  List<String> _artistLines(String text, double size, double width) {
     if (text.isEmpty) return const [''];
-    final safety = useFullPortraitWidth
-        ? math.min(size * .12, width * .015)
-        : size * .8;
+    final safety = math.min(size * .12, width * .015);
     final limit = math.max(1.0, width - safety);
     if (_artistRunWidth(text, size) <= limit) return [text];
     final words = text.split(RegExp(r'\s+'));
@@ -5089,10 +5084,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final screen = MediaQuery.sizeOf(context);
       final available = box.maxWidth.isFinite
           ? math.max(1.0, box.maxWidth) : math.max(1.0, screen.width * .88);
-      final muzinePortrait = settings.theme == AppSettings.tEditorial &&
-          screen.height > screen.width * 1.1;
-      final lines = _artistLines(_artistStr.toUpperCase().trim(),
-          fontSize, available, useFullPortraitWidth: muzinePortrait);
+      final lines = _artistLines(
+          _artistStr.toUpperCase().trim(), fontSize, available);
       // Break only at word boundaries; an oversized single word scrolls.
       // Do not use FittedBox on any artist text, including Focused.
       Widget renderedLine(String line) =>
