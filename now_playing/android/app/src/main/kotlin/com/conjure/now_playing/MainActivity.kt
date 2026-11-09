@@ -783,6 +783,9 @@ open class MainActivity : FlutterActivity() {
             "title" to title,
             "artist" to artist,
             "album" to album,
+            // Identify the emitting player. Upload metadata may be corrected
+            // only for YouTube Music; other music sessions remain untouched.
+            "sourcePackage" to c.packageName,
             "duration" to duration,
             "position" to pos,
             "speed" to speed.toDouble(),
