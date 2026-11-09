@@ -4629,6 +4629,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'JA') {
       return math.min(fontSize * .26, glyphWidth * .50);
     }
+    // J→E's unusually large empty advance separates JERU visually.
+    // This optical pair correction applies to every theme via _artistText
+    // and its matching _artistRunWidth measurement.
+    if (pair == 'JE') {
+      return math.min(fontSize * .35, glyphWidth * .70);
+    }
     if (pair == 'OS') {
       return math.min(fontSize * .23, glyphWidth * .52);
     }
@@ -4940,10 +4946,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final available = bounds.maxWidth.isFinite
           ? math.max(1.0, bounds.maxWidth)
           : math.max(1.0, screen.width * .86);
-      // Only the lettering moves inside its fixed neon frame. Compute the
-      // label's natural width, then cap its viewport to the real column.
-      // This avoids an oversized frame for short names and keeps all long
-      // names readable at exactly the same font size across every theme.
+      // Frame is content-driven, but never collapses into a tiny badge.
+      // Reserve the diagonal wings AND a clear inset on both sides BEFORE
+      // deciding whether the album title needs to scroll. Short and medium
+      // names must be fully visible at the original font size.
       final painter = TextPainter(
         text: TextSpan(text: _albumDisplayName, style: albumStyle),
         textDirection: Directionality.of(context),
@@ -4952,32 +4958,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       )..layout();
       final letteringWidth = painter.width + 3.0;
       painter.dispose();
-      final leftPad = flushFrame == Alignment.centerLeft
-          ? labelSize * 1.55 : labelSize * 3.30;
-      final rightPad = flushFrame == Alignment.centerRight
-          ? labelSize * 1.55 : labelSize * 3.30;
-      final badgeWidth = math.min(
-          available, letteringWidth + leftPad + rightPad).toDouble();
-      final left = math.min(leftPad, badgeWidth * .30).toDouble();
-      final right = math.min(rightPad, badgeWidth * .30).toDouble();
+      // A symmetrical safe rectangle avoids the slanted sides even on
+      // flush-left and flush-right frames. The frame itself is unchanged.
+      final sidePadding = labelSize * 4.25;
+      final naturalWidth = letteringWidth + sidePadding * 2;
+      final minimumWidth = available * .64;
+      final badgeWidth = math.max(1.0,
+          math.min(available, math.max(minimumWidth, naturalWidth))).toDouble();
       return Align(
         alignment: flushFrame ?? Alignment.center,
         child: SizedBox(
-          width: math.max(1.0, badgeWidth),
+          width: badgeWidth,
           child: CustomPaint(
             painter: _VybeAlbumLabelFrame(_palette.a,
               flushRight: flushFrame == Alignment.centerRight,
               flushLeft: flushFrame == Alignment.centerLeft),
-            // Clip LETTERING to the black parallelogram, not its glowing
-            // outline. The marquee keeps its natural font size and slides
-            // inside the label but can never spill over either angled edge.
-            child: ClipPath(
-              clipper: _VybeAlbumTextClipper(
-                flushRight: flushFrame == Alignment.centerRight,
-                flushLeft: flushFrame == Alignment.centerLeft),
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  left, labelSize * .24, right, labelSize * .24),
+            // Clip only to a padded rectangular viewport WITHIN the frame.
+            // The former angled clip cut off letters even when the marquee
+            // believed the title fit and never started scrolling.
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                  horizontal: math.min(sidePadding, badgeWidth * .26),
+                  vertical: labelSize * .24),
+              child: ClipRect(
                 child: SongTitleMarquee(
                   title: _albumDisplayName,
                   style: albumStyle,
