@@ -28,6 +28,62 @@ class NowPlayingModel extends ChangeNotifier {
   String title = '';
   String artist = '';
   String album = '';
+
+  // Preserve the media session's raw album value for cover searches. An
+  // independently verified catalog release may enrich the *label* only.
+  String _catalogReleaseTitle = '';
+  final Map<String, String> _catalogReleaseCache = {};
+  String _releaseLookupTrack = '';
+  bool _disposed = false;
+
+  bool get _missingAlbumTag {
+    final value = album.trim().toLowerCase();
+    return value.isEmpty || const <String>{
+      'unknown', 'unknown album', 'album unknown', '<unknown>',
+      'not available', 'n/a',
+    }.contains(value);
+  }
+
+  /// Never say ALBUM UNKNOWN for a playing song. Match a known real release
+  /// when available; if tags/catalog data are absent, preserve the track
+  /// title as a possible single instead of inventing release metadata.
+  String get displayAlbumTitle {
+    if (!_missingAlbumTag) return album.trim();
+    if (_catalogReleaseTitle.isNotEmpty) return _catalogReleaseTitle;
+    return active ? title.trim() : '';
+  }
+
+  void _resolveMissingAlbum(String expectedTrack) {
+    if (_disposed || !artLookupEnabled || !_missingAlbumTag ||
+        title.trim().isEmpty || artist.trim().isEmpty ||
+        expectedTrack != _trackKey) return;
+    final key = '${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}';
+    final cached = _catalogReleaseCache[key];
+    if (cached != null) {
+      if (_catalogReleaseTitle != cached) {
+        _catalogReleaseTitle = cached;
+        notifyListeners();
+      }
+      return;
+    }
+    if (_releaseLookupTrack == expectedTrack) return;
+    _releaseLookupTrack = expectedTrack;
+    final artistName = artist;
+    final songName = title;
+    unawaited(() async {
+      final release = await fetchSongReleaseTitle(songName, artistName);
+      if (_disposed || expectedTrack != _trackKey || !_missingAlbumTag ||
+          release == null || release.trim().isEmpty) return;
+      final verified = release.trim();
+      _catalogReleaseTitle = verified;
+      _catalogReleaseCache[key] = verified;
+      if (_catalogReleaseCache.length > 60) {
+        _catalogReleaseCache.remove(_catalogReleaseCache.keys.first);
+      }
+      notifyListeners();
+    }());
+  }
+
   int durationMs = 0;
   ArtAssets? art;
 
@@ -179,6 +235,7 @@ class NowPlayingModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _sub?.cancel();
     _fftSub?.cancel();
     _netTimer?.cancel();
@@ -266,6 +323,8 @@ class NowPlayingModel extends ChangeNotifier {
     final key = '$titleValue|$artistValue|$albumValue';
     final changed = key != _trackKey;
     if (changed) {
+      _catalogReleaseTitle = '';
+      _releaseLookupTrack = '';
       _artToken++; _artRetryTimer?.cancel(); _artClearTimer?.cancel();
       _artAttempts = 0; _lookupInFlight = ''; // Retain previous cover until new art arrives.
       _resetLyricsLookup();
@@ -280,6 +339,7 @@ class NowPlayingModel extends ChangeNotifier {
     }
     if (changed && lyricsEnabled) _fetchLyrics();
     notifyListeners();
+    if (changed && _missingAlbumTag) _resolveMissingAlbum(key);
   }
 
   void applyLinkArtwork(Uint8List bytes) {
@@ -347,6 +407,8 @@ class NowPlayingModel extends ChangeNotifier {
     final albumChanged = albumKey != _albumKey;
 
     if (changed) {
+      _catalogReleaseTitle = '';
+      _releaseLookupTrack = '';
       _artToken++; // Invalidate lookups and decoding from the previous song.
       _artRetryTimer?.cancel();
       _sessionVerificationTimer?.cancel();
@@ -478,6 +540,8 @@ class NowPlayingModel extends ChangeNotifier {
     title = '';
     artist = '';
     album = '';
+    _catalogReleaseTitle = '';
+    _releaseLookupTrack = '';
     durationMs = 0;
     _trackKey = '';
     _albumKey = '';
@@ -531,6 +595,7 @@ class NowPlayingModel extends ChangeNotifier {
   void _runNetwork() {
     if (title.isEmpty || _linkReceiverActive) return;
     if (artLookupEnabled && art == null) _lookupLocalFirst();
+    if (artLookupEnabled && _missingAlbumTag) _resolveMissingAlbum(_trackKey);
     if (lyricsEnabled) _fetchLyrics();
   }
 

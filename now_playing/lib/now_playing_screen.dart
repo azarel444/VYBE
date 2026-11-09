@@ -1425,6 +1425,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ]);
   }
 
+  // Muzine and Bigfan both use 84% of portrait width for song details.
+  // Keep their artist, song, and album font sizes identical.
+  static const double _portraitFeatureArtistRatio = .067;
+  static const double _portraitFeatureTitleRatio = .035;
+  static const double _portraitFeatureAlbumRatio = .025;
+
   /// Editorial: an angled, recognizable album sleeve over full-bleed
   /// artist photography. Both orientations have their own composition.
   /// Editorial: full-bleed fanart, a grayscale album-art backing and a
@@ -1506,7 +1512,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         child: ClipRRect(borderRadius: BorderRadius.circular(sleeveSize * .061),
           child: portrait
-            ? Transform.rotate(angle: math.pi, child: cover)
+            // The record emerges from the lower-left diagonal sleeve edge.
+            // Turn the COVER'S TOP toward that opening. Its former 180-degree
+            // rotation pointed the top away from the vinyl in portrait.
+            ? Transform.rotate(angle: -math.pi / 2, child: cover)
             : cover),
       ),
     );
@@ -1518,12 +1527,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
       fontWeight: FontWeight.w400, letterSpacing: portrait ? -w * .015 : -h * .018,
       shadows: _artistNeonShadows);
-    // Both Muzine orientations use a single stacked metadata hierarchy.
-    // A text artist uses its natural height; only logos need a bounded slot.
-    final portraitHasLogo = settings.useArtistClearLogo &&
-        _clearLogoBytes != null && model.active;
+    // Muzine and Bigfan use the same shared portrait branding renderer,
+    // including the user's clearlogo-size setting.
     final songStyle = TextStyle(
-      color: Colors.white, fontSize: portrait ? w * .051 : h * .046,
+      color: Colors.white,
+      fontSize: portrait ? h * _portraitFeatureTitleRatio : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     final composition = Stack(fit: StackFit.expand, children: [
@@ -1579,16 +1587,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ],
       if (portrait) ...[
         // Full-width artist branding, followed by vertically stacked metadata.
-        Positioned(left: w * .075, right: w * .075, bottom: h * .046,
+        Positioned(left: w * .08, right: w * .08, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
-              // No reserved blank area above/below fallback artist text.
-              // Logo sits on the same baseline as text before the song.
-              if (portraitHasLogo)
-                SizedBox(height: math.min(h * .12, w * .30),
-                  child: _scaledClearLogo(alignment: Alignment.bottomCenter))
-              else
-                _artist(w * .103, Alignment.center, false),
+              // Use exactly the same artist/clearlogo rendering and font
+              // ratio as Bigfan; only their artwork compositions differ.
+              _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
               SizedBox(height: h * .006),
               SongTitleMarquee(
                 title: song, alignment: Alignment.center, style: songStyle,
@@ -1596,7 +1600,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
                 Align(alignment: Alignment.center,
-                  child: _albumText(songStyle.fontSize! * .94)),
+                  child: _albumText(h * _portraitFeatureAlbumRatio)),
               ],
             ])),
         if (_hasLyrics)
@@ -1728,16 +1732,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bottom: h * .205,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             GestureDetector(key: _artKey, onTap: _openPlayer,
-              child: _artCard(math.min(w * .31, h * .15))),
+              // Approximately as wide as the prominent artist wordmark.
+              child: _artCard(math.min(w * .64, h * .34))),
             SizedBox(height: h * .014),
             SizedBox(width: w * .84,
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                _artist(h * .067, Alignment.center, false),
+                _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
                 SizedBox(height: h * .008),
-                _title(h * .035, Alignment.center, false),
+                _title(h * _portraitFeatureTitleRatio, Alignment.center, false),
                 if (_showAlbumLabel) ...[
                   SizedBox(height: h * .006),
-                  _fixedAlbum(h * .025, Alignment.center),
+                  _fixedAlbum(h * _portraitFeatureAlbumRatio, Alignment.center),
                 ],
               ])),
           ])),
@@ -2775,6 +2780,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     0, 0, 0, 1, 0, //
   ]);
 
+  /// Diagonal's cover-side backdrop is deliberately more recessed than the
+  /// full-screen blur. Keep this separate from Record Cut's grayscale filter.
+  static const _diagonalGrayDark = ColorFilter.matrix(<double>[
+    .0765, .2575, .0260, 0, 0,
+    .0765, .2575, .0260, 0, 0,
+    .0765, .2575, .0260, 0, 0,
+    0, 0, 0, 1, 0,
+  ]);
+
   /// Bars that hang down from the top edge of the screen, on a black shadow
   /// that is darkest at the edge and fades as it goes down.
   Widget _topBars(double barsH) => Positioned(
@@ -3434,7 +3448,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final edge = w * 0.105;
     // Match the bottom breathing room on the lead cover at the left edge.
     final fanLeftInset = h * 0.04;
-    final textLeft = math.max(w * 0.61, fanLeftInset + s * 1.45 + w * 0.05).toDouble();
+    // Center metadata in the *actual remaining gap*: from the far edge of
+    // the fanned sleeves to the inner edge of the visualizer. The previous
+    // w*.61 minimum pushed text right and unnecessarily narrowed its marquee.
+    final textLeft = fanLeftInset + s * 1.45 + w * .014;
+    final textRight = (settings.visualizer ? edge : 0.0) + w * .014;
     return Stack(
       children: [
         Positioned.fill(child: _bottomArtworkFade()),
@@ -3449,8 +3467,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: _edgeBars(edge, leftEdge: settings.layoutSwap),
           ),
         Positioned(
-          left: settings.layoutSwap ? edge + w * 0.03 : textLeft,
-          right: settings.layoutSwap ? textLeft : edge + w * 0.03,
+          left: settings.layoutSwap ? textRight : textLeft,
+          right: settings.layoutSwap ? textLeft : textRight,
           top: 0,
           bottom: 0,
           child: Column(
@@ -3511,25 +3529,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       other = [a, Offset(w, 0), Offset(w, h), b];
     }
     final art = model.art;
+    // The artwork in the grayscale wedge is a recessed, atmospheric layer,
+    // not another sharp cover. Match the main album blur and add extra
+    // softness regardless of the user's background-blur setting.
+    final diagonalGrayBlur = math.max(14.0, settings.bgBlur + 7.0).toDouble();
+    final grayImage = art == null
+        ? Image.asset('assets/vybe_album_placeholder.png',
+            fit: BoxFit.cover)
+        : Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(
+                counterFlipText ? -1 : 1, 1, 1),
+            child: RawImage(
+              // A cached low-resolution backing avoids repeatedly blurring
+              // the full-resolution cover on less powerful head units.
+              image: art.tiny,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+            ));
     final gray = ClipPath(
       clipper: PolyClipper(poly),
-      child: art == null
-          ? Image.asset('assets/vybe_album_placeholder.png', fit: BoxFit.cover)
-          : SizedBox.expand(
-              child: ColorFiltered(
-                colorFilter: _grayDark,
-                child: Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
-                child: Image.memory(
-                  art.bytes,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  filterQuality: FilterQuality.medium,
-                ),
-              ),
-              ),
-            ),
+      child: RepaintBoundary(
+        child: ColorFiltered(
+          colorFilter: _diagonalGrayDark,
+          child: ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(
+              sigmaX: diagonalGrayBlur,
+              sigmaY: diagonalGrayBlur,
+              tileMode: TileMode.clamp),
+            child: SizedBox.expand(child: grayImage),
+          ),
+        ),
+      ),
     );
     final line = IgnorePointer(
       child: CustomPaint(painter: CutLinePainter(a: a, b: b)),
@@ -4596,6 +4627,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'OS') {
       return math.min(fontSize * .23, glyphWidth * .52);
     }
+    // Riot's W has visible space inside its measured advance. Tighten only
+    // the W→O (WORLD) and W→N (RENOWN) transitions seen in testing.
+    if (pair == 'WO' || pair == 'WN') {
+      return math.min(fontSize * .28, glyphWidth * .57);
+    }
+    // BROVAZ: the generic V correction pulled V halfway through O.
+    // Keep the letters close without placing the V over the O's body.
+    if (pair == 'OV') {
+      return math.min(fontSize * .075, glyphWidth * .22);
+    }
     // F's brush silhouette is much narrower than its glyph advance. FL
     // needs slightly more correction than FE; both occur in FEARLESS FLYERS.
     if (pair == 'FE') {
@@ -4828,10 +4869,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // If a media player omits the album, show an honest fallback rather than
   // silently removing the entire framed label.
   bool get _showAlbumLabel => model.active;
-  String get _albumDisplayName {
-    final value = model.album.trim();
-    return value.isEmpty ? 'ALBUM UNKNOWN' : value.toUpperCase();
-  }
+  String get _albumDisplayName =>
+      model.displayAlbumTitle.toUpperCase();
 
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.

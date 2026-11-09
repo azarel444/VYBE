@@ -217,3 +217,52 @@ Future<Uint8List?> fetchSongSpecificArtwork(String title, String artist) async {
   } catch (_) {}
   return null;
 }
+
+
+/// Resolve a missing *display* album name from a positively matched song.
+/// This never changes the incoming media-session album tag used for artwork
+/// selection. When a track is not confidently identified, callers fall back
+/// to the song title (which may itself be a single release).
+Future<String?> fetchSongReleaseTitle(String title, String artist) async {
+  if (_norm(title).isEmpty || _norm(artist).isEmpty) return null;
+
+  // Strip nonmusical YouTube/player suffixes for matching, without changing
+  // the original title displayed to the listener.
+  String clean(String value) => value.replaceAll(
+      RegExp(r'\s*[\(\[][^\)\]]*(?:official(?:\s+music)?\s+video|lyric\s+video|visualizer|prod\.?\s+by|remaster(?:ed)?|radio edit)[^\)\]]*[\)\]]',
+          caseSensitive: false), '').trim();
+  final normalizedTitle = _norm(clean(title));
+  if (normalizedTitle.isEmpty) return null;
+  final queries = <String>{
+    '$artist $title'.trim(),
+    '$artist ${clean(title)}'.trim(),
+  };
+  final found = <String, String>{};
+  for (final query in queries) {
+    final body = await httpGetString(Uri.https('itunes.apple.com', '/search', {
+      'term': query, 'entity': 'song', 'limit': '50',
+    }));
+    if (body == null) continue;
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map || data['results'] is! List) continue;
+      for (final candidate in data['results'] as List) {
+        if (candidate is! Map) continue;
+        final foundArtist = candidate['artistName']?.toString() ?? '';
+        final foundTitle = candidate['trackName']?.toString() ?? '';
+        final release = candidate['collectionName']?.toString().trim() ?? '';
+        // Do not infer a release from an unrelated track, remix, or artist.
+        if (_norm(foundArtist) != _norm(artist) ||
+            _norm(clean(foundTitle)) != normalizedTitle ||
+            release.isEmpty || _norm(release) == 'unknownalbum' ||
+            _norm(release) == 'albumunknown') continue;
+        found.putIfAbsent(_norm(release), () => release);
+      }
+      if (found.length == 1) return found.values.first;
+      // Different confirmed releases may contain the same recording. Without
+      // a true album tag we cannot know which one was playing.
+      if (found.length > 1) return null;
+    } catch (_) { /* A missing catalog result is not a playback error. */ }
+  }
+  return null;
+}
