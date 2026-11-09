@@ -49,8 +49,10 @@ open class MainActivity : FlutterActivity() {
             return
         }
         try {
-            contentResolver.takePersistableUriPermission(uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val granted = data.flags and (
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            contentResolver.takePersistableUriPermission(uri, granted)
             getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE).edit()
                 .putString("tree", uri.toString()).apply()
             pending.success(true)
@@ -122,6 +124,80 @@ open class MainActivity : FlutterActivity() {
         return entries
     }
 
+    // Files saved under the user-selected music folder survive uninstall.
+    // Nothing is written outside its VYBE Cache subfolder.
+    private fun portableCacheTree(): Uri? {
+        val raw = getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE)
+            .getString("tree", null) ?: return null
+        return Uri.parse(raw)
+    }
+
+    private fun portableCacheChild(tree: Uri, dir: Uri, filename: String): Pair<Uri, String>? {
+        val id = android.provider.DocumentsContract.getDocumentId(dir)
+        val children = android.provider.DocumentsContract
+            .buildChildDocumentsUriUsingTree(tree, id)
+        val columns = arrayOf(
+            android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE)
+        contentResolver.query(children, columns, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getString(1) != filename) continue
+                val docId = cursor.getString(0)
+                val mime = cursor.getString(2) ?: ""
+                return android.provider.DocumentsContract
+                    .buildDocumentUriUsingTree(tree, docId) to mime
+            }
+        }
+        return null
+    }
+
+    private fun portableCacheDirectory(create: Boolean): Pair<Uri, Uri>? {
+        val tree = portableCacheTree() ?: return null
+        val root = android.provider.DocumentsContract.buildDocumentUriUsingTree(
+            tree, android.provider.DocumentsContract.getTreeDocumentId(tree))
+        val directoryMime = android.provider.DocumentsContract.Document.MIME_TYPE_DIR
+        val existing = portableCacheChild(tree, root, "VYBE Cache")
+        if (existing != null) {
+            if (existing.second != directoryMime) return null
+            return tree to existing.first
+        }
+        if (!create) return null
+        val writable = contentResolver.persistedUriPermissions.any {
+            it.uri == tree && it.isWritePermission
+        }
+        if (!writable) return null
+        val folder = android.provider.DocumentsContract.createDocument(
+            contentResolver, root, directoryMime, "VYBE Cache") ?: return null
+        return tree to folder
+    }
+
+    private fun validPortableCacheName(filename: String): Boolean =
+        Regex("[A-Za-z0-9_]{1,40}_[a-f0-9]{16}\\.bin").matches(filename)
+
+    private fun portableCacheRead(filename: String): ByteArray? {
+        if (!validPortableCacheName(filename)) return null
+        val (tree, dir) = portableCacheDirectory(false) ?: return null
+        val (file, mime) = portableCacheChild(tree, dir, filename) ?: return null
+        if (mime == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) return null
+        val bytes = contentResolver.openInputStream(file)?.use { it.readBytes() }
+            ?: return null
+        return bytes.takeIf { it.isNotEmpty() && it.size <= 12 * 1024 * 1024 }
+    }
+
+    private fun portableCacheWrite(filename: String, bytes: ByteArray): Boolean {
+        if (!validPortableCacheName(filename) ||
+            bytes.isEmpty() || bytes.size > 12 * 1024 * 1024) return false
+        val (tree, dir) = portableCacheDirectory(true) ?: return false
+        val file = portableCacheChild(tree, dir, filename)?.first ?:
+            android.provider.DocumentsContract.createDocument(
+                contentResolver, dir, "application/octet-stream", filename)
+                ?: return false
+        val stream = contentResolver.openOutputStream(file, "wt") ?: return false
+        stream.use { it.write(bytes) }
+        return true
+    }
+
     private var vybeDirect: VybeDirect? = null
     private var sink: EventChannel.EventSink? = null
     private var manager: MediaSessionManager? = null
@@ -159,6 +235,7 @@ open class MainActivity : FlutterActivity() {
                         artworkFolderResult = result
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                         }
                         startActivityForResult(intent, artworkRequestCode)
@@ -200,6 +277,25 @@ open class MainActivity : FlutterActivity() {
                         runOnUiThread { result.success(bytes) }
                     } catch (e: Exception) {
                         runOnUiThread { result.error("read", e.message, null) }
+                    }
+                }.start()
+                "cacheRead" -> Thread {
+                    try {
+                        val filename = call.argument<String>("name") ?: ""
+                        val bytes = portableCacheRead(filename)
+                        runOnUiThread { result.success(bytes) }
+                    } catch (_: Exception) {
+                        runOnUiThread { result.success(null) }
+                    }
+                }.start()
+                "cacheWrite" -> Thread {
+                    try {
+                        val filename = call.argument<String>("name") ?: ""
+                        val bytes = call.argument<ByteArray>("bytes")
+                        val saved = bytes != null && portableCacheWrite(filename, bytes)
+                        runOnUiThread { result.success(saved) }
+                    } catch (_: Exception) {
+                        runOnUiThread { result.success(false) }
                     }
                 }.start()
                 else -> result.notImplemented()
