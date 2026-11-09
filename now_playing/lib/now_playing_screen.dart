@@ -4867,24 +4867,59 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       } else {
         line = joined;
       }
-      // Break a single oversized word only if necessary.
-      if (_artistRunWidth(line, size) > limit) {
-        var segment = '';
-        for (final rune in line.runes) {
-          final c = String.fromCharCode(rune);
-          if (segment.isNotEmpty &&
-              _artistRunWidth('$segment$c', size) > limit) {
-            lines.add(segment);
-            segment = c;
-          } else {
-            segment += c;
-          }
-        }
-        line = segment;
-      }
+      // Never split a word in the middle. If an individual word exceeds
+      // the slot it stays intact and the renderer scrolls that whole word
+      // through a clipped, edge-faded viewport at its original font size.
     }
     if (line.isNotEmpty) lines.add(line);
     return lines.isEmpty ? [text] : lines;
+  }
+
+  /// Very long single words retain their full Riot typography and scroll
+  /// as ONE word instead of wrapping the last letter onto the next line.
+  /// Reuse the capped VYBE frame ticker rather than creating a new ticker
+  /// for every artist line on the ATOTO head unit.
+  Widget _overflowRiotWord(String line, double size, double available,
+      Widget Function(String) render) {
+    final wordWidth = _artistRunWidth(line, size) + size * .10;
+    final travel = math.max(0.0, wordWidth - available);
+    final lineHeight = size * 1.45 * _riotWordInitialScale * 1.12;
+    final seconds = (travel / 42.0 + 4.0).clamp(9.0, 40.0).toDouble();
+    return SizedBox(
+      width: available,
+      height: lineHeight,
+      child: ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (bounds) => const LinearGradient(
+          colors: [Colors.transparent, Colors.white,
+            Colors.white, Colors.transparent],
+          stops: [0, .035, .965, 1],
+        ).createShader(bounds),
+        child: ClipRect(
+          child: AnimatedBuilder(
+            animation: _tick,
+            builder: (context, _) {
+              final t = (_time % seconds) / seconds;
+              final p = t < .17
+                  ? 0.0
+                  : t < .70
+                      ? Curves.easeInOut.transform((t - .17) / .53)
+                      : t < .86
+                          ? 1.0
+                          : 1.0 - Curves.easeInOut.transform((t - .86) / .14);
+              return Stack(clipBehavior: Clip.hardEdge, children: [
+                Positioned(
+                  left: -(travel * p),
+                  top: 0,
+                  width: wordWidth,
+                  child: render(line),
+                ),
+              ]);
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   TextStyle _albumLabelTextStyle(double size) => TextStyle(
@@ -5013,13 +5048,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           screen.height > screen.width * 1.1;
       final lines = _artistLines(_artistStr.toUpperCase().trim(),
           size, available, useFullPortraitWidth: muzinePortrait);
+      // _artistLines only breaks at spaces. A single oversized word gets
+      // its own fixed-width marquee, never a smaller font or orphaned glyph.
+      Widget renderedLine(String line) =>
+          _artistRunWidth(line, size) > available
+              ? _overflowRiotWord(line, size, available, lineWidget)
+              : lineWidget(line);
       return _shaded(
         lines.length > 1
-            ? _compactRiotLines(lines, size, a, lineWidget)
+            ? _compactRiotLines(lines, size, a, renderedLine)
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [Align(alignment: a, child: lineWidget(lines.first))],
+                children: [Align(alignment: a, child: renderedLine(lines.first))],
               ),
       );
     });
