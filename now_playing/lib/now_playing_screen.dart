@@ -2053,7 +2053,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Center(child: FittedBox(fit: BoxFit.scaleDown, child: art)),
         Expanded(
           child: Center(
-            child: FittedBox(fit: BoxFit.scaleDown, child: info),
+            child: info,
           ),
         ),
         SizedBox(height: h * 0.05),
@@ -2127,7 +2127,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           _title(h * 0.062, Alignment.center, false),
           SizedBox(height: h * 0.012),
           if (_showAlbumLabel)
-            _shaded(_fit(_albumText(h * .028), Alignment.center)),
+            _shaded(_albumText(h * .028)),
           if (_lyricTheme && settings.lyrics) SizedBox(height: lyricGap),
           if (_lyricTheme && settings.lyrics)
             SizedBox(
@@ -2548,7 +2548,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _title(h * 0.05, Alignment.center, false),
                 if (_showAlbumLabel) ...[
                   SizedBox(height: h * 0.008),
-                  _shaded(_fit(_albumText(h * 0.02), Alignment.center)),
+                  _shaded(_albumText(h * 0.02)),
                 ],
                 SizedBox(height: h * 0.035),
                 _driveArtwork(d),
@@ -2752,7 +2752,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             _title(h * 0.08, textAlign, false),
             if (_showAlbumLabel) ...[
               SizedBox(height: h * 0.012),
-              _shaded(_fit(_albumText(h * 0.026), textAlign)),
+              _shaded(_albumText(h * 0.026, flushFrame: textAlign)),
             ],
             if (_hasLyrics) ...[
               SizedBox(height: _lyricGap(h)),
@@ -3359,7 +3359,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.center, false),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
+                _shaded(_albumText(h * 0.028)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -3538,7 +3538,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.center, false),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
+                _shaded(_albumText(h * 0.028)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -3715,8 +3715,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           if (_showAlbumLabel)
             Positioned(
               left: w * .10, right: w * .10, bottom: h * .045,
-              child: Center(child: _shaded(_fit(
-                _albumText(h * .026), Alignment.center))),
+              child: Center(child: _shaded(_albumText(h * .026))),
             ),
         ],
       );
@@ -3759,7 +3758,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.center, false),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_fit(_albumText(h * 0.028), Alignment.center)),
+                _shaded(_albumText(h * 0.028)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -4101,7 +4100,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.06, Alignment.center, false),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.014),
-                _shaded(_fit(_albumText(h * 0.022), Alignment.center)),
+                _shaded(_albumText(h * 0.022)),
               ],
               SizedBox(height: h * 0.035),
               if (_hasLyrics) ...[
