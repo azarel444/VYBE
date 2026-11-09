@@ -80,7 +80,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
             overlayShape: const RoundSliderOverlayShape(overlayRadius: 13),
           ),
           child: Slider(
-            value: value.clamp(min, max),
+            value: value.clamp(min, max).toDouble(),
             min: min,
             max: max,
             activeColor: widget.accent,
