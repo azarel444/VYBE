@@ -1428,30 +1428,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   // ONE typography scale for every theme. Layouts control placement, not
-  // letter sizes. The Riot glyph/kerning engine is likewise shared.
-  // The artist size is the pre-Riot base; _artistText scales it by 1.45.
-  static const double _portraitFeatureArtistRatio = .054;
-  static const double _portraitFeatureTitleRatio = .040;
+  // font sizes. Riot has smaller visible brush strokes than the title font,
+  // so its base size must be twice the title size before Riot glyph scaling.
+  // Keep this relationship in ONE place for portrait, landscape and idle.
+  static const double _portraitFeatureTitleRatio = .033;
   static const double _portraitFeatureAlbumRatio = .021;
-  static const double _landscapeArtistRatio = .085;
-  static const double _landscapeTitleRatio = .057;
+  static const double _landscapeTitleRatio = .050;
   static const double _landscapeAlbumRatio = .025;
-  static const double _portraitIdleArtistRatio = .028;
-  static const double _landscapeIdleArtistRatio = .046;
-  static const double _portraitIdleTitleRatio = .028;
-  static const double _landscapeIdleTitleRatio = .041;
+  static const double _portraitIdleTitleRatio = .022;
+  static const double _landscapeIdleTitleRatio = .029;
+  static const double _artistToTitleBaseRatio = 2.0;
 
   bool get _textPortrait {
     final screen = MediaQuery.sizeOf(context);
     return screen.height > screen.width * 1.1;
   }
 
-  double _artistFontSize(double unusedRequested) {
-    final screen = MediaQuery.sizeOf(context);
-    return screen.height * (model.active
-        ? (_textPortrait ? _portraitFeatureArtistRatio : _landscapeArtistRatio)
-        : (_textPortrait ? _portraitIdleArtistRatio : _landscapeIdleArtistRatio));
-  }
+  // All themes use the SAME artist renderer and proportional size. Riot's
+  // existing 1.45 glyph scaling and custom kerning remain untouched.
+  double _artistFontSize(double unusedRequested) =>
+      _songFontSize(0) * _artistToTitleBaseRatio;
 
   double _songFontSize(double unusedRequested) {
     final screen = MediaQuery.sizeOf(context);
