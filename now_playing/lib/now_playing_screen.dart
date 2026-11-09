@@ -1428,8 +1428,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Muzine and Bigfan both use 84% of portrait width for song details.
   // Keep their artist, song, and album font sizes identical.
   static const double _portraitFeatureArtistRatio = .067;
-  static const double _portraitFeatureTitleRatio = .035;
-  static const double _portraitFeatureAlbumRatio = .025;
+  // Consistent readable typography floor for every Now Playing theme:
+  // artist remains the headline; song text outranks the album label.
+  static const double _portraitFeatureTitleRatio = .042;
+  static const double _portraitFeatureAlbumRatio = .021;
+  static const double _landscapeSongMinRatio = .065;
+  static const double _landscapeAlbumMaxRatio = .025;
+
+  double _songFontSize(double requested) {
+    final screen = MediaQuery.sizeOf(context);
+    final portrait = screen.height > screen.width * 1.1;
+    final floor = screen.height *
+        (portrait ? _portraitFeatureTitleRatio : _landscapeSongMinRatio);
+    // This floor never lowers themes that deliberately use larger type.
+    return math.max(requested, floor).toDouble();
+  }
+
+  double _albumFontSize(double requested) {
+    final screen = MediaQuery.sizeOf(context);
+    final portrait = screen.height > screen.width * 1.1;
+    final cap = screen.height *
+        (portrait ? _portraitFeatureAlbumRatio : _landscapeAlbumMaxRatio);
+    // A framed album label must never appear larger than the song title.
+    return math.min(requested, cap).toDouble();
+  }
 
   /// Editorial: an angled, recognizable album sleeve over full-bleed
   /// artist photography. Both orientations have their own composition.
@@ -1531,7 +1553,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // including the user's clearlogo-size setting.
     final songStyle = TextStyle(
       color: Colors.white,
-      fontSize: portrait ? h * _portraitFeatureTitleRatio : h * .046,
+      fontSize: _songFontSize(
+          portrait ? h * _portraitFeatureTitleRatio : h * _landscapeSongMinRatio),
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     final composition = Stack(fit: StackFit.expand, children: [
@@ -1634,7 +1657,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 animation: _tick, elapsedSeconds: () => _time),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
-                _albumText(songStyle.fontSize! * .86,
+                _albumText(songStyle.fontSize! * .39,
                   flushFrame: flipped ? Alignment.centerLeft
                       : Alignment.centerRight),
               ],
@@ -4924,8 +4947,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   TextStyle _albumLabelTextStyle(double size) => TextStyle(
         fontSize: size,
-        fontWeight: FontWeight.w500,
-        letterSpacing: size * 0.23,
+        fontWeight: FontWeight.w400,
+        letterSpacing: size * 0.14,
         fontStyle: FontStyle.italic,
         color: Colors.white,
       );
@@ -4941,29 +4964,34 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
   // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
-  Widget _albumText(double size, {Alignment? flushFrame}) => CustomPaint(
-        painter: _VybeAlbumLabelFrame(_palette.a,
-            flushRight: flushFrame == Alignment.centerRight,
-            flushLeft: flushFrame == Alignment.centerLeft),
-        child: Padding(
-          // Keep the text clear of the slanted frame while eliminating
-          // Muzine's large empty padding at the outside-aligned edge.
-          padding: EdgeInsets.fromLTRB(
-            flushFrame == Alignment.centerLeft ? size * 1.55 : size * 3.30,
-            size * .24,
-            flushFrame == Alignment.centerRight ? size * 1.55 : size * 3.30,
-            size * .24),
-          child: Text(_albumDisplayName, maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: _albumLabelTextStyle(size)),
-        ),
-      );
+  Widget _albumText(double size, {Alignment? flushFrame}) {
+    final labelSize = _albumFontSize(size);
+    return CustomPaint(
+      painter: _VybeAlbumLabelFrame(_palette.a,
+        flushRight: flushFrame == Alignment.centerRight,
+        flushLeft: flushFrame == Alignment.centerLeft),
+      child: Padding(
+        // Base the background and padding on the actual displayed font,
+        // not a larger requested size from a particular theme.
+        padding: EdgeInsets.fromLTRB(
+          flushFrame == Alignment.centerLeft
+              ? labelSize * 1.55 : labelSize * 3.30,
+          labelSize * .24,
+          flushFrame == Alignment.centerRight
+              ? labelSize * 1.55 : labelSize * 3.30,
+          labelSize * .24),
+        child: Text(_albumDisplayName, maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _albumLabelTextStyle(labelSize)),
+      ),
+    );
+  }
 
   // Keep titles at their designed font size. Long songs scroll horizontally
   // inside their available column with feathered edges, never scale down.
   Widget _fixedTitle(double size, Alignment align) => _shaded(
     SongTitleMarquee(title: _titleStr,
-      style: _titleText(size).style!, alignment: align,
+      style: _titleText(_songFontSize(size)).style!, alignment: align,
       animation: _tick, elapsedSeconds: () => _time));
 
   Widget _fixedAlbum(double size, Alignment align,
@@ -4973,7 +5001,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       );
 
   Widget _title(double size, Alignment a, bool vhs) {
-    final standard = _titleText(size).style!;
+    final standard = _titleText(_songFontSize(size)).style!;
     final activeStyle = (vhs || _vhsOn)
         ? standard.copyWith(shadows: [
             ..._cleanTextShadows,
