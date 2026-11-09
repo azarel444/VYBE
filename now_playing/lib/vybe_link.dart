@@ -43,6 +43,7 @@ class VybeLink extends ChangeNotifier {
   String _localCoverTrack = '';
   bool _localCoverAvailable = false;
   bool _connecting = false;
+  bool _connectPending = false;
   bool _initialized = false;
   Timer? _sendTimer;
   NowPlayingModel? _model;
@@ -435,6 +436,7 @@ class VybeLink extends ChangeNotifier {
     if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
     if (automatic != null) autoConnect = automatic;
     if (!enabled) {
+      _connectPending = false;
       _directGroupConnected = false;
       _directRecoveryTimer?.cancel();
       _directRecoveryTimer = null;
@@ -483,10 +485,19 @@ class VybeLink extends ChangeNotifier {
   /// required. Receiver identity is learned asynchronously without blocking
   /// the first metadata packet.
   Future<void> connect() async {
-    if (_connecting) return;
+    // A Wi-Fi Direct "connected" event can arrive while an old-IP attempt
+    // is in progress. Do not discard it: run one fresh connection attempt
+    // using Android's new group-owner IP as soon as the old attempt ends.
+    if (_connecting) {
+      _connectPending = true;
+      return;
+    }
     _connecting = true;
     try {
-    await _connectInternal();
+      do {
+        _connectPending = false;
+        await _connectInternal();
+      } while (_connectPending && enabled);
     } finally {
       _connecting = false;
     }
