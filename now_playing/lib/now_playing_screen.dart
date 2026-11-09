@@ -848,7 +848,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           link.sendClearLogo(artist, bytes);
         }
       }
-      final manualLogo = await LocalArtwork.instance.clearLogo(artist);
+      final manualLogo = await LocalArtwork.instance.clearLogo(artist,
+          rescanOnMiss: bytes == null || bytes.isEmpty);
       if (manualLogo != null && manualLogo.isNotEmpty) {
         bytes = manualLogo;
         localLogo = true;
@@ -1044,7 +1045,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         setState(() => _fanartBytes = cached);
         if (linkSender) link.sendFanart(artist, cached);
       }
-      final localGallery = await LocalArtwork.instance.fanartGallery(artist);
+      final localGallery = await LocalArtwork.instance.fanartGallery(artist,
+          rescanOnMiss: cached == null || cached.isEmpty);
       final localBytes = localGallery.isEmpty ? null : localGallery.first;
       final bytes = localBytes ?? cached ??
           (settings.fanartProjectKey.isEmpty ? null :
@@ -4659,6 +4661,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     if (pair == 'OS') {
       return math.min(fontSize * .23, glyphWidth * .52);
+    }
+    // Riot's S has an angled left side. Following C, U, G or T, its
+    // measured advance leaves a visible false word break. Apply one
+    // character-shape rule rather than artist-name-specific exceptions.
+    if (character == 'S' && 'CUGT'.contains(previous)) {
+      final amount = (previous == 'C' || previous == 'G') ? .37 : .33;
+      return math.min(fontSize * amount, glyphWidth * .62);
+    }
+    // The Y's fork and the Z's upper brush stroke should read as one word.
+    if (pair == 'YZ') {
+      return math.min(fontSize * .34, glyphWidth * .62);
+    }
+    // F has a generous right bearing; the thin I should tuck below its cap.
+    if (pair == 'FI') {
+      return math.min(fontSize * .45, glyphWidth * .78);
     }
     // Riot's W has visible space inside its measured advance. Tighten only
     // the W→O (WORLD) and W→N (RENOWN) transitions seen in testing.

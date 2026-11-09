@@ -18,43 +18,79 @@ class PortableMediaCache {
   PortableMediaCache._();
   static const MethodChannel _channel = MethodChannel('vybe/local_art');
 
-  static String _hash(String key) {
+  /// Last observed cache hit/miss or write result, for support diagnostics.
+  static String lastReadStatus = 'No persistent cache read yet';
+  static String lastWriteStatus = 'No persistent cache write yet';
+
+  /// FNV-1a encoded as exactly SIXTEEN unsigned hexadecimal digits.
+  /// Dart's signed 64-bit int.toRadixString(16) produced a minus sign for
+  /// ~half the keys, including "disturbed". The Android cache validator
+  /// rejected those names and earlier code silently discarded the failure.
+  /// Two unsigned 32-bit pieces preserve old valid filenames.
+  static String hashKey(String key) {
     var h = 0xcbf29ce484222325;
-    final bytes = utf8.encode(key.toLowerCase().trim());
-    for (final b in bytes) {
-      h = ((h ^ b) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
+    for (final byte in utf8.encode(key.toLowerCase().trim())) {
+      h = ((h ^ byte) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
     }
-    return h.toRadixString(16).padLeft(16, '0');
+    final high = (h >>> 32).toRadixString(16).padLeft(8, '0');
+    final low = (h & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0');
+    return '$high$low';
   }
 
   static String _filename(String kind, String key) =>
-      '${kind}_${_hash(key)}.bin';
+      '${kind}_${hashKey(key)}.bin';
 
-  static Future<Uint8List?> get(String kind, String key) async {
+  /// Map legacy signed app-private filename hashes to valid portable names.
+  static String? _canonicalStoredHash(String old) {
+    if (RegExp(r'^[0-9a-f]{16}$').hasMatch(old)) return old;
+    if (!RegExp(r'^0*-[0-9a-f]{1,16}$').hasMatch(old)) return null;
     try {
-      final value = await _channel.invokeMethod<Uint8List>('cacheRead',
-          {'name': _filename(kind, key)});
-      if (value == null || value.isEmpty || value.length > 12 * 1024 * 1024) {
+      final signIndex = old.indexOf('-');
+      final magnitude = BigInt.parse(old.substring(signIndex + 1), radix: 16);
+      if (magnitude <= BigInt.zero || magnitude > (BigInt.one << 63)) {
         return null;
       }
-      return value;
+      return ((BigInt.one << 64) - magnitude)
+          .toRadixString(16).padLeft(16, '0');
     } catch (_) {
-      // Selecting a writable folder is optional. Read-only providers, absent
-      // permissions and removed storage must not interrupt playback.
       return null;
     }
   }
 
-  static Future<void> put(String kind, String key, Uint8List bytes) async {
-    if (bytes.isEmpty || bytes.length > 12 * 1024 * 1024) return;
+  static Future<Uint8List?> get(String kind, String key) async {
+    final name = _filename(kind, key);
+    final clock = Stopwatch()..start();
     try {
-      await _channel.invokeMethod<bool>('cacheWrite', {
-        'name': _filename(kind, key),
+      final value = await _channel.invokeMethod<Uint8List>('cacheRead',
+          {'name': name});
+      if (value == null || value.isEmpty || value.length > 12 * 1024 * 1024) {
+        lastReadStatus = 'MISS $name in ${clock.elapsedMilliseconds}ms';
+        return null;
+      }
+      lastReadStatus = 'HIT $name, ${value.length} bytes in ${clock.elapsedMilliseconds}ms';
+      return value;
+    } catch (error) {
+      lastReadStatus = 'ERROR $name: $error';
+      return null; // Artwork lookup can proceed without persistent storage.
+    }
+  }
+
+  static Future<void> put(String kind, String key, Uint8List bytes) async {
+    final name = _filename(kind, key);
+    if (bytes.isEmpty || bytes.length > 12 * 1024 * 1024) {
+      lastWriteStatus = 'SKIPPED $name: invalid size ${bytes.length}';
+      return;
+    }
+    try {
+      final saved = await _channel.invokeMethod<bool>('cacheWrite', {
+        'name': name,
         'bytes': bytes,
       });
-    } catch (_) {
-      // Keep the normal app-private cache working even if the user-selected
-      // document provider cannot accept writes.
+      lastWriteStatus = saved == true
+          ? 'SAVED $name, ${bytes.length} bytes'
+          : 'FAILED $name: Android rejected cacheWrite';
+    } catch (error) {
+      lastWriteStatus = 'FAILED $name: $error';
     }
   }
 
@@ -67,10 +103,13 @@ class PortableMediaCache {
         if (await file.length() > 12 * 1024 * 1024) return;
         final bytes = await file.readAsBytes();
         if (bytes.isEmpty) return;
-        await _channel.invokeMethod<bool>('cacheWrite', {
+        final saved = await _channel.invokeMethod<bool>('cacheWrite', {
           'name': filename,
           'bytes': bytes,
         });
+        if (saved != true) {
+          lastWriteStatus = 'FAILED BACKUP $filename: Android rejected cacheWrite';
+        }
       } catch (_) {
         // A read-only cloud provider or unplugged drive cannot break setup.
       }
@@ -83,10 +122,12 @@ class PortableMediaCache {
         await for (final item in basic.list(followLinks: false)) {
           if (item is! File) continue;
           final name = item.uri.pathSegments.last;
-          final found = RegExp(r'^(art|lyrics)-([a-f0-9]{16})\.dat$')
+          final found = RegExp(r'^(art|lyrics)-(.+)\.dat$')
               .firstMatch(name);
           if (found == null) continue;
-          await mirror(item, '${found[1]}_${found[2]}.bin');
+          final canonical = _canonicalStoredHash(found[2]!);
+          if (canonical == null) continue;
+          await mirror(item, '${found[1]}_$canonical.bin');
         }
       }
       final fanart = Directory('${root.path}/artist_fanart');

@@ -1,121 +1,126 @@
 import 'package:flutter/material.dart';
 import 'vybe_link.dart';
 
-class VybeLinkSettings extends StatefulWidget {
+/// VYBE Connect pairs by discovered device identity, never a user-entered IP.
+/// Android provides the group-owner address for Wi-Fi Direct, while LAN
+/// discovery learns it from the receiver's response.
+class VybeLinkSettings extends StatelessWidget {
   const VybeLinkSettings({super.key});
+
   @override
-  State<VybeLinkSettings> createState() => _VybeLinkSettingsState();
-}
-class _VybeLinkSettingsState extends State<VybeLinkSettings> {
-  late final TextEditingController address;
-  final link = VybeLink.instance;
-  @override
-  void initState() {
-    super.initState();
-    address = TextEditingController(text: link.receiverAddress);
-  }
-  @override
-  void dispose() { address.dispose(); super.dispose(); }
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: link,
-    builder: (context, _) => ListView(
-      padding: const EdgeInsets.all(20), children: [
-        const Text('VYBE Link — Direct Connection Beta', style: TextStyle(fontSize: 23)),
-        const SizedBox(height: 10),
-        const Text('Bluetooth can carry audio while VYBE Link transfers song data and artwork over a reachable local IP network (Wi-Fi or supported USB tethering).'),
-        SwitchListTile(title: const Text('Enable VYBE Link'), value: link.enabled,
-          onChanged: (v) => link.configure(isEnabled: v)),
-        const SizedBox(height: 12),
-        const Text('Device type', style: TextStyle(fontSize: 18)),
-        ListTile(
-          leading: Icon(link.deviceType == 'head_unit'
-              ? Icons.directions_car : Icons.smartphone),
-          title: Text(link.deviceType == 'head_unit' ? 'Head unit' : 'Phone'),
-          subtitle: Text(link.role == 'receiver'
-              ? 'Receives music and artwork from your phone'
-              : 'Sends music and artwork to your head unit'),
-          trailing: const Icon(Icons.check_circle_outline),
-        ),
-        const Text('Selected during Quick Setup. To change it, replay Setup in VYBE Settings.',
-            style: TextStyle(color: Colors.white70)),
-        SwitchListTile(title: const Text('Reconnect automatically'),
-          subtitle: const Text('Remember this head unit and reconnect when the network is available'),
-          value: link.autoConnect, onChanged: (v) => link.configure(automatic: v)),
-        if (link.role == 'sender') ...[
-          Text(link.pairedReceiverId.isNotEmpty
-              ? 'Head unit paired. Automatic reconnection works when both devices share a reachable network.'
-              : 'First connection: enable your phone hotspot and join it on the head unit, or connect both to the same Wi-Fi. Then find the receiver below.'),
+  Widget build(BuildContext context) {
+    final link = VybeLink.instance;
+    return AnimatedBuilder(
+      animation: link,
+      builder: (context, _) => ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Text('VYBE Connect',
+              style: TextStyle(fontSize: 23)),
           const SizedBox(height: 10),
-          ElevatedButton.icon(
-            onPressed: link.searchingReceivers ? null : () => link.findReceivers(),
-            icon: const Icon(Icons.search),
-            label: Text(link.searchingReceivers ? 'Searching...' : 'Find head unit on Wi-Fi / hotspot'),
+          const Text('Pair your phone and head unit once. VYBE discovers the '
+              'receiver address automatically over Wi-Fi Direct or a shared '
+              'network, then reconnects when the network returns.'),
+          SwitchListTile(
+            title: const Text('Enable VYBE Connect'),
+            value: link.enabled,
+            onChanged: (v) => link.configure(isEnabled: v),
           ),
-          for (final receiver in link.receivers)
-            ListTile(
-              leading: const Icon(Icons.directions_car),
-              title: Text(receiver.name),
-              subtitle: Text(receiver.id == link.pairedReceiverId
-                  ? 'Paired • ${receiver.address}'
-                  : receiver.address),
-              trailing: receiver.id == link.pairedReceiverId
-                  ? const Icon(Icons.check_circle) : const Icon(Icons.link),
-              onTap: () => link.pairReceiver(receiver),
-            ),
-          const SizedBox(height: 8),
-          ExpansionTile(
-            title: const Text('Advanced: manual IP fallback'),
-            children: [
-              TextField(controller: address,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'Receiver IP address',
-                  hintText: '192.168.1.100',
-                  border: OutlineInputBorder(),
-                )),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: () => link.configure(
-                  isEnabled: true, deviceRole: 'sender',
-                  address: address.text, automatic: true,
-                ),
-                child: const Text('Pair using this IP'),
+          const SizedBox(height: 12),
+          const Text('Device type', style: TextStyle(fontSize: 18)),
+          ListTile(
+            leading: Icon(link.deviceType == 'head_unit'
+                ? Icons.directions_car : Icons.smartphone),
+            title: Text(link.deviceType == 'head_unit' ? 'Head unit' : 'Phone'),
+            subtitle: Text(link.role == 'receiver'
+                ? 'Receives music and artwork from your phone'
+                : 'Sends music and artwork to your head unit'),
+            trailing: const Icon(Icons.check_circle_outline),
+          ),
+          const Text('Selected during Quick Setup. To change it, replay Setup '
+              'in VYBE Settings.', style: TextStyle(color: Colors.white70)),
+          SwitchListTile(
+            title: const Text('Reconnect automatically'),
+            subtitle: const Text('Restore Wi-Fi Direct and music transfer '
+                'when a connection drops'),
+            value: link.autoConnect,
+            onChanged: (v) => link.configure(automatic: v),
+          ),
+          const SizedBox(height: 14),
+          const Text('VYBE Wi-Fi Direct',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const Text('For initial pairing, set up the connection on the '
+              'head unit and discover it from the phone. Once paired, VYBE '
+              'remembers the device and attempts to restore the group '
+              'automatically.'),
+          Text('Direct support: ${link.directAvailable ? "Detected" : "Not detected"}'),
+          Text('Direct status: ${link.directStatus}'),
+          ElevatedButton(
+            onPressed: () => link.directStart(receiver: link.role == 'receiver'),
+            child: Text(link.role == 'receiver'
+                ? 'Set up head-unit connection'
+                : 'Find head unit for pairing'),
+          ),
+          if (link.role == 'sender') ...[
+            for (final peer in link.directPeers)
+              ListTile(
+                title: Text(peer['name'] ?? 'Device'),
+                subtitle: const Text('Wi-Fi Direct device'),
+                trailing: const Icon(Icons.link),
+                onTap: () => link.directConnectPeer(
+                    peer['address'] ?? '', manuallySelected: true),
               ),
-            ],
+            const SizedBox(height: 16),
+            const Text('Shared Wi-Fi / hotspot',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+            const Text('VYBE can also find the receiver on the same '
+                'Wi-Fi or hotspot network without needing an IP address.'),
+            ElevatedButton.icon(
+              onPressed: link.searchingReceivers
+                  ? null : () => link.findReceivers(),
+              icon: const Icon(Icons.search),
+              label: Text(link.searchingReceivers
+                  ? 'Searching...' : 'Discover head unit automatically'),
+            ),
+            for (final receiver in link.receivers)
+              ListTile(
+                leading: const Icon(Icons.directions_car),
+                title: Text(receiver.name),
+                subtitle: Text(receiver.id == link.pairedReceiverId
+                    ? 'Paired head unit' : 'Available VYBE head unit'),
+                trailing: receiver.id == link.pairedReceiverId
+                    ? const Icon(Icons.check_circle)
+                    : const Icon(Icons.link),
+                onTap: () => link.pairReceiver(receiver),
+              ),
+          ] else ...[
+            const Text('Listening for the paired phone on the available '
+                'network. VYBE determines its own network address.'),
+          ],
+          const Divider(),
+          const SizedBox(height: 14),
+          Text('Connection: ${link.status}',
+              style: const TextStyle(fontSize: 16)),
+          const SizedBox(height: 10),
+          ElevatedButton(
+            onPressed: () => link.reconnectAutomatically(),
+            child: const Text('Reconnect automatically now'),
           ),
-        ] else ...[
-          SelectableText('Head-unit IP: ${link.localAddresses.isEmpty ? "Not detected" : link.localAddresses}',
-            style: const TextStyle(fontSize: 17)),
-          const Text('TCP port: 38927'),
+          const SizedBox(height: 16),
+          const Text('Connection diagnostics',
+              style: TextStyle(fontSize: 18)),
+          Text('Last track: ${link.lastReceivedTrack}'),
+          Text('Artwork: ${link.artworkStatus}'),
+          Text('Metadata packets: ${link.metadataReceived}  •  '
+              'Covers: ${link.artworkReceived}  •  Errors: ${link.artworkErrors}'),
+          const SizedBox(height: 20),
+          const Text('No manual IP entry is required. Android may still '
+              'request a one-time Wi-Fi Direct pairing approval, and a '
+              'compatible network must be available. Some Android head '
+              'units restrict background connection recovery.',
+              style: TextStyle(color: Colors.white60)),
         ],
-        const SizedBox(height: 20),
-        const Text('Experimental Wi-Fi Direct', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-        const Text('This is separate from Wi-Fi / hotspot discovery above. First create a group on the head unit, then scan and join it from the phone. Some Android head units cannot start a group. Bluetooth audio remains separate.'),
-        Text('Direct support: ${link.directAvailable ? "Detected" : "Not detected"}'),
-        Text('Direct status: ${link.directStatus}'),
-        ElevatedButton(onPressed: () => link.directStart(receiver: link.role == 'receiver'),
-          child: Text(link.role == 'receiver' ? 'Create Direct Connection (head unit)' : 'Find Head Unit (phone)')),
-        if (link.role == 'sender') ...[
-          for (final peer in link.directPeers)
-            ListTile(title: Text(peer['name'] ?? 'Device'), subtitle: Text(peer['address'] ?? ''),
-              trailing: const Icon(Icons.link), onTap: () => link.directConnectPeer(peer['address'] ?? '')),
-        ],
-        const Divider(),
-        const SizedBox(height: 18),
-        Text('Status: ${link.status}', style: const TextStyle(fontSize: 16)),
-        const SizedBox(height: 10),
-        ElevatedButton(onPressed: link.enabled ? () => link.connect() : null,
-          child: const Text('Reconnect / Refresh Network')),
-        const SizedBox(height: 16),
-        const Text('Link diagnostics', style: TextStyle(fontSize: 18)),
-        Text('Last track: ${link.lastReceivedTrack}'),
-        Text('Artwork: ${link.artworkStatus}'),
-        Text('Metadata packets: ${link.metadataReceived}  •  Covers: ${link.artworkReceived}  •  Errors: ${link.artworkErrors}'),
-        const SizedBox(height: 20),
-        const Text('Automatic reconnection needs the same underlying network to be available and VYBE to be running. Wi-Fi Direct and USB networking depend on device support. Android may suspend background apps; uninterrupted hands-free operation is not yet guaranteed.',
-          style: TextStyle(color: Colors.white60)),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }

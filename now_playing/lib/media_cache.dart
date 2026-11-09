@@ -18,8 +18,13 @@ class MediaCache {
     return dir;
   }
 
-  static String _hash(String key) {
-    // Stable FNV-1a 64-bit; no dependency on process-specific hashCode.
+  // Keep app-private art/lyrics filenames compatible with the unsigned
+  // portable cache. The same signed formatting bug affected both caches.
+  static String _hash(String key) => PortableMediaCache.hashKey(key);
+
+  // Migrate app-private files written by old builds with signed hashes so
+  // installing over VYBE doesn't invalidate old album covers and lyrics.
+  static String _legacyHash(String key) {
     var h = 0xcbf29ce484222325;
     for (final byte in utf8.encode(key.toLowerCase().trim())) {
       h = ((h ^ byte) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
@@ -27,8 +32,28 @@ class MediaCache {
     return h.toRadixString(16).padLeft(16, '0');
   }
 
-  static Future<File> _file(String kind, String key) async =>
-      File('${(await _directory()).path}/$kind-${_hash(key)}.dat');
+  static Future<File> _file(String kind, String key) async {
+    final dir = await _directory();
+    final canonical = File('${dir.path}/$kind-${_hash(key)}.dat');
+    if (await canonical.exists()) return canonical;
+    final legacyHash = _legacyHash(key);
+    if (legacyHash != _hash(key)) {
+      final legacy = File('${dir.path}/$kind-$legacyHash.dat');
+      if (await legacy.exists()) {
+        try {
+          await legacy.rename(canonical.path);
+        } catch (_) {
+          try {
+            await canonical.writeAsBytes(
+                await legacy.readAsBytes(), flush: false);
+          } catch (_) {
+            return legacy;
+          }
+        }
+      }
+    }
+    return canonical;
+  }
 
   static Future<Uint8List?> getArt(String key) async {
     try {
