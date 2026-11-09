@@ -656,7 +656,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Night Mode uses window brightness, never a text-dimming overlay.
             _progressLine(),
             if (controlsInside) ...[
-              if (_showControls && settings.showClock) _controlsClockHeader(),
+              if (settings.showClock) _controlsClockHeader(),
               _controls(),
             ],
           ],
@@ -697,7 +697,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
             if (w >= h * 1.3) _driveBottomBars(w, h, hole),
-            if (_showControls && settings.showClock) _controlsClockHeader(),
+            if (settings.showClock) _controlsClockHeader(),
             _controls(),
           ],
         );
@@ -5441,21 +5441,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return Positioned(
       left: 0, right: 0, top: 0,
       height: math.min(h * .24, 190.0),
-      child: IgnorePointer(child: Stack(children: [
-        const Positioned.fill(child: DecoratedBox(
-          decoration: BoxDecoration(gradient: LinearGradient(
-            begin: Alignment.topCenter, end: Alignment.bottomCenter,
-            colors: [Color(0xC9000000), Color(0x77000000),
-              Color(0x00000000)],
-            stops: [0, .40, 1])))),
-        Positioned(left: 0, right: 0,
-          top: math.max(12.0, MediaQuery.of(context).viewPadding.top + 8.0),
-          child: Center(child: Text(_clockLabel(),
-            style: TextStyle(color: Colors.white,
-              fontSize: (h * .065).clamp(27.0, 48.0).toDouble(),
-              fontWeight: FontWeight.w500,
-              shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))),
-      ])),
+      child: IgnorePointer(
+        // Keep the header mounted even when hidden. Conditional insertion
+        // prevented an entrance animation, since there was no prior position.
+        child: AnimatedSlide(
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic,
+          offset: _showControls ? Offset.zero : const Offset(0, -1.15),
+          child: Stack(children: [
+            const Positioned.fill(child: DecoratedBox(
+              decoration: BoxDecoration(gradient: LinearGradient(
+                begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                colors: [Color(0xC9000000), Color(0x77000000),
+                  Color(0x00000000)],
+                stops: [0, .40, 1])))),
+            Positioned(left: 0, right: 0,
+              top: math.max(12.0, MediaQuery.of(context).viewPadding.top + 8.0),
+              child: Center(child: Text(_clockLabel(),
+                style: TextStyle(color: Colors.white,
+                  fontSize: (h * .065).clamp(27.0, 48.0).toDouble(),
+                  fontWeight: FontWeight.w500,
+                  shadows: const [Shadow(color: Colors.black, blurRadius: 8)])))),
+          ]),
+        ),
+      ),
     );
   }
 
@@ -5493,13 +5502,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: IgnorePointer(
         ignoring: !_showControls,
         child: AnimatedSlide(
-          duration: const Duration(milliseconds: 285),
+          duration: const Duration(milliseconds: 420),
           curve: Curves.easeOutCubic,
           offset: _showControls ? Offset.zero : const Offset(0, 1.15),
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: _showControls ? 1 : 0,
-            child: Container(
+          // No quick opacity crossfade: the full panel visibly slides up.
+          child: Container(
               decoration: const BoxDecoration(
                 color: Color(0xE5101219),
                 boxShadow: [
@@ -5522,8 +5529,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   SafeArea(
                     top: false,
                     child: Padding(
+                      // Lift buttons off the ATOTO bezel while keeping the
+                      // panel full-width and anchored at the bottom.
+                      // SafeArea also respects Android navigation insets.
                       padding: EdgeInsets.fromLTRB(
-                        compact ? 8 : 22, 3, compact ? 8 : 22, 5),
+                        compact ? 8 : 22, 7, compact ? 8 : 22,
+                        math.max(20.0, math.min(30.0, screen.height * .045))),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -5582,7 +5593,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 ],
               ),
             ),
-          ),
         ),
       ),
     );
