@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'lyrics.dart';
+import 'portable_media_cache.dart';
 
 /// Persistent bounded disk cache. Failed lookups are not cached, allowing
 /// later network retries. Files are stored in the app-private cache directory.
@@ -32,10 +33,14 @@ class MediaCache {
   static Future<Uint8List?> getArt(String key) async {
     try {
       final file = await _file('art', key);
-      if (!await file.exists()) return null;
-      final bytes = await file.readAsBytes();
-      if (bytes.isEmpty || bytes.length > 6 * 1024 * 1024) return null;
-      return bytes;
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        if (bytes.isNotEmpty && bytes.length <= 6 * 1024 * 1024) return bytes;
+      }
+      final restored = await PortableMediaCache.get('art', key);
+      if (restored == null || restored.length > 6 * 1024 * 1024) return null;
+      await file.writeAsBytes(restored, flush: false);
+      return restored;
     } catch (_) { return null; }
   }
 
@@ -45,13 +50,23 @@ class MediaCache {
       await (await _file('art', key)).writeAsBytes(bytes, flush: false);
       await _trim();
     } catch (_) {}
+    // User-folder copy survives uninstall; failures leave the regular cache.
+    await PortableMediaCache.put('art', key, bytes);
   }
 
   static Future<List<LyricLine>?> getLyrics(String key) async {
     try {
       final file = await _file('lyrics', key);
-      if (!await file.exists()) return null;
-      final data = jsonDecode(await file.readAsString());
+      String? contents;
+      if (await file.exists()) {
+        contents = await file.readAsString();
+      } else {
+        final restored = await PortableMediaCache.get('lyrics', key);
+        if (restored == null) return null;
+        contents = utf8.decode(restored);
+        await file.writeAsString(contents, flush: false);
+      }
+      final data = jsonDecode(contents);
       if (data is! List) return null;
       final lines = <LyricLine>[];
       for (final line in data) {
@@ -65,11 +80,13 @@ class MediaCache {
 
   static Future<void> putLyrics(String key, List<LyricLine> lines) async {
     if (lines.isEmpty) return;
+    final data = jsonEncode([for (final l in lines) [l.ms, l.text]]);
     try {
-      final json = jsonEncode([for (final l in lines) [l.ms, l.text]]);
-      await (await _file('lyrics', key)).writeAsString(json);
+      await (await _file('lyrics', key)).writeAsString(data);
       await _trim();
     } catch (_) {}
+    await PortableMediaCache.put(
+        'lyrics', key, Uint8List.fromList(utf8.encode(data)));
   }
 
   static Future<void> clear() async {
