@@ -4838,10 +4838,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // If a media player omits the album, show an honest fallback rather than
   // silently removing the entire framed label.
   bool get _showAlbumLabel => model.active;
-  String get _albumDisplayName {
-    final value = model.album.trim();
-    return value.isEmpty ? 'ALBUM UNKNOWN' : value.toUpperCase();
-  }
+  String get _albumDisplayName =>
+      model.displayAlbumTitle.toUpperCase();
 
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
