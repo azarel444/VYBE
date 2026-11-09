@@ -254,7 +254,8 @@ class VybeLink extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> directConnectPeer(String address, {bool remember = true}) async {
+  Future<void> directConnectPeer(String address,
+      {bool remember = true, bool manuallySelected = false}) async {
     if (address.isEmpty) return;
     try {
       final ok = await _direct.invokeMethod<bool>(
@@ -274,6 +275,13 @@ class VybeLink extends ChangeNotifier {
         await prefs.setString('link_direct_peer', address);
         await prefs.setString('link_direct_peer_name', _savedDirectPeerName);
         await prefs.setBool('link_direct_preferred', true);
+        if (manuallySelected) {
+          // Explicit selection authorizes fresh pairing after the ATOTO was
+          // reinstalled and generated a new VYBE receiver identity.
+          // Automatic recovery must never discard the trusted receiver ID.
+          pairedReceiverId = '';
+          await prefs.setString('link_paired_receiver', '');
+        }
       }
     } catch (e) { directStatus = 'Direct connection failed: $e'; }
     notifyListeners();
@@ -438,8 +446,8 @@ class VybeLink extends ChangeNotifier {
     if (!enabled) {
       _connectPending = false;
       _directGroupConnected = false;
-      _directRecoveryTimer?.cancel();
-      _directRecoveryTimer = null;
+      // The periodic timer checks enabled/autoConnect and should remain
+      // installed so re-enabling VYBE Connect restores automatic recovery.
     }
     if (address != null) {
       final requested = address.trim();
