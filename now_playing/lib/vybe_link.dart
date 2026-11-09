@@ -67,6 +67,9 @@ class VybeLink extends ChangeNotifier {
   String _sentClearLogoArtist = '';
   int _sentClearLogoHash = 0;
   int _clearLogoGeneration = 0;
+  String _encodingClearLogoArtist = '';
+  int _encodingClearLogoHash = 0;
+  Timer? _clearLogoAckTimer;
 
   static const MethodChannel _direct = MethodChannel('vybe/direct');
   bool directAvailable = false;
@@ -343,6 +346,8 @@ class VybeLink extends ChangeNotifier {
     receivedFanart = null; receivedFanartArtist = '';
     receivedClearLogo = null; receivedClearLogoArtist = '';
     _sentClearLogoArtist = ''; _sentClearLogoHash = 0; ++_clearLogoGeneration;
+    _encodingClearLogoArtist = ''; _encodingClearLogoHash = 0;
+    _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
     _lastMetadataSentAt = 0; _lastMetadataState = '';
 
     // The sender must never clear its own media playback. A receiver retains
@@ -486,6 +491,16 @@ class VybeLink extends ChangeNotifier {
         if (data is! Map || data['v'] != 2) return;
         _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
         if (data['kind'] == 'ping') { peer.writeln(jsonEncode({'v': 2, 'kind': 'pong'})); return; }
+        if (data['kind'] == 'clearlogo_ack') {
+          if (data['artist'] == _sentClearLogoArtist &&
+              data['hash'] == _sentClearLogoHash) {
+            _clearLogoAckTimer?.cancel();
+            _clearLogoAckTimer = null;
+            artworkStatus = 'Clearlogo received by head unit';
+            notifyListeners();
+          }
+          return;
+        }
         if (data['kind'] != 'hello') return;
         final id = (data['id'] as String?) ?? '';
         if (id.length < 16 || id.length > 128) return;
@@ -522,6 +537,7 @@ class VybeLink extends ChangeNotifier {
     if (!identical(client, _socket)) return;
     _socket = null; _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
+    _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
     status = 'Connection lost; retrying saved IP...';
     notifyListeners(); _scheduleRetry(_generation);
   }
@@ -624,8 +640,9 @@ class VybeLink extends ChangeNotifier {
     }();
   }
 
-  /// Send transparent artist logos separately from covers and fanart.
-  /// The receiver can use its own local logo instead when available.
+  /// Clearlogos use the SAME working TCP socket as covers and fanart.
+  /// Keep PNG alpha, avoid unnecessary re-encoding of small cached PNGs,
+  /// and only mark a logo as sent after bytes are written to the socket.
   void sendClearLogo(String artist, Uint8List? bytes) {
     final socket = _socket;
     if (socket == null || !enabled || role != 'sender' || artist.isEmpty ||
@@ -633,28 +650,70 @@ class VybeLink extends ChangeNotifier {
     final hash = Object.hash(bytes.length, bytes.first,
         bytes[bytes.length ~/ 2], bytes.last);
     if (_sentClearLogoArtist == artist && _sentClearLogoHash == hash) return;
-    _sentClearLogoArtist = artist;
-    _sentClearLogoHash = hash;
+    // Rapid model/link notifications must not invalidate an ongoing encode.
+    if (_encodingClearLogoArtist == artist &&
+        _encodingClearLogoHash == hash) return;
+    _encodingClearLogoArtist = artist;
+    _encodingClearLogoHash = hash;
     final token = ++_clearLogoGeneration;
     () async {
       try {
-        final codec = await ui.instantiateImageCodec(bytes, targetWidth: 640);
-        final frame = await codec.getNextFrame();
-        // PNG is required: JPEG would destroy the logo's transparency.
-        final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-        frame.image.dispose(); codec.dispose();
-        if (data == null || token != _clearLogoGeneration ||
+        Uint8List? compact;
+        final png = bytes.length >= 8 &&
+            bytes[0] == 137 && bytes[1] == 80 &&
+            bytes[2] == 78 && bytes[3] == 71;
+        // Original transparent PNGs generally need no processing.
+        if (png && bytes.length <= 950000) {
+          compact = bytes;
+        } else {
+          // If needed, reduce resolution without losing transparency.
+          // The 640px-only path previously failed silently for large PNGs.
+          for (final width in <int>[480, 320, 240]) {
+            final codec = await ui.instantiateImageCodec(
+                bytes, targetWidth: width);
+            final frame = await codec.getNextFrame();
+            final data = await frame.image.toByteData(
+                format: ui.ImageByteFormat.png);
+            frame.image.dispose();
+            codec.dispose();
+            if (data == null) continue;
+            final encoded = data.buffer.asUint8List(
+                data.offsetInBytes, data.lengthInBytes);
+            if (encoded.length <= 950000) {
+              compact = encoded;
+              break;
+            }
+          }
+        }
+        if (token != _clearLogoGeneration ||
             !identical(socket, _socket) || artist != _model?.artist.trim()) return;
-        final compact = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-        if (compact.length > 950000) {
-          artworkStatus = 'Clearlogo too large after resize';
+        if (compact == null) {
+          artworkStatus = 'Clearlogo could not fit transfer limit';
           notifyListeners();
           return;
         }
-        socket.write('${jsonEncode({'v': 2, 'kind': 'clearlogo', 'artist': artist, 'art': base64Encode(compact)})}\n');
+        socket.write('${jsonEncode({'v': 2, 'kind': 'clearlogo',
+          'artist': artist, 'hash': hash, 'art': base64Encode(compact)})}\n');
+        // Mark as sent only after writing; receiver ACK confirms delivery.
+        _sentClearLogoArtist = artist;
+        _sentClearLogoHash = hash;
+        _clearLogoAckTimer?.cancel();
+        _clearLogoAckTimer = Timer(const Duration(seconds: 5), () {
+          if (!identical(socket, _socket) ||
+              _sentClearLogoArtist != artist || _sentClearLogoHash != hash) return;
+          // No ACK: retry the same logo with the existing artwork socket.
+          _sentClearLogoArtist = '';
+          _sentClearLogoHash = 0;
+          sendClearLogo(artist, bytes);
+        });
       } catch (e) {
         artworkStatus = 'Clearlogo transfer error: $e';
         notifyListeners();
+      } finally {
+        if (token == _clearLogoGeneration) {
+          _encodingClearLogoArtist = '';
+          _encodingClearLogoHash = 0;
+        }
       }
     }();
   }
@@ -718,7 +777,14 @@ class VybeLink extends ChangeNotifier {
           data['artist'] == receivedClearLogoArtist) {
         try {
           receivedClearLogo = base64Decode(data['art'] as String);
+          if (receivedClearLogo == null || receivedClearLogo!.isEmpty) return;
           notifyListeners();
+          // Explicit confirmation prevents an unsuccessful send being
+          // permanently suppressed after reconnect or dropped packets.
+          try {
+            _socket?.writeln(jsonEncode({'v': 2, 'kind': 'clearlogo_ack',
+              'artist': receivedClearLogoArtist, 'hash': data['hash']}));
+          } catch (_) {}
         } catch (_) { artworkErrors++; }
       } else if (data['kind'] == 'art' && track == lastReceivedTrack && data['art'] is String) {
         try {
