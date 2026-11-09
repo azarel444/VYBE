@@ -67,7 +67,8 @@ class VybeLinkSettings extends StatelessWidget {
                 title: Text(peer['name'] ?? 'Device'),
                 subtitle: const Text('Wi-Fi Direct device'),
                 trailing: const Icon(Icons.link),
-                onTap: () => link.directConnectPeer(peer['address'] ?? ''),
+                onTap: () => link.directConnectPeer(
+                    peer['address'] ?? '', manuallySelected: true),
               ),
             const SizedBox(height: 16),
             const Text('Shared Wi-Fi / hotspot',
