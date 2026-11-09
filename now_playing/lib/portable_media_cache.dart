@@ -83,7 +83,7 @@ class PortableMediaCache {
         await for (final item in basic.list(followLinks: false)) {
           if (item is! File) continue;
           final name = item.uri.pathSegments.last;
-          final found = RegExp(r'^(art|lyrics)-([a-f0-9]{16})\\.dat$')
+          final found = RegExp(r'^(art|lyrics)-([a-f0-9]{16})\.dat$')
               .firstMatch(name);
           if (found == null) continue;
           await mirror(item, '${found[1]}_${found[2]}.bin');
@@ -103,7 +103,7 @@ class PortableMediaCache {
           kind = 'clearlogo';
         } else if (filename.contains('.gallery.') &&
             filename.endsWith('.jpg')) {
-          final match = RegExp(r'^(.*?)\\.gallery\\.([0-9]+)\\.jpg$')
+          final match = RegExp(r'^(.*?)\.gallery\.([0-9]+)\.jpg$')
               .firstMatch(filename);
           if (match == null) continue;
           encoded = match[1]!;
