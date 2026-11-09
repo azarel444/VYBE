@@ -391,7 +391,7 @@ class SettingsScreen extends StatelessWidget {
         s.theme == AppSettings.tEditorial;
     return [
       _section('Themes & backgrounds'),
-      _themePreviewSelector(s),
+      _themePreviewSelector(s, context),
       const Text('Use Customize in the floating playback controls for live backgrounds, brightness, blur, contrast, logos and VYBE colors. These advanced settings remain theme-specific.'),
       const Text('Choose a premium animated scene. Each scene has its own designed color palette.'),
       _choices('Animated background',
@@ -739,7 +739,7 @@ class SettingsScreen extends StatelessWidget {
     8: 'typo', 9: 'orbit', 10: 'cinematic', 11: 'musiczine',
   };
 
-  Widget _themePreviewSelector(AppSettings s) {
+  Widget _themePreviewSelector(AppSettings s, BuildContext context) {
     final selected = s.theme;
     final name = _previewNames[selected];
     Widget preview(String orientation) {
