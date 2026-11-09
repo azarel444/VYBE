@@ -1527,10 +1527,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
       fontWeight: FontWeight.w400, letterSpacing: portrait ? -w * .015 : -h * .018,
       shadows: _artistNeonShadows);
-    // Both Muzine orientations use a single stacked metadata hierarchy.
-    // A text artist uses its natural height; only logos need a bounded slot.
-    final portraitHasLogo = settings.useArtistClearLogo &&
-        _clearLogoBytes != null && model.active;
+    // Muzine and Bigfan use the same shared portrait branding renderer,
+    // including the user's clearlogo-size setting.
     final songStyle = TextStyle(
       color: Colors.white,
       fontSize: portrait ? h * _portraitFeatureTitleRatio : h * .046,
@@ -1592,13 +1590,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(left: w * .08, right: w * .08, bottom: h * .046,
           child: Column(crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisSize: MainAxisSize.min, children: [
-              // No reserved blank area above/below fallback artist text.
-              // Logo sits on the same baseline as text before the song.
-              if (portraitHasLogo)
-                SizedBox(height: math.min(h * .12, w * .30),
-                  child: _scaledClearLogo(alignment: Alignment.bottomCenter))
-              else
-                _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
+              // Use exactly the same artist/clearlogo rendering and font
+              // ratio as Bigfan; only their artwork compositions differ.
+              _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
               SizedBox(height: h * .006),
               SongTitleMarquee(
                 title: song, alignment: Alignment.center, style: songStyle,
