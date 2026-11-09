@@ -4662,6 +4662,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'OS') {
       return math.min(fontSize * .23, glyphWidth * .52);
     }
+    // Riot's S has an angled left side. Following C, U, G or T, its
+    // measured advance leaves a visible false word break. Apply one
+    // character-shape rule rather than artist-name-specific exceptions.
+    if (character == 'S' && 'CUGT'.contains(previous)) {
+      final amount = (previous == 'C' || previous == 'G') ? .37 : .33;
+      return math.min(fontSize * amount, glyphWidth * .62);
+    }
+    // The Y's fork and the Z's upper brush stroke should read as one word.
+    if (pair == 'YZ') {
+      return math.min(fontSize * .34, glyphWidth * .62);
+    }
+    // F has a generous right bearing; the thin I should tuck below its cap.
+    if (pair == 'FI') {
+      return math.min(fontSize * .45, glyphWidth * .78);
+    }
     // Optical gaps identified in real Riot wordmarks:
     // NEUROTICS (C-S), BUSH (U-S), YOUNGSTA'S (G-S),
     // GOATS (T-S), BOYZ (Y-Z), and FINGAZ (F-I).
