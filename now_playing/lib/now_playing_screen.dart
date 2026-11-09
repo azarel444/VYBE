@@ -1573,22 +1573,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             : cover),
       ),
     );
-    final artist = model.active ? model.artist.toUpperCase() : 'START MUSIC IN ANY PLAYER APP';
-    final song = model.title.isEmpty ? 'Nothing playing' : model.title;
-    final titleStyle = TextStyle(
-      fontFamily: 'VYBERiot',
-      fontFamilyFallback: const ['Roboto'],
-      color: Colors.white, fontSize: portrait ? w * .070 : h * .078,
-      fontWeight: FontWeight.w400, letterSpacing: portrait ? -w * .015 : -h * .018,
-      shadows: _artistNeonShadows);
-    // Muzine and Bigfan use the same shared portrait branding renderer,
-    // including the user's clearlogo-size setting.
-    final songStyle = TextStyle(
-      color: Colors.white,
-      fontSize: _songFontSize(
-          portrait ? h * _portraitFeatureTitleRatio : h * _landscapeSongMinRatio),
-      shadows: const [Shadow(color: Colors.black, blurRadius: 8),
-        Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
+    // Muzine artwork is unique; metadata always uses the shared typography
+    // widget. No local artist, song, or album TextStyle belongs here.
     final composition = Stack(fit: StackFit.expand, children: [
       // Muzine shares Bigfan's fanart darkness slider. Zero adds no
       // overall dimming, but the theme's bottom readability fade remains.
@@ -1685,7 +1671,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   flipped ? Alignment.centerLeft : Alignment.centerRight),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
-                _albumText(songStyle.fontSize! * .39,
+                _metadataText(_VybeTextRole.album, Alignment.center,
                   flushFrame: flipped ? Alignment.centerLeft
                       : Alignment.centerRight),
               ],
