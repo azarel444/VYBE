@@ -55,6 +55,17 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             activity.registerReceiver(receiver, filter)
             registered = true
         }
+        // A group may have survived process recreation. Registering a
+        // receiver does not replay the old CONNECTION_CHANGED broadcast:
+        // query Android explicitly so Dart gets the current owner IP without
+        // requiring another Create Direct / Refresh tap.
+        manager?.requestConnectionInfo(p2pChannel!!) { info ->
+            if (info.groupFormed && info.groupOwnerAddress != null) {
+                event(mapOf("type" to "connected",
+                    "host" to info.groupOwnerAddress.hostAddress,
+                    "owner" to info.isGroupOwner))
+            }
+        }
         return true
     }
     private fun action(name: String, invoke: (WifiP2pManager.ActionListener) -> Unit) {
