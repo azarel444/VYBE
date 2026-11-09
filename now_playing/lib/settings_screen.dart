@@ -733,15 +733,9 @@ class SettingsScreen extends StatelessWidget {
         ),
       );
 
-  static const Map<int, String> _previewNames = {
-    0: 'focused', 1: 'side_by_side', 3: 'edge_to_edge',
-    4: 'drive', 5: 'fan', 6: 'diagonal', 7: 'record_cut',
-    8: 'typo', 9: 'orbit', 10: 'cinematic', 11: 'musiczine',
-  };
-
   Widget _themePreviewSelector(AppSettings s, BuildContext context) {
     final selected = s.theme;
-    final name = _previewNames[selected];
+    final name = AppSettings.themePreviewAssets[selected];
     Widget preview(String orientation) {
       if (name == null) return const SizedBox.shrink();
       return ClipRRect(
