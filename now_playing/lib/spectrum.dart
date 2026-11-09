@@ -39,9 +39,12 @@ class SpectrumSim {
     return sum / 8;
   }
 
-  /// Level of band [i] with the sensitivity [gain] applied.
+  /// Universal visualizer amplification is fixed at 50%. This is the
+  /// source for bars, waves, rings and diagonal visualizer styles, so no old
+  /// per-theme saved gain can make any style overlap the song information.
+  static const double fixedAmplification = 0.5;
   double level(int i, double gain) {
-    final v = 0.03 + (levels[i] - 0.03) * gain;
+    final v = 0.03 + (levels[i] - 0.03) * fixedAmplification;
     return v.clamp(0.0, 1.0).toDouble();
   }
 
