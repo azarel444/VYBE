@@ -848,7 +848,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           link.sendClearLogo(artist, bytes);
         }
       }
-      final manualLogo = await LocalArtwork.instance.clearLogo(artist);
+      final manualLogo = await LocalArtwork.instance.clearLogo(artist,
+          rescanOnMiss: bytes == null || bytes.isEmpty);
       if (manualLogo != null && manualLogo.isNotEmpty) {
         bytes = manualLogo;
         localLogo = true;
@@ -1044,7 +1045,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         setState(() => _fanartBytes = cached);
         if (linkSender) link.sendFanart(artist, cached);
       }
-      final localGallery = await LocalArtwork.instance.fanartGallery(artist);
+      final localGallery = await LocalArtwork.instance.fanartGallery(artist,
+          rescanOnMiss: cached == null || cached.isEmpty);
       final localBytes = localGallery.isEmpty ? null : localGallery.first;
       final bytes = localBytes ?? cached ??
           (settings.fanartProjectKey.isEmpty ? null :
