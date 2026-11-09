@@ -390,9 +390,8 @@ class SettingsScreen extends StatelessWidget {
     final isFanartTheme = s.theme == AppSettings.tCinematic ||
         s.theme == AppSettings.tEditorial;
     return [
-      _section('Themes & backgrounds'),
-      _themePreviewSelector(s, context),
-      const Text('Use Customize in the floating playback controls for live backgrounds, brightness, blur, contrast, logos and VYBE colors. These advanced settings remain theme-specific.'),
+      _section('Backgrounds & visual effects'),
+      const Text('Choose a theme in the Theme Library on the playback controls. Use Customize for the most common adjustments; these advanced visual settings remain available here.'),
       const Text('Choose a premium animated scene. Each scene has its own designed color palette.'),
       _choices('Animated background',
         AppSettings.premiumSceneNames,
@@ -732,61 +731,6 @@ class SettingsScreen extends StatelessWidget {
           ],
         ),
       );
-
-  Widget _themePreviewSelector(AppSettings s, BuildContext context) {
-    final selected = s.theme;
-    final name = AppSettings.themePreviewAssets[selected];
-    Widget preview(String orientation) {
-      if (name == null) return const SizedBox.shrink();
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(9),
-        child: Image.asset(
-          'assets/theme_previews/${name}_${orientation}.jpg',
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(
-            color: const Color(0xFF15101F),
-            alignment: Alignment.center,
-            child: const Text('Preview pending',
-              style: TextStyle(color: Colors.white54, fontSize: 13)),
-          ),
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Now Playing theme', style: TextStyle(fontSize: 20)),
-        const SizedBox(height: 8),
-        _choices('Select theme',
-          AppSettings.pickable.map((i) => AppSettings.themeNames[i]).toList(),
-          AppSettings.pickable.indexOf(selected).clamp(0, AppSettings.pickable.length - 1),
-          (i) => s.update(() => s.theme = AppSettings.pickable[i])),
-        if (selected == 0) ...[
-          const SizedBox(height: 8),
-          _choices('Focused visualizer (both orientations)',
-            const ['Circle (ring)', 'Bars'],
-            s.focusedStyleFor(MediaQuery.sizeOf(context).height >
-                MediaQuery.sizeOf(context).width * 1.1),
-            (i) => s.setFocusedStyleBoth(i)),
-          const Text('Portrait defaults to Circle. This selection sets both orientations; the per-orientation control below can customize them separately.'),
-        ],
-        const SizedBox(height: 8),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(flex: 3, child: Column(children: [
-            AspectRatio(aspectRatio: 16 / 9, child: preview('landscape')),
-            const SizedBox(height: 5),
-            const Text('Landscape', style: TextStyle(color: Colors.white60, fontSize: 12)),
-          ])),
-          const SizedBox(width: 10),
-          Expanded(flex: 2, child: Column(children: [
-            AspectRatio(aspectRatio: 9 / 16, child: preview('portrait')),
-            const SizedBox(height: 5),
-            const Text('Portrait', style: TextStyle(color: Colors.white60, fontSize: 12)),
-          ])),
-        ]),
-      ]),
-    );
-  }
 
   /// Compact, scroll-friendly selector. Preserves the exact stored integer values.
   Widget _choices(String title, List<String> labels, int selected,
