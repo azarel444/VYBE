@@ -4699,6 +4699,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'OV') {
       return math.min(fontSize * .075, glyphWidth * .22);
     }
+    // POSITIVE K: the narrow I's measured advance leaves too much air
+    // after T. Pull T→I in, but do not change other T combinations.
+    if (pair == 'TI') {
+      return math.min(fontSize * .32, glyphWidth * .78);
+    }
+    // The V's brush stroke sweeps left toward the I. Default IV kerning
+    // overlaps the letters; limit ONLY this pair to a tiny correction.
+    if (pair == 'IV') {
+      return math.min(fontSize * .018, glyphWidth * .05);
+    }
     // F's brush silhouette is much narrower than its glyph advance. FL
     // needs slightly more correction than FE; both occur in FEARLESS FLYERS.
     if (pair == 'FE') {
@@ -5016,15 +5026,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             painter: _VybeAlbumLabelFrame(_palette.a,
               flushRight: flushFrame == Alignment.centerRight,
               flushLeft: flushFrame == Alignment.centerLeft),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                left, labelSize * .24, right, labelSize * .24),
-              child: SongTitleMarquee(
-                title: _albumDisplayName,
-                style: albumStyle,
-                alignment: Alignment.center,
-                animation: _tick,
-                elapsedSeconds: () => _time,
+            // Clip LETTERING to the black parallelogram, not its glowing
+            // outline. The marquee keeps its natural font size and slides
+            // inside the label but can never spill over either angled edge.
+            child: ClipPath(
+              clipper: _VybeAlbumTextClipper(
+                flushRight: flushFrame == Alignment.centerRight,
+                flushLeft: flushFrame == Alignment.centerLeft),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  left, labelSize * .24, right, labelSize * .24),
+                child: SongTitleMarquee(
+                  title: _albumDisplayName,
+                  style: albumStyle,
+                  alignment: Alignment.center,
+                  animation: _tick,
+                  elapsedSeconds: () => _time,
+                ),
               ),
             ),
           ),
@@ -6063,6 +6081,43 @@ class _EdgyStandbyPainter extends CustomPainter {
 }
 
 
+
+/// Text is clipped to an inset version of the album label's actual angled
+/// black background. Rectangular clipping alone allowed italic letters to
+/// protrude beyond the diagonal sides while marquee scrolling.
+class _VybeAlbumTextClipper extends CustomClipper<Path> {
+  final bool flushRight;
+  final bool flushLeft;
+  const _VybeAlbumTextClipper({
+    this.flushRight = false, this.flushLeft = false,
+  });
+
+  @override
+  Path getClip(Size size) {
+    final w = size.width, h = size.height;
+    final wing = math.min(h * 1.05, w * .13);
+    final cut = h * .64;
+    final offset = h * .26;
+    final edgeMargin = math.max(1.5, h * .05);
+    final left = flushLeft ? offset + edgeMargin : wing;
+    final right = flushRight ? w - offset - edgeMargin : w - wing;
+    final inset = math.max(1.5, h * .11);
+    final top = h * .08 + inset;
+    final bottom = h * .90 - inset;
+    // Match the parallelogram in _VybeAlbumLabelFrame while pulling the
+    // text clipping region in from the accent lines and their glow.
+    return Path()
+      ..moveTo(left + cut + inset, top)
+      ..lineTo(right - inset, top)
+      ..lineTo(right - cut - inset, bottom)
+      ..lineTo(left + inset, bottom)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(covariant _VybeAlbumTextClipper old) =>
+      old.flushRight != flushRight || old.flushLeft != flushLeft;
+}
 
 class _VybeAlbumLabelFrame extends CustomPainter {
   final Color accent;
