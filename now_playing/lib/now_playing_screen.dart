@@ -5261,7 +5261,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
-                btn(Icons.tune_rounded, 36, _openQuickCustomize),
+                Tooltip(message: 'Customize this theme',
+                  child: btn(Icons.tune_rounded, 36, _openQuickCustomize)),
                 btn(Icons.settings, 36, _openSettings),
                 if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
                     const [1, 3, 5, 6, 7, 8, 9, 10, 11].contains(settings.theme))
