@@ -10,6 +10,7 @@ import 'net.dart';
 import 'media_cache.dart';
 import 'local_artwork.dart';
 import 'palette.dart';
+import 'stream_track_metadata.dart';
 
 /// Talks to the Kotlin side (MainActivity) which listens to the active
 /// Android media session, whichever player app owns it.
@@ -392,9 +393,18 @@ class NowPlayingModel extends ChangeNotifier {
     active = true;
 
     playing = m['playing'] == true;
-    title = (m['title'] as String?) ?? '';
-    artist = (m['artist'] as String?) ?? '';
-    album = (m['album'] as String?) ?? '';
+    final sessionMetadata = StreamTrackMetadata.resolve(
+      title: (m['title'] as String?) ?? '',
+      artist: (m['artist'] as String?) ?? '',
+      album: (m['album'] as String?) ?? '',
+      sourcePackage: (m['sourcePackage'] as String?) ?? '',
+    );
+    // Resolve before computing the track key and initiating artwork, lyric,
+    // album and VYBE Connect updates so every subsystem shares the same
+    // corrected artist/title when an upload-style session is detected.
+    title = sessionMetadata.title;
+    artist = sessionMetadata.artist;
+    album = sessionMetadata.album;
     durationMs = (m['duration'] as num?)?.toInt() ?? 0;
     _posMs = (m['position'] as num?)?.toInt() ?? 0;
     _speed = (m['speed'] as num?)?.toDouble() ?? 1.0;
