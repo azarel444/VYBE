@@ -348,7 +348,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             const Text('Local music & artwork',
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
-            const Text('Choose your music folder to find album covers, artist fanart and clearlogos. Subfolders are included.'),
+            const Text('Choose your music folder for local album covers, artist fanart and clearlogos. VYBE also stores downloaded covers, fanart, clearlogos and lyrics in a VYBE Cache subfolder there when write access is granted. After reinstalling, select the same folder to restore downloads.'),
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
@@ -402,7 +402,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         return _page(
           icon: Icons.touch_app_outlined,
           title: 'Your VYBE controls',
-          body: 'Tap the player to show the toolbar. Here are the controls for both modes.',
+          body: 'Tap Now Playing to slide up the full-width playback controls. Customize opens a separate floating panel for this theme.',
           extra: const ToolbarGuide(),
         );
     }
@@ -545,7 +545,8 @@ class ToolbarGuide extends StatelessWidget {
 
   static const _normal = <_GuideControl>[
     _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
-    _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.tune_rounded, 'Customize', 'Background, darkness, blur, logo size, palette and FX for this theme'),
+    _GuideControl(Icons.settings_outlined, 'Settings', 'Advanced options, permissions and VYBE Connect'),
     _GuideControl(Icons.swap_horiz_rounded, 'Flip layout', 'Swap sides in supported landscape themes'),
     _GuideControl(Icons.navigation_rounded, 'Drive', 'Open the Drive map experience'),
     _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
@@ -554,7 +555,8 @@ class ToolbarGuide extends StatelessWidget {
   ];
   static const _drive = <_GuideControl>[
     _GuideControl(Icons.grid_view_rounded, 'Themes', 'Choose a Now Playing theme'),
-    _GuideControl(Icons.settings, 'Settings', 'Adjust visuals, FX, permissions and launch options'),
+    _GuideControl(Icons.tune_rounded, 'Customize', 'Background, darkness, blur, logo size, palette and FX for this theme'),
+    _GuideControl(Icons.settings_outlined, 'Settings', 'Advanced options, permissions and VYBE Connect'),
     _GuideControl(Icons.map_outlined, 'Show Map', 'Return to the map while Drive stays active'),
     _GuideControl(Icons.close_rounded, 'Close Drive', 'Exit the Drive overlay'),
     _GuideControl(Icons.skip_previous_rounded, 'Previous', 'Go to the previous track'),
@@ -572,10 +574,10 @@ class ToolbarGuide extends StatelessWidget {
         // Full expanded toolbar preview, scaled to fit narrow portrait screens.
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xDD151A25),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white24),
+          decoration: const BoxDecoration(
+            color: Color(0xE5101219),
+            boxShadow: [BoxShadow(color: Color(0x77000000),
+              blurRadius: 18, offset: Offset(0, -6))],
           ),
           child: Column(children: [
             const Row(children: [
@@ -585,11 +587,14 @@ class ToolbarGuide extends StatelessWidget {
               SizedBox(width: 8),
               Text('0:00 / 0:00', style: TextStyle(color: Colors.white54, fontSize: 11)),
             ]),
+            Container(height: 3, decoration: const BoxDecoration(
+              gradient: LinearGradient(colors: [
+                Color(0xFFFF27A8), Color(0xFF995CFF), Color(0xFF05E2F3)]))),
             const SizedBox(height: 10),
             Row(children: [
               for (var i = 0; i < controls.length; i++)
                 Expanded(child: Column(children: [
-                  Icon(controls[i].icon, size: 25, color: Colors.white),
+                  Icon(controls[i].icon, size: 20, color: Colors.white),
                   const SizedBox(height: 5),
                   Text('${i + 1}', style: const TextStyle(color: _cyan, fontSize: 12, fontWeight: FontWeight.bold)),
                 ])),
@@ -624,9 +629,7 @@ class ToolbarGuide extends StatelessWidget {
       const Padding(padding: EdgeInsets.only(top: 6), child: Text('Flip layout appears in supported landscape themes only.', style: TextStyle(color: Colors.white70, fontSize: 14))),
       _section('Drive Theme Activated', _drive),
       const SizedBox(height: 16),
-      const Text('Tap the screen to show the toolbar. The seek bar at the top '
-          'lets you move through the track; playback time and audio status '
-          'appear at the right. Tap outside the toolbar to return to the full view.',
+      const Text('Tap the screen to slide up the controls. The VYBE gradient sits above the seek bar. Customize opens a floating per-theme panel for backgrounds, logo size and FX Gallery. Settings has advanced options. Tap outside to return to full-screen artwork.',
           style: TextStyle(color: Colors.white70, fontSize: 15, height: 1.4)),
     ],
   );
