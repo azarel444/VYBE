@@ -2418,34 +2418,57 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final host = widget.driveHost;
 
     if (narrow) {
-      // Clock belongs to the song-information group, not the artwork.
-      // Moving the map boundary now moves the clock with the metadata.
-      // One clock only, in the same responsive column as the artwork and
-      // metadata. It stays above the art as the map opening changes height.
-      final cameraTop = math.max(48.0, MediaQuery.of(context).viewPadding.top);
-      final availableTop = h * 0.50;
-      final topSpace = math.max(cameraTop, h * 0.055);
-      final hasLogo = settings.useArtistClearLogo && _clearLogoBytes != null;
-      final reservedText = h * 0.075 +
-          (hasLogo ? h * 0.09 : h * 0.03);
-      final artSide = math.max(48.0,
-        math.min(math.min(w * 0.48, h * 0.225),
-          availableTop - topSpace - reservedText)).toDouble();
+      // Both the overlay and the standalone Drive view use the SAME map
+      // boundary. Previously the info was sized for 50% of the screen while
+      // the transparent map opening began at 44.5%, clipping the song title
+      // underneath Google Maps on portrait devices.
+      final mapClearance = h * .014;
+      final topHeight = math.max(1.0, hole.top - mapClearance).toDouble();
+      final safeTop = math.max(
+        MediaQuery.of(context).viewPadding.top + 6.0, h * .018).toDouble();
+      final bottomInset = h * .008;
+      final hasLogo = settings.useArtistClearLogo &&
+          _clearLogoBytes != null && model.active;
+      final brandingHeight = math.min(h * .105, w * .24).toDouble();
+      final songFontSize = h * .031;
+      final songHeight = h * .053;
+      final albumHeight = _showAlbumLabel ? h * .038 : 0.0;
+      final brandArtGap = h * .006;
+      final artSongGap = h * .009;
+      final songAlbumGap = _showAlbumLabel ? h * .003 : 0.0;
+      final reserved = brandingHeight + songHeight + albumHeight +
+          brandArtGap + artSongGap + songAlbumGap;
+      // Give album artwork all the space left AFTER both metadata labels
+      // have been reserved. Never move or shrink the song title into the map.
+      final artworkRoom = math.max(
+          0.0, topHeight - safeTop - bottomInset - reserved).toDouble();
+      final artSide = math.min(
+          math.min(w * .48, h * .225), artworkRoom).toDouble();
       final top = SizedBox(
-        height: availableTop,
-        child: Column(children: [
-          SizedBox(height: topSpace),
-          // Drive's clock is also provided by the popup controls.
-          // Reserve the same artist slot before and after ClearLogo loads.
-          SizedBox(width: w * .82, height: h * .14,
-            child: hasLogo
-              ? _scaledClearLogo()
-              : Center(child: _artist(h * .058, Alignment.center, false))),
-          SizedBox(height: h * .006),
-          _driveArtwork(artSide),
-          SizedBox(height: h * 0.012),
-          _title(h * 0.031, Alignment.center, false),
-        ]),
+        height: topHeight,
+        child: Padding(
+          padding: EdgeInsets.only(top: safeTop, bottom: bottomInset),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(width: w * .86, height: brandingHeight,
+                child: hasLogo
+                    ? _scaledClearLogo()
+                    : Center(child: _artist(
+                        h * .058, Alignment.center, false))),
+              SizedBox(height: brandArtGap),
+              _driveArtwork(artSide),
+              SizedBox(height: artSongGap),
+              SizedBox(width: w * .90, height: songHeight,
+                child: Center(child: _title(
+                    songFontSize, Alignment.center, false))),
+              if (_showAlbumLabel) ...[
+                SizedBox(height: songAlbumGap),
+                SizedBox(width: w * .90, height: albumHeight,
+                  child: Center(child: _albumText(h * .018))),
+              ],
+            ],
+          ),
+        ),
       );
       if (host) {
         return Column(children: [top, const Expanded(child: SizedBox())]);
