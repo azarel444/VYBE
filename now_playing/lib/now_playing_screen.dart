@@ -23,6 +23,8 @@ import 'orbit.dart';
 import 'palette.dart';
 import 'settings.dart';
 import 'settings_screen.dart';
+import 'quick_customize.dart';
+import 'fx_library.dart';
 import 'spectrum.dart';
 import 'theme_parts.dart';
 import 'theme_library.dart';
@@ -481,6 +483,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => SettingsScreen(settings: settings, model: model),
     ));
+  }
+
+  /// Customize is hidden until the floating button is tapped. The bottom
+  /// sheet route handles the smooth slide-up / slide-down animation; no
+  /// always-visible handle or drag-to-open interaction is offered.
+  void _openQuickCustomize() {
+    _hideTimer?.cancel();
+    setState(() => _showControls = false);
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      enableDrag: false,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      constraints: const BoxConstraints(maxWidth: 820),
+      builder: (sheetContext) => QuickCustomizeSheet(
+        settings: settings,
+        accent: _palette.a,
+        onOpenFx: () {
+          Navigator.of(sheetContext).pop();
+          Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => FxLibraryScreen(settings: settings)));
+        },
+      ),
+    );
   }
 
   void _poke() {
@@ -1474,7 +1503,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final portraitHasLogo = settings.useArtistClearLogo &&
         _clearLogoBytes != null && model.active;
     final songStyle = TextStyle(
-      color: Colors.white, fontSize: portrait ? w * .043 : h * .046,
+      color: Colors.white, fontSize: portrait ? w * .051 : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     final composition = Stack(fit: StackFit.expand, children: [
@@ -1539,14 +1568,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 SizedBox(height: math.min(h * .12, w * .30),
                   child: _scaledClearLogo(alignment: Alignment.bottomCenter))
               else
-                _artist(w * .075, Alignment.center, false),
+                _artist(w * .103, Alignment.center, false),
               SizedBox(height: h * .006),
               Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
                 Align(alignment: Alignment.center,
-                  child: _albumText(songStyle.fontSize! * .86)),
+                  child: _albumText(songStyle.fontSize! * .94)),
               ],
             ])),
         if (_hasLyrics)
@@ -5232,6 +5261,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 btn(Icons.grid_view_rounded, 36, _pickTheme),
+                btn(Icons.tune_rounded, 36, _openQuickCustomize),
                 btn(Icons.settings, 36, _openSettings),
                 if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
                     const [1, 3, 5, 6, 7, 8, 9, 10, 11].contains(settings.theme))
