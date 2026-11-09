@@ -392,7 +392,7 @@ class SettingsScreen extends StatelessWidget {
     return [
       _section('Themes & backgrounds'),
       _themePreviewSelector(s),
-      const Text('Backgrounds and visual effects are saved separately for each theme. Switching back restores that theme\'s custom look.'),
+      const Text('Use Customize in the floating playback controls for live backgrounds, brightness, blur, contrast, logos and VYBE colors. These advanced settings remain theme-specific.'),
       const Text('Choose a premium animated scene. Each scene has its own designed color palette.'),
       _choices('Animated background',
         AppSettings.premiumSceneNames,
@@ -405,29 +405,7 @@ class SettingsScreen extends StatelessWidget {
         (i) => s.update(() => s.animationUseAlbumColors = i == 1)),
       const Text('Default keeps each animated scene\'s original colors. '
           'Use album colors applies the current album artwork palette.'),
-      if (!isFanartTheme) ...[
-        _choices('Theme background',
-          const ['Album Art', 'Artist Fanart', 'Animated Background'],
-          s.backgroundSource == 1 ? 2 : (s.backgroundSource == 6 ? 1 : 0),
-          (i) => s.update(() {
-            s.backgroundSource = i == 2 ? 1 : (i == 1 ? 6 : 0);
-            s.fanartMode = i == 1 ? 1 : 0;
-          })),
-        const Text('Standard themes use the selected background.'),
-      ],
-      _slider('Background darkness', '${(s.bgOverlay * 100).round()}%',
-        s.bgOverlay, 0.0, 1.0,
-        (v) => s.update(() => s.bgOverlay = v, persist: false), s.save),
-      _slider('Fanart darkness', '${(s.cinematicDarkness * 100).round()}%',
-        s.cinematicDarkness, 0.0, 1.0,
-        (v) => s.update(() => s.cinematicDarkness = v, persist: false), s.save),
-      const Text('Fanart darkness dims artist photos independently of Background darkness.'),
-      _slider('Background blur', '${s.bgBlur.round()}',
-        s.bgBlur, 0.0, 18.0,
-        (v) => s.update(() => s.bgBlur = v, persist: false), s.save),
-      _slider('Background contrast', '${(s.bgContrast * 100).round()}%',
-        s.bgContrast, 1.0, 2.0,
-        (v) => s.update(() => s.bgContrast = v, persist: false), s.save),
+      // Live source/darkness/blur/contrast controls moved to Quick Customize.
       _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
         s.templateBackgroundMotion, 0.0, 1.0,
         (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
@@ -436,15 +414,7 @@ class SettingsScreen extends StatelessWidget {
         s.cinematicAnimationSpeed, 0.0, 3.0,
         (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
         s.save),
-      _section('Artist name display'),
-      _choices('Display artist as', const ['Regular Text', 'Clear Logo'],
-          s.useArtistClearLogo ? 1 : 0,
-          (i) => s.update(() => s.useArtistClearLogo = i == 1)),
-      if (s.useArtistClearLogo)
-        _slider('Artist logo size', '${(s.artistLogoScale * 100).round()}%',
-            s.artistLogoScale, 0.5, 2.0,
-            (v) => s.update(() => s.artistLogoScale = v, persist: false),
-            s.save),
+      // Clearlogo visibility and size now live in Quick Customize.
       _section('Artist fanart slideshow'),
       const Text('Randomly cycle through available artist images. Applies to every theme using artist fanart and to fanart sent over VYBE Connect.'),
         _choices('Change artist image every',
@@ -459,23 +429,13 @@ class SettingsScreen extends StatelessWidget {
           const ['Album Art', 'Animated Background'],
           s.fanartFallbackSource,
           (i) => s.update(() => s.fanartFallbackSource = i)),
-        _switch('Override fanart',
-          'Always show the selected background, even when artist fanart exists.',
-          s.fanartOverride,
-          (v) => s.update(() => s.fanartOverride = v)),
+        // Source override is now the Fanart/Album/Animated choice in Customize.
         const Text('If Album Art is selected but no usable cover exists, '
             'the selected animated background is used instead.'),
-        _slider('Fanart blur', '${s.cinematicBlur.round()}',
-          s.cinematicBlur, 0.0, 18.0,
-          (v) => s.update(() => s.cinematicBlur = v, persist: false), s.save),
-        _slider('Fanart contrast', '${(s.cinematicContrast * 100).round()}%',
-          s.cinematicContrast, 1.0, 2.0,
-          (v) => s.update(() => s.cinematicContrast = v, persist: false), s.save),
+        // Fanart blur and contrast are available on the playback screen.
       ],
       _section('Visualizer'),
-      _switch('Use VYBE color palette',
-        'Keep neon pink and purple visualizer and effect colors instead of matching album artwork',
-        s.useVybePalette, (v) => s.update(() => s.useVybePalette = v)),
+      // The VYBE/album color switch is in Quick Customize.
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
       if (s.visualizer) ...[
