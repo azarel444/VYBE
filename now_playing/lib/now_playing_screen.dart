@@ -2124,25 +2124,43 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       );
     }
 
+    // The idle prompt is UI status, not a song title. Keep it inside the
+    // portrait metadata column instead of applying the active-song font floor
+    // and marquee sizing (which can clip "Nothing playing" on narrow phones).
     final text = SizedBox(
-      width: w * 0.8,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _title(h * 0.062, Alignment.center, false),
-          SizedBox(height: h * 0.012),
-          if (_showAlbumLabel)
-            _shaded(_albumText(h * .028)),
-          if (_lyricTheme && settings.lyrics) SizedBox(height: lyricGap),
-          if (_lyricTheme && settings.lyrics)
-            SizedBox(
-              height: lyricSlot,
-              child: _hasLyrics
-                  ? Center(child: _lyricLine(h * 0.03, Alignment.center))
-                  : null,
+      width: w * (model.active ? 0.8 : 0.9),
+      child: model.active
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _title(h * 0.062, Alignment.center, false),
+                SizedBox(height: h * 0.012),
+                if (_showAlbumLabel)
+                  _shaded(_albumText(h * .028)),
+                if (_lyricTheme && settings.lyrics) SizedBox(height: lyricGap),
+                if (_lyricTheme && settings.lyrics)
+                  SizedBox(
+                    height: lyricSlot,
+                    child: _hasLyrics
+                        ? Center(child: _lyricLine(h * 0.03, Alignment.center))
+                        : null,
+                  ),
+              ],
+            )
+          : Center(
+              child: Text(
+                'Nothing playing',
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: portrait ? w * 0.061 : h * 0.067,
+                  fontWeight: FontWeight.w300,
+                  color: _readableText(1),
+                  shadows: _cleanTextShadows,
+                  height: 1.1,
+                ),
+              ),
             ),
-        ],
-      ),
     );
 
     // Keep the artist visually dominant. Long names break at word
@@ -2174,19 +2192,35 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // gap before the artwork instead of centering that tall logo on top of it.
     final hasArtistLogo = model.active &&
         settings.useArtistClearLogo && _clearLogoBytes != null;
+    // The inactive fallback sentence must never pass through the artist
+    // renderer: its oversized Riot display rules are meant for music artists.
+    // Render a short, contained idle heading above the record instead.
     final artistHeader = SizedBox(
       width: w * (portrait ? .94 : .88),
       height: h * (portrait ? .20 : .25),
       child: Center(
-        child: useTwoLines
-            ? _compactRiotLines(
-                [firstLine, secondLine],
-                h * (portrait ? .061 : .073),
-                Alignment.center,
-                (line) => _artistText(h * (portrait ? .061 : .073),
-                    letteringOverride: line),
+        child: !model.active
+            ? Text(
+                'START MUSIC',
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'VYBERiot',
+                  fontFamilyFallback: const ['Roboto'],
+                  fontSize: portrait ? w * .078 : h * .094,
+                  color: Colors.white,
+                  shadows: _artistNeonShadows,
+                ),
               )
-            : _artist(h * (portrait ? .10 : .115), Alignment.center, false),
+            : useTwoLines
+                ? _compactRiotLines(
+                    [firstLine, secondLine],
+                    h * (portrait ? .061 : .073),
+                    Alignment.center,
+                    (line) => _artistText(h * (portrait ? .061 : .073),
+                        letteringOverride: line),
+                  )
+                : _artist(h * (portrait ? .10 : .115), Alignment.center, false),
       ),
     );
 
