@@ -77,6 +77,65 @@ class VybeLink extends ChangeNotifier {
   String directStatus = 'Not started';
   List<Map<String, String>> directPeers = [];
   bool _directRegistered = false;
+  // Remember that Wi-Fi Direct was actually chosen, not just that TCP auto
+  // reconnect is enabled. They are different network layers.
+  bool _directPreferred = false;
+  String _savedDirectPeerAddress = '';
+  bool _directGroupConnected = false;
+  bool _directRecoveryBusy = false;
+  int _lastDirectRecoveryMs = 0;
+  int _lastDirectPeerAttemptMs = 0;
+  Timer? _directRecoveryTimer;
+
+  /// Restore the head-unit's Direct group or discover the previously paired
+  /// Wi-Fi Direct MAC. Only called when TCP is disconnected; never tears down
+  /// a working socket, hotspot or manually established LAN connection.
+  Future<void> _recoverDirect({bool immediately = false}) async {
+    if (!enabled || !autoConnect || !_directPreferred || !directAvailable ||
+        _directRecoveryBusy || _directGroupConnected ||
+        (role == 'sender' && _socket != null)) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (!immediately && now - _lastDirectRecoveryMs < 10000) return;
+    _lastDirectRecoveryMs = now;
+    _directRecoveryBusy = true;
+    try {
+      // Existing OS permission only. Never pop a permission dialog during
+      // background recovery; manual setup remains available if needed.
+      final started = await _direct.invokeMethod<bool>('start') ?? false;
+      if (!started) {
+        directStatus = 'Wi-Fi Direct permission or service unavailable';
+        notifyListeners();
+        return;
+      }
+      directActive = true;
+      if (role == 'receiver') {
+        directStatus = 'Restoring head-unit Wi-Fi Direct group...';
+        await _direct.invokeMethod<bool>('host');
+      } else if (role == 'sender') {
+        directStatus = 'Searching for saved head unit over Wi-Fi Direct...';
+        await _direct.invokeMethod<bool>('discover');
+      }
+      notifyListeners();
+    } catch (error) {
+      directStatus = 'Wi-Fi Direct recovery: $error';
+      notifyListeners();
+    } finally {
+      _directRecoveryBusy = false;
+    }
+  }
+
+  void _trySavedDirectPeer() {
+    if (!enabled || !autoConnect || !_directPreferred ||
+        role != 'sender' || _socket != null || _directGroupConnected ||
+        _savedDirectPeerAddress.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastDirectPeerAttemptMs < 12000) return;
+    final hasPeer = directPeers.any((peer) =>
+        peer['address'] == _savedDirectPeerAddress);
+    if (!hasPeer) return;
+    _lastDirectPeerAttemptMs = now;
+    unawaited(directConnectPeer(_savedDirectPeerAddress, remember: false));
+  }
 
   Future<void> directInitialize() async {
     if (!_directRegistered) {
@@ -88,9 +147,12 @@ class VybeLink extends ChangeNotifier {
           case 'peers':
             directPeers = (data['items'] as List).map((e) => Map<String, String>.from(e as Map)).toList();
             directStatus = 'Found ${directPeers.length} nearby Wi-Fi Direct devices';
+            _trySavedDirectPeer();
             break;
           case 'connected':
             final host = data['host']?.toString() ?? '';
+            _directGroupConnected = true;
+            directActive = true;
             directStatus = 'Wi-Fi Direct group connected ($host)';
             // Refresh the newly created P2P interface address on the head unit.
             await _updateAddresses();
@@ -101,7 +163,18 @@ class VybeLink extends ChangeNotifier {
             }
             break;
           case 'disconnected':
-            directStatus = 'Wi-Fi Direct disconnected';
+            _directGroupConnected = false;
+            _lastDirectPeerAttemptMs = 0;
+            directStatus = 'Wi-Fi Direct disconnected; restoring automatically';
+            // A TCP retry cannot recreate a lost P2P group. Recover the
+            // underlying network separately, with a short settling delay.
+            if (_directPreferred && enabled && autoConnect) {
+              Future<void>.delayed(const Duration(seconds: 2), () {
+                if (enabled && autoConnect && !_directGroupConnected) {
+                  unawaited(_recoverDirect(immediately: true));
+                }
+              });
+            }
             break;
           case 'error':
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct error';
@@ -110,7 +183,12 @@ class VybeLink extends ChangeNotifier {
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct in progress';
             break;
           case 'state':
-            directStatus = data['enabled'] == true ? 'Wi-Fi Direct available' : 'Wi-Fi Direct disabled';
+            if (data['enabled'] != true) _directGroupConnected = false;
+            directStatus = data['enabled'] == true
+                ? 'Wi-Fi Direct available' : 'Wi-Fi Direct disabled';
+            if (data['enabled'] == true && _directPreferred && enabled && autoConnect) {
+              unawaited(_recoverDirect(immediately: true));
+            }
             break;
           case 'action':
             directStatus = '${data['name']} request ${data['ok'] == true ? 'accepted' : 'failed'}';
@@ -135,6 +213,9 @@ class VybeLink extends ChangeNotifier {
         notifyListeners(); return;
       }
       directActive = true;
+      _directPreferred = true;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('link_direct_preferred', true);
       if (receiver) {
         if (role != 'receiver' || !enabled) await configure(isEnabled: true, deviceRole: 'receiver');
         directStatus = 'Requesting head-unit Wi-Fi Direct group...';
@@ -152,10 +233,21 @@ class VybeLink extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> directConnectPeer(String address) async {
+  Future<void> directConnectPeer(String address, {bool remember = true}) async {
+    if (address.isEmpty) return;
     try {
-      final ok = await _direct.invokeMethod<bool>('connect', {'address': address}) ?? false;
+      final ok = await _direct.invokeMethod<bool>(
+          'connect', {'address': address}) ?? false;
       directStatus = ok ? 'Connecting to head unit...' : 'Device no longer in nearby list';
+      if (ok && remember) {
+        // Save the Wi-Fi Direct MAC alongside the previously saved TCP IP.
+        // Subsequent peer discovery can reconnect without any tap or IP entry.
+        _savedDirectPeerAddress = address;
+        _directPreferred = true;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('link_direct_peer', address);
+        await prefs.setBool('link_direct_preferred', true);
+      }
     } catch (e) { directStatus = 'Direct connection failed: $e'; }
     notifyListeners();
   }
@@ -185,6 +277,8 @@ class VybeLink extends ChangeNotifier {
     autoConnect = p.getBool('link_auto') ?? true;
     receiverAddress = (p.getString('link_address') ?? '').trim();
     pairedReceiverId = p.getString('link_paired_receiver') ?? '';
+    _savedDirectPeerAddress = p.getString('link_direct_peer') ?? '';
+    _directPreferred = p.getBool('link_direct_preferred') ?? false;
     localDeviceId = p.getString('link_device_id') ?? '';
     if (localDeviceId.isEmpty) {
       final random = Random.secure();
@@ -196,6 +290,19 @@ class VybeLink extends ChangeNotifier {
     await directInitialize();
     await _updateAddresses();
     if (enabled && autoConnect) await connect();
+    // Network auto-reconnect is not enough if Wi-Fi Direct itself vanished.
+    // When the user has already chosen Direct, restore its group/peer without
+    // asking for the IP again. A running LAN socket takes priority.
+    if (enabled && autoConnect && _directPreferred) {
+      unawaited(_recoverDirect(immediately: true));
+    }
+    _directRecoveryTimer?.cancel();
+    _directRecoveryTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (enabled && autoConnect && _directPreferred &&
+          !_directGroupConnected && (role == 'receiver' || _socket == null)) {
+        unawaited(_recoverDirect());
+      }
+    });
     // Android/network transitions may not generate a socket close event.
     // Periodically recover a missing connection without user interaction.
     _connectionWatchdog?.cancel();
@@ -252,6 +359,7 @@ class VybeLink extends ChangeNotifier {
   /// best-effort: Android can suspend this Flutter process.
   void onResumed() {
     if (!enabled || !autoConnect) return;
+    if (_directPreferred) unawaited(_recoverDirect(immediately: true));
     if (_connecting) return;
     if (role == 'receiver' && _server == null) { connect(); return; }
     if (role == 'sender' && _socket == null) connect();
@@ -277,6 +385,11 @@ class VybeLink extends ChangeNotifier {
     if (isEnabled != null) enabled = isEnabled;
     if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
     if (automatic != null) autoConnect = automatic;
+    if (!enabled) {
+      _directGroupConnected = false;
+      _directRecoveryTimer?.cancel();
+      _directRecoveryTimer = null;
+    }
     if (address != null) {
       final requested = address.trim();
       if (requested != receiverAddress) {
