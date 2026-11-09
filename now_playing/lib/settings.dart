@@ -137,6 +137,17 @@ class AppSettings extends ChangeNotifier {
       vizStyle = style; // Keep legacy preference compatible.
     });
   }
+
+  // The Focused theme gallery sets the selected design immediately in both
+  // orientations. Advanced settings can still override each separately.
+  void setFocusedStyleBoth(int style) {
+    update(() {
+      focusedPortraitStyle = style;
+      focusedLandscapeStyle = style;
+      vizStyle = style;
+      visualizer = true;
+    });
+  }
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
@@ -562,7 +573,10 @@ class AppSettings extends ChangeNotifier {
     fanartProjectKey = bundledFanartProjectKey;
     sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
     vizStyle = _int(p, 'vizStyle', 1, 0, 1);
-    focusedPortraitStyle = _int(p, 'focusedPortraitStyle', vizStyle, 0, 1);
+    // The legacy global vizStyle defaulted to Bars (1). Do NOT inherit it
+    // for portrait, where Focused is meant to start in Ring mode. Preserve
+    // explicitly stored orientation-specific choices on existing installs.
+    focusedPortraitStyle = _int(p, 'focusedPortraitStyle', 0, 0, 1);
     focusedLandscapeStyle = _int(p, 'focusedLandscapeStyle', vizStyle, 0, 1);
     final bc = p.getInt('barCount') ?? 96;
     barCount = barCounts.contains(bc) ? bc : 96;
