@@ -774,9 +774,9 @@ class SettingsScreen extends StatelessWidget {
       );
 
   static const Map<int, String> _previewNames = {
-    0: 'orbit', 1: 'side_by_side', 3: 'edge_to_edge',
+    0: 'focused', 1: 'side_by_side', 3: 'edge_to_edge',
     4: 'drive', 5: 'fan', 6: 'diagonal', 7: 'record_cut',
-    8: 'typo', 9: 'focused', 10: 'cinematic', 11: 'musiczine',
+    8: 'typo', 9: 'orbit', 10: 'cinematic', 11: 'musiczine',
   };
 
   Widget _themePreviewSelector(AppSettings s) {
@@ -807,6 +807,15 @@ class SettingsScreen extends StatelessWidget {
           AppSettings.pickable.map((i) => AppSettings.themeNames[i]).toList(),
           AppSettings.pickable.indexOf(selected).clamp(0, AppSettings.pickable.length - 1),
           (i) => s.update(() => s.theme = AppSettings.pickable[i])),
+        if (selected == 0) ...[
+          const SizedBox(height: 8),
+          _choices('Focused visualizer (both orientations)',
+            const ['Circle (ring)', 'Bars'],
+            s.focusedStyleFor(MediaQuery.sizeOf(context).height >
+                MediaQuery.sizeOf(context).width * 1.1),
+            (i) => s.setFocusedStyleBoth(i)),
+          const Text('Portrait defaults to Circle. This selection sets both orientations; the per-orientation control below can customize them separately.'),
+        ],
         const SizedBox(height: 8),
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(flex: 3, child: Column(children: [

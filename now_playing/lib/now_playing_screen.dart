@@ -1579,7 +1579,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 style: songStyle),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
-                _albumText(songStyle.fontSize! * .86),
+                _albumText(songStyle.fontSize! * .86,
+                  flushFrame: flipped ? Alignment.centerLeft
+                      : Alignment.centerRight),
               ],
             ]))),
         if (_hasLyrics)
@@ -2478,6 +2480,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Rebuilding the screen-wide controls after a background tap must not
     // restart an image crossfade or temporarily replace the album cover.
     final art = model.art;
+    // Drive's cover frame was hardcoded to brand pink/purple even when album
+    // art had a different palette. Use the cover's own extracted colors.
+    final artColors = art?.palette ?? _lastArtPalette ?? _palette;
     final radius = BorderRadius.circular(size * 0.018);
     return RepaintBoundary(
       child: Container(
@@ -2486,9 +2491,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         decoration: BoxDecoration(
           borderRadius: radius,
           color: const Color(0xFF0B0B0F),
-          border: Border.all(color: const Color(0xFFFF005E).withOpacity(.35), width: 1),
+          border: Border.all(color: artColors.a.withOpacity(.65), width: 1),
           boxShadow: [BoxShadow(
-            color: const Color(0xFF8A00FF).withOpacity(0.22),
+            color: artColors.b.withOpacity(.24),
             blurRadius: size * 0.10,
           )],
         ),
@@ -4787,7 +4792,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             flushRight: flushFrame == Alignment.centerRight,
             flushLeft: flushFrame == Alignment.centerLeft),
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: size * 3.30, vertical: size * .24),
+          // Keep the text clear of the slanted frame while eliminating
+          // Muzine's large empty padding at the outside-aligned edge.
+          padding: EdgeInsets.fromLTRB(
+            flushFrame == Alignment.centerLeft ? size * 1.55 : size * 3.30,
+            size * .24,
+            flushFrame == Alignment.centerRight ? size * 1.55 : size * 3.30,
+            size * .24),
           child: Text(_albumDisplayName, maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: _albumLabelTextStyle(size)),
