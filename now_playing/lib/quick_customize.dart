@@ -221,6 +221,18 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         onSelected: (v) =>
                             s.update(() => s.useVybePalette = v),
                         visualDensity: VisualDensity.compact),
+                      FilterChip(
+                        label: const Text('Visualizer'),
+                        selected: s.visualizer,
+                        onSelected: (v) =>
+                            s.update(() => s.visualizer = v),
+                        visualDensity: VisualDensity.compact),
+                      FilterChip(
+                        label: const Text('Motion'),
+                        selected: s.bgEffects,
+                        onSelected: (v) =>
+                            s.update(() => s.bgEffects = v),
+                        visualDensity: VisualDensity.compact),
                       OutlinedButton.icon(
                         onPressed: widget.onOpenFx,
                         icon: const Icon(Icons.auto_awesome, size: 17),
