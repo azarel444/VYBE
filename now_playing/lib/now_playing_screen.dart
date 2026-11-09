@@ -1630,7 +1630,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             mainAxisSize: MainAxisSize.min, children: [
               // Use exactly the same artist/clearlogo rendering and font
               // ratio as Bigfan; only their artwork compositions differ.
-              _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
+              _artist(0, Alignment.center, false),
               SizedBox(height: h * .006),
               _metadataText(_VybeTextRole.title, Alignment.center),
               if (_showAlbumLabel) ...[
@@ -1770,7 +1770,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             SizedBox(height: h * .014),
             SizedBox(width: w * .84,
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                _artist(h * _portraitFeatureArtistRatio, Alignment.center, false),
+                _artist(0, Alignment.center, false),
                 SizedBox(height: h * .008),
                 _title(h * _portraitFeatureTitleRatio, Alignment.center, false),
                 if (_showAlbumLabel) ...[
