@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
+import 'portable_media_cache.dart';
 
 /// Fanart.tv client. Receives the development credential from app settings.
 /// Production builds must use a server-side proxy instead.
@@ -32,7 +33,6 @@ class ArtistFanartCache {
       diagnostics = 'Artist: $artist\nStatus: $status\n${stages.join('\n')}\nTotal: ${watch.elapsedMilliseconds} ms';
     }
     final cacheKey = artist.toLowerCase().trim();
-    if (projectKey.trim().isEmpty) { report('Missing project API key'); return null; }
     if (_memory[cacheKey] != null) { record('Memory cache hit'); report('Cached artwork'); return _memory[cacheKey]; }
     try {
       record('Memory cache miss');
@@ -46,6 +46,17 @@ class ArtistFanartCache {
         record('Disk cache hit');
         report('Loaded cached image');
         return bytes;
+      }
+      final restored = await PortableMediaCache.get('fanart', cacheKey);
+      if (restored != null) {
+        await file.writeAsBytes(restored, flush: false);
+        _memory[cacheKey] = restored;
+        report('Restored artist fanart from music folder');
+        return restored;
+      }
+      if (projectKey.trim().isEmpty) {
+        report('Missing project API key; no downloaded art found');
+        return null;
       }
       record('Disk cache miss');
       // Cache resolved MusicBrainz IDs on disk independently of the image.
@@ -212,6 +223,7 @@ class ArtistFanartCache {
         return null;
       }
       await file.writeAsBytes(bytes, flush: false);
+      await PortableMediaCache.put('fanart', cacheKey, bytes);
       _memory[cacheKey] = bytes;
       record('Disk cache write completed (${bytes.length} bytes)');
       report('Downloaded artist background');
@@ -225,7 +237,7 @@ class ArtistFanartCache {
   Future<List<Uint8List>> getGallery(String artist, String projectKey,
       {String personalKey = '', int maxImages = 10}) async {
     final key = artist.toLowerCase().trim();
-    if (key.isEmpty || projectKey.isEmpty) return [];
+    if (key.isEmpty) return [];
     final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
     await folder.create(recursive: true);
     final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
@@ -238,10 +250,14 @@ class ArtistFanartCache {
     // before an offline slideshow can start.
     for (var i = 1; i < maxImages; i++) {
       final cached = File('${folder.path}/$name.gallery.$i.jpg');
-      if (!await cached.exists()) continue;
       try {
-        final bytes = await cached.readAsBytes();
-        if (bytes.isNotEmpty) result.add(bytes);
+        final bytes = await cached.exists()
+            ? await cached.readAsBytes()
+            : await PortableMediaCache.get('fanart_gallery', '$key:$i');
+        if (bytes != null && bytes.isNotEmpty) {
+          if (!await cached.exists()) await cached.writeAsBytes(bytes);
+          result.add(bytes);
+        }
       } catch (_) {}
     }
     if (result.length >= maxImages) return result;
@@ -314,6 +330,7 @@ class ArtistFanartCache {
         bytes = await file.exists() ? await file.readAsBytes() : await _bytes(urls[i]);
         if (bytes != null && bytes.isNotEmpty) {
           if (!await file.exists()) await file.writeAsBytes(bytes);
+          await PortableMediaCache.put('fanart_gallery', '$key:$i', bytes);
           result.add(bytes);
         }
       } catch (_) {}
@@ -324,7 +341,7 @@ class ArtistFanartCache {
   /// Download Fanart.tv HD music clearlogo, with a persistent offline cache.
   Future<Uint8List?> getClearLogo(String artist, String projectKey,
       {String personalKey = ''}) async {
-    if (artist.trim().isEmpty || projectKey.isEmpty) return null;
+    if (artist.trim().isEmpty) return null;
     final key = artist.toLowerCase().trim();
     final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
     await folder.create(recursive: true);
@@ -333,6 +350,12 @@ class ArtistFanartCache {
     if (await file.exists()) {
       try { return await file.readAsBytes(); } catch (_) {}
     }
+    final restored = await PortableMediaCache.get('clearlogo', key);
+    if (restored != null) {
+      try { await file.writeAsBytes(restored); } catch (_) {}
+      return restored;
+    }
+    if (projectKey.isEmpty) return null;
     // Reuse the already-implemented MusicBrainz ID lookup and cache.
     await get(artist, projectKey, personalKey: personalKey);
     var ids = _artistIds[key] ?? <String>[];
@@ -360,6 +383,7 @@ class ArtistFanartCache {
             final bytes = await _bytes(uri);
             if (bytes != null && bytes.isNotEmpty) {
               await file.writeAsBytes(bytes);
+              await PortableMediaCache.put('clearlogo', key, bytes);
               return bytes;
             }
           }
