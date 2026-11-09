@@ -114,7 +114,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
   Widget build(BuildContext context) {
     final fanartPhotoControls = _fanartTheme || _usingFanart;
     final blur = _fanartTheme ? s.cinematicBlur
-        : _usingFanart ? (s.bgBlur - 6).clamp(0.0, 12.0) : s.bgBlur;
+        : _usingFanart ? (s.bgBlur - 6).clamp(0.0, 12.0).toDouble() : s.bgBlur;
     final blurMax = _usingFanart && !_fanartTheme ? 12.0 : 18.0;
     final contrast = _fanartTheme ? s.cinematicContrast : s.bgContrast;
 
