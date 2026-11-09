@@ -229,7 +229,7 @@ Future<String?> fetchSongReleaseTitle(String title, String artist) async {
   // Strip nonmusical YouTube/player suffixes for matching, without changing
   // the original title displayed to the listener.
   String clean(String value) => value.replaceAll(
-      RegExp(r'\\s*[\\(\\[][^\\)\\]]*(?:official(?:\\s+music)?\\s+video|lyric\\s+video|visualizer|prod\\.?\\s+by|remaster(?:ed)?|radio edit)[^\\)\\]]*[\\)\\]]',
+      RegExp(r'\s*[\(\[][^\)\]]*(?:official(?:\s+music)?\s+video|lyric\s+video|visualizer|prod\.?\s+by|remaster(?:ed)?|radio edit)[^\)\]]*[\)\]]',
           caseSensitive: false), '').trim();
   final normalizedTitle = _norm(clean(title));
   if (normalizedTitle.isEmpty) return null;
