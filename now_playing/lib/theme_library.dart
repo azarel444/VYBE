@@ -29,12 +29,15 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
   void _openPreview(int id) {
     setState(() {
       _preview = id;
-      _focusedStyleChoice = widget.settings.vizStyle;
+      // Use the actual orientation-specific choice, not the old global
+      // vizStyle which can be out of sync with what Focused renders.
+      _focusedStyleChoice = widget.settings.focusedStyleFor(
+        MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width * 1.1);
     });
   }
 
   static const Map<int, String> _assetNames = {
-    0: 'orbit',
+    0: 'focused',
     1: 'side_by_side',
     3: 'edge_to_edge',
     4: 'drive',
@@ -42,7 +45,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     6: 'diagonal',
     7: 'record_cut',
     8: 'typo',
-    9: 'focused',
+    9: 'orbit',
     10: 'cinematic',
     11: 'musiczine',
   };
@@ -60,7 +63,13 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     widget.settings.update(() {
       widget.settings.theme = id;
       if (id == 0) {
-        widget.settings.vizStyle = _focusedStyleChoice ?? widget.settings.vizStyle;
+        // The theme picker must update the style the renderer actually
+        // reads, for BOTH orientations, and enable the visualizer.
+        final choice = _focusedStyleChoice ?? 0;
+        widget.settings.vizStyle = choice;
+        widget.settings.focusedPortraitStyle = choice;
+        widget.settings.focusedLandscapeStyle = choice;
+        widget.settings.visualizer = true;
       }
     }, persist: false);
     // Save the chosen theme and its visual profile before closing this dialog.
@@ -230,7 +239,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                               ButtonSegment<int>(value: 0, label: Text('Circle')),
                               ButtonSegment<int>(value: 1, label: Text('Bars')),
                             ],
-                            selected: {_focusedStyleChoice ?? widget.settings.vizStyle},
+                            selected: {_focusedStyleChoice ?? widget.settings.focusedStyleFor(portrait)},
                             onSelectionChanged: (selection) => setState(
                               () => _focusedStyleChoice = selection.first),
                           ),

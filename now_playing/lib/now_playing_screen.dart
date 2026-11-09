@@ -23,6 +23,8 @@ import 'orbit.dart';
 import 'palette.dart';
 import 'settings.dart';
 import 'settings_screen.dart';
+import 'quick_customize.dart';
+import 'fx_library.dart';
 import 'spectrum.dart';
 import 'theme_parts.dart';
 import 'theme_library.dart';
@@ -483,6 +485,39 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ));
   }
 
+  /// Customize is hidden until the floating button is tapped. The bottom
+  /// sheet route handles the smooth slide-up / slide-down animation; no
+  /// always-visible handle or drag-to-open interaction is offered.
+  void _openQuickCustomize() {
+    _hideTimer?.cancel();
+    setState(() => _showControls = false);
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      enableDrag: false,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      constraints: const BoxConstraints(maxWidth: 860),
+      builder: (sheetContext) => Padding(
+        // Quick Customize floats above the bottom edge, unlike the playback
+        // controls. Corners match the subtle album-cover rounding.
+        padding: EdgeInsets.fromLTRB(
+          12, 0, 12, math.max(12.0, MediaQuery.viewPaddingOf(sheetContext).bottom)),
+        child: QuickCustomizeSheet(
+          settings: settings,
+          accent: _palette.a,
+          onOpenFx: () {
+            Navigator.of(sheetContext).pop();
+            Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => FxLibraryScreen(settings: settings)));
+          },
+        ),
+      ),
+    );
+  }
+
   void _poke() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 5), () {
@@ -617,8 +652,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             // Night Mode uses window brightness, never a text-dimming overlay.
             _progressLine(),
-            if (controlsInside && _showControls) ...[
-              if (settings.showClock) _controlsClockHeader(),
+            if (controlsInside) ...[
+              if (_showControls && settings.showClock) _controlsClockHeader(),
               _controls(),
             ],
           ],
@@ -659,10 +694,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ),
             ),
             if (w >= h * 1.3) _driveBottomBars(w, h, hole),
-            if (_showControls) ...[
-              if (settings.showClock) _controlsClockHeader(),
-              _controls(),
-            ],
+            if (_showControls && settings.showClock) _controlsClockHeader(),
+            _controls(),
           ],
         );
       }),
@@ -1317,34 +1350,49 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ? _drift(RepaintBoundary(child: image),
             speed: settings.cinematicAnimationSpeed * 2.5)
         : image;
+    // Muzine portrait hides the upper fifth behind its album-art backing.
+    // Start fanart at the actual horizontal divider instead of fitting it
+    // across the unseen area above: people's heads are no longer cropped
+    // away behind the top artwork panel. Do not affect landscape or Bigfan.
+    final viewport = MediaQuery.sizeOf(context);
+    final muzinePortraitFanart = showFanart &&
+        settings.theme == AppSettings.tEditorial &&
+        viewport.height > viewport.width * 1.1;
+    final fanartTop = muzinePortraitFanart ? viewport.height * .20 : 0.0;
     return Stack(fit: StackFit.expand, children: [
-      AnimatedSwitcher(
-        duration: const Duration(milliseconds: 700),
-        child: SizedBox.expand(
-          key: ValueKey(showFanart ? 'fanart:${_fanartArtist}:$_fanartGalleryIndex' :
-              useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
-              'cinematic-template:${settings.cinematicPalette}'),
-          child: movingImage)),
+      Positioned.fill(
+        top: fanartTop,
+        child: ClipRect(child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 700),
+          child: SizedBox.expand(
+            key: ValueKey(showFanart ? 'fanart:${_fanartArtist}:$_fanartGalleryIndex' :
+                useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
+                'cinematic-template:${settings.cinematicPalette}'),
+            child: movingImage))),
+      ),
       // A blurred copy of the artwork, masked to the outer edges.
       // The middle stays sharp and the blur fades inward smoothly.
       if (hasImage)
-        IgnorePointer(child: ShaderMask(
-          blendMode: BlendMode.dstIn,
-          shaderCallback: (bounds) => const LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            stops: [0.0, .22, .35, .65, .78, 1.0],
-            colors: [Colors.white, Colors.transparent, Colors.transparent,
-              Colors.transparent, Colors.transparent, Colors.white],
-          ).createShader(bounds),
-          child: ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            child: SizedBox.expand(child: showFanart
-                ? Image.memory(fanart, fit: BoxFit.cover,
-                    alignment: Alignment.topCenter, gaplessPlayback: true)
-                : RawImage(image: art?.tiny, fit: BoxFit.cover)),
-          ),
-        )),
+        Positioned.fill(
+          top: fanartTop,
+          child: ClipRect(child: IgnorePointer(child: ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) => const LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              stops: [0.0, .22, .35, .65, .78, 1.0],
+              colors: [Colors.white, Colors.transparent, Colors.transparent,
+                Colors.transparent, Colors.transparent, Colors.white],
+            ).createShader(bounds),
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              child: SizedBox.expand(child: showFanart
+                  ? Image.memory(fanart, fit: BoxFit.cover,
+                      alignment: Alignment.topCenter, gaplessPlayback: true)
+                  : RawImage(image: art?.tiny, fit: BoxFit.cover)),
+            ),
+          ))),
+        ),
       // Shared fanart darkness, independent of the intentional bottom fade.
       ColoredBox(color: Colors.black.withOpacity(
         settings.cinematicDarkness.clamp(0.0, 1.0))),
@@ -1474,7 +1522,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final portraitHasLogo = settings.useArtistClearLogo &&
         _clearLogoBytes != null && model.active;
     final songStyle = TextStyle(
-      color: Colors.white, fontSize: portrait ? w * .043 : h * .046,
+      color: Colors.white, fontSize: portrait ? w * .051 : h * .046,
       shadows: const [Shadow(color: Colors.black, blurRadius: 8),
         Shadow(color: Colors.black, blurRadius: 16, offset: Offset(1, 2))]);
     final composition = Stack(fit: StackFit.expand, children: [
@@ -1539,14 +1587,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 SizedBox(height: math.min(h * .12, w * .30),
                   child: _scaledClearLogo(alignment: Alignment.bottomCenter))
               else
-                _artist(w * .075, Alignment.center, false),
+                _artist(w * .103, Alignment.center, false),
               SizedBox(height: h * .006),
               Text(song, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: songStyle),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
                 Align(alignment: Alignment.center,
-                  child: _albumText(songStyle.fontSize! * .86)),
+                  child: _albumText(songStyle.fontSize! * .94)),
               ],
             ])),
         if (_hasLyrics)
@@ -5198,94 +5246,128 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+
+  /// Full-width bottom controls. No bubble or pill background: a thin
+  /// VYBE-magenta/purple/cyan rule and rising shadow separate it from the art.
+  /// The persistent AnimatedSlide can animate both entrance AND exit.
   Widget _controls() {
-    Widget btn(IconData icon, double size, VoidCallback onTap) => IconButton(
-          iconSize: size,
-          padding: const EdgeInsets.all(14),
-          color: Colors.white,
-          icon: Icon(icon),
-          onPressed: () {
-            onTap();
-            _poke();
-          },
-        );
+    final screen = MediaQuery.sizeOf(context);
+    final compact = screen.width < 610;
+    final iconSize = compact ? 23.0 : 29.0;
+    final playSize = compact ? 34.0 : 45.0;
+
+    Widget btn(IconData icon, String tooltip, VoidCallback onTap,
+        {double? size}) => Tooltip(
+      message: tooltip,
+      child: IconButton(
+        iconSize: size ?? iconSize,
+        constraints: BoxConstraints(
+          minWidth: compact ? 41 : 48,
+          minHeight: compact ? 41 : 48),
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+        color: Colors.white,
+        icon: Icon(icon),
+        onPressed: () {
+          onTap();
+          if (mounted && _showControls) _poke();
+        },
+      ),
+    );
 
     return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 28,
-      child: Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xCC000000),
-              borderRadius: BorderRadius.circular(60),
-              border: Border.all(color: Colors.white12),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _seekBar(),
-                Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                btn(Icons.grid_view_rounded, 36, _pickTheme),
-                btn(Icons.settings, 36, _openSettings),
-                if (MediaQuery.of(context).size.width > MediaQuery.of(context).size.height &&
-                    const [1, 3, 5, 6, 7, 8, 9, 10, 11].contains(settings.theme))
-                  btn(Icons.swap_horiz_rounded, 36, () {
-                    settings.update(() {
-                      settings.layoutSwap = !settings.layoutSwap;
-                    });
-                    setState(() {});
-                  }),
-                if (widget.driveHost) ...[
-                  btn(Icons.map_outlined, 36, _hideDrive),
-                  btn(Icons.close_rounded, 36, _exitDrive),
-                ] else
-                  btn(Icons.navigation_rounded, 36, _startDrive),
-                const SizedBox(width: 12),
-                btn(Icons.skip_previous_rounded, 56, model.previous),
-                btn(
-                    model.playing
-                        ? Icons.pause_circle_filled
-                        : Icons.play_circle_filled,
-                    76,
-                    model.playPause),
-                btn(Icons.skip_next_rounded, 56, model.next),
-                const SizedBox(width: 16),
-                AnimatedBuilder(
-                  animation: _tick,
-                  builder: (context, _) => Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${_fmt(model.positionMs)} / ${_fmt(model.durationMs)}',
-                        style:
-                            const TextStyle(color: Colors.white70, fontSize: 16),
+      left: 0, right: 0, bottom: 0,
+      child: IgnorePointer(
+        ignoring: !_showControls,
+        child: AnimatedSlide(
+          duration: const Duration(milliseconds: 285),
+          curve: Curves.easeOutCubic,
+          offset: _showControls ? Offset.zero : const Offset(0, 1.15),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: _showControls ? 1 : 0,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Color(0xE5101219),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0xC9000000),
+                    blurRadius: 32,
+                    spreadRadius: 5,
+                    offset: Offset(0, -12)),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Stable VYBE brand gradient, not the album's palette.
+                  Container(height: 3,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(colors: [
+                        Color(0xFFFF27A8), Color(0xFF995CFF),
+                        Color(0xFF05E2F3)]))),
+                  SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        compact ? 8 : 22, 3, compact ? 8 : 22, 5),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _seekBar(width: double.infinity),
+                          const SizedBox(height: 2),
+                          Row(children: [
+                            btn(Icons.grid_view_rounded, 'Themes', _pickTheme),
+                            btn(Icons.tune_rounded, 'Customize', _openQuickCustomize),
+                            btn(Icons.settings_outlined, 'Settings', _openSettings),
+                            if (screen.width > screen.height &&
+                                const [1, 3, 5, 6, 7, 8, 9, 10, 11]
+                                    .contains(settings.theme))
+                              btn(Icons.swap_horiz_rounded, 'Flip layout', () {
+                                settings.update(() {
+                                  settings.layoutSwap = !settings.layoutSwap;
+                                });
+                              }),
+                            if (widget.driveHost) ...[
+                              btn(Icons.map_outlined, 'Show map', _hideDrive),
+                              btn(Icons.close_rounded, 'Close Drive', _exitDrive),
+                            ] else
+                              btn(Icons.navigation_rounded, 'Drive', _startDrive),
+                            const Spacer(),
+                            btn(Icons.skip_previous_rounded, 'Previous',
+                                model.previous, size: playSize),
+                            btn(
+                              model.playing
+                                  ? Icons.pause_circle_filled
+                                  : Icons.play_circle_filled,
+                              model.playing ? 'Pause' : 'Play',
+                              model.playPause, size: playSize + 10),
+                            btn(Icons.skip_next_rounded, 'Next',
+                                model.next, size: playSize),
+                            if (!compact) ...[
+                              const SizedBox(width: 18),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '${_fmt(model.positionMs)} / ${_fmt(model.durationMs)}',
+                                    style: const TextStyle(
+                                      color: Colors.white70, fontSize: 14)),
+                                  Text(
+                                    AppSettings.themeNames[settings.theme],
+                                    style: const TextStyle(
+                                      color: Colors.white54, fontSize: 11)),
+                                ],
+                              ),
+                            ],
+                          ]),
+                        ],
                       ),
-                      Text(
-                        model.realActive ? 'live audio' : 'simulated',
-                        style: TextStyle(
-                          color: model.realActive ? _palette.a : Colors.white38,
-                          fontSize: 12,
-                        ),
-                      ),
-                      Text(
-                        AppSettings.themeNames[settings.theme],
-                        style: const TextStyle(
-                            color: Colors.white38, fontSize: 12),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
