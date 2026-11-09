@@ -2780,6 +2780,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     0, 0, 0, 1, 0, //
   ]);
 
+  /// Diagonal's cover-side backdrop is deliberately more recessed than the
+  /// full-screen blur. Keep this separate from Record Cut's grayscale filter.
+  static const _diagonalGrayDark = ColorFilter.matrix(<double>[
+    .0765, .2575, .0260, 0, 0,
+    .0765, .2575, .0260, 0, 0,
+    .0765, .2575, .0260, 0, 0,
+    0, 0, 0, 1, 0,
+  ]);
+
   /// Bars that hang down from the top edge of the screen, on a black shadow
   /// that is darkest at the edge and fades as it goes down.
   Widget _topBars(double barsH) => Positioned(
@@ -3439,7 +3448,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final edge = w * 0.105;
     // Match the bottom breathing room on the lead cover at the left edge.
     final fanLeftInset = h * 0.04;
-    final textLeft = math.max(w * 0.61, fanLeftInset + s * 1.45 + w * 0.05).toDouble();
+    // Center metadata in the *actual remaining gap*: from the far edge of
+    // the fanned sleeves to the inner edge of the visualizer. The previous
+    // w*.61 minimum pushed text right and unnecessarily narrowed its marquee.
+    final textLeft = fanLeftInset + s * 1.45 + w * .014;
+    final textRight = (settings.visualizer ? edge : 0.0) + w * .014;
     return Stack(
       children: [
         Positioned.fill(child: _bottomArtworkFade()),
@@ -3454,8 +3467,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: _edgeBars(edge, leftEdge: settings.layoutSwap),
           ),
         Positioned(
-          left: settings.layoutSwap ? edge + w * 0.03 : textLeft,
-          right: settings.layoutSwap ? textLeft : edge + w * 0.03,
+          left: settings.layoutSwap ? textRight : textLeft,
+          right: settings.layoutSwap ? textLeft : textRight,
           top: 0,
           bottom: 0,
           child: Column(
@@ -3516,25 +3529,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       other = [a, Offset(w, 0), Offset(w, h), b];
     }
     final art = model.art;
+    // The artwork in the grayscale wedge is a recessed, atmospheric layer,
+    // not another sharp cover. Match the main album blur and add extra
+    // softness regardless of the user's background-blur setting.
+    final diagonalGrayBlur = math.max(14.0, settings.bgBlur + 7.0).toDouble();
+    final grayImage = art == null
+        ? Image.asset('assets/vybe_album_placeholder.png',
+            fit: BoxFit.cover)
+        : Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(
+                counterFlipText ? -1 : 1, 1, 1),
+            child: RawImage(
+              // A cached low-resolution backing avoids repeatedly blurring
+              // the full-resolution cover on less powerful head units.
+              image: art.tiny,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+            ));
     final gray = ClipPath(
       clipper: PolyClipper(poly),
-      child: art == null
-          ? Image.asset('assets/vybe_album_placeholder.png', fit: BoxFit.cover)
-          : SizedBox.expand(
-              child: ColorFiltered(
-                colorFilter: _grayDark,
-                child: Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
-                child: Image.memory(
-                  art.bytes,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  filterQuality: FilterQuality.medium,
-                ),
-              ),
-              ),
-            ),
+      child: RepaintBoundary(
+        child: ColorFiltered(
+          colorFilter: _diagonalGrayDark,
+          child: ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(
+              sigmaX: diagonalGrayBlur,
+              sigmaY: diagonalGrayBlur,
+              tileMode: TileMode.clamp),
+            child: SizedBox.expand(child: grayImage),
+          ),
+        ),
+      ),
     );
     final line = IgnorePointer(
       child: CustomPaint(painter: CutLinePainter(a: a, b: b)),
