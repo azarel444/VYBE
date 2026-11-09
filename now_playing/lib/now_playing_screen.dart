@@ -1472,6 +1472,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _editorialLayout(double w, double h) {
     final portrait = h > w * 1.1;
     final flipped = settings.layoutSwap && !portrait;
+    // Recede the grayscale artwork boundary 20% of its former inset:
+    // 20% of viewport width -> 16%, revealing more unobstructed fanart.
+    // This is landscape-only; the portrait divider remains at 20% height.
+    final landscapeDividerX = w * .16;
     Widget readable(Widget child) => flipped
         ? Transform(alignment: Alignment.center,
             transform: Matrix4.diagonal3Values(-1, 1, 1), child: child)
@@ -1597,9 +1601,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               end: Alignment.topCenter,
               colors: [Color(0xFF000000), Color(0x00000000)])))),
       ] else ...[
-        Positioned(left: 0, top: 0, bottom: 0, width: w * .20,
+        Positioned(left: 0, top: 0, bottom: 0, width: landscapeDividerX,
           child: ClipRect(child: backing)),
-        Positioned(left: w * .198, top: 0, bottom: 0,
+        Positioned(left: landscapeDividerX - w * .002,
+            top: 0, bottom: 0,
           child: Container(width: 3, decoration: BoxDecoration(
             color: accent.withOpacity(.85),
             boxShadow: [BoxShadow(color: Colors.black.withOpacity(.68),
@@ -1702,7 +1707,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   baseFrac: 1.0,
                   repaint: _tick)))))
         else
-          Positioned(left: w * .20, right: w * .035,
+          Positioned(left: landscapeDividerX, right: w * .035,
             bottom: h * .07, height: h * .15,
             child: IgnorePointer(child: CustomPaint(
               painter: BarsPainter(
