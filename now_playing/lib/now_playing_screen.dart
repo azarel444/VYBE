@@ -1346,34 +1346,49 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ? _drift(RepaintBoundary(child: image),
             speed: settings.cinematicAnimationSpeed * 2.5)
         : image;
+    // Muzine portrait hides the upper fifth behind its album-art backing.
+    // Start fanart at the actual horizontal divider instead of fitting it
+    // across the unseen area above: people's heads are no longer cropped
+    // away behind the top artwork panel. Do not affect landscape or Bigfan.
+    final viewport = MediaQuery.sizeOf(context);
+    final muzinePortraitFanart = showFanart &&
+        settings.theme == AppSettings.tEditorial &&
+        viewport.height > viewport.width * 1.1;
+    final fanartTop = muzinePortraitFanart ? viewport.height * .20 : 0.0;
     return Stack(fit: StackFit.expand, children: [
-      AnimatedSwitcher(
-        duration: const Duration(milliseconds: 700),
-        child: SizedBox.expand(
-          key: ValueKey(showFanart ? 'fanart:${_fanartArtist}:$_fanartGalleryIndex' :
-              useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
-              'cinematic-template:${settings.cinematicPalette}'),
-          child: movingImage)),
+      Positioned.fill(
+        top: fanartTop,
+        child: ClipRect(child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 700),
+          child: SizedBox.expand(
+            key: ValueKey(showFanart ? 'fanart:${_fanartArtist}:$_fanartGalleryIndex' :
+                useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
+                'cinematic-template:${settings.cinematicPalette}'),
+            child: movingImage))),
+      ),
       // A blurred copy of the artwork, masked to the outer edges.
       // The middle stays sharp and the blur fades inward smoothly.
       if (hasImage)
-        IgnorePointer(child: ShaderMask(
-          blendMode: BlendMode.dstIn,
-          shaderCallback: (bounds) => const LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            stops: [0.0, .22, .35, .65, .78, 1.0],
-            colors: [Colors.white, Colors.transparent, Colors.transparent,
-              Colors.transparent, Colors.transparent, Colors.white],
-          ).createShader(bounds),
-          child: ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            child: SizedBox.expand(child: showFanart
-                ? Image.memory(fanart, fit: BoxFit.cover,
-                    alignment: Alignment.topCenter, gaplessPlayback: true)
-                : RawImage(image: art?.tiny, fit: BoxFit.cover)),
-          ),
-        )),
+        Positioned.fill(
+          top: fanartTop,
+          child: ClipRect(child: IgnorePointer(child: ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) => const LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              stops: [0.0, .22, .35, .65, .78, 1.0],
+              colors: [Colors.white, Colors.transparent, Colors.transparent,
+                Colors.transparent, Colors.transparent, Colors.white],
+            ).createShader(bounds),
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              child: SizedBox.expand(child: showFanart
+                  ? Image.memory(fanart, fit: BoxFit.cover,
+                      alignment: Alignment.topCenter, gaplessPlayback: true)
+                  : RawImage(image: art?.tiny, fit: BoxFit.cover)),
+            ),
+          ))),
+        ),
       // Shared fanart darkness, independent of the intentional bottom fade.
       ColoredBox(color: Colors.black.withOpacity(
         settings.cinematicDarkness.clamp(0.0, 1.0))),
