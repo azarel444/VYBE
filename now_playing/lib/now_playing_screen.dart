@@ -1434,6 +1434,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   static const double _portraitFeatureAlbumRatio = .021;
   static const double _landscapeSongMinRatio = .065;
   static const double _landscapeAlbumMaxRatio = .025;
+  // Artist fallback lettering is a headline on every theme, not just
+  // Focused. Keep one orientation-specific minimum independent of layout.
+  static const double _landscapeArtistMinRatio = .112;
+  static const double _portraitArtistMinRatio = .073;
+
+  double _artistFontSize(double requested) {
+    final screen = MediaQuery.sizeOf(context);
+    final portrait = screen.height > screen.width * 1.1;
+    return math.max(requested, screen.height *
+        (portrait ? _portraitArtistMinRatio : _landscapeArtistMinRatio))
+        .toDouble();
+  }
 
   double _songFontSize(double requested) {
     final screen = MediaQuery.sizeOf(context);
@@ -1447,10 +1459,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _albumFontSize(double requested) {
     final screen = MediaQuery.sizeOf(context);
     final portrait = screen.height > screen.width * 1.1;
-    final cap = screen.height *
+    // All themes share the exact album-label font size for this orientation.
+    // Length affects scroll distance, NEVER type size or frame scaling.
+    return screen.height *
         (portrait ? _portraitFeatureAlbumRatio : _landscapeAlbumMaxRatio);
-    // A framed album label must never appear larger than the song title.
-    return math.min(requested, cap).toDouble();
   }
 
   /// Editorial: an angled, recognizable album sleeve over full-bleed
@@ -4966,25 +4978,55 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
   Widget _albumText(double size, {Alignment? flushFrame}) {
     final labelSize = _albumFontSize(size);
-    return CustomPaint(
-      painter: _VybeAlbumLabelFrame(_palette.a,
-        flushRight: flushFrame == Alignment.centerRight,
-        flushLeft: flushFrame == Alignment.centerLeft),
-      child: Padding(
-        // Base the background and padding on the actual displayed font,
-        // not a larger requested size from a particular theme.
-        padding: EdgeInsets.fromLTRB(
-          flushFrame == Alignment.centerLeft
-              ? labelSize * 1.55 : labelSize * 3.30,
-          labelSize * .24,
-          flushFrame == Alignment.centerRight
-              ? labelSize * 1.55 : labelSize * 3.30,
-          labelSize * .24),
-        child: Text(_albumDisplayName, maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: _albumLabelTextStyle(labelSize)),
-      ),
-    );
+    final albumStyle = _albumLabelTextStyle(labelSize);
+    return LayoutBuilder(builder: (context, bounds) {
+      final screen = MediaQuery.sizeOf(context);
+      final available = bounds.maxWidth.isFinite
+          ? math.max(1.0, bounds.maxWidth)
+          : math.max(1.0, screen.width * .86);
+      // Only the lettering moves inside its fixed neon frame. Compute the
+      // label's natural width, then cap its viewport to the real column.
+      // This avoids an oversized frame for short names and keeps all long
+      // names readable at exactly the same font size across every theme.
+      final painter = TextPainter(
+        text: TextSpan(text: _albumDisplayName, style: albumStyle),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      final letteringWidth = painter.width + 3.0;
+      painter.dispose();
+      final leftPad = flushFrame == Alignment.centerLeft
+          ? labelSize * 1.55 : labelSize * 3.30;
+      final rightPad = flushFrame == Alignment.centerRight
+          ? labelSize * 1.55 : labelSize * 3.30;
+      final badgeWidth = math.min(
+          available, letteringWidth + leftPad + rightPad).toDouble();
+      final left = math.min(leftPad, badgeWidth * .30).toDouble();
+      final right = math.min(rightPad, badgeWidth * .30).toDouble();
+      return Align(
+        alignment: flushFrame ?? Alignment.center,
+        child: SizedBox(
+          width: math.max(1.0, badgeWidth),
+          child: CustomPaint(
+            painter: _VybeAlbumLabelFrame(_palette.a,
+              flushRight: flushFrame == Alignment.centerRight,
+              flushLeft: flushFrame == Alignment.centerLeft),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                left, labelSize * .24, right, labelSize * .24),
+              child: SongTitleMarquee(
+                title: _albumDisplayName,
+                style: albumStyle,
+                alignment: Alignment.center,
+                animation: _tick,
+                elapsedSeconds: () => _time,
+              ),
+            ),
+          ),
+        ),
+      );
+    });
   }
 
   // Keep titles at their designed font size. Long songs scroll horizontally
@@ -5040,6 +5082,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _artist(double size, Alignment a, bool vhs, {Color? textColor}) {
+    // Apply typography minimum centrally, preserving logo-specific scaling.
+    final fontSize = _artistFontSize(size);
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
       return _shaded(LayoutBuilder(builder: (context, box) {
         final screen = MediaQuery.sizeOf(context);
@@ -5059,32 +5103,28 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       }));
     }
     Widget lineWidget(String line) => (vhs || _vhsOn)
-        ? _split((c) => _artistText(size, color: c, letteringOverride: line),
+        ? _split((c) => _artistText(fontSize, color: c, letteringOverride: line),
             main: textColor ?? Colors.white70,
             leftGhost: _artistNeonPalette.a.withOpacity(.60),
             rightGhost: _artistNeonPalette.b.withOpacity(.60))
-        : _artistText(size, color: textColor, letteringOverride: line);
-    // Focused remains exactly as approved, including its explicit line breaks.
-    if (settings.theme == 0 && !widget.driveHost) {
-      return _shaded(_fit(lineWidget(_artistStr.toUpperCase()), a));
-    }
+        : _artistText(fontSize, color: textColor, letteringOverride: line);
     return LayoutBuilder(builder: (context, box) {
       final screen = MediaQuery.sizeOf(context);
       final available = box.maxWidth.isFinite
-          ? box.maxWidth : screen.width * .88;
+          ? math.max(1.0, box.maxWidth) : math.max(1.0, screen.width * .88);
       final muzinePortrait = settings.theme == AppSettings.tEditorial &&
           screen.height > screen.width * 1.1;
       final lines = _artistLines(_artistStr.toUpperCase().trim(),
-          size, available, useFullPortraitWidth: muzinePortrait);
-      // _artistLines only breaks at spaces. A single oversized word gets
-      // its own fixed-width marquee, never a smaller font or orphaned glyph.
+          fontSize, available, useFullPortraitWidth: muzinePortrait);
+      // Break only at word boundaries; an oversized single word scrolls.
+      // Do not use FittedBox on any artist text, including Focused.
       Widget renderedLine(String line) =>
-          _artistRunWidth(line, size) > available
-              ? _overflowRiotWord(line, size, available, lineWidget)
+          _artistRunWidth(line, fontSize) > available
+              ? _overflowRiotWord(line, fontSize, available, lineWidget)
               : lineWidget(line);
       return _shaded(
         lines.length > 1
-            ? _compactRiotLines(lines, size, a, renderedLine)
+            ? _compactRiotLines(lines, fontSize, a, renderedLine)
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
