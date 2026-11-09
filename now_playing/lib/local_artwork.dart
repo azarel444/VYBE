@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'portable_media_cache.dart';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
@@ -79,8 +81,17 @@ class LocalArtwork {
     return entries;
   }
 
-  Future<bool> chooseFolder() async =>
-      await _channel.invokeMethod<bool>('chooseFolder') ?? false;
+  Future<bool> chooseFolder() async {
+    final selected =
+        await _channel.invokeMethod<bool>('chooseFolder') ?? false;
+    if (selected) {
+      // The original app-private caches may already hold hundreds of images.
+      // Back them up to the selected music folder as well, without blocking
+      // onboarding or the artwork index scan.
+      unawaited(PortableMediaCache.backupExisting());
+    }
+    return selected;
+  }
 
   Future<bool> chooseFolderAndScan() async {
     final selected = await chooseFolder();
