@@ -84,6 +84,8 @@ class VybeLink extends ChangeNotifier {
   String _savedDirectPeerAddress = '';
   String _savedDirectPeerName = '';
   bool _directGroupConnected = false;
+  String _directGroupOwnerIp = '';
+  bool _tcpConnectedViaDirect = false;
   bool _directRecoveryBusy = false;
   int _lastDirectRecoveryMs = 0;
   int _lastDirectPeerAttemptMs = 0;
@@ -168,6 +170,7 @@ class VybeLink extends ChangeNotifier {
           case 'connected':
             final host = data['host']?.toString() ?? '';
             _directGroupConnected = true;
+            _directGroupOwnerIp = host;
             directActive = true;
             directStatus = 'Wi-Fi Direct connected; receiver address resolved automatically';
             // The Android Wi-Fi Direct API supplies groupOwnerAddress.
@@ -187,6 +190,17 @@ class VybeLink extends ChangeNotifier {
             _directGroupConnected = false;
             _lastDirectPeerAttemptMs = 0;
             directStatus = 'Wi-Fi Direct disconnected; restoring automatically';
+            // The underlying Direct link disappeared. A TCP Socket can stay
+            // non-null for several seconds even though its route is dead.
+            // Invalidate ONLY a socket actually using the Direct host; do
+            // not disrupt a healthy shared-Wi-Fi or hotspot connection.
+            if (role == 'sender' && _tcpConnectedViaDirect) {
+              final disconnectedPeer = _socket;
+              if (disconnectedPeer != null) {
+                _senderDisconnected(disconnectedPeer);
+                disconnectedPeer.destroy();
+              }
+            }
             // A TCP retry cannot recreate a lost P2P group. Recover the
             // underlying network separately, with a short settling delay.
             if (_directPreferred && enabled && autoConnect) {
@@ -648,6 +662,8 @@ class VybeLink extends ChangeNotifier {
     }
 
     _socket = socket;
+    _tcpConnectedViaDirect = _directGroupConnected &&
+        _directGroupOwnerIp.isNotEmpty && address == _directGroupOwnerIp;
     _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
     receiverAddress = address;
     // Persist automatically discovered network addresses for faster next
@@ -720,7 +736,9 @@ class VybeLink extends ChangeNotifier {
   }
   void _senderDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
-    _socket = null; _sendTimer?.cancel(); _sendTimer = null;
+    _socket = null;
+    _tcpConnectedViaDirect = false;
+    _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
     _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
     status = 'Connection lost; reconnecting automatically...';
