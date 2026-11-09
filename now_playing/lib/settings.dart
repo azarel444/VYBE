@@ -31,6 +31,16 @@ class AppSettings extends ChangeNotifier {
   static const int tCinematic = 10;
   static const int tEditorial = 11;
 
+  /// The bundled screenshot filenames for Focused and Orbit are historically
+  /// reversed relative to their actual rendered themes. Keep this explicit:
+  /// Focused (ID 0) shows orbit_*.jpg; Orbit (ID 9) shows focused_*.jpg.
+  /// Use this single mapping in both the Theme Library and Settings picker.
+  static const Map<int, String> themePreviewAssets = {
+    0: 'orbit', 1: 'side_by_side', 3: 'edge_to_edge',
+    4: 'drive', 5: 'fan', 6: 'diagonal', 7: 'record_cut',
+    8: 'typo', 9: 'focused', 10: 'cinematic', 11: 'musiczine',
+  };
+
   /// Number 2 was the VHS theme. It is now an effect, so it is no longer
   /// offered as a theme; the other numbers stay as they were.
   static const int tRemovedVhs = 2;
