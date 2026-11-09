@@ -81,6 +81,7 @@ class VybeLink extends ChangeNotifier {
   // reconnect is enabled. They are different network layers.
   bool _directPreferred = false;
   String _savedDirectPeerAddress = '';
+  String _savedDirectPeerName = '';
   bool _directGroupConnected = false;
   bool _directRecoveryBusy = false;
   int _lastDirectRecoveryMs = 0;
@@ -130,11 +131,25 @@ class VybeLink extends ChangeNotifier {
         _savedDirectPeerAddress.isEmpty) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastDirectPeerAttemptMs < 12000) return;
-    final hasPeer = directPeers.any((peer) =>
-        peer['address'] == _savedDirectPeerAddress);
-    if (!hasPeer) return;
+    // Android may rotate Wi-Fi Direct device addresses after a network reset.
+    // Prefer the saved address, or the unique saved device name when the
+    // address has rotated. Never guess among multiple matching devices.
+    Map<String, String>? peer;
+    for (final item in directPeers) {
+      if (item['address'] == _savedDirectPeerAddress) {
+        peer = item;
+        break;
+      }
+    }
+    if (peer == null && _savedDirectPeerName.isNotEmpty) {
+      final candidates = directPeers.where((item) =>
+          item['name'] == _savedDirectPeerName).toList();
+      if (candidates.length == 1) peer = candidates.single;
+    }
+    final address = peer?['address'];
+    if (address == null || address.isEmpty) return;
     _lastDirectPeerAttemptMs = now;
-    unawaited(directConnectPeer(_savedDirectPeerAddress, remember: false));
+    unawaited(directConnectPeer(address, remember: true));
   }
 
   Future<void> directInitialize() async {
@@ -153,13 +168,18 @@ class VybeLink extends ChangeNotifier {
             final host = data['host']?.toString() ?? '';
             _directGroupConnected = true;
             directActive = true;
-            directStatus = 'Wi-Fi Direct group connected ($host)';
-            // Refresh the newly created P2P interface address on the head unit.
+            directStatus = 'Wi-Fi Direct connected; receiver address resolved automatically';
+            // The Android Wi-Fi Direct API supplies groupOwnerAddress.
+            // NEVER ask the user for an IP or hardcode one for all networks.
             await _updateAddresses();
             if (role == 'sender' && host.isNotEmpty) {
+              final targetChanged = receiverAddress != host;
               receiverAddress = host;
-              // Reuse the existing TCP artwork transport over the new direct network.
-              await connect();
+              // Duplicate Wi-Fi Direct broadcasts must NOT tear down an
+              // already working music/artwork socket.
+              if (targetChanged || _socket == null) {
+                unawaited(connect());
+              }
             }
             break;
           case 'disconnected':
@@ -240,12 +260,18 @@ class VybeLink extends ChangeNotifier {
           'connect', {'address': address}) ?? false;
       directStatus = ok ? 'Connecting to head unit...' : 'Device no longer in nearby list';
       if (ok && remember) {
-        // Save the Wi-Fi Direct MAC alongside the previously saved TCP IP.
-        // Subsequent peer discovery can reconnect without any tap or IP entry.
+        // Save Wi-Fi Direct identity. The TCP IP is determined automatically
+        // from Android's connection information every time a group forms.
         _savedDirectPeerAddress = address;
+        final chosen = directPeers.where((item) =>
+            item['address'] == address).toList();
+        if (chosen.isNotEmpty) {
+          _savedDirectPeerName = chosen.first['name'] ?? '';
+        }
         _directPreferred = true;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('link_direct_peer', address);
+        await prefs.setString('link_direct_peer_name', _savedDirectPeerName);
         await prefs.setBool('link_direct_preferred', true);
       }
     } catch (e) { directStatus = 'Direct connection failed: $e'; }
@@ -278,6 +304,7 @@ class VybeLink extends ChangeNotifier {
     receiverAddress = (p.getString('link_address') ?? '').trim();
     pairedReceiverId = p.getString('link_paired_receiver') ?? '';
     _savedDirectPeerAddress = p.getString('link_direct_peer') ?? '';
+    _savedDirectPeerName = p.getString('link_direct_peer_name') ?? '';
     _directPreferred = p.getBool('link_direct_preferred') ?? false;
     localDeviceId = p.getString('link_device_id') ?? '';
     if (localDeviceId.isEmpty) {
@@ -289,7 +316,14 @@ class VybeLink extends ChangeNotifier {
     model.addListener(_onModel);
     await directInitialize();
     await _updateAddresses();
-    if (enabled && autoConnect) await connect();
+    if (enabled && autoConnect) {
+      // A P2P group may already exist when VYBE launches. Register for its
+      // native state and reuse the automatically resolved group owner IP.
+      if (_directPreferred && directAvailable) {
+        try { await _direct.invokeMethod<bool>('start'); } catch (_) {}
+      }
+      unawaited(connect());
+    }
     // Network auto-reconnect is not enough if Wi-Fi Direct itself vanished.
     // When the user has already chosen Direct, restore its group/peer without
     // asking for the IP again. A running LAN socket takes priority.
@@ -365,6 +399,21 @@ class VybeLink extends ChangeNotifier {
     if (role == 'sender' && _socket == null) connect();
   }
 
+  /// One recovery action covers BOTH the underlying Wi-Fi Direct network and
+  /// TCP transport. It never requires a numeric IP address.
+  Future<void> reconnectAutomatically() async {
+    if (!enabled) await configure(isEnabled: true, automatic: true);
+    if (_directPreferred) {
+      await _recoverDirect(immediately: true);
+    } else if (role == 'sender') {
+      unawaited(findReceivers());
+    }
+    if (role == 'receiver' && _server != null) return;
+    if (role == 'sender' && _socket != null) return;
+    await connect();
+  }
+
+
   /// Choose the installed device once, instead of asking the user to pick
   /// sender/receiver again in Connect settings.
   Future<void> setDeviceType(String type) async {
@@ -429,9 +478,10 @@ class VybeLink extends ChangeNotifier {
     } catch (_) { localAddresses = 'Unavailable'; }
   }
 
-  /// Restore the proven direct TCP path: manual IP connections send
-  /// metadata immediately. Receiver identity is learned asynchronously,
-  /// never used as a precondition for playing music.
+  /// Connection addresses are discovered from Android Wi-Fi Direct group
+  /// information or from VYBE's UDP discovery. A user-entered IP is never
+  /// required. Receiver identity is learned asynchronously without blocking
+  /// the first metadata packet.
   Future<void> connect() async {
     if (_connecting) return;
     _connecting = true;
@@ -535,41 +585,45 @@ class VybeLink extends ChangeNotifier {
     status = receiverAddress.isNotEmpty ? 'Connecting to saved head unit...' :
         'Searching for head unit...';
     notifyListeners();
-    // Previously entered IP is always tried FIRST. Discovery is only a
-    // fallback when that address stops working and a receiver was paired.
+    // The group-owner IP is supplied by Android (Wi-Fi Direct), otherwise a
+    // saved reachable IP can be tried briefly while dynamic discovery runs.
+    // No manual entry is needed, including on first pairing.
     Socket? socket;
     String address = receiverAddress;
     if (address.isNotEmpty) {
       try {
         socket = await Socket.connect(
-          address, port, timeout: const Duration(seconds: 4));
+          address, port, timeout: const Duration(seconds: 2));
       } catch (_) {}
     }
     if (generation != _generation) { socket?.destroy(); return; }
 
-    if (socket == null && pairedReceiverId.isNotEmpty) {
-      status = 'Retrying paired receiver discovery...';
+    if (socket == null) {
+      status = 'Discovering head unit automatically...';
       notifyListeners();
       try {
         final devices = await LinkDiscovery.scan();
         if (generation != _generation) return;
-        for (final device in devices) {
-          if (device.id != pairedReceiverId) continue;
-          address = device.address;
+        // Reconnect ONLY to the paired receiver when its identity is known.
+        // With one discovered receiver and no pairing, initial setup can
+        // also connect without any IP entry.
+        final matching = pairedReceiverId.isNotEmpty
+            ? devices.where((d) => d.id == pairedReceiverId).toList()
+            : (devices.length == 1 ? devices : <LinkReceiver>[]);
+        if (matching.isNotEmpty) {
+          address = matching.first.address;
           try {
             socket = await Socket.connect(
-              address, port, timeout: const Duration(seconds: 4));
+                address, port, timeout: const Duration(seconds: 3));
           } catch (_) {}
-          break;
         }
       } catch (_) {}
     }
     if (generation != _generation) { socket?.destroy(); return; }
     if (socket == null) {
-      status = receiverAddress.isEmpty && pairedReceiverId.isEmpty
-          ? 'Enter the head-unit IP address to connect'
-          : 'Unable to reach head unit at ${receiverAddress.isEmpty ? "saved network" : receiverAddress}:$port';
+      status = 'Waiting for head unit; automatic discovery and reconnection active';
       notifyListeners();
+      if (_directPreferred) unawaited(_recoverDirect());
       _scheduleRetry(generation);
       return;
     }
@@ -577,9 +631,8 @@ class VybeLink extends ChangeNotifier {
     _socket = socket;
     _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
     receiverAddress = address;
-    // A working manual-IP connection is a valid pairing even when UDP
-    // discovery or the optional receiver hello is blocked by the head unit.
-    // Save it immediately instead of relying on the hello callback.
+    // Persist automatically discovered network addresses for faster next
+    // connection; still resolve them anew when the network changes.
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('link_enabled', true);
@@ -651,8 +704,10 @@ class VybeLink extends ChangeNotifier {
     _socket = null; _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
     _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
-    status = 'Connection lost; retrying saved IP...';
-    notifyListeners(); _scheduleRetry(_generation);
+    status = 'Connection lost; reconnecting automatically...';
+    notifyListeners();
+    if (_directPreferred) unawaited(_recoverDirect());
+    _scheduleRetry(_generation);
   }
   void _scheduleRetry(int generation) {
     if (!enabled || !autoConnect || role != 'sender') return;
