@@ -438,9 +438,7 @@ class SettingsScreen extends StatelessWidget {
           s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i)),
         _choices('Visualizer shape (including circular layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
           s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
-        _slider('Sensitivity', '${(s.sensitivity * 100).round()}%',
-          s.sensitivity, 0.5, 1.5,
-          (v) => s.update(() => s.sensitivity = v, persist: false), s.save),
+        // All visualizers have a fixed 50% amplification; no gain slider.
         _choices('Focused style (current orientation)', const ['Ring', 'Bars'],
           s.focusedStyleFor(MediaQuery.of(context).size.height >
               MediaQuery.of(context).size.width * 1.1),

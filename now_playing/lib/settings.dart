@@ -129,7 +129,7 @@ class AppSettings extends ChangeNotifier {
   double cinematicAnimationSpeed = 1.0; // premium shader playback multiplier
   String fanartApiKey = '';
   String fanartProjectKey = bundledFanartProjectKey;
-  double sensitivity = 1.0; // 0.5 .. 1.5
+  double sensitivity = 0.5; // Fixed visualizer gain (no user control).
   int vizStyle = 1; // Legacy Focused visualizer preference.
   int focusedPortraitStyle = 0; // Ring by default in portrait.
   int focusedLandscapeStyle = 1; // Side bars by default in landscape.
@@ -581,7 +581,7 @@ class AppSettings extends ChangeNotifier {
     // Ignore stale locally saved keys. All beta builds use the bundled key.
     fanartApiKey = '';
     fanartProjectKey = bundledFanartProjectKey;
-    sensitivity = (p.getDouble('sensitivity') ?? 1.0).clamp(0.5, 1.5).toDouble();
+    sensitivity = 0.5; // Ignore legacy saved amplification choices.
     vizStyle = _int(p, 'vizStyle', 1, 0, 1);
     // The legacy global vizStyle defaulted to Bars (1). Do NOT inherit it
     // for portrait, where Focused is meant to start in Ring mode. Preserve
@@ -759,7 +759,7 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('cinematicBlur', cinematicBlur);
     await p.setDouble('cinematicContrast', cinematicContrast);
     await p.setDouble('cinematicAnimationSpeed', cinematicAnimationSpeed);
-    await p.setDouble('sensitivity', sensitivity);
+    await p.setDouble('sensitivity', 0.5);
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('focusedPortraitStyle', focusedPortraitStyle);
     await p.setInt('focusedLandscapeStyle', focusedLandscapeStyle);

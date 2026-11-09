@@ -11,6 +11,7 @@ import 'media_cache.dart';
 import 'local_artwork.dart';
 import 'palette.dart';
 import 'stream_track_metadata.dart';
+import 'musicolet_placeholder.dart';
 
 /// Talks to the Kotlin side (MainActivity) which listens to the active
 /// Android media session, whichever player app owns it.
@@ -129,6 +130,9 @@ class NowPlayingModel extends ChangeNotifier {
   final Map<int, Set<String>> _sessionArtOwners = {};
   final Set<int> _sharedSessionImages = {};
   final Set<int> _markedPlaceholders = {};
+  // Detected visual fingerprints of Musicolet's branded default cover.
+  final Set<int> _automaticPlaceholderHashes = {};
+  String _sessionPlayerPackage = '';
   Uint8List? _latestSessionArtwork;
   bool _placeholderHashesLoaded = false;
 
@@ -393,6 +397,7 @@ class NowPlayingModel extends ChangeNotifier {
     active = true;
 
     playing = m['playing'] == true;
+    _sessionPlayerPackage = (m['sourcePackage'] as String?) ?? '';
     final sessionMetadata = StreamTrackMetadata.resolve(
       title: (m['title'] as String?) ?? '',
       artist: (m['artist'] as String?) ?? '',
@@ -471,8 +476,10 @@ class NowPlayingModel extends ChangeNotifier {
     // Manual placeholder marks apply to every metadata event, not only the
     // first callback. Legitimate compilation/shared covers stay usable.
     final rejectedSessionImage = artBytes is Uint8List &&
-        artBytes.isNotEmpty && _placeholderHashesLoaded &&
-        _markedPlaceholders.contains(_imageFingerprint(artBytes));
+        artBytes.isNotEmpty &&
+        (_automaticPlaceholderHashes.contains(_imageFingerprint(artBytes)) ||
+            (_placeholderHashesLoaded &&
+                _markedPlaceholders.contains(_imageFingerprint(artBytes))));
     if (artBytes is Uint8List && artBytes.isNotEmpty &&
         !rejectedSessionImage) {
       // Capture the current source before updating diagnostics. Repeated
@@ -824,6 +831,30 @@ class NowPlayingModel extends ChangeNotifier {
   Future<void> _setArt(Uint8List bytes) async {
     final token = ++_artToken;
     final albumCacheKey = _albumArtKey(artist, album);
+    final incomingFromMusicolet = artworkSource == 'Android media session' &&
+        _sessionPlayerPackage == 'in.krosbits.musicolet';
+    if (incomingFromMusicolet) {
+      final hash = _imageFingerprint(bytes);
+      final isPlaceholder = _automaticPlaceholderHashes.contains(hash) ||
+          await MusicoletPlaceholder.matches(bytes);
+      if (token != _artToken) return;
+      if (isPlaceholder) {
+        _automaticPlaceholderHashes.add(hash);
+        // No generic player logo enters album memory or appears as artwork.
+        _albumArtCache.remove(albumCacheKey);
+        art = null;
+        artworkSource = 'None';
+        sessionArtworkStatus = 'Musicolet branded placeholder rejected';
+        artworkStatus = 'Showing VYBE placeholder until a real cover is found';
+        artworkLookupState = 'Looking up local and catalog artwork';
+        artworkFailure = 'None';
+        notifyListeners();
+        if (artLookupEnabled && title.isNotEmpty) {
+          unawaited(_lookupLocalFirst());
+        }
+        return;
+      }
+    }
     final loaded = await ArtAssets.load(bytes);
     if (token != _artToken) return;
     // Generic music-player placeholders are not usable album artwork.
