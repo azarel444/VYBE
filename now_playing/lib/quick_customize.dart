@@ -99,6 +99,52 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
     );
   }
 
+  /// The scene picker appears only while Animated is selected and uses
+  /// stable scene IDs stored as part of each theme's appearance profile.
+  Widget _animatedSceneDropdown() {
+    final current = AppSettings.premiumSceneIds.contains(s.cinematicPalette)
+        ? s.cinematicPalette : AppSettings.premiumSceneIds[1];
+    return Padding(
+      padding: const EdgeInsets.only(top: 5, bottom: 3),
+      child: Row(children: [
+        const SizedBox(width: 78, child: Text('Scene',
+            style: TextStyle(color: Colors.white, fontSize: 13))),
+        Expanded(child: Container(
+          height: 43,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xB5242832),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: Colors.white30, width: .8),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<int>(
+              value: current,
+              isExpanded: true,
+              isDense: true,
+              dropdownColor: const Color(0xFF242833),
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                  color: Colors.white70),
+              items: [
+                for (var i = 0; i < AppSettings.premiumSceneIds.length; i++)
+                  DropdownMenuItem<int>(
+                    value: AppSettings.premiumSceneIds[i],
+                    child: Text(AppSettings.premiumSceneNames[i],
+                        overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (scene) {
+                if (scene != null) {
+                  s.update(() => s.cinematicPalette = scene);
+                }
+              },
+            ),
+          ),
+        )),
+      ]),
+    );
+  }
+
   Widget _sourceChip(int index, String label) {
     final selected = _backgroundChoice == index;
     return ChoiceChip(
@@ -218,6 +264,8 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         _sourceChip(2, 'Animated'),
                       ])),
                   ]),
+                  if (_backgroundChoice == 2)
+                    _animatedSceneDropdown(),
                   const SizedBox(height: 5),
                   LayoutBuilder(builder: (context, bounds) {
                     final twoColumns = bounds.maxWidth >= 570;
