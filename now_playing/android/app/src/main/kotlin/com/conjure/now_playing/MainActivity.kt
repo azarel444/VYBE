@@ -55,6 +55,7 @@ open class MainActivity : FlutterActivity() {
             contentResolver.takePersistableUriPermission(uri, granted)
             getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE).edit()
                 .putString("tree", uri.toString()).apply()
+            clearPortableCacheIndex()
             pending.success(true)
         } catch (e: Exception) { pending.error("folder", e.message, null) }
     }
@@ -172,14 +173,66 @@ open class MainActivity : FlutterActivity() {
         return tree to folder
     }
 
+    // The VYBE Cache can contain hundreds of files. Re-querying the entire
+    // SAF directory for every cacheRead was O(n) per song after reinstall.
+    // Build one in-memory filename -> document URI index per chosen folder.
+    private val portableCacheIndexLock = Any()
+    private var portableCacheIndexFolder: String? = null
+    private var portableCacheIndexTime = 0L
+    private var portableCacheIndex = mutableMapOf<String, Uri>()
+
+    private fun clearPortableCacheIndex() = synchronized(portableCacheIndexLock) {
+        portableCacheIndexFolder = null
+        portableCacheIndex.clear()
+        portableCacheIndexTime = 0L
+    }
+
+    private fun portableCacheFile(tree: Uri, dir: Uri, filename: String): Uri? =
+        synchronized(portableCacheIndexLock) {
+            val folderId = tree.toString() + "|" + dir.toString()
+            val now = android.os.SystemClock.elapsedRealtime()
+            // Refresh periodically so another VYBE engine can add cache files.
+            if (portableCacheIndexFolder != folderId ||
+                (now - portableCacheIndexTime > 120000L)) {
+                val next = mutableMapOf<String, Uri>()
+                val dirId = android.provider.DocumentsContract.getDocumentId(dir)
+                val children = android.provider.DocumentsContract
+                    .buildChildDocumentsUriUsingTree(tree, dirId)
+                val columns = arrayOf(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE)
+                contentResolver.query(children, columns, null, null, null)?.use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(1) ?: continue
+                        if (cursor.getString(2) ==
+                            android.provider.DocumentsContract.Document.MIME_TYPE_DIR) continue
+                        val id = cursor.getString(0)
+                        next[name] = android.provider.DocumentsContract
+                            .buildDocumentUriUsingTree(tree, id)
+                    }
+                }
+                portableCacheIndex = next
+                portableCacheIndexFolder = folderId
+                portableCacheIndexTime = now
+            }
+            portableCacheIndex[filename]
+        }
+
+    private fun rememberPortableCacheFile(tree: Uri, dir: Uri,
+        filename: String, file: Uri) = synchronized(portableCacheIndexLock) {
+        if (portableCacheIndexFolder == tree.toString() + "|" + dir.toString()) {
+            portableCacheIndex[filename] = file
+        }
+    }
+
     private fun validPortableCacheName(filename: String): Boolean =
         Regex("[A-Za-z0-9_]{1,40}_[a-f0-9]{16}\\.bin").matches(filename)
 
     private fun portableCacheRead(filename: String): ByteArray? {
         if (!validPortableCacheName(filename)) return null
         val (tree, dir) = portableCacheDirectory(false) ?: return null
-        val (file, mime) = portableCacheChild(tree, dir, filename) ?: return null
-        if (mime == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) return null
+        val file = portableCacheFile(tree, dir, filename) ?: return null
         val bytes = contentResolver.openInputStream(file)?.use { it.readBytes() }
             ?: return null
         return bytes.takeIf { it.isNotEmpty() && it.size <= 12 * 1024 * 1024 }
@@ -189,10 +242,11 @@ open class MainActivity : FlutterActivity() {
         if (!validPortableCacheName(filename) ||
             bytes.isEmpty() || bytes.size > 12 * 1024 * 1024) return false
         val (tree, dir) = portableCacheDirectory(true) ?: return false
-        val file = portableCacheChild(tree, dir, filename)?.first ?:
+        val file = portableCacheFile(tree, dir, filename) ?:
             android.provider.DocumentsContract.createDocument(
                 contentResolver, dir, "application/octet-stream", filename)
                 ?: return false
+        rememberPortableCacheFile(tree, dir, filename, file)
         val stream = contentResolver.openOutputStream(file, "wt") ?: return false
         stream.use { it.write(bytes) }
         return true

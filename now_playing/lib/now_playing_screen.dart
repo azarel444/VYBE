@@ -833,9 +833,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     bool localLogo = false;
     bool transferred = false;
     try {
-      // The receiver's own on-disk logo is the first choice.
-      bytes = await LocalArtwork.instance.clearLogo(artist);
-      localLogo = bytes != null && bytes.isNotEmpty;
+      // Read VYBE Cache BEFORE attempting the local artwork index scan.
+      // Missing named local files previously caused a full music-folder
+      // rescan before reaching this already-downloaded clearlogo.
+      bytes = await _fanart.getCachedClearLogo(artist);
+      if (bytes != null && bytes.isNotEmpty &&
+          mounted && request == _clearLogoRequest &&
+          _clearLogoArtist == artist) {
+        // Publish instantly, before expensive alpha trimming or a manual
+        // local-art scan. A manual artist logo may replace this image later.
+        setState(() => _clearLogoBytes = bytes);
+        final link = VybeLink.instance;
+        if (!widget.driveHost && link.enabled && link.role == 'sender') {
+          link.sendClearLogo(artist, bytes);
+        }
+      }
+      final manualLogo = await LocalArtwork.instance.clearLogo(artist);
+      if (manualLogo != null && manualLogo.isNotEmpty) {
+        bytes = manualLogo;
+        localLogo = true;
+      }
       if (!localLogo && !widget.driveHost) {
         final link = VybeLink.instance;
         if (link.enabled && link.role == 'receiver' &&
@@ -1019,11 +1036,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fanartLoadingArtist = artist;
     final request = ++_fanartRequest;
     try {
+      // Cache hits must be visible immediately, not after a potentially
+      // expensive scan of the user's music-folder tree.
+      final cached = await _fanart.getCachedFanart(artist);
+      if (cached != null && cached.isNotEmpty && mounted &&
+          request == _fanartRequest && _fanartArtist == artist) {
+        setState(() => _fanartBytes = cached);
+        if (linkSender) link.sendFanart(artist, cached);
+      }
       final localGallery = await LocalArtwork.instance.fanartGallery(artist);
       final localBytes = localGallery.isEmpty ? null : localGallery.first;
-      final bytes = localBytes ?? (settings.fanartProjectKey.isEmpty ? null :
-          await _fanart.get(artist, settings.fanartProjectKey,
-              personalKey: settings.fanartApiKey));
+      final bytes = localBytes ?? cached ??
+          (settings.fanartProjectKey.isEmpty ? null :
+              await _fanart.get(artist, settings.fanartProjectKey,
+                  personalKey: settings.fanartApiKey));
       if (mounted && request == _fanartRequest && _fanartArtist == artist) {
         _fanartLastFailure = bytes == null ? DateTime.now() : null;
         if (bytes == null) _scheduleFanartRetry(artist);
@@ -4948,30 +4974,52 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         textScaler: MediaQuery.textScalerOf(context),
         maxLines: 1,
       )..layout();
-      final letteringWidth = painter.width + 3.0;
+      final letteringWidth = painter.width + labelSize * .45;
+      final painterHeight = painter.height;
       painter.dispose();
-      // A symmetrical safe rectangle avoids the slanted sides even on
-      // flush-left and flush-right frames. The frame itself is unchanged.
-      final sidePadding = labelSize * 4.25;
-      final naturalWidth = letteringWidth + sidePadding * 2;
-      final minimumWidth = available * .78;
-      final badgeWidth = math.max(1.0,
-          math.min(available, math.max(minimumWidth, naturalWidth))).toDouble();
+      // The outer frame alignment comes from the theme's desired edge.
+      // "flushFrame" is not merely decorative: it must align the OUTER
+      // frame too, while the inner text clearance stays independent.
+      final frameAlignment = flushFrame ?? alignment;
+      final flushLeft = frameAlignment == Alignment.centerLeft;
+      final flushRight = frameAlignment == Alignment.centerRight;
+      // Mirror the real frame's angled geometry. A visual inset belongs
+      // INSIDE the shape; it must never move its screen-side outer edge.
+      // SongTitleMarquee has painter.height + 8 (minimum 24) before our
+      // vertical padding. Use that same height for the diagonal cut.
+      final frameHeight = math.max(painterHeight + 8.0, 24.0) +
+          labelSize * .48;
+      final safeGap = math.max(labelSize * .75, frameHeight * .25);
+      final cut = frameHeight * .64;
+      final offset = frameHeight * .26;
+      final edgeMargin = math.max(1.5, frameHeight * .05);
+      final maximalWing = frameHeight * 1.05;
+      final naturalLeftInset =
+          (flushLeft ? offset + edgeMargin : maximalWing) + cut + safeGap;
+      final naturalRightInset =
+          (flushRight ? offset + edgeMargin : maximalWing) + cut + safeGap;
+      final desiredWidth = letteringWidth +
+          naturalLeftInset + naturalRightInset;
+      final badgeWidth = math.max(1.0, math.min(available,
+          math.max(available * .78, desiredWidth))).toDouble();
+      final shape = _VybeAlbumFrameGeometry(
+          Size(badgeWidth, frameHeight),
+          flushLeft: flushLeft, flushRight: flushRight);
+      // Always place BOTH ends of the marquee beyond the diagonal strokes
+      // plus a visible gap, even when the album name has to pan.
+      final leftInset = shape.left + shape.cut + safeGap;
+      final rightInset = badgeWidth - (shape.right - shape.cut) + safeGap;
       return Align(
-        alignment: alignment,
+        alignment: frameAlignment,
         child: SizedBox(
           width: badgeWidth,
           child: CustomPaint(
             painter: _VybeAlbumLabelFrame(_palette.a,
-              flushRight: (flushFrame ?? alignment) == Alignment.centerRight,
-              flushLeft: (flushFrame ?? alignment) == Alignment.centerLeft),
-            // Clip only to a padded rectangular viewport WITHIN the frame.
-            // The former angled clip cut off letters even when the marquee
-            // believed the title fit and never started scrolling.
+                flushRight: flushRight, flushLeft: flushLeft),
             child: Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: math.min(sidePadding, badgeWidth * .26),
-                  vertical: labelSize * .24),
+              padding: EdgeInsets.fromLTRB(
+                  leftInset, labelSize * .24,
+                  rightInset, labelSize * .24),
               child: ClipRect(
                 child: SongTitleMarquee(
                   title: _albumDisplayName,
@@ -6016,41 +6064,27 @@ class _EdgyStandbyPainter extends CustomPainter {
 
 
 
-/// Text is clipped to an inset version of the album label's actual angled
-/// black background. Rectangular clipping alone allowed italic letters to
-/// protrude beyond the diagonal sides while marquee scrolling.
-class _VybeAlbumTextClipper extends CustomClipper<Path> {
-  final bool flushRight;
-  final bool flushLeft;
-  const _VybeAlbumTextClipper({
-    this.flushRight = false, this.flushLeft = false,
-  });
+/// Single source of truth for the angled album-label frame geometry.
+/// Shared by its painter and the padded text viewport, so a change to the
+/// diagonal shape cannot silently cause lettering to touch the frame.
+class _VybeAlbumFrameGeometry {
+  final double left;
+  final double right;
+  final double cut;
+  final double offset;
 
-  @override
-  Path getClip(Size size) {
-    final w = size.width, h = size.height;
-    final wing = math.min(h * 1.05, w * .13);
-    final cut = h * .64;
-    final offset = h * .26;
-    final edgeMargin = math.max(1.5, h * .05);
-    final left = flushLeft ? offset + edgeMargin : wing;
-    final right = flushRight ? w - offset - edgeMargin : w - wing;
-    final inset = math.max(1.5, h * .11);
-    final top = h * .08 + inset;
-    final bottom = h * .90 - inset;
-    // Match the parallelogram in _VybeAlbumLabelFrame while pulling the
-    // text clipping region in from the accent lines and their glow.
-    return Path()
-      ..moveTo(left + cut + inset, top)
-      ..lineTo(right - inset, top)
-      ..lineTo(right - cut - inset, bottom)
-      ..lineTo(left + inset, bottom)
-      ..close();
-  }
-
-  @override
-  bool shouldReclip(covariant _VybeAlbumTextClipper old) =>
-      old.flushRight != flushRight || old.flushLeft != flushLeft;
+  _VybeAlbumFrameGeometry(Size size,
+      {required bool flushLeft, required bool flushRight})
+      : cut = size.height * .64,
+        offset = size.height * .26,
+        left = flushLeft
+            ? size.height * .26 + math.max(1.5, size.height * .05)
+            : math.min(size.height * 1.05, size.width * .13),
+        right = flushRight
+            ? size.width - size.height * .26 -
+                math.max(1.5, size.height * .05)
+            : size.width -
+                math.min(size.height * 1.05, size.width * .13);
 }
 
 class _VybeAlbumLabelFrame extends CustomPainter {
@@ -6065,14 +6099,12 @@ class _VybeAlbumLabelFrame extends CustomPainter {
     final w = size.width, h = size.height;
     // Reference: steep parallelogram with two *separate*, parallel
     // diagonal accent strokes. No horizontal joining bars on the wings.
-    final wing = math.min(h * 1.05, w * .13);
-    final cut = h * .64;
-    final offset = h * .26;
-    final edgeMargin = math.max(1.5, h * .05);
-    // Side-by-Side's outside-facing accent slash ends at the same edge
-    // as the text column, without the unused wing margin.
-    final left = flushLeft ? offset + edgeMargin : wing;
-    final right = flushRight ? w - offset - edgeMargin : w - wing;
+    final geometry = _VybeAlbumFrameGeometry(size,
+        flushLeft: flushLeft, flushRight: flushRight);
+    final cut = geometry.cut;
+    final offset = geometry.offset;
+    final left = geometry.left;
+    final right = geometry.right;
     final top = h * .08;
     final bottom = h * .90;
     final frame = Path()
