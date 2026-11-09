@@ -1473,7 +1473,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       case _VybeTextRole.title:
         return _drawTitle(alignment, vhs);
       case _VybeTextRole.album:
-        return _drawAlbum(flushFrame: flushFrame);
+        return _drawAlbum(alignment: alignment, flushFrame: flushFrame);
     }
   }
 
@@ -1635,8 +1635,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _metadataText(_VybeTextRole.title, Alignment.center),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .006),
-                Align(alignment: Alignment.center,
-                  child: _albumText(h * _portraitFeatureAlbumRatio)),
+                _metadataText(_VybeTextRole.album, Alignment.center),
               ],
             ])),
         if (_hasLyrics)
@@ -1735,8 +1734,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         _title(titleSize, textAlign, false),
         SizedBox(height: h * 0.008),
         if (_showAlbumLabel)
-          Align(alignment: textAlign,
-            child: _albumText(titleSize * .7)),
+          _metadataText(_VybeTextRole.album, textAlign),
       ]));
     final cover = GestureDetector(
       key: _artKey,
@@ -1775,7 +1773,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _title(h * _portraitFeatureTitleRatio, Alignment.center, false),
                 if (_showAlbumLabel) ...[
                   SizedBox(height: h * .006),
-                  _fixedAlbum(h * _portraitFeatureAlbumRatio, Alignment.center),
+                  _metadataText(_VybeTextRole.album, Alignment.center),
                 ],
               ])),
           ])),
@@ -2260,7 +2258,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           _fixedTitle(u * 0.044, textAlignment),
                           if (_showAlbumLabel) ...[
                             SizedBox(height: u * 0.006),
-                            _fixedAlbum(u * 0.032, textAlignment),
+                            _metadataText(_VybeTextRole.album, textAlignment),
                           ],
                           if (_hasLyrics) ...[
                             SizedBox(height: _lyricGap(u)),
@@ -2344,7 +2342,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     _fixedTitle(h * 0.037, Alignment.center),
                     if (showAlbum) ...[
                       SizedBox(height: h * 0.008),
-                      _fixedAlbum(h * 0.026, Alignment.center),
+                      _metadataText(_VybeTextRole.album, Alignment.center),
                     ],
                     SizedBox(height: gap),
                     _artWithReflection(s, vhs: vhs),
@@ -2425,7 +2423,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final brandingHeight = math.min(h * .105, w * .24).toDouble();
       final songFontSize = h * .031;
       final songHeight = h * .053;
-      final albumHeight = _showAlbumLabel ? h * .038 : 0.0;
+      final albumHeight = _showAlbumLabel ? h * .055 : 0.0;
       final brandArtGap = h * .006;
       final artSongGap = h * .009;
       final songAlbumGap = _showAlbumLabel ? h * .003 : 0.0;
@@ -2457,7 +2455,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               if (_showAlbumLabel) ...[
                 SizedBox(height: songAlbumGap),
                 SizedBox(width: w * .90, height: albumHeight,
-                  child: Center(child: _albumText(h * .018))),
+                  child: Center(child: _metadataText(_VybeTextRole.album, Alignment.center))),
               ],
             ],
           ),
@@ -2506,7 +2504,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 _title(h * 0.05, Alignment.center, false),
                 if (_showAlbumLabel) ...[
                   SizedBox(height: h * 0.008),
-                  _shaded(_albumText(h * 0.02)),
+                  _shaded(_metadataText(_VybeTextRole.album, Alignment.center)),
                 ],
                 SizedBox(height: h * 0.035),
                 _driveArtwork(d),
@@ -2710,7 +2708,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             _title(h * 0.08, textAlign, false),
             if (_showAlbumLabel) ...[
               SizedBox(height: h * 0.012),
-              _shaded(_albumText(h * 0.026, flushFrame: textAlign)),
+              _shaded(_metadataText(_VybeTextRole.album, textAlign)),
             ],
             if (_hasLyrics) ...[
               SizedBox(height: _lyricGap(h)),
@@ -2770,7 +2768,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     _title(h * 0.037, Alignment.center, false),
                     if (_showAlbumLabel) ...[
                         SizedBox(height: h * 0.008),
-                        _fixedAlbum(h * 0.026, Alignment.center),
+                        _metadataText(_VybeTextRole.album, Alignment.center),
                       ],
                       if (_hasLyrics) ...[
                       SizedBox(height: _lyricGap(h)),
@@ -3257,7 +3255,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       _title(h * 0.037, Alignment.center, false),
                       if (_showAlbumLabel) ...[
                         SizedBox(height: h * 0.008),
-                        _fixedAlbum(h * 0.026, Alignment.center),
+                        _metadataText(_VybeTextRole.album, Alignment.center),
                       ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(h)),
@@ -3317,7 +3315,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.center, false),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_albumText(h * 0.028)),
+                _shaded(_metadataText(_VybeTextRole.album, Alignment.center)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -3444,7 +3442,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       _title(h * 0.037, Alignment.center, false),
                       if (_showAlbumLabel) ...[
                         SizedBox(height: h * 0.008),
-                        _fixedAlbum(h * 0.026, Alignment.center),
+                        _metadataText(_VybeTextRole.album, Alignment.center),
                       ],
                       if (_hasLyrics) ...[
                         SizedBox(height: _lyricGap(h)),
@@ -3496,7 +3494,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.center, false),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_albumText(h * 0.028)),
+                _shaded(_metadataText(_VybeTextRole.album, Alignment.center)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -3673,7 +3671,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           if (_showAlbumLabel)
             Positioned(
               left: w * .10, right: w * .10, bottom: h * .045,
-              child: Center(child: _shaded(_albumText(h * .026))),
+              child: Center(child: _shaded(_metadataText(_VybeTextRole.album, Alignment.center))),
             ),
         ],
       );
@@ -3716,7 +3714,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.085, Alignment.center, false),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.012),
-                _shaded(_albumText(h * 0.028)),
+                _shaded(_metadataText(_VybeTextRole.album, Alignment.center)),
               ],
               if (_hasLyrics) ...[
                 SizedBox(height: _lyricGap(h)),
@@ -4007,7 +4005,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     _title(h * 0.037, Alignment.center, false),
                     if (_showAlbumLabel) ...[
                       SizedBox(height: h * 0.008),
-                      _fixedAlbum(h * 0.026, Alignment.center),
+                      _metadataText(_VybeTextRole.album, Alignment.center),
                     ],
                   ],
                 ),
@@ -4058,7 +4056,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _title(h * 0.06, Alignment.center, false),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * 0.014),
-                _shaded(_albumText(h * 0.022)),
+                _shaded(_metadataText(_VybeTextRole.album, Alignment.center)),
               ],
               SizedBox(height: h * 0.035),
               if (_hasLyrics) ...[
@@ -4093,10 +4091,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         SizedBox(height: h * 0.008),
         if (_showAlbumLabel) ...[
           SizedBox(height: h * 0.005),
-          Align(
-            alignment: center ? Alignment.center : Alignment.centerRight,
-            child: _albumText(albumSize),
-          ),
+          _metadataText(_VybeTextRole.album,
+              center ? Alignment.center : Alignment.centerRight),
         ],
       ],
     );
@@ -4934,11 +4930,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Compact high-contrast album label; never stretch the black backing
   // across the entire metadata panel.
   // Angular neon treatment belongs to the ALBUM NAME label, not the cover.
-  Widget _albumText(double unusedSize, {Alignment? flushFrame}) =>
-      _metadataText(_VybeTextRole.album, Alignment.center,
-          flushFrame: flushFrame);
-
-  Widget _drawAlbum({Alignment? flushFrame}) {
+  Widget _drawAlbum({required Alignment alignment, Alignment? flushFrame}) {
     final labelSize = _albumFontSize(0);
     final albumStyle = _albumLabelTextStyle(labelSize);
     return LayoutBuilder(builder: (context, bounds) {
@@ -4962,17 +4954,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // flush-left and flush-right frames. The frame itself is unchanged.
       final sidePadding = labelSize * 4.25;
       final naturalWidth = letteringWidth + sidePadding * 2;
-      final minimumWidth = available * .64;
+      final minimumWidth = available * .78;
       final badgeWidth = math.max(1.0,
           math.min(available, math.max(minimumWidth, naturalWidth))).toDouble();
       return Align(
-        alignment: flushFrame ?? Alignment.center,
+        alignment: alignment,
         child: SizedBox(
           width: badgeWidth,
           child: CustomPaint(
             painter: _VybeAlbumLabelFrame(_palette.a,
-              flushRight: flushFrame == Alignment.centerRight,
-              flushLeft: flushFrame == Alignment.centerLeft),
+              flushRight: (flushFrame ?? alignment) == Alignment.centerRight,
+              flushLeft: (flushFrame ?? alignment) == Alignment.centerLeft),
             // Clip only to a padded rectangular viewport WITHIN the frame.
             // The former angled clip cut off letters even when the marquee
             // believed the title fit and never started scrolling.
@@ -5000,11 +4992,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // role-aware metadata widget. Their former size arguments do not affect type.
   Widget _fixedTitle(double unusedSize, Alignment align) =>
       _metadataText(_VybeTextRole.title, align);
-
-  Widget _fixedAlbum(double unusedSize, Alignment align,
-      {bool flushFrame = false}) =>
-      _metadataText(_VybeTextRole.album, align,
-          flushFrame: flushFrame ? align : null);
 
   Widget _title(double unusedSize, Alignment a, bool vhs) =>
       _metadataText(_VybeTextRole.title, a, vhs: vhs);
