@@ -154,12 +154,14 @@ class LocalArtwork {
     return exact || inArtistFolder;
   }
 
-  Future<List<Uint8List>> fanartGallery(String artist) async {
+  Future<List<Uint8List>> fanartGallery(String artist,
+      {bool rescanOnMiss = true}) async {
     await load();
     final key = normalize(artist);
     if (key.isEmpty) return [];
     var matches = _files.where((entry) => _matchesFanart(entry, key)).toList();
-    if (matches.isEmpty && _rescanAttemptedFor.add('fanart:$key')) {
+    if (matches.isEmpty && rescanOnMiss &&
+        _rescanAttemptedFor.add('fanart:$key')) {
       try {
         await scan(manual: false);
         matches = _files.where((entry) => _matchesFanart(entry, key)).toList();
@@ -190,7 +192,8 @@ class LocalArtwork {
   /// Local logos use the same compact artist naming as fanart:
   /// Music/fanart/breakingbenjaminclearlogo.png.
   /// PNG preserves transparency; legacy logo names remain supported.
-  Future<Uint8List?> clearLogo(String artist) async {
+  Future<Uint8List?> clearLogo(String artist,
+      {bool rescanOnMiss = true}) async {
     await load();
     final key = normalize(artist);
     if (key.isEmpty) return null;
@@ -205,7 +208,8 @@ class LocalArtwork {
           compactName == '${compactArtist}logo' ||
           (folder == key && (compactName == 'clearlogo' || compactName == 'logo'));
     }).toList();
-    if (matches.isEmpty && _rescanAttemptedFor.add('logo:$key')) {
+    if (matches.isEmpty && rescanOnMiss &&
+        _rescanAttemptedFor.add('logo:$key')) {
       try {
         await scan(manual: false);
         matches = _files.where((entry) {
