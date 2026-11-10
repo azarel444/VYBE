@@ -185,7 +185,24 @@ class AppSettings extends ChangeNotifier {
   double kParticles = 1.0;
   double kMotion = 1.0; // slow drift and beat pulse
   bool performance = false;
-  int night = 1; // 0 off, 1 auto (8pm-6am), 2 always
+  int night = 1; // 0 off, 1 scheduled, 2 always
+  int nightStartMinutes = 20 * 60; // default: 8 PM
+  int nightEndMinutes = 6 * 60; // default: 6 AM
+  static String formatClockMinutes(int minutes) {
+    final hour = (minutes ~/ 60) % 24;
+    final minute = minutes % 60;
+    final twelve = hour % 12 == 0 ? 12 : hour % 12;
+    return '$twelve:${minute.toString().padLeft(2, "0")} ${hour < 12 ? "AM" : "PM"}';
+  }
+
+  bool isScheduledNight(int minuteOfDay) {
+    final start = nightStartMinutes;
+    final end = nightEndMinutes;
+    if (start == end) return true; // equal times mean a 24-hour schedule
+    return start < end
+        ? minuteOfDay >= start && minuteOfDay < end
+        : minuteOfDay >= start || minuteOfDay < end;
+  }
   int fxPerformanceMode = 0; // 0 auto, 1 performance, 2 maximum visuals
   bool autoFxQuality = true; // live frame-time quality governor
   bool burnIn = true;
@@ -639,6 +656,8 @@ class AppSettings extends ChangeNotifier {
     autoFxQuality = p.getBool('autoFxQuality') ?? true;
     fxPerformanceMode = _int(p, 'fxPerformanceMode', 0, 0, 2);
     night = _int(p, 'night', 1, 0, 2);
+    nightStartMinutes = _int(p, 'nightStartMinutes', 1200, 0, 1439);
+    nightEndMinutes = _int(p, 'nightEndMinutes', 360, 0, 1439);
     burnIn = p.getBool('burnIn') ?? true;
     artLookup = p.getBool('artLookup') ?? true;
     lyrics = p.getBool('lyrics') ?? false;
@@ -808,6 +827,8 @@ class AppSettings extends ChangeNotifier {
     await p.setBool('autoFxQuality', autoFxQuality);
     await p.setInt('fxPerformanceMode', fxPerformanceMode);
     await p.setInt('night', night);
+    await p.setInt('nightStartMinutes', nightStartMinutes);
+    await p.setInt('nightEndMinutes', nightEndMinutes);
     await p.setBool('burnIn', burnIn);
     // These four preferences have dedicated writes. A Drive engine or an
     // in-flight full save must never overwrite onboarding/user selections.
