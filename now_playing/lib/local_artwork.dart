@@ -36,6 +36,29 @@ class LocalArtwork {
     } catch (_) { return []; }
   }
 
+  /// Reconnect the Saved Artwork Library immediately after selecting its
+  /// folder, including a fresh installation with no attached music drive.
+  Future<int> reconnectSavedArtwork() async {
+    await load();
+    final backedUp = await _readBackedUpIndex();
+    final seen = _files.map(_assetKey).toSet();
+    for (final entry in backedUp) {
+      if (seen.add(_assetKey(entry))) {
+        _files.add(entry);
+      } else {
+        final existing = _files.firstWhere(
+            (value) => _assetKey(value) == _assetKey(entry));
+        if (entry['cacheName'] == _assetCacheName(entry)) {
+          existing['cacheName'] = entry['cacheName']!;
+        }
+      }
+    }
+    savedArtworkCount = backedUp.length;
+    status = '${_files.length} local images; '
+        '$savedArtworkCount recovered from Saved Artwork Library';
+    return savedArtworkCount;
+  }
+
   /// Copy image bytes and a manifest into the selected persistent folder.
   /// The manifest provides artist/album names even if the original music USB
   /// drive is gone. Backups are never deleted when a scan finds fewer files.
