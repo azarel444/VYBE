@@ -1268,7 +1268,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: usingVybePlaceholder
               ? Image.asset('assets/vybe_album_placeholder.png',
                   fit: BoxFit.cover, filterQuality: FilterQuality.high)
-              : RawImage(image: art.tiny, fit: BoxFit.cover,
+              : RawImage(image: art!.tiny, fit: BoxFit.cover,
                   filterQuality: FilterQuality.high),
         ),
       ),
