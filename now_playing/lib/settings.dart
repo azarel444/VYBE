@@ -592,8 +592,8 @@ class AppSettings extends ChangeNotifier {
     // when the two saved values match. The migration marker ensures that
     // future intentional Ring/Ring or Bars/Bars choices are never reset.
     if (p.getBool('focusedIndependentV2') != true) {
-      if (p.containsKey('focusedPortraitStyle') &&
-          p.containsKey('focusedLandscapeStyle') &&
+      if (p.getInt('focusedPortraitStyle') != null &&
+          p.getInt('focusedLandscapeStyle') != null &&
           focusedPortraitStyle == focusedLandscapeStyle) {
         focusedPortraitStyle = 0;
         focusedLandscapeStyle = 1;
