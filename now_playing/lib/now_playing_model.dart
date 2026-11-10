@@ -694,11 +694,11 @@ class NowPlayingModel extends ChangeNotifier {
       if (bytes != null) artworkSource = 'Memory or disk cache';
       if (bytes == null) {
         artworkStatus = 'Searching online catalogs';
-        artworkLookupState = 'Searching iTunes / Cover Art Archive';
+        artworkLookupState = 'Searching MusicBrainz / Cover Art Archive / Fanart.tv';
         notifyListeners();
       }
       bytes ??= await fetchArtwork(title, artist, album: album);
-      if (bytes != null && artworkSource != 'Memory or disk cache') artworkSource = 'Online catalog (iTunes or Cover Art Archive)';
+      if (bytes != null && artworkSource != 'Memory or disk cache') artworkSource = 'Online catalog (Cover Art Archive or Fanart.tv)';
       if (token != _artToken || track != _trackKey) return;
       if (bytes != null) {
         final decoded = await ArtAssets.load(bytes);
