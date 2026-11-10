@@ -246,9 +246,49 @@ String _trackMatchKey(String title) => _norm(
   ),
 );
 
-bool _trackMatches(String candidate, String requested) =>
-    _trackMatchKey(candidate).isNotEmpty &&
-    _trackMatchKey(candidate) == _trackMatchKey(requested);
+/// Return trailing "(R3hab remix)" or "(Calvin Harris & R3hab remix)"
+/// credit. Keep both original song and remixer checks before relaxing titles.
+String? _remixCredit(String title) {
+  final match = RegExp(r'[\(\[]([^\)\]]+)[\)\]]\s*$')
+      .firstMatch(_cleanTitle(title));
+  if (match == null) return null;
+  final suffix = match.group(1)?.trim() ?? '';
+  if (!RegExp(r'\bremix$', caseSensitive: false).hasMatch(suffix)) {
+    return null;
+  }
+  final credit = suffix.replaceFirst(
+      RegExp(r'\s+remix$', caseSensitive: false), '').trim();
+  return credit.isEmpty ? null : credit;
+}
+
+List<String> _remixerNames(String credit) => credit
+    .split(RegExp(r'\s+(?:&|and|\+|x|with|vs\.?)\s+',
+        caseSensitive: false))
+    .map(_norm)
+    .where((name) => name.isNotEmpty)
+    .toList();
+
+bool _trackMatches(String candidate, String requested, String creditedArtist) {
+  // Keep the original exact matching for all existing successful lookups.
+  if (_trackMatchKey(candidate).isNotEmpty &&
+      _trackMatchKey(candidate) == _trackMatchKey(requested)) return true;
+
+  // Only omit a remixer name if it's already a verified main artist,
+  // e.g. "(R3hab remix)" vs "(Calvin Harris & R3hab remix)".
+  if (_norm(_baseTrackTitle(candidate)) !=
+      _norm(_baseTrackTitle(requested))) return false;
+  final requestedCredit = _remixCredit(requested);
+  final foundCredit = _remixCredit(candidate);
+  if (requestedCredit == null || foundCredit == null) return false;
+  final wanted = _remixerNames(requestedCredit).toSet();
+  if (wanted.isEmpty) return false;
+  final mainArtists = _creditParts(creditedArtist).toSet();
+  final recorded = _remixerNames(foundCredit)
+      .where((name) => !mainArtists.contains(name) || wanted.contains(name))
+      .toSet();
+  return recorded.length == wanted.length &&
+      wanted.every(recorded.contains);
+}
 
 /// Like the original working catalog lookup: try complete artist+song,
 /// then a broader song title and a plain-text search. Verify each hit by
@@ -288,6 +328,16 @@ Future<List<_ReleaseGroup>> _loadRecordingGroups(
   // exact full-credit discovery before trying a lead-artist fallback.
   // Validate ALL credits and the full track/remix title on every hit.
   final searchArtist = _catalogSearchArtist(artist);
+  final requestedRemix = _remixCredit(fullTitle);
+  final remixers = requestedRemix == null
+      ? <String>[] : _remixerNames(requestedRemix);
+  // MusicBrainz may prefix an artist to a remix credit even when the player
+  // only names the other remixer. Search the expanded variant as well.
+  final expandedRemixTitle = requestedRemix != null &&
+          remixers.length == 1 &&
+          !remixers.contains(_norm(searchArtist))
+      ? '$baseTitle ($searchArtist & $requestedRemix remix)'
+      : null;
   final queries = <String>{
     // Full names like "Eli & Fur" are real artist entities.
     'recording:${_quoted(fullTitle)} AND artist:${_quoted(artist)}',
@@ -295,6 +345,8 @@ Future<List<_ReleaseGroup>> _loadRecordingGroups(
       'recording:${_quoted(baseTitle)} AND artist:${_quoted(artist)}',
     // Use lead-artist fallback only when a combined credit exists.
     // Always verify structured credits AND the exact remix title.
+    if (expandedRemixTitle != null)
+      'recording:${_quoted(expandedRemixTitle)} AND artist:${_quoted(searchArtist)}',
     if (_norm(searchArtist) != _norm(artist))
       'recording:${_quoted(fullTitle)} AND artist:${_quoted(searchArtist)}',
     if (_norm(searchArtist) != _norm(artist) &&
@@ -337,7 +389,7 @@ Future<List<_ReleaseGroup>> _loadRecordingGroups(
 
     for (final entry in recordings) {
       if (entry is! Map) continue;
-      if (!_trackMatches(entry['title']?.toString() ?? '', title) ||
+      if (!_trackMatches(entry['title']?.toString() ?? '', title, artist) ||
           !_artistCreditMatches(entry['artist-credit'], artist)) {
         continue;
       }
