@@ -732,8 +732,13 @@ class NowPlayingModel extends ChangeNotifier {
       artworkStatus = _artAttempts < 4
           ? 'Artwork not found; retry ${_artAttempts}/4'
           : 'Artwork not found; automatic retries exhausted (4/4)';
-      artworkLookupState = 'No usable match (attempt $_artAttempts/4)';
-      if (artworkFailure == 'None') artworkFailure = 'No usable artwork returned by catalogs';
+      // Distinguish a missing artist/recording match from a linked release
+      // with no downloadable cover, as well as transient catalog failures.
+      artworkLookupState =
+          '$latestArtworkCatalogDiagnostic (attempt $_artAttempts/4)';
+      if (artworkFailure == 'None') {
+        artworkFailure = latestArtworkCatalogDiagnostic;
+      }
       notifyListeners();
     }
     if (token == _artToken && track == _trackKey && art == null && _artAttempts < 4) {
