@@ -3,6 +3,7 @@ import 'vybe_link.dart';
 import 'dart:async';
 import 'dart:typed_data';
 import 'artist_fanart.dart';
+import 'artist_artwork_match.dart';
 import 'local_artwork.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -797,6 +798,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
+  /// Preserve the full credited artist whenever it is a real MusicBrainz
+  /// artist, e.g. the duo Eli & Fur. For collaborations or explicit guest
+  /// credits, only fall back to the lead artist after the full-name miss.
+  bool _canTryLeadArtistArtwork(String creditedArtist) =>
+      leadArtistArtworkFallback(creditedArtist) != null &&
+      (hasExplicitFeaturedArtist(creditedArtist) ||
+          _fanart.confirmedArtistNameMiss(creditedArtist));
+
   Future<void> _loadClearLogo() async {
     final artist = model.artist.trim();
     if (!settings.useArtistClearLogo || artist.isEmpty) {
@@ -867,6 +876,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
             personalKey: settings.fanartApiKey);
         transferred = false;
+      }
+      if ((bytes == null || bytes.isEmpty) &&
+          _canTryLeadArtistArtwork(artist)) {
+        final lead = leadArtistArtworkFallback(artist)!;
+        // Check existing offline artwork first. A missing full credit must
+        // not force a new download when the main artist is already cached.
+        final savedLead = await _fanart.getCachedClearLogo(lead);
+        final localLead = await LocalArtwork.instance.clearLogo(lead,
+            rescanOnMiss: false);
+        if (localLead != null && localLead.isNotEmpty) {
+          bytes = localLead;
+          localLogo = true;
+        } else if (savedLead != null && savedLead.isNotEmpty) {
+          bytes = savedLead;
+        } else if (settings.fanartProjectKey.isNotEmpty) {
+          bytes = await _fanart.getClearLogo(lead, settings.fanartProjectKey,
+              personalKey: settings.fanartApiKey);
+        }
+        if (bytes != null && bytes.isNotEmpty) {
+          debugPrint('VYBE clearlogo: using lead artist $lead for $artist');
+        }
       }
       // Keep the latest Riot ClearLogo alpha-padding trim for local/online
       // artwork. The sender has already trimmed transferred images.
@@ -1045,13 +1075,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         setState(() => _fanartBytes = cached);
         if (linkSender) link.sendFanart(artist, cached);
       }
-      final localGallery = await LocalArtwork.instance.fanartGallery(artist,
+      var localGallery = await LocalArtwork.instance.fanartGallery(artist,
           rescanOnMiss: cached == null || cached.isEmpty);
-      final localBytes = localGallery.isEmpty ? null : localGallery.first;
-      final bytes = localBytes ?? cached ??
+      Uint8List? localBytes = localGallery.isEmpty ? null : localGallery.first;
+      Uint8List? bytes = localBytes ?? cached ??
           (settings.fanartProjectKey.isEmpty ? null :
               await _fanart.get(artist, settings.fanartProjectKey,
                   personalKey: settings.fanartApiKey));
+      var resolvedArtist = artist;
+      if ((bytes == null || bytes.isEmpty) &&
+          _canTryLeadArtistArtwork(artist)) {
+        final lead = leadArtistArtworkFallback(artist)!;
+        final savedLead = await _fanart.getCachedFanart(lead);
+        final galleryLead = await LocalArtwork.instance.fanartGallery(lead,
+            rescanOnMiss: false);
+        final localLead = galleryLead.isEmpty ? null : galleryLead.first;
+        final foundLead = localLead ?? savedLead ??
+            (settings.fanartProjectKey.isEmpty ? null :
+                await _fanart.get(lead, settings.fanartProjectKey,
+                    personalKey: settings.fanartApiKey));
+        if (foundLead != null && foundLead.isNotEmpty) {
+          resolvedArtist = lead;
+          localGallery = galleryLead;
+          localBytes = localLead;
+          bytes = foundLead;
+          debugPrint('VYBE fanart: using lead artist $lead for $artist');
+        }
+      }
       if (mounted && request == _fanartRequest && _fanartArtist == artist) {
         _fanartLastFailure = bytes == null ? DateTime.now() : null;
         if (bytes == null) _scheduleFanartRetry(artist);
@@ -1069,7 +1119,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (localBytes == null && bytes != null && settings.fanartProjectKey.isNotEmpty) {
           // Gallery retrieval runs after the first background is visible.
           // A slow additional download must never delay normal fanart.
-          _fanart.getGallery(artist, settings.fanartProjectKey,
+          _fanart.getGallery(resolvedArtist, settings.fanartProjectKey,
               personalKey: settings.fanartApiKey).then((gallery) {
             if (!mounted || request != _fanartRequest ||
                 _fanartArtist != artist || gallery.length < 2) return;

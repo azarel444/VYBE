@@ -10,6 +10,12 @@ class ArtistFanartCache {
   final Map<String, Uint8List?> _memory = {};
   final Map<String, Future<Uint8List?>> _inFlight = {};
   final Map<String, List<String>> _artistIds = {};
+  final Set<String> _confirmedNameMisses = {};
+
+  /// True only when a completed MusicBrainz search could not verify an
+  /// exact artist with this whole name. Do not split a recognized duo.
+  bool confirmedArtistNameMiss(String artist) =>
+      _confirmedNameMisses.contains(artist.toLowerCase().trim());
   String lastStatus = 'Not checked';
   static String diagnostics = 'No fanart lookup recorded yet';
   final Map<String, String> _requestDetails = {};
@@ -172,6 +178,7 @@ class ArtistFanartCache {
         // Rendez-Vous, while still requiring the full artist name.
         String normalize(String name) => name.toLowerCase().trim()
             .replaceAll(RegExp(r'[-‐‑‒–—_]'), ' ')
+            .replaceAll(RegExp(r'\s*&\s*'), ' and ')
             .replaceAll(RegExp(r'[.\u2018\u2019]'), '')
             .replaceAll(RegExp(r'\s+'), ' ')
             .replaceFirst(RegExp(r'^the '), '')
@@ -217,9 +224,11 @@ class ArtistFanartCache {
           }
         }
         if (ids.isEmpty) {
+          _confirmedNameMisses.add(cacheKey);
           report('Artist not matched in MusicBrainz');
           return null;
         }
+        _confirmedNameMisses.remove(cacheKey);
         _artistIds[cacheKey] = ids.take(2).toList();
         try {
           await idFile.writeAsString(jsonEncode(_artistIds[cacheKey]));
