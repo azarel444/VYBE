@@ -350,25 +350,42 @@ Future<Uint8List?> _coverForGroups(List<_ReleaseGroup> groups) async {
   return null;
 }
 
-/// Album-first search. If the album is unknown, never choose a cover when
-/// multiple releases might be correct for the same song.
+/// Prefer exact artist + track identification. The incoming album tag can
+/// be a user-defined folder/playlist name (e.g. "Bangers"), not the title of
+/// any official release. Do not require that tag to match the verified song's
+/// release group. Never guess between multiple different release groups.
 Future<Uint8List?> fetchArtwork(
     String title, String artist, {String album = ''}) async {
   if (_norm(artist).isEmpty || _norm(title).isEmpty) return null;
 
+  final recordingGroups = await _recordingGroups(title, artist);
   if (_hasAlbumTag(album)) {
-    final albumGroups = await _albumReleaseGroups(artist, album);
-    final albumCover = await _coverForGroups(albumGroups);
-    if (albumCover != null) return albumCover;
-
-    // Song metadata may resolve albums with different release-level credits,
-    // but must NEVER substitute an unrelated release title.
-    final recordingGroups = await _recordingGroups(title, artist);
+    // If the track is cataloged on the supplied album, prefer that exact
+    // release over other singles, remix collections or reissues.
     final exactAlbumGroups = recordingGroups
         .where((g) => _norm(g.title) == _norm(album)).toList();
-    return _coverForGroups(exactAlbumGroups);
+    if (exactAlbumGroups.isNotEmpty) {
+      final matchedCover = await _coverForGroups(exactAlbumGroups);
+      if (matchedCover != null) return matchedCover;
+    }
   }
-  return fetchSongSpecificArtwork(title, artist);
+
+  // A uniquely identified artist+recording can supply artwork even if its
+  // official release differs from a custom album tag. Keep the album label
+  // the player supplied; this only recovers the missing image.
+  if (recordingGroups.length == 1) {
+    final songCover = await _coverForGroups(recordingGroups);
+    if (songCover != null) return songCover;
+  }
+
+  // No unambiguous song cover: keep the existing conservative artist + album
+  // fallback for tracks with genuine album tags. Unknown/custom albums simply
+  // return null instead of borrowing unrelated artwork.
+  if (_hasAlbumTag(album)) {
+    final albumGroups = await _albumReleaseGroups(artist, album);
+    return _coverForGroups(albumGroups);
+  }
+  return null;
 }
 
 /// Exact song lookup via MusicBrainz -> Cover Art Archive / Fanart.tv.
