@@ -244,7 +244,10 @@ class LocalArtwork {
     }
     _files..clear()..addAll(next);
     _loaded = true;
-    await mirrorIndexedArtwork();
+    // Indexing must finish independently of copying images to the saved
+    // artwork folder. Mirroring many files over Android SAF can take minutes;
+    // keep it in the background instead of holding onboarding hostage.
+    unawaited(mirrorIndexedArtwork());
     return _files.length;
   }
 

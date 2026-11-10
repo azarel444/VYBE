@@ -1,51 +1,64 @@
 import 'package:flutter/material.dart';
 import 'local_artwork.dart';
 
-/// Visible, non-dismissible scan progress with a persistent result dialog.
-Future<void> showLocalArtworkScan(BuildContext context, {bool chooseFolder = false}) async {
+/// Index images without making the user wait for the background backup copy.
+/// Onboarding must remain recoverable even when SAF folders are slow/unplugged.
+Future<void> showLocalArtworkScan(BuildContext context,
+    {bool chooseFolder = false}) async {
   final navigator = Navigator.of(context, rootNavigator: true);
+  var cancelled = false;
   showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => const PopScope(
+    builder: (dialogContext) => PopScope(
       canPop: false,
       child: AlertDialog(
-        title: Text('Indexing local artwork'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
+        title: const Text('Indexing local artwork'),
+        content: const Column(mainAxisSize: MainAxisSize.min, children: [
           LinearProgressIndicator(),
           SizedBox(height: 18),
           Text('Scanning music folders and subfolders…'),
           SizedBox(height: 8),
-          Text('Please wait. This may take longer on large libraries.'),
+          Text('Artwork backup continues separately once indexing finishes.'),
         ]),
+        actions: [
+          TextButton(
+            onPressed: () {
+              cancelled = true;
+              Navigator.of(dialogContext).pop();
+            },
+            child: const Text('Continue without waiting'),
+          ),
+        ],
       ),
     ),
   );
+
   String result;
   try {
-    if (chooseFolder) {
-      // The folder picker must open before the progress dialog, so this
-      // method is only used after a folder was selected in the caller.
-      final count = await LocalArtwork.instance.scan();
-      result = 'Scan complete — $count artwork images indexed.';
-    } else {
-      final count = await LocalArtwork.instance.scan();
-      result = 'Scan complete — $count artwork images indexed.';
-    }
-  } catch (e) {
-    result = 'Artwork scan failed: $e';
+    // Android's SAF providers can stall on missing media. Never require a
+    // force-stop to escape onboarding if an external drive is slow or absent.
+    final count = await LocalArtwork.instance.scan()
+        .timeout(const Duration(seconds: 90));
+    result = 'Scan complete — $count artwork images indexed. '
+        'Saved artwork copies will finish separately.';
+  } catch (error) {
+    result = 'Artwork scan did not complete: $error. '
+        'You can still use VYBE and rescan later in Settings.';
   }
-  if (!context.mounted) return;
+  if (!context.mounted || cancelled) return;
   navigator.pop();
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('Local artwork'),
       content: Text(result),
-      actions: [TextButton(
-        onPressed: () => Navigator.of(dialogContext).pop(),
-        child: const Text('OK'),
-      )],
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('OK'),
+        ),
+      ],
     ),
   );
 }
