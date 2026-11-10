@@ -411,7 +411,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (settings.night == 0) {
       _night = false;
     } else if (settings.night == 1) {
-      _night = now.hour >= 20 || now.hour < 6;
+      _night = settings.isScheduledNight(now.hour * 60 + now.minute);
     } else {
       _night = true;
     }
