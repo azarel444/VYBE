@@ -539,10 +539,15 @@ class NowPlayingModel extends ChangeNotifier {
         _artClearTimer?.cancel();
         _artClearTimer = Timer(const Duration(seconds: 3), () {
           if (!_needsArt) return;
-          _artToken++;
+          // Don't cancel a cover download that started for this new track
+          // merely because the old cover's three-second grace period ended.
+          final onlineLookupActive = _lookupInFlight.isNotEmpty;
+          if (!onlineLookupActive) _artToken++;
           art = null;
           notifyListeners();
-          if (artLookupEnabled && title.isNotEmpty) _lookupArt();
+          if (!onlineLookupActive && artLookupEnabled && title.isNotEmpty) {
+            unawaited(_lookupArt());
+          }
         });
       }
     }
@@ -552,7 +557,7 @@ class NowPlayingModel extends ChangeNotifier {
     _trackKey = key;
     _albumKey = albumKey;
     if (changed && artLookupEnabled && title.isNotEmpty &&
-        art == null &&
+        (art == null || _needsArt) &&
         ((artBytes is! Uint8List || artBytes.isEmpty) ||
          rejectedSessionImage)) {
       // Do not wait for the old 700-ms network timer before even reading
@@ -677,7 +682,8 @@ class NowPlayingModel extends ChangeNotifier {
     _localArtLookupTrack = track;
     try {
       final bytes = await LocalArtwork.instance.albumArt(artist, album);
-      if (token != _artToken || track != _trackKey || art != null) return;
+      if (token != _artToken || track != _trackKey ||
+          (art != null && !_needsArt)) return;
       if (bytes != null && bytes.isNotEmpty) {
         artworkSource = 'Local artwork index';
         artworkStatus = 'Matched local album artwork';
