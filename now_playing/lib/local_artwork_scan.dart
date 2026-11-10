@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'local_artwork.dart';
 
@@ -9,7 +10,7 @@ Future<void> showLocalArtworkScan(BuildContext context,
   var cancelled = false;
   showDialog<void>(
     context: context,
-    barrierDismissible: false,
+    barrierDismissible: true,
     builder: (dialogContext) => PopScope(
       canPop: false,
       child: AlertDialog(
@@ -47,7 +48,7 @@ Future<void> showLocalArtworkScan(BuildContext context,
         'You can still use VYBE and rescan later in Settings.';
   }
   if (!context.mounted || cancelled) return;
-  navigator.pop();
+  if (navigator.canPop()) navigator.pop();
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
