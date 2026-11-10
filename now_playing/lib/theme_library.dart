@@ -39,7 +39,8 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
 
   int? _preview;
   bool? _previewPortrait;
-  int? _focusedStyleChoice;
+  int? _focusedPortraitChoice;
+  int? _focusedLandscapeChoice;
   bool _applying = false;
 
   String _imagePath(int id, bool portrait) =>
@@ -51,8 +52,10 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     setState(() {
       _preview = id;
       _previewPortrait = portrait;
-      // Preserve the current orientation-specific Focused style choice.
-      _focusedStyleChoice = widget.settings.focusedStyleFor(portrait);
+      // Keep BOTH settings independently staged. Preview orientation only
+      // selects which one is being edited, never copies it to the other.
+      _focusedPortraitChoice = widget.settings.focusedPortraitStyle;
+      _focusedLandscapeChoice = widget.settings.focusedLandscapeStyle;
     });
   }
 
@@ -63,10 +66,15 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     widget.settings.update(() {
       widget.settings.theme = id;
       if (id == 0) {
-        final choice = _focusedStyleChoice ?? 0;
-        widget.settings.vizStyle = choice;
-        widget.settings.focusedPortraitStyle = choice;
-        widget.settings.focusedLandscapeStyle = choice;
+        // Apply only the respective orientation's choice. A portrait change
+        // must NEVER overwrite the saved landscape visualizer (or vice versa).
+        widget.settings.focusedPortraitStyle =
+            _focusedPortraitChoice ?? widget.settings.focusedPortraitStyle;
+        widget.settings.focusedLandscapeStyle =
+            _focusedLandscapeChoice ?? widget.settings.focusedLandscapeStyle;
+        final size = MediaQuery.sizeOf(context);
+        final portrait = size.height > size.width * 1.1;
+        widget.settings.vizStyle = widget.settings.focusedStyleFor(portrait);
         widget.settings.visualizer = true;
       }
     }, persist: false);
@@ -361,10 +369,18 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                 ButtonSegment<int>(value: 0, label: Text('Circle')),
                 ButtonSegment<int>(value: 1, label: Text('Bars')),
               ],
-              selected: {_focusedStyleChoice ??
-                  widget.settings.focusedStyleFor(portrait)},
-              onSelectionChanged: (choice) => setState(
-                () => _focusedStyleChoice = choice.first),
+              selected: {screenshotPortrait
+                  ? (_focusedPortraitChoice ??
+                      widget.settings.focusedPortraitStyle)
+                  : (_focusedLandscapeChoice ??
+                      widget.settings.focusedLandscapeStyle)},
+              onSelectionChanged: (choice) => setState(() {
+                if (screenshotPortrait) {
+                  _focusedPortraitChoice = choice.first;
+                } else {
+                  _focusedLandscapeChoice = choice.first;
+                }
+              }),
             ),
           ),
         Expanded(
