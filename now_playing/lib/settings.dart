@@ -148,8 +148,8 @@ class AppSettings extends ChangeNotifier {
     });
   }
 
-  // The Focused theme gallery sets the selected design immediately in both
-  // orientations. Advanced settings can still override each separately.
+  // Explicitly set both orientations only when the caller requests that;
+  // the theme gallery always edits/saves them independently.
   void setFocusedStyleBoth(int style) {
     update(() {
       focusedPortraitStyle = style;
@@ -583,11 +583,27 @@ class AppSettings extends ChangeNotifier {
     fanartProjectKey = bundledFanartProjectKey;
     sensitivity = 0.5; // Ignore legacy saved amplification choices.
     vizStyle = _int(p, 'vizStyle', 1, 0, 1);
-    // The legacy global vizStyle defaulted to Bars (1). Do NOT inherit it
-    // for portrait, where Focused is meant to start in Ring mode. Preserve
-    // explicitly stored orientation-specific choices on existing installs.
+    // Focused has SEPARATE defaults: portrait Ring (0), landscape Bars (1).
+    // A legacy global vizStyle must not affect either orientation's default.
     focusedPortraitStyle = _int(p, 'focusedPortraitStyle', 0, 0, 1);
-    focusedLandscapeStyle = _int(p, 'focusedLandscapeStyle', vizStyle, 0, 1);
+    focusedLandscapeStyle = _int(p, 'focusedLandscapeStyle', 1, 0, 1);
+    // Previous theme-gallery builds accidentally wrote the chosen style into
+    // BOTH saved orientation fields. Repair that regression exactly once
+    // when the two saved values match. The migration marker ensures that
+    // future intentional Ring/Ring or Bars/Bars choices are never reset.
+    if (p.getBool('focusedIndependentV2') != true) {
+      if (p.containsKey('focusedPortraitStyle') &&
+          p.containsKey('focusedLandscapeStyle') &&
+          focusedPortraitStyle == focusedLandscapeStyle) {
+        focusedPortraitStyle = 0;
+        focusedLandscapeStyle = 1;
+        vizStyle = 1;
+        await p.setInt('focusedPortraitStyle', focusedPortraitStyle);
+        await p.setInt('focusedLandscapeStyle', focusedLandscapeStyle);
+        await p.setInt('vizStyle', vizStyle);
+      }
+      await p.setBool('focusedIndependentV2', true);
+    }
     final bc = p.getInt('barCount') ?? 96;
     barCount = barCounts.contains(bc) ? bc : 96;
     accent = 0; // Album-art colors replace the retired manual color palettes.
