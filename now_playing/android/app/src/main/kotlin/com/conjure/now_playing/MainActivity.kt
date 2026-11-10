@@ -53,7 +53,7 @@ open class MainActivity : FlutterActivity() {
             return
         }
         try {
-            val granted = (data.flags and (
+            val granted = ((data?.flags ?: 0) and (
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
             contentResolver.takePersistableUriPermission(uri, granted)
