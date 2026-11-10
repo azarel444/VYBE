@@ -205,6 +205,7 @@ class SettingsScreen extends StatelessWidget {
             if (!context.mounted) return;
             if (selected) {
               await PortableMediaCache.backupExisting();
+              await LocalArtwork.instance.reconnectSavedArtwork();
               final copied = await LocalArtwork.instance.mirrorIndexedArtwork();
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -260,7 +261,7 @@ class SettingsScreen extends StatelessWidget {
             await showLocalArtworkScan(context);
             if (context.mounted) s.update(() {}, persist: false);
           }),
-      _action('Verify saved VYBE Cache artwork',
+      if (_showDiagnostics) _action('Verify saved VYBE Cache artwork',
           'Check current artist fanart and clearlogo without any download',
           'Check cache', () async {
             final artist = model.artist.trim();

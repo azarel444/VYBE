@@ -395,6 +395,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     if (!mounted) return;
                     if (selected) {
                       await PortableMediaCache.backupExisting();
+                      await LocalArtwork.instance.reconnectSavedArtwork();
                       final copies = await LocalArtwork.instance.mirrorIndexedArtwork();
                       if (mounted) setState(() =>
                           _localArtStatus = '$copies local images preserved in Saved Artwork Library.');
