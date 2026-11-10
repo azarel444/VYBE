@@ -104,6 +104,12 @@ class NowPlayingModel extends ChangeNotifier {
   Timer? _sessionArtRetryTimer;
   int _sessionArtRetries = 0;
   String _lookupInFlight = '';
+  String _localArtLookupTrack = '';
+  // The current song's album cover gets the first opportunity to load;
+  // backgrounds and logos can start after the first attempt or a short cap.
+  bool _albumArtPriorityPending = false;
+  bool get albumArtPriorityPending =>
+      _albumArtPriorityPending && artLookupEnabled && active;
   int _artAttempts = 0;
   String artworkStatus = 'Waiting for playback';
   String sessionArtworkStatus = 'No media-session event yet';
@@ -433,6 +439,8 @@ class NowPlayingModel extends ChangeNotifier {
       _sessionArtRetries = 0;
       _artAttempts = 0;
       _lookupInFlight = '';
+      _localArtLookupTrack = '';
+      _albumArtPriorityPending = artLookupEnabled && title.isNotEmpty;
       _needsArt = false;
       sessionArtworkStatus = 'Awaiting artwork for new track';
       artworkSource = 'None';
@@ -518,10 +526,8 @@ class NowPlayingModel extends ChangeNotifier {
         art = null;
         artworkSource = 'None';
         _albumArtCache.remove(cacheAlbumKey);
-        if (artLookupEnabled && title.isNotEmpty) {
-          // Local artwork first; then strict online matching.
-          unawaited(_lookupLocalFirst());
-        }
+        // Start local/catalog lookup after _trackKey has been updated.
+        // Starting here captures the old track and discards the result.
       }
     } else if (changed && art != null) {
       sessionArtworkStatus = 'Missing (no bytes in media session)';
@@ -533,10 +539,15 @@ class NowPlayingModel extends ChangeNotifier {
         _artClearTimer?.cancel();
         _artClearTimer = Timer(const Duration(seconds: 3), () {
           if (!_needsArt) return;
-          _artToken++;
+          // Don't cancel a cover download that started for this new track
+          // merely because the old cover's three-second grace period ended.
+          final onlineLookupActive = _lookupInFlight.isNotEmpty;
+          if (!onlineLookupActive) _artToken++;
           art = null;
           notifyListeners();
-          if (artLookupEnabled && title.isNotEmpty) _lookupArt();
+          if (!onlineLookupActive && artLookupEnabled && title.isNotEmpty) {
+            unawaited(_lookupArt());
+          }
         });
       }
     }
@@ -545,6 +556,14 @@ class NowPlayingModel extends ChangeNotifier {
     }
     _trackKey = key;
     _albumKey = albumKey;
+    if (changed && artLookupEnabled && title.isNotEmpty &&
+        (art == null || _needsArt) &&
+        ((artBytes is! Uint8List || artBytes.isEmpty) ||
+         rejectedSessionImage)) {
+      // Do not wait for the old 700-ms network timer before even reading
+      // the cover cache/local index. Artist assets are secondary.
+      unawaited(_lookupLocalFirst());
+    }
     if ((artBytes is! Uint8List || artBytes.isEmpty) && title.isNotEmpty)
       _scheduleSessionArtRetry();
 
@@ -586,6 +605,8 @@ class NowPlayingModel extends ChangeNotifier {
     _trackKey = '';
     _albumKey = '';
     _needsArt = false;
+    _albumArtPriorityPending = false;
+    _localArtLookupTrack = '';
     _latestSessionArtwork = null;
     _artClearTimer?.cancel();
     _sessionVerificationTimer?.cancel();
@@ -657,15 +678,24 @@ class NowPlayingModel extends ChangeNotifier {
   Future<void> _lookupLocalFirst() async {
     final token = _artToken;
     final track = _trackKey;
-    final bytes = await LocalArtwork.instance.albumArt(artist, album);
-    if (token != _artToken || track != _trackKey || art != null) return;
-    if (bytes != null && bytes.isNotEmpty) {
-      artworkSource = 'Local artwork index';
-      artworkStatus = 'Matched local album artwork';
-      _setArt(bytes);
-      notifyListeners();
-    } else {
-      _lookupArt();
+    if (track.isEmpty || _localArtLookupTrack == track) return;
+    _localArtLookupTrack = track;
+    try {
+      final bytes = await LocalArtwork.instance.albumArt(artist, album);
+      if (token != _artToken || track != _trackKey ||
+          (art != null && !_needsArt)) return;
+      if (bytes != null && bytes.isNotEmpty) {
+        artworkSource = 'Local artwork index';
+        artworkStatus = 'Matched local album artwork';
+        unawaited(_setArt(bytes));
+        notifyListeners();
+      } else {
+        // The first online request now starts as soon as the local index
+        // is checked, ahead of online fanart / clearlogo requests.
+        unawaited(_lookupArt());
+      }
+    } finally {
+      if (_localArtLookupTrack == track) _localArtLookupTrack = '';
     }
   }
 
@@ -710,6 +740,7 @@ class NowPlayingModel extends ChangeNotifier {
           if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
           // Use decoded artwork directly: _setArt would invalidate this lookup's token.
           art = decoded;
+          _albumArtPriorityPending = false;
           artworkStatus = verifySession ? 'Media-session cover verified/replaced by online catalog' : 'Artwork restored from cache or online catalog';
           artworkLookupState = 'Found and decoded';
           artworkFailure = 'None';
@@ -727,6 +758,12 @@ class NowPlayingModel extends ChangeNotifier {
       debugPrint('VYBE artwork lookup failed for $k: $error');
     } finally {
       if (_lookupInFlight == k) _lookupInFlight = '';
+    }
+    if (token == _artToken && track == _trackKey) {
+      // A cover wasn't delivered on the first attempt. Release the
+      // artist artwork queue while normal album-art retries continue.
+      _albumArtPriorityPending = false;
+      if (art != null) notifyListeners();
     }
     if (token == _artToken && track == _trackKey && art == null) {
       artworkStatus = _artAttempts < 4
@@ -891,6 +928,7 @@ class NowPlayingModel extends ChangeNotifier {
     }
     // Keep usable media-session covers available while offline.
     if (art != null) {
+      _albumArtPriorityPending = false;
       _rememberAlbumArt(bytes, albumCacheKey);
     }
     if (art == null && artLookupEnabled && title.isNotEmpty) {
