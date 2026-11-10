@@ -1254,55 +1254,37 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       return fanart;
     }
     final art = model.art;
-    final Widget child;
-    // A flat placeholder picture (a logo on one color) counts as no cover.
-    if (art == null || art.flat) {
-      child = SizedBox.expand(
-        key: const ValueKey('empty'),
-        child: RepaintBoundary(
-          child: CustomPaint(
-            painter: IdleBackdropPainter(
-              clock: fxClock,
-              palette: _palette,
-              animate: true,
-              repaint: _tick,
-            ),
-          ),
+    final usingVybePlaceholder = art == null || art.flat;
+    // A playing song with no cover still uses the same blurred-artwork
+    // structure as a song with album art. The idle animation belongs to
+    // the actual no-playback state, handled in _background().
+    Widget blurred = RepaintBoundary(
+      child: ColorFiltered(
+        colorFilter: _contrastFilter(settings.bgContrast),
+        child: ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(
+              sigmaX: settings.bgBlur, sigmaY: settings.bgBlur,
+              tileMode: TileMode.clamp),
+          child: usingVybePlaceholder
+              ? Image.asset('assets/vybe_album_placeholder.png',
+                  fit: BoxFit.cover, filterQuality: FilterQuality.high)
+              : RawImage(image: art.tiny, fit: BoxFit.cover,
+                  filterQuality: FilterQuality.high),
         ),
-      );
-    } else {
-      Widget blurred = RepaintBoundary(
-        child: ColorFiltered(
-          colorFilter: _contrastFilter(settings.bgContrast),
-          child: ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(
-                sigmaX: settings.bgBlur, sigmaY: settings.bgBlur, tileMode: TileMode.clamp),
-            child: RawImage(
-              image: art.tiny,
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.high,
-            ),
-          ),
-        ),
-      );
-      if (settings.bgEffects) {
-        blurred = FxComposite(
-          mode: settings.fxBlendMode['Background Motion'] ?? 0,
-          opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
-          child: _drift(blurred));
-      }
-      child = SizedBox.expand(
-        key: ValueKey(art),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            blurred,
-            // Same single user-controlled darkness layer as fanart.
-
-          ],
-        ),
+      ),
+    );
+    if (settings.bgEffects) {
+      blurred = FxComposite(
+        mode: settings.fxBlendMode['Background Motion'] ?? 0,
+        opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
+        child: _drift(blurred),
       );
     }
+    final child = SizedBox.expand(
+      key: usingVybePlaceholder
+          ? const ValueKey('vybe-placeholder-artwork') : ValueKey(art),
+      child: blurred,
+    );
     return ClipRect(child: SizedBox.expand(child: AnimatedSwitcher(
         layoutBuilder: (currentChild, previousChildren) => Stack(
           fit: StackFit.expand,
@@ -1356,13 +1338,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final showFanart = !settings.fanartOverride && fanart != null;
     final useAlbum = !showFanart &&
         settings.fanartFallbackSource == 0 && hasAlbum;
-    final hasImage = showFanart || useAlbum;
+    // An unavailable album cover still has a designed VYBE image. An
+    // explicitly selected animated fallback remains an intentional choice.
+    final useVybePlaceholder = !showFanart && !hasAlbum &&
+        settings.fanartFallbackSource == 0;
+    final hasImage = showFanart || useAlbum || useVybePlaceholder;
     final Widget background = showFanart
         ? Image.memory(fanart, fit: BoxFit.cover,
             alignment: Alignment.topCenter, gaplessPlayback: true)
         : useAlbum
             ? RawImage(image: art.tiny, fit: BoxFit.cover)
-            : _cinematicAnimatedFallback();
+            : useVybePlaceholder
+                ? Image.asset('assets/vybe_album_placeholder.png',
+                    fit: BoxFit.cover)
+                : _cinematicAnimatedFallback();
     final image = hasImage
         ? ImageFiltered(
             imageFilter: ui.ImageFilter.blur(
@@ -1398,6 +1387,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: SizedBox.expand(
             key: ValueKey(showFanart ? 'fanart:${_fanartArtist}:$_fanartGalleryIndex' :
                 useAlbum ? 'cinematic-album:${model.artist}:${model.album}' :
+                useVybePlaceholder ? 'cinematic-vybe-placeholder' :
                 'cinematic-template:${settings.cinematicPalette}'),
             child: movingImage))),
       ),
@@ -1420,7 +1410,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               child: SizedBox.expand(child: showFanart
                   ? Image.memory(fanart, fit: BoxFit.cover,
                       alignment: Alignment.topCenter, gaplessPlayback: true)
-                  : RawImage(image: art?.tiny, fit: BoxFit.cover)),
+                  : useAlbum
+                      ? RawImage(image: art?.tiny, fit: BoxFit.cover)
+                      : Image.asset('assets/vybe_album_placeholder.png',
+                          fit: BoxFit.cover)),
             ),
           ))),
         ),
