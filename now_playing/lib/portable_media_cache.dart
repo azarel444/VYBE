@@ -5,15 +5,13 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Optional offline mirror in a user-selected music folder.
+/// Persistent artwork library that can be stored separately from music.
 ///
-/// Android's Storage Access Framework owns this folder. Files stay there
-/// after VYBE is uninstalled; selecting the same folder on a fresh install
-/// reconnects the app to its saved album covers, fanart, clearlogos and
-/// synced lyrics. The internal caches are still used first for speed.
-///
-/// The native bridge owns document-tree operations. Only hashed names enter
-/// the VYBE Cache directory; artist and song names never become filenames.
+/// Android's Storage Access Framework grants VYBE access to an ordinary
+/// Documents/USB/SD folder selected by the user. The VYBE Cache subfolder
+/// remains after app removal. The app-private cache is still used for speed.
+/// Without a separate location, an existing music-folder cache keeps working.
+/// After reinstall, choose the same saved-artwork folder to reconnect.
 class PortableMediaCache {
   PortableMediaCache._();
   static const MethodChannel _channel = MethodChannel('vybe/local_art');
@@ -39,6 +37,28 @@ class PortableMediaCache {
 
   static String _filename(String kind, String key) =>
       '${kind}_${hashKey(key)}.bin';
+
+  /// Filename shared by Dart's local artwork index and native backup.
+  static String fileName(String kind, String key) => _filename(kind, key);
+
+  static Future<bool> chooseLocation() async {
+    try {
+      return await _channel.invokeMethod<bool>('chooseCacheFolder') ?? false;
+    } catch (error) {
+      lastWriteStatus = 'Cache folder selection failed: $error';
+      return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>> storageLocations() async {
+    try {
+      final value = await _channel
+          .invokeMapMethod<String, dynamic>('getStorageLocations');
+      return value ?? <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
 
   /// Map legacy signed app-private filename hashes to valid portable names.
   static String? _canonicalStoredHash(String old) {
