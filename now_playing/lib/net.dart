@@ -110,41 +110,75 @@ Future<Map<String, dynamic>?> _musicBrainzJson(Uri uri) async {
 class _ReleaseGroup {
   final String id;
   final String title;
-  const _ReleaseGroup(this.id, this.title);
+  final List<String> releaseIds;
+  _ReleaseGroup(this.id, this.title, [List<String>? releaseIds])
+      : releaseIds = releaseIds ?? <String>[];
 }
 
-/// Require a true exact credited-artist match, not a substring match.
+/// MusicBrainz keeps artist-credit as separate artists and join phrases,
+/// while media players often supply the whole collaboration as one string.
+final RegExp _artistJoin = RegExp(
+  r'\s+(?:feat(?:uring)?\.?|ft\.?|with|&|and|\+|x|vs\.?)\s+',
+  caseSensitive: false,
+);
+
+List<String> _creditParts(String value) => value
+    .split(_artistJoin)
+    .map(_norm)
+    .where((name) => name.isNotEmpty)
+    .toList();
+
+String _catalogSearchArtist(String artist) {
+  final first = artist.trim().split(_artistJoin).first.trim();
+  return first.isEmpty ? artist.trim() : first;
+}
+
 bool _artistCreditMatches(dynamic credit, String requestedArtist) {
   if (credit is! List) return false;
-  final expected = _norm(requestedArtist);
-  if (expected.isEmpty) return false;
+  final wanted = _norm(requestedArtist);
+  if (wanted.isEmpty) return false;
+  final credited = <String>{};
   for (final entry in credit) {
     if (entry is! Map) continue;
-    if (_norm(entry['name']?.toString() ?? '') == expected) return true;
+    final creditedName = entry['name']?.toString() ?? '';
     final artist = entry['artist'];
-    if (artist is Map &&
-        (_norm(artist['name']?.toString() ?? '') == expected ||
-         _norm(artist['sort-name']?.toString() ?? '') == expected)) {
-      return true;
-    }
+    final standardName = artist is Map ? artist['name']?.toString() ?? '' : '';
+    final sortName = artist is Map ? artist['sort-name']?.toString() ?? '' : '';
+    if ([creditedName, standardName, sortName]
+        .any((name) => _norm(name) == wanted)) return true;
+    // Prefer credited performance names over legal-name changes.
+    credited.addAll(_creditParts(
+        creditedName.isNotEmpty ? creditedName : standardName));
   }
-  return false;
+  final requestedParts = _creditParts(requestedArtist);
+  if (requestedParts.isEmpty) return false;
+  if (requestedParts.every(credited.contains)) return true;
+  // A catalog can credit just the primary artist when the player says
+  // "feat. Guest". Only accept lead-only credit if no other guest is
+  // credited; the caller must separately verify the full remix title.
+  final hasFeature = RegExp(r'\s+(?:feat(?:uring)?\.?|ft\.?)\s+',
+      caseSensitive: false).hasMatch(requestedArtist);
+  return hasFeature && requestedParts.length > 1 &&
+      credited.length == 1 && credited.contains(requestedParts.first);
 }
 
 List<_ReleaseGroup> _groupsFromReleases(dynamic releases) {
   if (releases is! List) return const [];
-  final result = <_ReleaseGroup>[];
-  final seen = <String>{};
+  final result = <String, _ReleaseGroup>{};
   for (final release in releases) {
     if (release is! Map) continue;
     final group = release['release-group'];
     if (group is! Map) continue;
     final id = group['id']?.toString() ?? '';
     final title = group['title']?.toString().trim() ?? '';
-    if (id.isEmpty || title.isEmpty || !seen.add(id)) continue;
-    result.add(_ReleaseGroup(id, title));
+    if (id.isEmpty || title.isEmpty) continue;
+    final entry = result.putIfAbsent(id, () => _ReleaseGroup(id, title));
+    final releaseId = release['id']?.toString() ?? '';
+    if (releaseId.isNotEmpty && !entry.releaseIds.contains(releaseId)) {
+      entry.releaseIds.add(releaseId);
+    }
   }
-  return result;
+  return result.values.toList();
 }
 
 Future<List<_ReleaseGroup>> _albumReleaseGroups(
@@ -249,11 +283,16 @@ Future<List<_ReleaseGroup>> _loadRecordingGroups(
     String title, String artist) async {
   final fullTitle = _cleanTitle(title);
   final baseTitle = _baseTrackTitle(title);
+  // Artist search indexes Steve Aoki and Wynter Gordon separately;
+  // querying the joined "Steve Aoki feat. Wynter Gordon" misses them.
+  // Use the primary name for discovery; validate ALL credits on each hit.
+  final searchArtist = _catalogSearchArtist(artist);
   final queries = <String>{
-    'recording:${_quoted(fullTitle)} AND artist:${_quoted(artist)}',
+    'recording:${_quoted(fullTitle)} AND artist:${_quoted(searchArtist)}',
     if (_norm(baseTitle) != _norm(fullTitle))
-      'recording:${_quoted(baseTitle)} AND artist:${_quoted(artist)}',
-    '${_quoted(artist)} ${_quoted(fullTitle)}',
+      'recording:${_quoted(baseTitle)} AND artist:${_quoted(searchArtist)}',
+    '${_quoted(searchArtist)} ${_quoted(fullTitle)}',
+    'recording:${_quoted(fullTitle)}',
   };
 
   final groups = <_ReleaseGroup>[];
@@ -263,7 +302,16 @@ Future<List<_ReleaseGroup>> _loadRecordingGroups(
   var networkResponses = 0;
   void addGroups(List<_ReleaseGroup> items) {
     for (final group in items) {
-      if (seenGroups.add(group.id)) groups.add(group);
+      if (seenGroups.add(group.id)) {
+        groups.add(group);
+      } else {
+        final existing = groups.firstWhere((g) => g.id == group.id);
+        for (final releaseId in group.releaseIds) {
+          if (!existing.releaseIds.contains(releaseId)) {
+            existing.releaseIds.add(releaseId);
+          }
+        }
+      }
     }
   }
 
@@ -398,12 +446,20 @@ Future<Uint8List?> _fanartAlbumImage(String releaseGroupId) async {
 }
 
 Future<Uint8List?> _coverForGroups(List<_ReleaseGroup> groups) async {
-  // Try several verified artist/song releases instead of requiring a single
-  // release group. Some originals have no CAA image while a linked
-  // edition or compilation has an image.
+  // Prefer the release group, then its verified recording's exact release.
+  // A release may have front art even when its group has no selected front.
   for (final group in groups.take(10)) {
     final cover = await _coverArtArchiveImage(group.id);
     if (cover != null) return cover;
+    for (final releaseId in group.releaseIds.take(3)) {
+      for (final path in <String>[
+        '/release/$releaseId/front-500',
+        '/release/$releaseId/front',
+      ]) {
+        final bytes = await httpGetBytes(Uri.https('coverartarchive.org', path));
+        if (bytes != null && _looksLikeImage(bytes)) return bytes;
+      }
+    }
     final fanart = await _fanartAlbumImage(group.id);
     if (fanart != null) return fanart;
   }
