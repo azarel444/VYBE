@@ -17,9 +17,9 @@ import 'artist_fanart.dart';
 import 'local_artwork.dart';
 
 const _cyan = Color(0xFFFF005E);
-// Retain troubleshooting tools for pre-release testing without exposing them
-// in the normal settings UI.
-const bool _showDiagnostics = false;
+// Keep troubleshooting tools visible throughout device/beta testing.
+// Hiding these controls prevented verifying the source of downloaded artwork.
+const bool _showDiagnostics = true;
 
 /// Full-screen settings page with large touch targets for head units.
 /// Split into tabs so each page stays short.
