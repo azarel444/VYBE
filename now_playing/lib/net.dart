@@ -283,13 +283,22 @@ Future<List<_ReleaseGroup>> _loadRecordingGroups(
     String title, String artist) async {
   final fullTitle = _cleanTitle(title);
   final baseTitle = _baseTrackTitle(title);
-  // Artist search indexes Steve Aoki and Wynter Gordon separately;
-  // querying the joined "Steve Aoki feat. Wynter Gordon" misses them.
-  // Use the primary name for discovery; validate ALL credits on each hit.
+  // MusicBrainz indexes featured performers separately, but names like
+  // "Eli & Fur" are also legitimate single artist entities. Preserve
+  // exact full-credit discovery before trying a lead-artist fallback.
+  // Validate ALL credits and the full track/remix title on every hit.
   final searchArtist = _catalogSearchArtist(artist);
   final queries = <String>{
-    'recording:${_quoted(fullTitle)} AND artist:${_quoted(searchArtist)}',
+    // Full names like "Eli & Fur" are real artist entities.
+    'recording:${_quoted(fullTitle)} AND artist:${_quoted(artist)}',
     if (_norm(baseTitle) != _norm(fullTitle))
+      'recording:${_quoted(baseTitle)} AND artist:${_quoted(artist)}',
+    // Use lead-artist fallback only when a combined credit exists.
+    // Always verify structured credits AND the exact remix title.
+    if (_norm(searchArtist) != _norm(artist))
+      'recording:${_quoted(fullTitle)} AND artist:${_quoted(searchArtist)}',
+    if (_norm(searchArtist) != _norm(artist) &&
+        _norm(baseTitle) != _norm(fullTitle))
       'recording:${_quoted(baseTitle)} AND artist:${_quoted(searchArtist)}',
     '${_quoted(searchArtist)} ${_quoted(fullTitle)}',
     'recording:${_quoted(fullTitle)}',
