@@ -142,12 +142,6 @@ List<_ReleaseGroup> _groupsFromReleases(dynamic releases) {
     final id = group['id']?.toString() ?? '';
     final title = group['title']?.toString().trim() ?? '';
     if (id.isEmpty || title.isEmpty || !seen.add(id)) continue;
-    final secondary = group['secondary-types'];
-    if (secondary is List && secondary.any((x) =>
-        const ['Compilation', 'Soundtrack', 'DJ-mix']
-            .contains(x?.toString()))) {
-      continue;
-    }
     result.add(_ReleaseGroup(id, title));
   }
   return result;
@@ -197,20 +191,46 @@ Future<List<_ReleaseGroup>> _albumReleaseGroups(
 
 final Map<String, Future<List<_ReleaseGroup>>> _recordingInFlight = {};
 
-/// Verify the recording's actual credited artist and song, then collect its
-/// release groups. Multiple releases are left for the caller to disambiguate.
+/// Album lookup diagnostics are kept separate from fanart diagnostics.
+String latestArtworkCatalogDiagnostic = 'Not searched';
+
+String _baseTrackTitle(String title) {
+  final clean = _cleanTitle(title);
+  final base = clean.replaceFirst(
+    RegExp(r'\s*[\(\[][^\)\]]*[\)\]]\s*$'),
+    '',
+  ).trim();
+  return base.isEmpty ? clean : base;
+}
+
+/// Match the recorded song, including its remixer. The old catalog's
+/// searches were flexible, but this final check must not confuse different
+/// remixes with the original recording.
+String _trackMatchKey(String title) => _norm(
+  _cleanTitle(title).replaceAll(
+    RegExp(r'\bremix\b', caseSensitive: false), 'mix',
+  ),
+);
+
+bool _trackMatches(String candidate, String requested) =>
+    _trackMatchKey(candidate).isNotEmpty &&
+    _trackMatchKey(candidate) == _trackMatchKey(requested);
+
+/// Like the original working catalog lookup: try complete artist+song,
+/// then a broader song title and a plain-text search. Verify each hit by
+/// credited artist and full recording title before using artwork.
 Future<List<_ReleaseGroup>> _recordingGroups(
     String title, String artist) {
   if (_norm(title).isEmpty || _norm(artist).isEmpty) {
     return Future.value(const <_ReleaseGroup>[]);
   }
-  final key = '${_norm(artist)}|${_norm(_cleanTitle(title))}';
+  final key = '${_norm(artist)}|${_trackMatchKey(title)}';
   final existing = _recordingInFlight[key];
   if (existing != null) return existing;
   final task = _loadRecordingGroups(title, artist);
   _recordingInFlight[key] = task;
   task.then((groups) {
-    // Do not cache misses: a transient network error remains retryable.
+    // A failed search must be retryable, including after network timeouts.
     if (groups.isEmpty && identical(_recordingInFlight[key], task)) {
       _recordingInFlight.remove(key);
     }
@@ -227,51 +247,88 @@ Future<List<_ReleaseGroup>> _recordingGroups(
 
 Future<List<_ReleaseGroup>> _loadRecordingGroups(
     String title, String artist) async {
-  final term =
-      'recording:${_quoted(_cleanTitle(title))} AND artist:${_quoted(artist)}';
-  final json = await _musicBrainzJson(
-    Uri.https('musicbrainz.org', '/ws/2/recording/', {
-      'query': term, 'fmt': 'json', 'limit': '12',
-    }),
-  );
-  final recordings = json?['recordings'];
-  if (recordings is! List) return const [];
+  final fullTitle = _cleanTitle(title);
+  final baseTitle = _baseTrackTitle(title);
+  final queries = <String>{
+    'recording:${_quoted(fullTitle)} AND artist:${_quoted(artist)}',
+    if (_norm(baseTitle) != _norm(fullTitle))
+      'recording:${_quoted(baseTitle)} AND artist:${_quoted(artist)}',
+    '${_quoted(artist)} ${_quoted(fullTitle)}',
+  };
+
   final groups = <_ReleaseGroup>[];
-  final seen = <String>{};
-  var inspected = 0;
-  for (final entry in recordings) {
-    if (entry is! Map) continue;
-    if (_norm(_cleanTitle(entry['title']?.toString() ?? '')) !=
-            _norm(_cleanTitle(title)) ||
-        !_artistCreditMatches(entry['artist-credit'], artist)) {
-      continue;
-    }
-    var releases = _groupsFromReleases(entry['releases']);
-    // MusicBrainz recording search and recording lookups don't always attach
-    // release-group data to the nested releases. Browse the verified
-    // recording's releases instead: release-group is supported on a release.
-    if (releases.isEmpty && inspected++ < 2) {
-      final id = entry['id']?.toString() ?? '';
-      if (id.isNotEmpty) {
-        final details = await _musicBrainzJson(Uri.https(
-          'musicbrainz.org', '/ws/2/release/', {
-            'recording': id, 'inc': 'release-groups', 'fmt': 'json',
-            'limit': '100',
-          },
-        ));
-        final total = details?['release-count'];
-        // More than one page cannot prove an unambiguous match, so decline
-        // rather than silently pick a potentially unrelated edition.
-        if (total is int && total <= 100) {
-          releases = _groupsFromReleases(details?['releases']);
-        }
-      }
-    }
-    for (final release in releases) {
-      if (seen.add(release.id)) groups.add(release);
+  final seenGroups = <String>{};
+  final seenRecordings = <String>{};
+  var browseCount = 0;
+  var networkResponses = 0;
+  void addGroups(List<_ReleaseGroup> items) {
+    for (final group in items) {
+      if (seenGroups.add(group.id)) groups.add(group);
     }
   }
+
+  for (final term in queries) {
+    final json = await _musicBrainzJson(
+      Uri.https('musicbrainz.org', '/ws/2/recording/', {
+        'query': term, 'fmt': 'json', 'limit': '100',
+      }),
+    );
+    if (json == null) continue;
+    networkResponses++;
+    final recordings = json['recordings'];
+    if (recordings is! List) continue;
+
+    for (final entry in recordings) {
+      if (entry is! Map) continue;
+      if (!_trackMatches(entry['title']?.toString() ?? '', title) ||
+          !_artistCreditMatches(entry['artist-credit'], artist)) {
+        continue;
+      }
+      final id = entry['id']?.toString() ?? '';
+      if (id.isEmpty || !seenRecordings.add(id)) continue;
+
+      // Some MusicBrainz search results omit release groups from nested
+      // releases. Browse verified recordings to get their actual groups.
+      // Don't drop compilation releases: the old provider could return
+      // their covers when the official single has none.
+      addGroups(_groupsFromReleases(entry['releases']));
+      if (browseCount++ < 4) {
+        final details = await _musicBrainzJson(
+          Uri.https('musicbrainz.org', '/ws/2/release/', {
+            'recording': id, 'inc': 'release-groups',
+            'fmt': 'json', 'limit': '100',
+          }),
+        );
+        addGroups(_groupsFromReleases(details?['releases']));
+      }
+    }
+    if (groups.isNotEmpty) break;
+  }
+
+  latestArtworkCatalogDiagnostic = seenRecordings.isEmpty
+      ? (networkResponses == 0
+          ? 'MusicBrainz request failed or timed out'
+          : 'No verified MusicBrainz artist + full song match')
+      : (groups.isEmpty
+          ? 'Matched ${seenRecordings.length} recording(s); no releases returned'
+          : 'Matched ${seenRecordings.length} recording(s), ${groups.length} release group(s)');
   return groups;
+}
+
+List<_ReleaseGroup> _rankSongGroups(
+    List<_ReleaseGroup> groups, String songTitle) {
+  final base = _norm(_baseTrackTitle(songTitle));
+  final ranked = List<_ReleaseGroup>.of(groups);
+  int score(_ReleaseGroup group) {
+    final name = _norm(group.title);
+    if (name == base) return 3;
+    if (name.startsWith(base) && base.isNotEmpty) return 2;
+    if (name.contains(base) && base.isNotEmpty) return 1;
+    return 0;
+  }
+  // Preserve catalog ordering on ties, as the previous song catalog did.
+  ranked.sort((a, b) => score(b).compareTo(score(a)));
+  return ranked;
 }
 
 Future<Uint8List?> _coverArtArchiveImage(String releaseGroupId) async {
@@ -341,7 +398,10 @@ Future<Uint8List?> _fanartAlbumImage(String releaseGroupId) async {
 }
 
 Future<Uint8List?> _coverForGroups(List<_ReleaseGroup> groups) async {
-  for (final group in groups.take(3)) {
+  // Try several verified artist/song releases instead of requiring a single
+  // release group. Some originals have no CAA image while a linked
+  // edition or compilation has an image.
+  for (final group in groups.take(10)) {
     final cover = await _coverArtArchiveImage(group.id);
     if (cover != null) return cover;
     final fanart = await _fanartAlbumImage(group.id);
@@ -350,42 +410,33 @@ Future<Uint8List?> _coverForGroups(List<_ReleaseGroup> groups) async {
   return null;
 }
 
-/// Prefer exact artist + track identification. The incoming album tag can
-/// be a user-defined folder/playlist name (e.g. "Bangers"), not the title of
-/// any official release. Do not require that tag to match the verified song's
-/// release group. Never guess between multiple different release groups.
+/// Recreate the previous working search order with MusicBrainz instead
+/// of Apple: artist + album first, then verified artist + recording with
+/// full and simplified title search queries. Preserve player album labels.
 Future<Uint8List?> fetchArtwork(
     String title, String artist, {String album = ''}) async {
   if (_norm(artist).isEmpty || _norm(title).isEmpty) return null;
+  latestArtworkCatalogDiagnostic = 'Searching artist + album, then artist + song';
 
-  final recordingGroups = await _recordingGroups(title, artist);
   if (_hasAlbumTag(album)) {
-    // If the track is cataloged on the supplied album, prefer that exact
-    // release over other singles, remix collections or reissues.
-    final exactAlbumGroups = recordingGroups
-        .where((g) => _norm(g.title) == _norm(album)).toList();
-    if (exactAlbumGroups.isNotEmpty) {
-      final matchedCover = await _coverForGroups(exactAlbumGroups);
-      if (matchedCover != null) return matchedCover;
+    final albumGroups = await _albumReleaseGroups(artist, album);
+    final matchingAlbumCover = await _coverForGroups(albumGroups);
+    if (matchingAlbumCover != null) {
+      latestArtworkCatalogDiagnostic = 'Verified artist + album cover found';
+      return matchingAlbumCover;
     }
   }
 
-  // A uniquely identified artist+recording can supply artwork even if its
-  // official release differs from a custom album tag. Keep the album label
-  // the player supplied; this only recovers the missing image.
-  if (recordingGroups.length == 1) {
-    final songCover = await _coverForGroups(recordingGroups);
-    if (songCover != null) return songCover;
-  }
-
-  // No unambiguous song cover: keep the existing conservative artist + album
-  // fallback for tracks with genuine album tags. Unknown/custom albums simply
-  // return null instead of borrowing unrelated artwork.
-  if (_hasAlbumTag(album)) {
-    final albumGroups = await _albumReleaseGroups(artist, album);
-    return _coverForGroups(albumGroups);
-  }
-  return null;
+  final recordingGroups = await _recordingGroups(title, artist);
+  if (recordingGroups.isEmpty) return null;
+  final matchDetail = latestArtworkCatalogDiagnostic;
+  final artwork = await _coverForGroups(
+    _rankSongGroups(recordingGroups, title),
+  );
+  latestArtworkCatalogDiagnostic = artwork != null
+      ? 'Verified artist + song; cover recovered from linked release'
+      : '${matchDetail}; no downloadable cover in first 10 checked releases';
+  return artwork;
 }
 
 /// Exact song lookup via MusicBrainz -> Cover Art Archive / Fanart.tv.
@@ -393,8 +444,8 @@ Future<Uint8List?> fetchSongSpecificArtwork(
     String title, String artist) async {
   if (_norm(artist).isEmpty || _norm(title).isEmpty) return null;
   final groups = await _recordingGroups(title, artist);
-  if (groups.length != 1) return null;
-  return _coverForGroups(groups);
+  if (groups.isEmpty) return null;
+  return _coverForGroups(_rankSongGroups(groups, title));
 }
 
 /// For songs without an album tag, only identify a uniquely matched release.
