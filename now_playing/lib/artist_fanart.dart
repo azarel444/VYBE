@@ -178,6 +178,7 @@ class ArtistFanartCache {
         // Rendez-Vous, while still requiring the full artist name.
         String normalize(String name) => name.toLowerCase().trim()
             .replaceAll(RegExp(r'[-‐‑‒–—_]'), ' ')
+            .replaceAll(RegExp(r'\s*&\s*'), ' and ')
             .replaceAll(RegExp(r'[.\u2018\u2019]'), '')
             .replaceAll(RegExp(r'\s+'), ' ')
             .replaceFirst(RegExp(r'^the '), '')
