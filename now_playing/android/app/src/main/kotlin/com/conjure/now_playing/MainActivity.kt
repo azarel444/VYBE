@@ -35,29 +35,46 @@ import kotlin.math.pow
 open class MainActivity : FlutterActivity() {
 
     private var artworkFolderResult: MethodChannel.Result? = null
+    private var cacheFolderResult: MethodChannel.Result? = null
     private val artworkRequestCode = 8943
+    private val cacheRequestCode = 8944
 
     @Deprecated("Legacy activity result used for Android 9 compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != artworkRequestCode) return
-        val pending = artworkFolderResult ?: return
-        artworkFolderResult = null
+        if (requestCode != artworkRequestCode && requestCode != cacheRequestCode) return
+        val cachePicker = requestCode == cacheRequestCode
+        val pending = if (cachePicker) cacheFolderResult else artworkFolderResult
+        if (cachePicker) cacheFolderResult = null else artworkFolderResult = null
+        if (pending == null) return
         val uri = data?.data
         if (resultCode != android.app.Activity.RESULT_OK || uri == null) {
             pending.success(false)
             return
         }
         try {
-            val granted = (data?.flags ?: 0) and (
+            val granted = (data.flags and (
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
             contentResolver.takePersistableUriPermission(uri, granted)
-            getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE).edit()
-                .putString("tree", uri.toString()).apply()
-            clearPortableCacheIndex()
+            val prefs = getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE)
+            if (cachePicker) {
+                val oldCache = portableCacheTree()
+                prefs.edit().putString("cache_tree", uri.toString()).apply()
+                clearPortableCacheIndex()
+                // The existing source directory can be on an unplugged USB
+                // drive. Failed migration must not erase the destination.
+                Thread {
+                    try { migrateOldPortableCache(oldCache, uri) } catch (_: Exception) {}
+                }.start()
+            } else {
+                prefs.edit().putString("tree", uri.toString()).apply()
+                clearPortableCacheIndex()
+            }
             pending.success(true)
-        } catch (e: Exception) { pending.error("folder", e.message, null) }
+        } catch (e: Exception) {
+            pending.error("folder", e.message, null)
+        }
     }
 
     // Keep large artwork indexes out of FlutterSharedPreferences. On older
@@ -125,12 +142,25 @@ open class MainActivity : FlutterActivity() {
         return entries
     }
 
-    // Files saved under the user-selected music folder survive uninstall.
-    // Nothing is written outside its VYBE Cache subfolder.
+    // New installations can select Documents/internal storage for persistent
+    // artwork, independently of where music resides. Older installations
+    // continue to read their historical Music/VYBE Cache folder until users
+    // select another destination.
     private fun portableCacheTree(): Uri? {
-        val raw = getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE)
-            .getString("tree", null) ?: return null
+        val prefs = getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE)
+        val raw = prefs.getString("cache_tree", null)
+            ?: prefs.getString("tree", null) ?: return null
         return Uri.parse(raw)
+    }
+
+    private fun storageLocations(): Map<String, Any> {
+        val prefs = getSharedPreferences("vybe_local_art", Context.MODE_PRIVATE)
+        return mapOf(
+            "music" to (prefs.getString("tree", null) ?: ""),
+            "cache" to (prefs.getString("cache_tree", null) ?: ""),
+            "independent" to (prefs.getString("cache_tree", null) != null),
+            "effectiveCache" to (portableCacheTree()?.toString() ?: "")
+        )
     }
 
     private fun portableCacheChild(tree: Uri, dir: Uri, filename: String): Pair<Uri, String>? {
@@ -153,8 +183,9 @@ open class MainActivity : FlutterActivity() {
         return null
     }
 
-    private fun portableCacheDirectory(create: Boolean): Pair<Uri, Uri>? {
-        val tree = portableCacheTree() ?: return null
+    private fun portableCacheDirectory(create: Boolean,
+        explicitTree: Uri? = null): Pair<Uri, Uri>? {
+        val tree = explicitTree ?: portableCacheTree() ?: return null
         val root = android.provider.DocumentsContract.buildDocumentUriUsingTree(
             tree, android.provider.DocumentsContract.getTreeDocumentId(tree))
         val directoryMime = android.provider.DocumentsContract.Document.MIME_TYPE_DIR
@@ -252,6 +283,66 @@ open class MainActivity : FlutterActivity() {
         return true
     }
 
+    // Copy the OLD persistent cache when moving to a different folder. Never
+    // remove source files or overwrite backed-up files in the new destination.
+    private fun migrateOldPortableCache(source: Uri?, destination: Uri) {
+        if (source == null || source == destination) return
+        val old = portableCacheDirectory(false, source) ?: return
+        val oldId = android.provider.DocumentsContract.getDocumentId(old.second)
+        val children = android.provider.DocumentsContract
+            .buildChildDocumentsUriUsingTree(source, oldId)
+        val columns = arrayOf(
+            android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        contentResolver.query(children, columns, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(1) ?: continue
+                if (!validPortableCacheName(name)) continue
+                try {
+                    val doc = android.provider.DocumentsContract
+                        .buildDocumentUriUsingTree(source, cursor.getString(0))
+                    val newDir = portableCacheDirectory(true, destination) ?: return
+                    if (portableCacheFile(newDir.first, newDir.second, name) != null) continue
+                    val data = contentResolver.openInputStream(doc)?.use { it.readBytes() }
+                        ?: continue
+                    if (data.isNotEmpty() && data.size <= 12 * 1024 * 1024) {
+                        portableCacheWrite(name, data)
+                    }
+                } catch (_: Exception) { /* Keep copying remaining files. */ }
+            }
+        }
+    }
+
+    // Import all indexed artwork into the independently chosen cache. The
+    // source files remain untouched. Dart keeps the backed-up image index so
+    // VYBE can rediscover those images after a USB drive goes missing.
+    private fun mirrorLocalArtwork(
+        entries: List<*>): List<String> {
+        val saved = mutableListOf<String>()
+        for (raw in entries) {
+            val entry = raw as? Map<*, *> ?: continue
+            val name = entry["cacheName"] as? String ?: continue
+            val uriText = entry["uri"] as? String ?: continue
+            if (!validPortableCacheName(name) || !uriText.startsWith("content://")) {
+                continue
+            }
+            try {
+                val target = portableCacheDirectory(true) ?: break
+                if (portableCacheFile(target.first, target.second, name) != null) {
+                    saved.add(name)
+                    continue
+                }
+                val bytes = contentResolver.openInputStream(Uri.parse(uriText))
+                    ?.use { it.readBytes() } ?: continue
+                if (bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024 &&
+                    portableCacheWrite(name, bytes)) {
+                    saved.add(name)
+                }
+            } catch (_: Exception) { /* Continue with remaining artwork. */ }
+        }
+        return saved
+    }
+
     private var vybeDirect: VybeDirect? = null
     private var sink: EventChannel.EventSink? = null
     private var manager: MediaSessionManager? = null
@@ -284,7 +375,7 @@ open class MainActivity : FlutterActivity() {
         MethodChannel(messenger, "vybe/local_art").setMethodCallHandler { call, result ->
             when (call.method) {
                 "chooseFolder" -> {
-                    if (artworkFolderResult != null) result.error("busy", "Folder chooser active", null)
+                    if (artworkFolderResult != null || cacheFolderResult != null) result.error("busy", "Folder chooser active", null)
                     else {
                         artworkFolderResult = result
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
@@ -295,6 +386,29 @@ open class MainActivity : FlutterActivity() {
                         startActivityForResult(intent, artworkRequestCode)
                     }
                 }
+                "chooseCacheFolder" -> {
+                    if (artworkFolderResult != null || cacheFolderResult != null) {
+                        result.error("busy", "Folder chooser active", null)
+                    } else {
+                        cacheFolderResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                        }
+                        startActivityForResult(intent, cacheRequestCode)
+                    }
+                }
+                "getStorageLocations" -> result.success(storageLocations())
+                "mirrorLocalArtwork" -> Thread {
+                    try {
+                        val entries = call.argument<List<*>>("entries") ?: emptyList<Any>()
+                        val saved = mirrorLocalArtwork(entries)
+                        runOnUiThread { result.success(saved) }
+                    } catch (e: Exception) {
+                        runOnUiThread { result.error("mirror_artwork", e.message, null) }
+                    }
+                }.start()
                 "readIndex" -> Thread {
                     try {
                         val json = readArtworkIndex()
