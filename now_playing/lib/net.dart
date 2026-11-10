@@ -71,6 +71,14 @@ Future<String?> httpGetString(Uri uri) async {
 String _norm(String s) =>
     s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
+bool _hasAlbumTag(String album) {
+  final normalized = _norm(album);
+  return normalized.isNotEmpty && !const <String>{
+    'unknown', 'unknownalbum', 'albumunknown', 'notavailable',
+    'na', 'none', 'null',
+  }.contains(normalized);
+}
+
 String _cleanTitle(String s) => s.replaceAll(
   RegExp(
     r'\s*[\(\[][^\)\]]*(?:official(?:\s+music)?\s+video|lyric\s+video|visualizer|remaster(?:ed)?|extended|radio edit|version)[^\)\]]*[\)\]]',
@@ -239,19 +247,22 @@ Future<List<_ReleaseGroup>> _loadRecordingGroups(
       continue;
     }
     var releases = _groupsFromReleases(entry['releases']);
-    // Search results may omit nested groups; look up up to two exact
-    // recordings when needed, never accept a fuzzy title or artist.
+    // MusicBrainz recording search and recording lookups don't always attach
+    // release-group data to the nested releases. Browse the verified
+    // recording's releases instead: release-group is supported on a release.
     if (releases.isEmpty && inspected++ < 2) {
       final id = entry['id']?.toString() ?? '';
       if (id.isNotEmpty) {
         final details = await _musicBrainzJson(Uri.https(
-          'musicbrainz.org', '/ws/2/recording/$id', {
-            'inc': 'releases+release-groups', 'fmt': 'json',
+          'musicbrainz.org', '/ws/2/release/', {
+            'recording': id, 'inc': 'release-groups', 'fmt': 'json',
+            'limit': '100',
           },
         ));
-        if (_norm(_cleanTitle(details?['title']?.toString() ?? '')) ==
-                _norm(_cleanTitle(title)) &&
-            _artistCreditMatches(details?['artist-credit'], artist)) {
+        final total = details?['release-count'];
+        // More than one page cannot prove an unambiguous match, so decline
+        // rather than silently pick a potentially unrelated edition.
+        if (total is int && total <= 100) {
           releases = _groupsFromReleases(details?['releases']);
         }
       }
@@ -345,7 +356,7 @@ Future<Uint8List?> fetchArtwork(
     String title, String artist, {String album = ''}) async {
   if (_norm(artist).isEmpty || _norm(title).isEmpty) return null;
 
-  if (_norm(album).isNotEmpty) {
+  if (_hasAlbumTag(album)) {
     final albumGroups = await _albumReleaseGroups(artist, album);
     final albumCover = await _coverForGroups(albumGroups);
     if (albumCover != null) return albumCover;
