@@ -527,33 +527,118 @@ Future<Uint8List?> _coverForGroups(List<_ReleaseGroup> groups) async {
   return null;
 }
 
+/// The returned match type must survive caching. Original-song artwork is
+/// provisional and can be upgraded when an exact remix release is added.
+class ArtworkLookupResult {
+  final Uint8List bytes;
+  final bool originalSongFallback;
+  final String releaseTitle;
+
+  const ArtworkLookupResult(this.bytes, {
+    this.originalSongFallback = false,
+    this.releaseTitle = '',
+  });
+}
+
+/// Exposed to the playback cache to ensure that only actual remix requests
+/// can read an original-song fallback entry.
+bool hasRemixArtworkFallback(String title) => _remixCredit(title) != null;
+
+/// Original-track artwork must come from a verified recording by the same
+/// artist, never from a different remix or an unrelated compilation.
+/// Prefer a single/release-group named for the original song. If there is
+/// no such release, use a linked album only when the group is unambiguous.
+Future<ArtworkLookupResult?> _originalSongArtworkFallback(
+    String remixTitle, String artist) async {
+  if (!hasRemixArtworkFallback(remixTitle)) return null;
+  final originalTitle = _baseTrackTitle(remixTitle);
+  if (originalTitle.isEmpty ||
+      _norm(originalTitle) == _norm(remixTitle)) return null;
+  final groups = await _recordingGroups(originalTitle, artist);
+  if (groups.isEmpty) return null;
+
+  final namedForSong = groups.where(
+    (group) => _norm(group.title) == _norm(originalTitle),
+  ).toList();
+  final safeGroups = namedForSong.isNotEmpty
+      ? namedForSong
+      : (groups.length == 1 ? groups : <_ReleaseGroup>[]);
+  if (safeGroups.isEmpty) {
+    latestArtworkCatalogDiagnostic =
+        'Original recording found but multiple possible releases; '
+        'no cover selected';
+    return null;
+  }
+
+  // The exact remix lookup already failed before we are called.
+  final cover = await _coverForGroups(safeGroups);
+  if (cover == null) {
+    latestArtworkCatalogDiagnostic =
+        'Original recording found but no verified original cover available';
+    return null;
+  }
+  final selected = safeGroups.first.title;
+  latestArtworkCatalogDiagnostic =
+      'Original song artwork fallback: $selected (not exact remix artwork)';
+  return ArtworkLookupResult(cover,
+      originalSongFallback: true, releaseTitle: selected);
+}
+
 /// Recreate the previous working search order with MusicBrainz instead
 /// of Apple: artist + album first, then verified artist + recording with
 /// full and simplified title search queries. Preserve player album labels.
-Future<Uint8List?> fetchArtwork(
-    String title, String artist, {String album = ''}) async {
+Future<ArtworkLookupResult?> fetchArtworkWithMatch(
+    String title, String artist,
+    {String album = '', bool allowOriginalFallback = true}) async {
   if (_norm(artist).isEmpty || _norm(title).isEmpty) return null;
-  latestArtworkCatalogDiagnostic = 'Searching artist + album, then artist + song';
+  latestArtworkCatalogDiagnostic =
+      'Searching artist + album, then exact artist + song';
 
+  // Keep all previously working exact album and remix searches unchanged.
   if (_hasAlbumTag(album)) {
     final albumGroups = await _albumReleaseGroups(artist, album);
     final matchingAlbumCover = await _coverForGroups(albumGroups);
     if (matchingAlbumCover != null) {
       latestArtworkCatalogDiagnostic = 'Verified artist + album cover found';
-      return matchingAlbumCover;
+      return ArtworkLookupResult(matchingAlbumCover);
     }
   }
 
   final recordingGroups = await _recordingGroups(title, artist);
-  if (recordingGroups.isEmpty) return null;
-  final matchDetail = latestArtworkCatalogDiagnostic;
-  final artwork = await _coverForGroups(
-    _rankSongGroups(recordingGroups, title),
-  );
-  latestArtworkCatalogDiagnostic = artwork != null
-      ? 'Verified artist + song; cover recovered from linked release'
-      : '${matchDetail}; no downloadable cover in first 10 checked releases';
-  return artwork;
+  if (recordingGroups.isNotEmpty) {
+    final artwork = await _coverForGroups(
+      _rankSongGroups(recordingGroups, title),
+    );
+    if (artwork != null) {
+      latestArtworkCatalogDiagnostic =
+          'Verified exact artist + remix; cover recovered from linked release';
+      return ArtworkLookupResult(artwork);
+    }
+  }
+
+  final exactMissDetail = recordingGroups.isEmpty
+      ? latestArtworkCatalogDiagnostic
+      : 'Exact recording verified; no downloadable cover on linked releases';
+
+  // Only an explicitly identified remix may use the original recording.
+  // This result is never saved as an exact-remix match.
+  if (allowOriginalFallback && hasRemixArtworkFallback(title)) {
+    final provisional = await _originalSongArtworkFallback(title, artist);
+    if (provisional != null) return provisional;
+    final originalFailure = latestArtworkCatalogDiagnostic;
+    latestArtworkCatalogDiagnostic =
+        '$exactMissDetail; $originalFailure';
+    return null;
+  }
+
+  latestArtworkCatalogDiagnostic = exactMissDetail;
+  return null;
+}
+
+/// Legacy byte-only API for callers that need an artwork image.
+Future<Uint8List?> fetchArtwork(
+    String title, String artist, {String album = ''}) async {
+  return (await fetchArtworkWithMatch(title, artist, album: album))?.bytes;
 }
 
 /// Exact song lookup via MusicBrainz -> Cover Art Archive / Fanart.tv.

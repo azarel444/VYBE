@@ -1,4 +1,5 @@
 import 'local_artwork.dart';
+import 'portable_media_cache.dart';
 import 'local_artwork_scan.dart';
 import 'dart:async';
 
@@ -348,7 +349,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             const Text('Local music & artwork',
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
-            const Text('Choose your music folder for local album covers, artist fanart and clearlogos. VYBE also stores downloaded covers, fanart, clearlogos and lyrics in a VYBE Cache subfolder there when write access is granted. After reinstalling, select the same folder to restore downloads.'),
+            const Text('Select your music folder to index local artwork. Choose a separate Saved Artwork location below to preserve those images and future downloads, even if the music USB drive is lost. You can also choose the same folder for both.'),
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
@@ -379,6 +380,36 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               ),
             ),
             Text(_localArtStatus, style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 12),
+            const Text('Saved Artwork Library',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+            const Text('Choose Documents/internal storage, the music folder, or another accessible directory. VYBE makes permanent copies of imported album art, backgrounds, logos and downloaded artwork into its VYBE Cache subfolder.'),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _choosingArtwork ? null : () async {
+                  setState(() => _choosingArtwork = true);
+                  try {
+                    final selected = await PortableMediaCache.chooseLocation();
+                    if (!mounted) return;
+                    if (selected) {
+                      await PortableMediaCache.backupExisting();
+                      final copies = await LocalArtwork.instance.mirrorIndexedArtwork();
+                      if (mounted) setState(() =>
+                          _localArtStatus = '$copies local images preserved in Saved Artwork Library.');
+                    }
+                  } catch (error) {
+                    if (mounted) setState(() =>
+                        _localArtStatus = 'Saved artwork folder error: $error');
+                  } finally {
+                    if (mounted) setState(() => _choosingArtwork = false);
+                  }
+                },
+                icon: const Icon(Icons.save_alt),
+                label: const Text('SELECT SAVED ARTWORK FOLDER'),
+              ),
+            ),
             const SizedBox(height: 14),
             _switchRow('Find missing album art', _art, (v) {
               setState(() => _art = v);
