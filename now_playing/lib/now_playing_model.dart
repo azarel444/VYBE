@@ -129,6 +129,8 @@ class NowPlayingModel extends ChangeNotifier {
   bool _needsArt = false; // album changed and the player sent no new cover yet
   String _sentLaunch = '';
   final Map<String, Uint8List> _artCache = {};
+  // Original song covers do not certify an exact remix release.
+  final Map<String, Uint8List> _originalFallbackArtCache = {};
   // Reuse covers across songs on the same positively identified album.
   final Map<String, Uint8List> _albumArtCache = {};
   // Detect a player-supplied placeholder or shared playlist cover when the
@@ -649,6 +651,7 @@ class NowPlayingModel extends ChangeNotifier {
     // this song-specific cover under that album name, or it can leak to
     // another track in the compilation.
     _artCache['${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}'] = bytes;
+    _originalFallbackArtCache.remove(songKey);
     MediaCache.putArt('${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}', bytes);
     notifyListeners();
   }
@@ -716,37 +719,72 @@ class NowPlayingModel extends ChangeNotifier {
     _artAttempts++;
     try {
       final albumCacheKey = _albumArtKey(artist, album);
+      final fallbackCacheKey = 'original_fallback|$k';
       Uint8List? bytes = force ? null : _artCache[k];
       bytes ??= force || albumCacheKey.isEmpty ? null : _albumArtCache[albumCacheKey];
       bytes ??= force ? null : await MediaCache.getArt(k);
-      // Ignore legacy album-wide disk entries: these could contain a
-      // player display icon from older versions. Exact song caches remain.
-      if (bytes != null) artworkSource = 'Memory or disk cache';
+      bool originalFallback = false;
+      String originalRelease = '';
+      if (bytes == null && !force && hasRemixArtworkFallback(title)) {
+        bytes = _originalFallbackArtCache[k] ??
+            await MediaCache.getArt(fallbackCacheKey);
+        originalFallback = bytes != null;
+      }
+      if (bytes != null) artworkSource = originalFallback
+          ? 'Original song cover (remix fallback, cached)'
+          : 'Memory or disk cache';
       if (bytes == null) {
         artworkStatus = 'Searching online catalogs';
         artworkLookupState = 'Searching MusicBrainz / Cover Art Archive / Fanart.tv';
         notifyListeners();
+        final lookup = await fetchArtworkWithMatch(title, artist, album: album);
+        bytes = lookup?.bytes;
+        originalFallback = lookup?.originalSongFallback ?? false;
+        originalRelease = lookup?.releaseTitle ?? '';
+        if (bytes != null) {
+          artworkSource = originalFallback
+              ? 'Original song cover (remix fallback)'
+              : 'Online catalog (Cover Art Archive or Fanart.tv)';
+        }
       }
-      bytes ??= await fetchArtwork(title, artist, album: album);
-      if (bytes != null && artworkSource != 'Memory or disk cache') artworkSource = 'Online catalog (Cover Art Archive or Fanart.tv)';
       if (token != _artToken || track != _trackKey) return;
       if (bytes != null) {
         final decoded = await ArtAssets.load(bytes);
         if (token != _artToken || track != _trackKey) return;
         if (decoded != null && !decoded.flat) {
-          _artCache[k] = bytes;
-          _rememberAlbumArt(bytes, albumCacheKey);
-          MediaCache.putArt(k, bytes);
+          if (originalFallback) {
+            _originalFallbackArtCache[k] = bytes;
+            unawaited(MediaCache.putArt(fallbackCacheKey, bytes));
+          } else {
+            _artCache[k] = bytes;
+            _originalFallbackArtCache.remove(k);
+            _rememberAlbumArt(bytes, albumCacheKey);
+            unawaited(MediaCache.putArt(k, bytes));
+          }
           if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
-          // Use decoded artwork directly: _setArt would invalidate this lookup's token.
+          if (_originalFallbackArtCache.length > 12) {
+            _originalFallbackArtCache.remove(_originalFallbackArtCache.keys.first);
+          }
           art = decoded;
           _albumArtPriorityPending = false;
-          artworkStatus = verifySession ? 'Media-session cover verified/replaced by online catalog' : 'Artwork restored from cache or online catalog';
-          artworkLookupState = 'Found and decoded';
+          artworkStatus = originalFallback
+              ? 'Using original song cover until exact remix art is available'
+              : (verifySession
+                  ? 'Media-session cover verified/replaced by online catalog'
+                  : 'Artwork restored from cache or online catalog');
+          artworkLookupState = originalFallback
+              ? 'Original song fallback (not an exact remix match)${originalRelease.isEmpty ? "" : ": $originalRelease"}'
+              : 'Found and decoded';
           artworkFailure = 'None';
           _needsArt = false;
           _artClearTimer?.cancel();
           _artRetryTimer?.cancel();
+          if (originalFallback) {
+            _sessionVerificationTimer?.cancel();
+            _sessionVerificationTimer = Timer(const Duration(seconds: 3), () {
+              if (_trackKey == track) unawaited(_findSongCoverUpgrade(track));
+            });
+          }
           notifyListeners();
           return;
         }
