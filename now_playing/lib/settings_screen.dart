@@ -19,7 +19,7 @@ import 'local_artwork.dart';
 const _cyan = Color(0xFFFF005E);
 // Keep troubleshooting tools visible throughout device/beta testing.
 // Hiding these controls prevented verifying the source of downloaded artwork.
-const bool _showDiagnostics = true;
+const bool _showDiagnostics = false;
 
 /// Full-screen settings page with large touch targets for head units.
 /// Split into tabs so each page stays short.
@@ -197,7 +197,49 @@ class SettingsScreen extends StatelessWidget {
             );
           }),
       ],
-      _section('Local artwork library'),
+      _section('Saved Artwork Library'),
+      _action('Choose saved artwork location',
+          'Choose an independent Documents, internal storage, SD or USB folder. Downloaded covers, artist backgrounds and clearlogos, lyrics, and imported artwork are copied to its VYBE Cache subfolder, independently of your music library.',
+          'Choose location', () async {
+            final selected = await PortableMediaCache.chooseLocation();
+            if (!context.mounted) return;
+            if (selected) {
+              await PortableMediaCache.backupExisting();
+              final copied = await LocalArtwork.instance.mirrorIndexedArtwork();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('Saved artwork location updated. $copied indexed images backed up.')));
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Saved artwork location not changed.')));
+            }
+          }),
+      _action('Inspect artwork storage',
+          'See which folders are used for local music and saved artwork, and the saved image count.',
+          'View locations', () async {
+            final locations = await PortableMediaCache.storageLocations();
+            if (!context.mounted) return;
+            final music = locations['music']?.toString() ?? '';
+            final cache = locations['effectiveCache']?.toString() ?? '';
+            final independent = locations['independent'] == true;
+            await showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Artwork storage locations'),
+                content: SingleChildScrollView(child: SelectableText(
+                    'Local music: ${music.isEmpty ? "Not selected" : music}\n\n'
+                    'Saved artwork: ${cache.isEmpty ? "Not selected" : cache}\n'
+                    'Separate destination: ${independent ? "Yes" : "No (uses the music folder)"}\n'
+                    'Backed-up local images: ${LocalArtwork.instance.savedArtworkCount}\n\n'
+                    'Select a permanent folder such as Documents to protect artwork if a removable music drive is lost.')),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Close')),
+                ],
+              ),
+            );
+          }),
+      _section('Local music & artwork'),
       _action('Choose artwork folder and scan',
           'Index local album covers, artist fanart and clearlogos',
           'Choose folder', () async {
@@ -353,6 +395,7 @@ class SettingsScreen extends StatelessWidget {
           }),
       if (_showDiagnostics) ...[
       ],
+      if (_showDiagnostics) ...[
       _section('Artwork diagnostics'),
       _action('Mark as Placeholder',
           'Remember the current music player image and reject identical images in future sessions',
@@ -387,6 +430,7 @@ class SettingsScreen extends StatelessWidget {
       Text(ArtistFanartCache.diagnostics,
           style: const TextStyle(fontSize: 13, color: Colors.white70)),
       ],
+      ],
       _section('Offline media cache'),
       _action('Clear cached artwork and lyrics',
           'Delete downloaded artwork and synced lyrics stored on this device',
@@ -394,10 +438,40 @@ class SettingsScreen extends StatelessWidget {
       _section('Screen care'),
       _choices(
         'Night mode',
-        const ['Off', 'Auto (8pm to 6am)', 'Always on'],
+        const ['Off', 'Scheduled', 'Always on'],
         s.night,
         (i) => s.update(() => s.night = i),
       ),
+      if (s.night == 1) ...[
+        _action('Night mode starts',
+            AppSettings.formatClockMinutes(s.nightStartMinutes),
+            'Set start', () async {
+              final selected = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay(
+                    hour: s.nightStartMinutes ~/ 60,
+                    minute: s.nightStartMinutes % 60),
+              );
+              if (selected != null) {
+                s.update(() => s.nightStartMinutes =
+                    selected.hour * 60 + selected.minute);
+              }
+            }),
+        _action('Night mode ends',
+            AppSettings.formatClockMinutes(s.nightEndMinutes),
+            'Set end', () async {
+              final selected = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay(
+                    hour: s.nightEndMinutes ~/ 60,
+                    minute: s.nightEndMinutes % 60),
+              );
+              if (selected != null) {
+                s.update(() => s.nightEndMinutes =
+                    selected.hour * 60 + selected.minute);
+              }
+            }),
+      ],
       _switch('Burn-in protection',
           'Moves the layout a few pixels over time',
           s.burnIn, (v) => s.update(() => s.burnIn = v)),
