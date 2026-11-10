@@ -17,6 +17,62 @@ class LocalArtwork {
   final Set<String> _rescanAttemptedFor = <String>{};
   String status = 'No local artwork scan yet';
   int get count => _files.length;
+  int savedArtworkCount = 0;
+  static const _libraryKey = 'artwork_inventory_v1';
+
+  static String _assetKey(Map<String, String> entry) =>
+      '${entry['folder'] ?? ''}|${entry['name'] ?? ''}';
+
+  static String _assetCacheName(Map<String, String> entry) =>
+      PortableMediaCache.fileName('localimage', _assetKey(entry));
+
+  Future<List<Map<String, String>>> _readBackedUpIndex() async {
+    try {
+      final bytes = await PortableMediaCache.get('localindex', _libraryKey);
+      if (bytes == null) return [];
+      final data = jsonDecode(utf8.decode(bytes));
+      if (data is! List) return [];
+      return _validatedEntries(data);
+    } catch (_) { return []; }
+  }
+
+  /// Copy image bytes and a manifest into the selected persistent folder.
+  /// The manifest provides artist/album names even if the original music USB
+  /// drive is gone. Backups are never deleted when a scan finds fewer files.
+  Future<int> mirrorIndexedArtwork() async {
+    await load();
+    if (_files.isEmpty) return 0;
+    final payload = <Map<String, String>>[];
+    for (final entry in _files) {
+      if ((entry['uri'] ?? '').isEmpty) continue;
+      payload.add({
+        'uri': entry['uri']!,
+        'cacheName': _assetCacheName(entry),
+      });
+    }
+    Set<String> saved = {};
+    try {
+      final names = await _channel.invokeMethod<List<dynamic>>(
+          'mirrorLocalArtwork', {'entries': payload});
+      saved = (names ?? []).whereType<String>().toSet();
+    } catch (error) {
+      status = 'Artwork backup interrupted: $error';
+    }
+    for (final entry in _files) {
+      final name = _assetCacheName(entry);
+      if (saved.contains(name)) entry['cacheName'] = name;
+    }
+    final backedUp = _files.where((entry) =>
+        entry['cacheName'] == _assetCacheName(entry)).toList();
+    savedArtworkCount = backedUp.length;
+    if (backedUp.isNotEmpty) {
+      await PortableMediaCache.put('localindex', _libraryKey,
+          Uint8List.fromList(utf8.encode(jsonEncode(backedUp))));
+    }
+    status = '${_files.length} images indexed; '
+        '$savedArtworkCount preserved in VYBE Cache';
+    return savedArtworkCount;
+  }
 
   static String normalize(String value) {
     var text = value.toLowerCase().trim();
@@ -57,7 +113,20 @@ class LocalArtwork {
         final entries = _validatedEntries(decoded);
         _files..clear()..addAll(entries);
       }
-      status = '${_files.length} indexed local images';
+      final restored = await _readBackedUpIndex();
+      final keys = _files.map(_assetKey).toSet();
+      for (final entry in restored) {
+        if (keys.add(_assetKey(entry))) {
+          _files.add(entry);
+        } else {
+          final found = _files.firstWhere(
+              (value) => _assetKey(value) == _assetKey(entry));
+          found['cacheName'] = entry['cacheName'] ?? '';
+        }
+      }
+      savedArtworkCount = restored.length;
+      status = '${_files.length} indexed local images; '
+          '$savedArtworkCount saved artwork backups';
     } catch (error) {
       _files.clear();
       status = 'Local index needs rebuilding: $error';
@@ -71,11 +140,20 @@ class LocalArtwork {
     for (final item in raw) {
       if (item is! Map) continue;
       final uri = item['uri'];
-      if (uri is! String || !uri.startsWith('content://')) continue;
+      final name = item['name'];
+      final folder = item['folder'];
+      final storedName = item['cacheName'];
+      if (name is! String || folder is! String) continue;
+      final hasSource = uri is String && uri.startsWith('content://');
+      final expectedName = PortableMediaCache.fileName(
+          'localimage', '$folder|$name');
+      final hasCopy = storedName is String && storedName == expectedName;
+      if (!hasSource && !hasCopy) continue;
       entries.add(<String, String>{
-        'uri': uri,
-        'name': item['name'] is String ? item['name'] as String : '',
-        'folder': item['folder'] is String ? item['folder'] as String : '',
+        'uri': hasSource ? uri : '',
+        'name': name,
+        'folder': folder,
+        if (hasCopy) 'cacheName': expectedName,
       });
     }
     return entries;
@@ -85,9 +163,8 @@ class LocalArtwork {
     final selected =
         await _channel.invokeMethod<bool>('chooseFolder') ?? false;
     if (selected) {
-      // The original app-private caches may already hold hundreds of images.
-      // Back them up to the selected music folder as well, without blocking
-      // onboarding or the artwork index scan.
+      // Keep the independent cache location unchanged. The selected music
+      // folder may be on removable storage; its scan is mirrored separately.
       unawaited(PortableMediaCache.backupExisting());
     }
     return selected;
@@ -125,6 +202,18 @@ class LocalArtwork {
   Future<int> _scanOnce() async {
     final result = await _channel.invokeMethod<List<dynamic>>('scan') ?? [];
     final next = _validatedEntries(result);
+    // A missing USB drive must never erase copies of previously indexed art.
+    final previousBackups = await _readBackedUpIndex();
+    final known = next.map(_assetKey).toSet();
+    for (final backup in previousBackups) {
+      if (known.add(_assetKey(backup))) {
+        next.add(backup);
+      } else {
+        final source = next.firstWhere(
+            (entry) => _assetKey(entry) == _assetKey(backup));
+        source['cacheName'] = backup['cacheName'] ?? '';
+      }
+    }
     final saved = await _channel.invokeMethod<bool>('writeIndex',
         <String, Object>{'json': jsonEncode(next)});
     if (saved != true) {
@@ -132,7 +221,7 @@ class LocalArtwork {
     }
     _files..clear()..addAll(next);
     _loaded = true;
-    status = '${_files.length} indexed local images';
+    await mirrorIndexedArtwork();
     return _files.length;
   }
 
@@ -253,8 +342,17 @@ class LocalArtwork {
   }
 
   Future<Uint8List?> _read(Map<String, String> entry) async {
-    try {
-      return await _channel.invokeMethod<Uint8List>('read', {'uri': entry['uri']});
-    } catch (_) { return null; }
+    final uri = entry['uri'] ?? '';
+    if (uri.startsWith('content://')) {
+      try {
+        final bytes = await _channel.invokeMethod<Uint8List>(
+            'read', {'uri': uri});
+        if (bytes != null && bytes.isNotEmpty) return bytes;
+      } catch (_) {}
+    }
+    if (entry['cacheName'] == _assetCacheName(entry)) {
+      return PortableMediaCache.get('localimage', _assetKey(entry));
+    }
+    return null;
   }
 }
