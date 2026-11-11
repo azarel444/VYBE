@@ -878,7 +878,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Future<void> _loadClearLogo() async {
     final artist = model.artist.trim();
-    if (!settings.useArtistClearLogo || artist.isEmpty) {
+    if (!settings.useArtistClearLogo || artist.isEmpty || model.isSpotifyAdvertisement) {
       _clearLogoRetryTimer?.cancel();
       _clearLogoRetryCount = 0;
       _clearLogoIsLocal = false;
@@ -1062,6 +1062,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _clearLogoBytes = null;
     }
     _loadClearLogo();
+    if (model.isSpotifyAdvertisement) {
+      // Spotify ad metadata is not an artist. Clear old artist imagery and
+      // avoid querying MusicBrainz/Fanart.tv for "Advertisement 2 of 3".
+      _fanartRetryTimer?.cancel();
+      _fanartCycleTimer?.cancel();
+      _fanartRetryCount = 0;
+      _fanartLastFailure = null;
+      _fanartGallery = [];
+      if (_fanartArtist.isNotEmpty || _fanartBytes != null) {
+        ++_fanartRequest;
+        _fanartArtist = '';
+        _fanartLoadingArtist = '';
+        if (mounted) setState(() => _fanartBytes = null);
+      }
+      return;
+    }
     final artist = model.artist.trim();
     final link = VybeLink.instance;
     if (!widget.driveHost && link.enabled && link.role == 'receiver') {
@@ -5288,6 +5304,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _drawArtist(Alignment a, bool vhs, {Color? textColor}) {
     final fontSize = _artistFontSize(0);
+    if (model.isSpotifyAdvertisement) {
+      // Spotify publishes "Advertisement 2 of 3" as an artist string.
+      // Riot is a hand-drawn LETTER font: its fallback digits create giant,
+      // colliding glyphs when drawn with musician wordmark typography.
+      return Align(
+        alignment: a,
+        child: Text(
+          model.artist.trim(),
+          textAlign: a.x < -.5
+              ? TextAlign.left
+              : (a.x > .5 ? TextAlign.right : TextAlign.center),
+          maxLines: 2,
+          softWrap: true,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: math.min(24.0, math.max(17.0, fontSize * .52)),
+            fontWeight: FontWeight.w500,
+            letterSpacing: .25,
+            height: 1.15,
+            color: textColor ?? _readableText(1),
+            shadows: _cleanTextShadows,
+          ),
+        ),
+      );
+    }
     if (settings.useArtistClearLogo && _clearLogoBytes != null && model.active) {
       return _shaded(LayoutBuilder(builder: (context, box) {
         final screen = MediaQuery.sizeOf(context);
