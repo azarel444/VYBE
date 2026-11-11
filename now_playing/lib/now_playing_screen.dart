@@ -4773,13 +4773,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // glyph, not the preceding glyph, that gets painted on top of the I.
     // Narrow-letter protection therefore only applies when I comes FIRST.
     if (pair == 'LI') {
-      return math.min(fontSize * .23, glyphWidth * .62);
+      // ELI: the narrow I is still too close to L's lower brush stroke.
+      return math.min(fontSize * .12, glyphWidth * .46);
     }
     if (pair == 'FI') {
       return math.min(fontSize * .45, glyphWidth * .78);
     }
     if (pair == 'TI') {
       return math.min(fontSize * .235, glyphWidth * .57);
+    }
+    if (pair == 'IA') {
+      // CASSIAN: A's rising brush can meet I without burying it.
+      // Other I-following pairs retain the stronger narrow-I protection.
+      return math.min(fontSize * .225, glyphWidth * .50);
     }
     if (previous == 'I') {
       return math.min(fontSize * .085, glyphWidth * .35);
@@ -4792,6 +4798,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Keep connected double-S and N-S while showing their individual strokes.
     if (pair == 'SS' || pair == 'NS') {
       return math.min(fontSize * .26, glyphWidth * .60);
+    }
+    // Additional optical pairs observed across independent themes:
+    // CASSIAN (A-S), WESTEND (W-E and E-S).
+    // The normalized glyph outlines still have visible gaps at the generic
+    // spacing, even though surrounding letters already connect.
+    if (pair == 'AS') {
+      return math.min(fontSize * .25, glyphWidth * .58);
+    }
+    if (pair == 'WE') {
+      return math.min(fontSize * .23, glyphWidth * .48);
+    }
+    if (pair == 'ES') {
+      // S begins with a slanted top stroke. This pair has much more
+      // empty space than other E-following letters at the same advance.
+      return math.min(fontSize * .35, glyphWidth * .73);
     }
     // Riot is a connected brush alphabet: maintain contact without
     // obscuring a recognizable counter or terminal.
