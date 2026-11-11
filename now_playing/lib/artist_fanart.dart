@@ -193,10 +193,12 @@ class ArtistFanartCache {
       }
       final restored = await PortableMediaCache.get('fanart', key);
       if (restored != null && restored.isNotEmpty) {
-        // The external music-folder copy survives an app uninstall.
-        await folder.create(recursive: true);
-        try { await file.writeAsBytes(restored, flush: false); } catch (_) {}
+        // Show the preserved artwork immediately; refill the fast private
+        // cache separately without waiting for a disk write.
         _memory[key] = restored;
+        unawaited(folder.create(recursive: true)
+            .then((_) => file.writeAsBytes(restored, flush: false))
+            .then((_) {}, onError: (Object _) {}));
         lastStatus = 'Persistent music-folder fanart cache hit';
         return restored;
       }
@@ -227,9 +229,10 @@ class ArtistFanartCache {
       }
       final restored = await PortableMediaCache.get('clearlogo', key);
       if (restored != null && restored.isNotEmpty) {
-        await folder.create(recursive: true);
-        try { await file.writeAsBytes(restored, flush: false); } catch (_) {}
         _logoMemory[key] = restored;
+        unawaited(folder.create(recursive: true)
+            .then((_) => file.writeAsBytes(restored, flush: false))
+            .then((_) {}, onError: (Object _) {}));
         lastStatus = 'Persistent artwork-folder clearlogo cache hit';
         return restored;
       }
