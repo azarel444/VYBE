@@ -4759,22 +4759,42 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _riotPairOverlap(String previous, String character,
       double fontSize, double glyphWidth) {
     final pair = previous + character;
-    // Riot is a connected brush alphabet: maintain contact, not overlap that
-    // obscures a recognizable counter or terminal. Apply per-shape corrections
-    // here so rendered positions AND line-width measurement stay identical.
-    // Screenshots: MORRISSEY, LUCY IN DISGUISE, SUNSQUABI.
-    if (pair == 'IS') {
-      return math.min(fontSize * .37, glyphWidth * .72);
+    // Keep the I readable. Its glyph advance is only ~0.273 em, so the
+    // previous I->C/N/S corrections could shift the following letter over
+    // nearly the entire I. Both layout and width measurement call here.
+    // IV and VI already had gentle approved contact.
+    if (pair == 'IV') {
+      return math.min(fontSize * .018, glyphWidth * .05);
     }
-    if (pair == 'SS') {
-      return math.min(fontSize * .34, glyphWidth * .66);
+    if (pair == 'VI') {
+      return math.min(fontSize * .05, glyphWidth * .17);
     }
-    if (pair == 'IN') {
-      return math.min(fontSize * .33, glyphWidth * .69);
+    // Keep the already-connected approaches into I. It is the following
+    // glyph, not the preceding glyph, that gets painted on top of the I.
+    // Narrow-letter protection therefore only applies when I comes FIRST.
+    if (pair == 'LI') {
+      return math.min(fontSize * .23, glyphWidth * .62);
     }
-    if (pair == 'NS') {
-      return math.min(fontSize * .34, glyphWidth * .69);
+    if (pair == 'FI') {
+      return math.min(fontSize * .45, glyphWidth * .78);
     }
+    if (pair == 'TI') {
+      return math.min(fontSize * .235, glyphWidth * .57);
+    }
+    if (previous == 'I') {
+      return math.min(fontSize * .085, glyphWidth * .35);
+    }
+    // In the actual normalized Riot font, T and O first reach optical
+    // contact near .32 em. The former .105 em produced a false word break.
+    if (pair == 'TO') {
+      return math.min(fontSize * .32, glyphWidth * .92);
+    }
+    // Keep connected double-S and N-S while showing their individual strokes.
+    if (pair == 'SS' || pair == 'NS') {
+      return math.min(fontSize * .26, glyphWidth * .60);
+    }
+    // Riot is a connected brush alphabet: maintain contact without
+    // obscuring a recognizable counter or terminal.
     if (pair == 'QU') {
       // SUNSQUABI: U follows Q and obscures Q's lower brushwork.
       // Reduce overlap while retaining visual contact.
@@ -4787,17 +4807,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'LE') {
       // The L's lower arm must remain visible underneath E's brush tip.
       return math.min(fontSize * .115, glyphWidth * .26);
-    }
-    if (pair == 'VI') {
-      // The V must not engulf the narrow I.
-      return math.min(fontSize * .05, glyphWidth * .17);
-    }
-    if (pair == 'LI') {
-      return math.min(fontSize * .23, glyphWidth * .62);
-    }
-    if (previous == 'I' && character != 'V') {
-      // Thin I leaves false word breaks before wide following letters.
-      return math.min(fontSize * .28, glyphWidth * .65);
     }
     if (character == 'O' && previous != 'W') {
       // Protect O's recognizable open center against diagonal intrusions.
@@ -4838,10 +4847,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'YZ') {
       return math.min(fontSize * .34, glyphWidth * .62);
     }
-    // F has a generous right bearing; the thin I should tuck below its cap.
-    if (pair == 'FI') {
-      return math.min(fontSize * .45, glyphWidth * .78);
-    }
     // Riot's W has visible space inside its measured advance. Tighten only
     // the W→O (WORLD) and W→N (RENOWN) transitions seen in testing.
     if (pair == 'WO' || pair == 'WN') {
@@ -4852,16 +4857,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'OV') {
       return math.min(fontSize * .075, glyphWidth * .22);
     }
-    // POSITIVE K: the narrow I's measured advance leaves too much air
-    // after T. Pull T→I in, but do not change other T combinations.
-    if (pair == 'TI') {
-      return math.min(fontSize * .235, glyphWidth * .57);
-    }
-    // The V's brush stroke sweeps left toward the I. Default IV kerning
-    // overlaps the letters; limit ONLY this pair to a tiny correction.
-    if (pair == 'IV') {
-      return math.min(fontSize * .018, glyphWidth * .05);
-    }
     // F's brush silhouette is much narrower than its glyph advance. FL
     // needs slightly more correction than FE; both occur in FEARLESS FLYERS.
     if (pair == 'FE') {
@@ -4870,10 +4865,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (previous == 'F') {
       return math.min(fontSize * .34, glyphWidth * .61);
     }
-    // Close the unnatural trailing gaps after E without altering the
-    // already-approved interlocking diagonal/T/A pairs.
+    // E has a large slashing terminal, but pulling the next letter over
+    // 0.30 em can obscure it. Reduce only its trailing overlap.
     if (previous == 'E') {
-      return math.min(fontSize * .30, glyphWidth * .62);
+      return math.min(fontSize * .215, glyphWidth * .48);
     }
     // Preserve the previously accepted kerning everywhere else.
     final overlap = pair == 'TA' ? .42 : (pair == 'AT' || pair == 'AV' ||
