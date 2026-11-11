@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -19,6 +20,157 @@ class ArtistFanartCache {
   String lastStatus = 'Not checked';
   static String diagnostics = 'No fanart lookup recorded yet';
   final Map<String, String> _requestDetails = {};
+
+  final Map<String, Uint8List> _logoMemory = {};
+  final Map<String, Future<List<String>>> _artistIdInFlight = {};
+  final Map<String, Future<List<Map<String, dynamic>>>> _metadataInFlight = {};
+
+  static String _normalizeArtist(String name) => name.toLowerCase().trim()
+      .replaceAll(RegExp(r'[-‐‑‒–—_]'), ' ')
+      .replaceAll(RegExp(r'\\s*&\\s*'), ' and ')
+      .replaceAll(RegExp(r'[.\\u2018\\u2019]'), '')
+      .replaceAll(RegExp(r'\\s+'), ' ')
+      .replaceFirst(RegExp(r'^the '), '')
+      .trim();
+
+  /// Resolve the artist ID independently of image downloads. Both artwork
+  /// paths share this Future instead of making the clearlogo wait for fanart
+  /// bytes (which can take tens of seconds on a slow CDN).
+  Future<List<String>> _artistIdsFor(
+      String artist, Directory folder, String encodedName) {
+    final key = artist.toLowerCase().trim();
+    final cached = _artistIds[key];
+    if (cached != null && cached.isNotEmpty) {
+      return Future<List<String>>.value(cached);
+    }
+    final pending = _artistIdInFlight[key];
+    if (pending != null) return pending;
+    final lookup = _resolveArtistIds(artist, folder, encodedName);
+    _artistIdInFlight[key] = lookup;
+    lookup.then((_) {
+      if (identical(_artistIdInFlight[key], lookup)) {
+        _artistIdInFlight.remove(key);
+      }
+    }, onError: (Object _) {
+      if (identical(_artistIdInFlight[key], lookup)) {
+        _artistIdInFlight.remove(key);
+      }
+    });
+    return lookup;
+  }
+
+  Future<List<String>> _resolveArtistIds(
+      String artist, Directory folder, String encodedName) async {
+    final key = artist.toLowerCase().trim();
+    final file = File('${folder.path}/$encodedName.ids.json');
+    final ids = <String>[];
+    try {
+      if (await file.exists()) {
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is List) {
+          ids.addAll(decoded.whereType<String>().where((id) =>
+              RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)).take(2));
+        }
+      }
+    } catch (_) {}
+    if (ids.isNotEmpty) {
+      _artistIds[key] = List.of(ids);
+      return ids;
+    }
+
+    var completedSearch = false;
+    final wanted = _normalizeArtist(artist);
+    Future<void> search(String term) async {
+      final data = await _json(Uri.https('musicbrainz.org', '/ws/2/artist/', {
+        'query': 'artist:"${term.replaceAll('"', '')}"',
+        'fmt': 'json', 'limit': '15',
+      }));
+      completedSearch = true;
+      final artists = data['artists'];
+      if (artists is! List) return;
+      for (final candidate in artists) {
+        if (candidate is! Map) continue;
+        final candidateId = candidate['id']?.toString() ?? '';
+        final candidateName = candidate['name']?.toString() ?? '';
+        if (_normalizeArtist(candidateName) == wanted &&
+            RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(candidateId) &&
+            !ids.contains(candidateId)) {
+          ids.add(candidateId);
+        }
+      }
+    }
+
+    try {
+      await search(artist);
+    } catch (_) {}
+    if (ids.isEmpty && wanted != key) {
+      try { await search(wanted); } catch (_) {}
+    }
+    if (ids.isEmpty) {
+      if (completedSearch) _confirmedNameMisses.add(key);
+      return const <String>[];
+    }
+    _confirmedNameMisses.remove(key);
+    final verified = ids.take(2).toList();
+    _artistIds[key] = verified;
+    unawaited(file.writeAsString(jsonEncode(verified)).then((_) {},
+        onError: (Object _) {}));
+    return verified;
+  }
+
+  Future<List<Map<String, dynamic>>> _artistMetadata(
+      String artist, String projectKey, String personalKey,
+      List<String> ids) {
+    final cacheKey = '${artist.toLowerCase().trim()}|$projectKey|$personalKey';
+    final pending = _metadataInFlight[cacheKey];
+    if (pending != null) return pending;
+    final request = Future.wait(ids.take(2).map((id) async {
+      try {
+        return await _json(Uri.https('webservice.fanart.tv',
+            '/v3/music/$id', {
+          'api_key': projectKey,
+          if (personalKey.isNotEmpty) 'client_key': personalKey,
+        }));
+      } catch (_) {
+        return <String, dynamic>{};
+      }
+    }));
+    _metadataInFlight[cacheKey] = request;
+    request.then((data) {
+      // Keep successful responses in memory for the other artwork type.
+      // Failures must be retried rather than cached for the session.
+      if (data.every((item) => item.isEmpty) &&
+          identical(_metadataInFlight[cacheKey], request)) {
+        _metadataInFlight.remove(cacheKey);
+      }
+      if (_metadataInFlight.length > 30) {
+        _metadataInFlight.remove(_metadataInFlight.keys.first);
+      }
+    }, onError: (Object _) {
+      if (identical(_metadataInFlight[cacheKey], request)) {
+        _metadataInFlight.remove(cacheKey);
+      }
+    });
+    return request;
+  }
+
+  /// A responsive CDN must not be held hostage by a slower candidate.
+  Future<Uint8List?> _firstAvailableImage(List<Uri> urls) async {
+    if (urls.isEmpty) return null;
+    final result = Completer<Uint8List?>();
+    var remaining = urls.length;
+    for (final uri in urls) {
+      _bytes(uri).then((image) {
+        if (image != null && image.isNotEmpty && !result.isCompleted) {
+          result.complete(image);
+        }
+      }, onError: (Object _) {}).whenComplete(() {
+        remaining--;
+        if (remaining == 0 && !result.isCompleted) result.complete(null);
+      });
+    }
+    return result.future;
+  }
 
   /// Return existing fanart immediately; never consult MusicBrainz or Fanart.tv.
   /// Called before the optional full local-artwork index scan after reinstall.
@@ -128,130 +280,16 @@ class ArtistFanartCache {
         return null;
       }
       record('Disk cache miss');
-      // Cache resolved MusicBrainz IDs on disk independently of the image.
-      // This also helps when a previous image download failed.
-      final idFile = File('${folder.path}/$name.ids.json');
-      final ids = <String>[];
-      final remembered = _artistIds[cacheKey];
-      if (remembered != null) {
-        ids.addAll(remembered);
-        record('Artist IDs memory cache hit');
-      } else if (await idFile.exists()) {
-        try {
-          final decoded = jsonDecode(await idFile.readAsString());
-          if (decoded is List) {
-            ids.addAll(decoded.whereType<String>().where((id) =>
-                RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)).take(2));
-          }
-        } catch (_) {}
-        if (ids.isNotEmpty) {
-          _artistIds[cacheKey] = List.of(ids);
-          record('Artist IDs disk cache hit');
-        }
-      }
+      // Shared ID resolution finishes independently from the fanart image
+      // download so clearlogo retrieval can run simultaneously.
+      final ids = await _artistIdsFor(artist, folder, name);
       if (ids.isEmpty) {
-        record('Artist IDs cache miss');
-        final search = Uri.https('musicbrainz.org', '/ws/2/artist/', {
-          'query': 'artist:"${artist.replaceAll('"', '')}"',
-          'fmt': 'json', 'limit': '15',
-        });
-        Map<String, dynamic> result;
-        try {
-          result = await _json(search);
-        } catch (error) {
-          record('MusicBrainz first attempt failed: $error');
-          await Future<void>.delayed(const Duration(milliseconds: 450));
-          try {
-            result = await _json(search);
-          } catch (retryError) {
-            report('MusicBrainz lookup failed after retry: $retryError');
-            return null;
-          }
-        }
-        record('MusicBrainz lookup completed: ${_requestDetails['musicbrainz.org'] ?? 'unknown'}');
-        final candidates = result['artists'];
-        if (candidates is! List) {
-          report('MusicBrainz lookup unavailable');
-          return null;
-        }
-        // Match harmless typography variations such as Rendez Vous versus
-        // Rendez-Vous, while still requiring the full artist name.
-        String normalize(String name) => name.toLowerCase().trim()
-            .replaceAll(RegExp(r'[-‐‑‒–—_]'), ' ')
-            .replaceAll(RegExp(r'\s*&\s*'), ' and ')
-            .replaceAll(RegExp(r'[.\u2018\u2019]'), '')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .replaceFirst(RegExp(r'^the '), '')
-            .trim();
-        for (final entry in candidates) {
-          if (entry is! Map) continue;
-          final candidateName = entry['name']?.toString();
-          final candidateId = entry['id']?.toString();
-          if (candidateName != null && candidateId != null &&
-              normalize(candidateName) == normalize(cacheKey) &&
-              !ids.contains(candidateId)) {
-            ids.add(candidateId);
-          }
-        }
-        if (ids.isEmpty) {
-          // A quoted search for "Sheila E." may not return "Sheila E".
-          // Retry the punctuation-normalized spelling, but still require a
-          // complete normalized artist-name match before accepting an ID.
-          final alternative = normalize(artist);
-          if (alternative.isNotEmpty && alternative != artist.toLowerCase().trim()) {
-            try {
-              final retry = await _json(Uri.https('musicbrainz.org', '/ws/2/artist/', {
-                'query': 'artist:"${alternative.replaceAll('"', '')}"',
-                'fmt': 'json', 'limit': '15',
-              }));
-              final candidates = retry['artists'];
-              if (candidates is List) {
-                for (final entry in candidates) {
-                  if (entry is! Map) continue;
-                  final candidateName = entry['name']?.toString();
-                  final candidateId = entry['id']?.toString();
-                  if (candidateName != null && candidateId != null &&
-                      normalize(candidateName) == normalize(cacheKey) &&
-                      !ids.contains(candidateId)) {
-                    ids.add(candidateId);
-                  }
-                }
-              }
-              record('Normalized artist lookup completed');
-            } catch (e) {
-              record('Normalized artist lookup failed: $e');
-            }
-          }
-        }
-        if (ids.isEmpty) {
-          _confirmedNameMisses.add(cacheKey);
-          report('Artist not matched in MusicBrainz');
-          return null;
-        }
-        _confirmedNameMisses.remove(cacheKey);
-        _artistIds[cacheKey] = ids.take(2).toList();
-        try {
-          await idFile.writeAsString(jsonEncode(_artistIds[cacheKey]));
-          record('Artist IDs cached to disk');
-        } catch (_) {
-          record('Artist IDs kept in memory only');
-        }
+        report('No verified MusicBrainz artist ID available');
+        return null;
       }
       record('Matched ${ids.length} MusicBrainz artist IDs');
-      // Fanart.tv artist records are independent: query both candidates in
-      // parallel instead of waiting for a timeout before trying the second.
-      final responses = await Future.wait(ids.take(2).map((mbid) async {
-        try {
-          return await _json(Uri.https('webservice.fanart.tv',
-              '/v3/music/$mbid', {
-            'api_key': projectKey,
-            if (personalKey.isNotEmpty) 'client_key': personalKey,
-          }));
-        } catch (error) {
-          record('Fanart.tv request for $mbid failed: $error');
-          return <String, dynamic>{};
-        }
-      }));
+      final responses = await _artistMetadata(
+          artist, projectKey, personalKey, ids);
       record('Fanart.tv metadata completed (${responses.length} requests): ${_requestDetails['webservice.fanart.tv'] ?? 'unknown'}');
       Uint8List? bytes;
       var noBackground = 0;
@@ -274,18 +312,12 @@ class ArtistFanartCache {
       // existing sequential fallback for remaining candidates.
       record('Found ${urls.length} background URLs');
       if (urls.isNotEmpty) {
-        final first = await Future.wait(urls.take(2).map((uri) async {
-          try { return await _bytes(uri); } catch (_) { return null; }
-        }));
-        for (final result in first) {
-          if (result != null && result.isNotEmpty) { bytes = result; break; }
-        }
-        record('First image downloads completed');
-        if (bytes == null) {
-          for (final uri in urls.skip(2)) {
-            try { bytes = await _bytes(uri); } catch (_) { bytes = null; }
-            if (bytes != null && bytes.isNotEmpty) break;
-          }
+        // First valid image wins; do not wait for a slower CDN download when
+        // another verified background is already available.
+        bytes = await _firstAvailableImage(urls.take(3).toList());
+        record('First available artist image downloaded');
+        if (bytes == null && urls.length > 3) {
+          bytes = await _firstAvailableImage(urls.skip(3).take(3).toList());
         }
       }
       record('Image download attempts completed');
@@ -294,10 +326,13 @@ class ArtistFanartCache {
             '($noBackground without images, $lookupFailures request failures)');
         return null;
       }
-      await file.writeAsBytes(bytes, flush: false);
-      await PortableMediaCache.put('fanart', cacheKey, bytes);
       _memory[cacheKey] = bytes;
-      record('Disk cache write completed (${bytes.length} bytes)');
+      // Show downloaded artwork before the potentially slow persistent SAF
+      // backup finishes, preserving both app-private and selected-folder copies.
+      unawaited(file.writeAsBytes(bytes, flush: false).then((_) {},
+          onError: (Object _) {}));
+      unawaited(PortableMediaCache.put('fanart', cacheKey, bytes));
+      record('Background available (${bytes.length} bytes), cache saving separately');
       report('Downloaded artist background');
       return bytes;
     } catch (e) { report('Artwork request failed: $e'); return null; }
@@ -428,39 +463,32 @@ class ArtistFanartCache {
       return restored;
     }
     if (projectKey.isEmpty) return null;
-    // Reuse the already-implemented MusicBrainz ID lookup and cache.
-    await get(artist, projectKey, personalKey: personalKey);
-    var ids = _artistIds[key] ?? <String>[];
-    final idFile = File('${folder.path}/$name.ids.json');
-    if (ids.isEmpty && await idFile.exists()) {
-      try {
-        ids = (jsonDecode(await idFile.readAsString()) as List)
-            .whereType<String>().take(2).toList();
-      } catch (_) {}
-    }
-    for (final id in ids.take(2)) {
-      try {
-        final data = await _json(Uri.https('webservice.fanart.tv',
-            '/v3/music/$id', {
-          'api_key': projectKey,
-          if (personalKey.isNotEmpty) 'client_key': personalKey,
-        }));
-        for (final category in ['hdmusiclogo', 'musiclogo']) {
-          final entries = data[category];
-          if (entries is! List) continue;
-          for (final entry in entries) {
-            if (entry is! Map || entry['url'] is! String) continue;
-            final uri = Uri.tryParse(entry['url'] as String);
-            if (uri == null || uri.scheme != 'https') continue;
-            final bytes = await _bytes(uri);
-            if (bytes != null && bytes.isNotEmpty) {
-              await file.writeAsBytes(bytes);
-              await PortableMediaCache.put('clearlogo', key, bytes);
-              return bytes;
-            }
+    // Resolve the artist ID without waiting for artist fanart image bytes.
+    final ids = await _artistIdsFor(artist, folder, name);
+    if (ids.isEmpty) return null;
+    final responses = await _artistMetadata(
+        artist, projectKey, personalKey, ids);
+    final urls = <Uri>[];
+    for (final data in responses) {
+      for (final category in <String>['hdmusiclogo', 'musiclogo']) {
+        final entries = data[category];
+        if (entries is! List) continue;
+        for (final entry in entries) {
+          if (entry is! Map || entry['url'] is! String) continue;
+          final uri = Uri.tryParse(entry['url'] as String);
+          if (uri != null && uri.scheme == 'https' && !urls.contains(uri)) {
+            urls.add(uri);
           }
         }
-      } catch (_) {}
+      }
+    }
+    final image = await _firstAvailableImage(urls.take(3).toList());
+    if (image != null && image.isNotEmpty) {
+      _logoMemory[key] = image;
+      unawaited(file.writeAsBytes(image).then((_) {},
+          onError: (Object _) {}));
+      unawaited(PortableMediaCache.put('clearlogo', key, image));
+      return image;
     }
     return null;
   }
