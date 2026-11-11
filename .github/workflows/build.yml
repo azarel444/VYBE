@@ -89,6 +89,11 @@ jobs:
           print('VYBE Riot: normalized outlined glyphs to 8-unit side bearings')
           PY
 
+      - name: Build expanded VYBE Riot Unicode glyphs
+        run: |
+          python3 -m pip install --quiet lxml
+          python3 tools/extend_riot_font.py
+
       - run: flutter pub get
 
       # Each APK needs a monotonically increasing Android versionCode. Without
