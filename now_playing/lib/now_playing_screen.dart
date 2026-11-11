@@ -4775,9 +4775,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'NS') {
       return math.min(fontSize * .34, glyphWidth * .69);
     }
+    if (pair == 'QU') {
+      // SUNSQUABI: U follows Q and obscures Q's lower brushwork.
+      // Reduce overlap while retaining visual contact.
+      return math.min(fontSize * .095, glyphWidth * .27);
+    }
     if (pair == 'UQ') {
-      // Preserve contact but uncover the diagonal and counter of the Q.
-      return math.min(fontSize * .065, glyphWidth * .18);
+      // Keep the reverse pairing connected without hiding the O-shaped bowl.
+      return math.min(fontSize * .105, glyphWidth * .28);
     }
     if (pair == 'LE') {
       // The L's lower arm must remain visible underneath E's brush tip.
