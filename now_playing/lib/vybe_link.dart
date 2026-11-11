@@ -10,6 +10,7 @@ import 'native_preferences.dart';
 import 'now_playing_model.dart';
 import 'vybe_link_discovery.dart';
 import 'local_artwork.dart';
+import 'vybe_link_artist_art_cache.dart';
 
 /// Local-network beta. Pair a receiver once, then rediscover its IP across
 /// sessions. A reachable IP network is still required (LAN, Wi-Fi Direct or
@@ -975,14 +976,22 @@ class VybeLink extends ChangeNotifier {
       } else if (data['kind'] == 'fanart' && data['art'] is String &&
           data['artist'] == receivedFanartArtist) {
         try {
-          receivedFanart = base64Decode(data['art'] as String);
+          final incoming = base64Decode(data['art'] as String);
+          receivedFanart = incoming;
+          // The separate Drive Flutter engine can't see this singleton's
+          // memory. Publish the same artist-matched image via app storage.
+          unawaited(LinkArtistArtworkCache.save(
+              receivedFanartArtist, 'fanart', incoming));
           notifyListeners();
         } catch (_) { artworkErrors++; }
       } else if (data['kind'] == 'clearlogo' && data['art'] is String &&
           data['artist'] == receivedClearLogoArtist) {
         try {
-          receivedClearLogo = base64Decode(data['art'] as String);
-          if (receivedClearLogo == null || receivedClearLogo!.isEmpty) return;
+          final incoming = base64Decode(data['art'] as String);
+          if (incoming.isEmpty) return;
+          receivedClearLogo = incoming;
+          unawaited(LinkArtistArtworkCache.save(
+              receivedClearLogoArtist, 'clearlogo', incoming));
           notifyListeners();
           // Explicit confirmation prevents an unsuccessful send being
           // permanently suppressed after reconnect or dropped packets.

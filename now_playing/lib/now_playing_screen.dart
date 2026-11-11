@@ -1,5 +1,6 @@
 import 'onboarding.dart';
 import 'vybe_link.dart';
+import 'vybe_link_artist_art_cache.dart';
 import 'dart:async';
 import 'dart:typed_data';
 import 'artist_fanart.dart';
@@ -131,6 +132,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // bottom visualizer shrinks to make room for them.
   bool _dirActive = false;
   Timer? _dirTimer;
+  Timer? _driveConnectArtTimer;
+  String _driveConnectArtist = '';
+  String? _driveConnectFanartVersion;
+  String? _driveConnectLogoVersion;
+  bool _driveConnectCheckInProgress = false;
 
   // A track change requires an intentional horizontal gesture with sufficient
   // distance; a quick vertical/diagonal movement must never skip music.
@@ -199,6 +205,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final a = await Native.navActive();
         if (mounted && a != _dirActive) setState(() => _dirActive = a);
       });
+      // Drive has its own Flutter engine. Listen for artist artwork shared
+      // by the primary VYBE Connect receiver, without binding another socket.
+      _driveConnectArtTimer = Timer.periodic(
+          const Duration(seconds: 2), (_) => unawaited(_syncDriveConnectArt()));
     }
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(_updateClock);
@@ -248,6 +258,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _clearLogoRetryTimer?.cancel();
     _secondaryArtPriorityTimer?.cancel();
     _dirTimer?.cancel();
+    _driveConnectArtTimer?.cancel();
     _noise?.dispose();
     _recAngle.dispose();
     model.dispose();
@@ -309,6 +320,58 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
+  /// The Connect receiver belongs to the normal Flutter engine, while Drive
+  /// uses a separate Flutter engine. The received images are published to a
+  /// small shared app-private cache; read only changes for the current artist.
+  Future<void> _syncDriveConnectArt() async {
+    if (!widget.driveHost || !mounted || _driveConnectCheckInProgress) return;
+    final artist = model.artist.trim();
+    if (!model.active || artist.isEmpty) return;
+    if (_driveConnectArtist != artist) {
+      _driveConnectArtist = artist;
+      _driveConnectFanartVersion = null;
+      _driveConnectLogoVersion = null;
+    }
+    _driveConnectCheckInProgress = true;
+    try {
+      final logo = await LinkArtistArtworkCache.readChanged(
+          artist, 'clearlogo', _driveConnectLogoVersion);
+      if (!mounted || model.artist.trim() != artist) return;
+      if (logo != null) {
+        _driveConnectLogoVersion = logo.version;
+        if (settings.useArtistClearLogo && !_clearLogoIsLocal) {
+          // Cancel a slower online lookup, which otherwise could overwrite
+          // the logo VYBE Connect has already delivered.
+          ++_clearLogoRequest;
+          _clearLogoLoadingArtist = '';
+          _clearLogoRetryTimer?.cancel();
+          _clearLogoRetryCount = 0;
+          _clearLogoArtist = artist;
+          setState(() => _clearLogoBytes = logo.bytes);
+        }
+      }
+      final fanart = await LinkArtistArtworkCache.readChanged(
+          artist, 'fanart', _driveConnectFanartVersion);
+      if (!mounted || model.artist.trim() != artist) return;
+      if (fanart != null) {
+        _driveConnectFanartVersion = fanart.version;
+        if (!_fanartGalleryIsLocal) {
+          ++_fanartRequest;
+          _fanartLoadingArtist = '';
+          _fanartRetryTimer?.cancel();
+          _fanartRetryCount = 0;
+          _fanartLastFailure = null;
+          _fanartCycleTimer?.cancel();
+          _fanartGallery = [];
+          _fanartArtist = artist;
+          setState(() => _fanartBytes = fanart.bytes);
+        }
+      }
+    } finally {
+      _driveConnectCheckInProgress = false;
+    }
+  }
+
   /// Album art determines the cover, color palette, and blurred fallback.
   /// Launch that lookup first, and defer the slower optional online artist
   /// imagery until the first cover attempt finishes. An upper time limit
@@ -358,6 +421,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (!mounted) return;
     _checkTrack();
     _loadArtistArtAfterCover();
+    if (widget.driveHost) unawaited(_syncDriveConnectArt());
     setState(() {});
   }
 
@@ -1082,6 +1146,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             (settings.backgroundSource == 0 && settings.fanartMode == 1);
     final needsFanart = needsLocalFanart || linkSender;
     if (!needsFanart || artist.isEmpty) {
+      // An explicitly selected album/palette background shouldn't erase
+      // Connect artwork that Drive may need when switching to Fanart.
+      if (widget.driveHost && artist.isNotEmpty &&
+          _fanartArtist == artist && _fanartBytes != null) return;
       _fanartRetryTimer?.cancel();
       _fanartRetryCount = 0;
       _fanartCycleTimer?.cancel();
