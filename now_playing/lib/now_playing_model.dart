@@ -141,6 +141,15 @@ class NowPlayingModel extends ChangeNotifier {
   // Detected visual fingerprints of Musicolet's branded default cover.
   final Set<int> _automaticPlaceholderHashes = {};
   String _sessionPlayerPackage = '';
+  /// Spotify represents an ad break as a track with an artist credit such
+  /// as "Advertisement 2 of 3". This is not a real artist.
+  bool get isSpotifyAdvertisement {
+    if (_sessionPlayerPackage != 'com.spotify.music') return false;
+    return RegExp(
+      r'^advertisement(?:\s+\d+\s+of\s+\d+)?$',
+      caseSensitive: false,
+    ).hasMatch(artist.trim());
+  }
   Uint8List? _latestSessionArtwork;
   bool _placeholderHashesLoaded = false;
 
