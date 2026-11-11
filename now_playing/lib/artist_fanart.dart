@@ -59,6 +59,26 @@ class ArtistFanartCache {
     return lookup;
   }
 
+
+  /// A recording or media session can use an artist's previous stage name
+  /// while MusicBrainz returns their current canonical name. Validate aliases
+  /// against the artist's MusicBrainz record, never just a fuzzy search hit.
+  static bool _hasMatchingArtistAlias(
+      Map<dynamic, dynamic> artist, String normalizedRequestedName) {
+    final aliases = artist['aliases'];
+    if (aliases is! List) return false;
+    for (final entry in aliases) {
+      if (entry is! Map) continue;
+      final alias = entry['name']?.toString() ?? '';
+      final type = entry['type']?.toString().toLowerCase().trim() ?? '';
+      if (_normalizeArtist(alias) == normalizedRequestedName &&
+          type != 'search hint') {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<List<String>> _resolveArtistIds(
       String artist, Directory folder, String encodedName) async {
     final key = artist.toLowerCase().trim();
@@ -80,6 +100,8 @@ class ArtistFanartCache {
 
     var completedSearch = false;
     final wanted = _normalizeArtist(artist);
+    final possibleAliasIds = <String>[];
+
     Future<void> search(String term) async {
       final data = await _json(Uri.https('musicbrainz.org', '/ws/2/artist/', {
         'query': 'artist:"${term.replaceAll('"', '')}"',
@@ -92,10 +114,16 @@ class ArtistFanartCache {
         if (candidate is! Map) continue;
         final candidateId = candidate['id']?.toString() ?? '';
         final candidateName = candidate['name']?.toString() ?? '';
-        if (_normalizeArtist(candidateName) == wanted &&
-            RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(candidateId) &&
-            !ids.contains(candidateId)) {
-          ids.add(candidateId);
+        if (!RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(candidateId)) continue;
+        if (_normalizeArtist(candidateName) == wanted ||
+            _hasMatchingArtistAlias(candidate, wanted)) {
+          if (!ids.contains(candidateId)) ids.add(candidateId);
+        } else if (!possibleAliasIds.contains(candidateId) &&
+            possibleAliasIds.length < 4) {
+          // Search also returns candidates matched through an artist alias,
+          // but the search record may omit its aliases. Check the top few
+          // candidates using full MusicBrainz artist data before accepting.
+          possibleAliasIds.add(candidateId);
         }
       }
     }
@@ -103,8 +131,37 @@ class ArtistFanartCache {
     try {
       await search(artist);
     } catch (_) {}
+
+    // Usually a single lookup verifies a former artist name such as Mos Def
+    // (now Yasiin Bey). Do this only after primary-name matching fails so
+    // ordinary artist lookups aren't slowed down.
+    Future<void> verifyAliases() async {
+      for (final candidateId in possibleAliasIds) {
+        if (ids.length >= 2) break;
+        try {
+          final record = await _json(Uri.https(
+              'musicbrainz.org', '/ws/2/artist/$candidateId', {
+            'inc': 'aliases', 'fmt': 'json',
+          }));
+          if (record['id']?.toString() == candidateId &&
+              _hasMatchingArtistAlias(record, wanted) &&
+              !ids.contains(candidateId)) {
+            ids.add(candidateId);
+            break;
+          }
+        } catch (_) {
+          // A failed alias lookup cannot establish identity. Continue
+          // checking other candidates, never guess from a fuzzy name.
+        }
+      }
+    }
+
+    if (ids.isEmpty) await verifyAliases();
+
     if (ids.isEmpty && wanted != key) {
+      possibleAliasIds.clear();
       try { await search(wanted); } catch (_) {}
+      if (ids.isEmpty) await verifyAliases();
     }
     if (ids.isEmpty) {
       if (completedSearch) _confirmedNameMisses.add(key);
