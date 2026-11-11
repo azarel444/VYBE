@@ -239,17 +239,20 @@ class ArtistFanartCache {
     return null;
   }
 
-  Future<Uint8List?> get(String artist, String projectKey, {String personalKey = ''}) {
+  Future<Uint8List?> get(String artist, String projectKey,
+      {String personalKey = '', bool cacheChecked = false}) {
     final key = artist.toLowerCase().trim();
     final existing = _inFlight[key];
     if (existing != null) return existing;
-    final future = _getUnshared(artist, projectKey, personalKey: personalKey);
+    final future = _getUnshared(artist, projectKey,
+        personalKey: personalKey, cacheChecked: cacheChecked);
     _inFlight[key] = future;
     future.whenComplete(() { _inFlight.remove(key); });
     return future;
   }
 
-  Future<Uint8List?> _getUnshared(String artist, String projectKey, {String personalKey = ''}) async {
+  Future<Uint8List?> _getUnshared(String artist, String projectKey,
+      {String personalKey = '', bool cacheChecked = false}) async {
     final watch = Stopwatch()..start();
     final stages = <String>[];
     void record(String stage) => stages.add('$stage: ${watch.elapsedMilliseconds} ms elapsed');
@@ -265,19 +268,24 @@ class ArtistFanartCache {
       await folder.create(recursive: true);
       final name = base64Url.encode(utf8.encode(cacheKey)).replaceAll('=', '');
       final file = File('${folder.path}/$name.jpg');
-      if (await file.exists()) {
-        final bytes = await file.readAsBytes();
-        _memory[cacheKey] = bytes;
-        record('Disk cache hit');
-        report('Loaded cached image');
-        return bytes;
-      }
-      final restored = await PortableMediaCache.get('fanart', cacheKey);
-      if (restored != null) {
-        await file.writeAsBytes(restored, flush: false);
-        _memory[cacheKey] = restored;
-        report('Restored artist fanart from music folder');
-        return restored;
+      if (!cacheChecked) {
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          if (bytes.isNotEmpty) {
+            _memory[cacheKey] = bytes;
+            record('Disk cache hit');
+            report('Loaded cached image');
+            return bytes;
+          }
+        }
+        final restored = await PortableMediaCache.get('fanart', cacheKey);
+        if (restored != null && restored.isNotEmpty) {
+          _memory[cacheKey] = restored;
+          unawaited(file.writeAsBytes(restored, flush: false).then((_) {},
+              onError: (Object _) {}));
+          report('Restored artist fanart from saved artwork folder');
+          return restored;
+        }
       }
       if (projectKey.trim().isEmpty) {
         report('Missing project API key; no downloaded art found');
@@ -451,20 +459,32 @@ class ArtistFanartCache {
 
   /// Download Fanart.tv HD music clearlogo, with a persistent offline cache.
   Future<Uint8List?> getClearLogo(String artist, String projectKey,
-      {String personalKey = ''}) async {
+      {String personalKey = '', bool cacheChecked = false}) async {
     if (artist.trim().isEmpty) return null;
     final key = artist.toLowerCase().trim();
     final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
     await folder.create(recursive: true);
     final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
     final file = File('${folder.path}/$name.clearlogo.png');
-    if (await file.exists()) {
-      try { return await file.readAsBytes(); } catch (_) {}
-    }
-    final restored = await PortableMediaCache.get('clearlogo', key);
-    if (restored != null) {
-      try { await file.writeAsBytes(restored); } catch (_) {}
-      return restored;
+    if (!cacheChecked) {
+      final memory = _logoMemory[key];
+      if (memory != null && memory.isNotEmpty) return memory;
+      if (await file.exists()) {
+        try {
+          final bytes = await file.readAsBytes();
+          if (bytes.isNotEmpty) {
+            _logoMemory[key] = bytes;
+            return bytes;
+          }
+        } catch (_) {}
+      }
+      final restored = await PortableMediaCache.get('clearlogo', key);
+      if (restored != null && restored.isNotEmpty) {
+        _logoMemory[key] = restored;
+        unawaited(file.writeAsBytes(restored).then((_) {},
+            onError: (Object _) {}));
+        return restored;
+      }
     }
     if (projectKey.isEmpty) return null;
     // Resolve the artist ID without waiting for artist fanart image bytes.
