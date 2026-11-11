@@ -506,21 +506,48 @@ Future<Uint8List?> _fanartAlbumImage(String releaseGroupId) async {
   return null;
 }
 
-Future<Uint8List?> _coverForGroups(List<_ReleaseGroup> groups) async {
-  // Prefer the release group, then its verified recording's exact release.
-  // A release may have front art even when its group has no selected front.
-  for (final group in groups.take(10)) {
-    final cover = await _coverArtArchiveImage(group.id);
-    if (cover != null) return cover;
-    for (final releaseId in group.releaseIds.take(3)) {
-      for (final path in <String>[
-        '/release/$releaseId/front-500',
-        '/release/$releaseId/front',
-      ]) {
-        final bytes = await httpGetBytes(Uri.https('coverartarchive.org', path));
-        if (bytes != null && _looksLikeImage(bytes)) return bytes;
+/// Return the first verified cover to download, not the last CDN request
+/// to finish. A slow release-group endpoint must not hold up an available
+/// image from a verified release containing the song.
+Future<Uint8List?> _firstVerifiedCover(List<Uri> uris) {
+  if (uris.isEmpty) return Future<Uint8List?>.value(null);
+  final result = Completer<Uint8List?>();
+  var outstanding = uris.length;
+  for (final uri in uris) {
+    httpGetBytes(uri).then((bytes) {
+      if (bytes != null && _looksLikeImage(bytes) && !result.isCompleted) {
+        result.complete(bytes);
       }
-    }
+    }, onError: (Object _) {}).whenComplete(() {
+      outstanding--;
+      if (outstanding == 0 && !result.isCompleted) result.complete(null);
+    });
+  }
+  return result.future;
+}
+
+Future<Uint8List?> _coverForGroups(List<_ReleaseGroup> groups) async {
+  // Preserve the previous verified group ranking, but race a small number
+  // of Cover Art Archive endpoints WITHIN that group instead of serially
+  // waiting for timeouts from missing front images.
+  for (final group in groups.take(10)) {
+    final urls = <Uri>[
+      Uri.https('coverartarchive.org',
+          '/release-group/${group.id}/front-500'),
+      Uri.https('coverartarchive.org',
+          '/release-group/${group.id}/front'),
+      for (final releaseId in group.releaseIds.take(2))
+        Uri.https('coverartarchive.org',
+            '/release/$releaseId/front-500'),
+    ];
+    final cover = await _firstVerifiedCover(urls);
+    if (cover != null) return cover;
+    final alternative = await _firstVerifiedCover([
+      for (final releaseId in group.releaseIds.take(3))
+        Uri.https('coverartarchive.org',
+            '/release/$releaseId/front'),
+    ]);
+    if (alternative != null) return alternative;
     final fanart = await _fanartAlbumImage(group.id);
     if (fanart != null) return fanart;
   }

@@ -60,9 +60,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _clearLogoArtist = '';
   int _clearLogoRequest = 0;
   Timer? _clearLogoRetryTimer;
-  Timer? _secondaryArtPriorityTimer;
-  String _secondaryArtDeferredTrack = '';
-  String _secondaryArtReleasedTrack = '';
   String _clearLogoLoadingArtist = '';
   int _clearLogoRetryCount = 0;
   List<Uint8List> _fanartGallery = [];
@@ -256,7 +253,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fanartCycleTimer?.cancel();
     _fanartRetryTimer?.cancel();
     _clearLogoRetryTimer?.cancel();
-    _secondaryArtPriorityTimer?.cancel();
     _dirTimer?.cancel();
     _driveConnectArtTimer?.cancel();
     _noise?.dispose();
@@ -372,48 +368,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-  /// Album art determines the cover, color palette, and blurred fallback.
-  /// Launch that lookup first, and defer the slower optional online artist
-  /// imagery until the first cover attempt finishes. An upper time limit
-  /// prevents missing cover art from suppressing fanart and clearlogos.
+  /// Begin fanart and clearlogo lookup immediately in parallel with album
+  /// lookup. Fast caches should never wait on the cover search.
   void _loadArtistArtAfterCover() {
-    final track = model.active
-        ? '${model.title}|${model.artist}|${model.album}' : '';
-    if (track.isNotEmpty && model.albumArtPriorityPending &&
-        _secondaryArtReleasedTrack != track) {
-      if (_secondaryArtDeferredTrack != track) {
-        _secondaryArtPriorityTimer?.cancel();
-        _secondaryArtDeferredTrack = track;
-        // A new artist must not show the previous artist's assets while
-        // the cover takes its first turn. Same-artist tracks retain theirs.
-        if (_fanartArtist.isNotEmpty &&
-            _fanartArtist != model.artist.trim()) {
-          ++_fanartRequest;
-          _fanartRetryTimer?.cancel();
-          _fanartCycleTimer?.cancel();
-          _fanartGallery = [];
-          _fanartBytes = null;
-          _fanartArtist = '';
-        }
-        if (_clearLogoArtist.isNotEmpty &&
-            _clearLogoArtist != model.artist.trim()) {
-          ++_clearLogoRequest;
-          _clearLogoRetryTimer?.cancel();
-          _clearLogoBytes = null;
-          _clearLogoArtist = '';
-        }
-        _secondaryArtPriorityTimer = Timer(const Duration(seconds: 6), () {
-          _secondaryArtPriorityTimer = null;
-          if (!mounted || _secondaryArtDeferredTrack != track) return;
-          _secondaryArtReleasedTrack = track;
-          _loadFanart();
-        });
-      }
-      return;
-    }
-    _secondaryArtPriorityTimer?.cancel();
-    _secondaryArtPriorityTimer = null;
-    _secondaryArtDeferredTrack = '';
     _loadFanart();
   }
 
@@ -970,8 +927,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           link.sendClearLogo(artist, bytes);
         }
       }
-      final manualLogo = await LocalArtwork.instance.clearLogo(artist,
-          rescanOnMiss: bytes == null || bytes.isEmpty);
+      final manualLogo = await LocalArtwork.instance.clearLogo(
+          artist, rescanOnMiss: false);
       if (manualLogo != null && manualLogo.isNotEmpty) {
         bytes = manualLogo;
         localLogo = true;
@@ -987,7 +944,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       }
       if ((bytes == null || bytes.isEmpty) && settings.fanartProjectKey.isNotEmpty) {
         bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
-            personalKey: settings.fanartApiKey);
+            personalKey: settings.fanartApiKey, cacheChecked: true);
         transferred = false;
       }
       if ((bytes == null || bytes.isEmpty) &&
@@ -1005,7 +962,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bytes = savedLead;
         } else if (settings.fanartProjectKey.isNotEmpty) {
           bytes = await _fanart.getClearLogo(lead, settings.fanartProjectKey,
-              personalKey: settings.fanartApiKey);
+              personalKey: settings.fanartApiKey, cacheChecked: true);
         }
         if (bytes != null && bytes.isNotEmpty) {
           debugPrint('VYBE clearlogo: using lead artist $lead for $artist');
@@ -1117,7 +1074,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         _fanartCycleTimer?.cancel();
         _fanartLoadingArtist = artist;
         final request = ++_fanartRequest;
-        LocalArtwork.instance.fanartGallery(artist).then((gallery) {
+        LocalArtwork.instance.fanartGallery(
+            artist, rescanOnMiss: false).then((gallery) {
           if (!mounted || request != _fanartRequest || _fanartArtist != artist) return;
           if (gallery.isNotEmpty) {
             _fanartGallery = gallery;
@@ -1192,13 +1150,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         setState(() => _fanartBytes = cached);
         if (linkSender) link.sendFanart(artist, cached);
       }
-      var localGallery = await LocalArtwork.instance.fanartGallery(artist,
-          rescanOnMiss: cached == null || cached.isEmpty);
+      var localGallery = await LocalArtwork.instance.fanartGallery(
+          artist, rescanOnMiss: false);
       Uint8List? localBytes = localGallery.isEmpty ? null : localGallery.first;
       Uint8List? bytes = localBytes ?? cached ??
           (settings.fanartProjectKey.isEmpty ? null :
               await _fanart.get(artist, settings.fanartProjectKey,
-                  personalKey: settings.fanartApiKey));
+                  personalKey: settings.fanartApiKey, cacheChecked: true));
       var resolvedArtist = artist;
       if ((bytes == null || bytes.isEmpty) &&
           _canTryLeadArtistArtwork(artist)) {
@@ -1210,7 +1168,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final foundLead = localLead ?? savedLead ??
             (settings.fanartProjectKey.isEmpty ? null :
                 await _fanart.get(lead, settings.fanartProjectKey,
-                    personalKey: settings.fanartApiKey));
+                    personalKey: settings.fanartApiKey, cacheChecked: true));
         if (foundLead != null && foundLead.isNotEmpty) {
           resolvedArtist = lead;
           localGallery = galleryLead;
