@@ -4769,12 +4769,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'VI') {
       return math.min(fontSize * .05, glyphWidth * .17);
     }
-    if (previous == 'I' || character == 'I') {
+    // Keep the already-connected approaches into I. It is the following
+    // glyph, not the preceding glyph, that gets painted on top of the I.
+    // Narrow-letter protection therefore only applies when I comes FIRST.
+    if (pair == 'LI') {
+      return math.min(fontSize * .23, glyphWidth * .62);
+    }
+    if (pair == 'FI') {
+      return math.min(fontSize * .45, glyphWidth * .78);
+    }
+    if (pair == 'TI') {
+      return math.min(fontSize * .235, glyphWidth * .57);
+    }
+    if (previous == 'I') {
       return math.min(fontSize * .085, glyphWidth * .35);
     }
-    // T and O do not touch at the former .105 em offset: their brushwork
-    // occupies different vertical regions. Optical contact begins around
-    // .32 em in the normalized Riot TTF, without hiding the O's center.
+    // In the actual normalized Riot font, T and O first reach optical
+    // contact near .32 em. The former .105 em produced a false word break.
     if (pair == 'TO') {
       return math.min(fontSize * .32, glyphWidth * .92);
     }
