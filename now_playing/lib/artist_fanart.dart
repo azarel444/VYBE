@@ -506,7 +506,10 @@ class ArtistFanartCache {
         }
       }
     }
-    final image = await _firstAvailableImage(urls.take(3).toList());
+    Uint8List? image = await _firstAvailableImage(urls.take(3).toList());
+    if (image == null && urls.length > 3) {
+      image = await _firstAvailableImage(urls.skip(3).toList());
+    }
     if (image != null && image.isNotEmpty) {
       _logoMemory[key] = image;
       unawaited(file.writeAsBytes(image).then((_) {},
