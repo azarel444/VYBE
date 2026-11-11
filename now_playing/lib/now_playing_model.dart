@@ -141,13 +141,15 @@ class NowPlayingModel extends ChangeNotifier {
   // Detected visual fingerprints of Musicolet's branded default cover.
   final Set<int> _automaticPlaceholderHashes = {};
   String _sessionPlayerPackage = '';
-  /// Spotify may publish ad-break metadata as though it were a musical
-  /// artist (e.g. "Advertisement 2 of 3"). Treat only that exact Spotify
-  /// session pattern as sponsored playback, not artist names with numbers.
+  /// Spotify represents ad breaks as a media session with an artist label
+  /// such as "Advertisement 2 of 3". Don't treat this as a music artist.
   bool get isSpotifyAdvertisement {
     if (_sessionPlayerPackage != 'com.spotify.music') return false;
     return RegExp(
-      r'^advertisement(?:\\s+\\d+\\s+of\\s+\\d+)?
+      r'^advertisement(?:\s+\d+\s+of\s+\d+)?$',
+      caseSensitive: false,
+    ).hasMatch(artist.trim());
+  }
   Uint8List? _latestSessionArtwork;
   bool _placeholderHashesLoaded = false;
 
