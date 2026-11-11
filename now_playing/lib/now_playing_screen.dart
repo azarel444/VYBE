@@ -4759,6 +4759,48 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _riotPairOverlap(String previous, String character,
       double fontSize, double glyphWidth) {
     final pair = previous + character;
+    // Riot is a connected brush alphabet: maintain contact, not overlap that
+    // obscures a recognizable counter or terminal. Apply per-shape corrections
+    // here so rendered positions AND line-width measurement stay identical.
+    // Screenshots: MORRISSEY, LUCY IN DISGUISE, SUNSQUABI.
+    if (pair == 'IS') {
+      return math.min(fontSize * .37, glyphWidth * .72);
+    }
+    if (pair == 'SS') {
+      return math.min(fontSize * .34, glyphWidth * .66);
+    }
+    if (pair == 'IN') {
+      return math.min(fontSize * .33, glyphWidth * .69);
+    }
+    if (pair == 'NS') {
+      return math.min(fontSize * .34, glyphWidth * .69);
+    }
+    if (pair == 'UQ') {
+      // Preserve contact but uncover the diagonal and counter of the Q.
+      return math.min(fontSize * .065, glyphWidth * .18);
+    }
+    if (pair == 'LE') {
+      // The L's lower arm must remain visible underneath E's brush tip.
+      return math.min(fontSize * .115, glyphWidth * .26);
+    }
+    if (pair == 'VI') {
+      // The V must not engulf the narrow I.
+      return math.min(fontSize * .05, glyphWidth * .17);
+    }
+    if (pair == 'LI') {
+      return math.min(fontSize * .23, glyphWidth * .62);
+    }
+    if (previous == 'I' && character != 'V') {
+      // Thin I leaves false word breaks before wide following letters.
+      return math.min(fontSize * .28, glyphWidth * .65);
+    }
+    if (character == 'O' && previous != 'W') {
+      // Protect O's recognizable open center against diagonal intrusions.
+      return math.min(fontSize * .105, glyphWidth * .28);
+    }
+    if (previous == 'O' && character != 'V' && character != 'S') {
+      return math.min(fontSize * .105, glyphWidth * .28);
+    }
     // Limited optical corrections only. These four gaps were reported in
     // screenshots, so leave every OTHER pair at the tested build #605 values.
     // Avoid the broad overlap/cap increase that made build #606 run together.
@@ -4778,7 +4820,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       return math.min(fontSize * .35, glyphWidth * .70);
     }
     if (pair == 'OS') {
-      return math.min(fontSize * .23, glyphWidth * .52);
+      return math.min(fontSize * .145, glyphWidth * .32);
     }
     // Riot's S has an angled left side. Following C, U, G or T, its
     // measured advance leaves a visible false word break. Apply one
@@ -4798,7 +4840,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Riot's W has visible space inside its measured advance. Tighten only
     // the W→O (WORLD) and W→N (RENOWN) transitions seen in testing.
     if (pair == 'WO' || pair == 'WN') {
-      return math.min(fontSize * .28, glyphWidth * .57);
+      return math.min(fontSize * .20, glyphWidth * .48);
     }
     // BROVAZ: the generic V correction pulled V halfway through O.
     // Keep the letters close without placing the V over the O's body.
@@ -4808,7 +4850,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // POSITIVE K: the narrow I's measured advance leaves too much air
     // after T. Pull T→I in, but do not change other T combinations.
     if (pair == 'TI') {
-      return math.min(fontSize * .32, glyphWidth * .78);
+      return math.min(fontSize * .235, glyphWidth * .57);
     }
     // The V's brush stroke sweeps left toward the I. Default IV kerning
     // overlaps the letters; limit ONLY this pair to a tiny correction.
