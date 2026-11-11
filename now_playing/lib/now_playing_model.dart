@@ -511,14 +511,10 @@ class NowPlayingModel extends ChangeNotifier {
           (art == null || !listEquals(art!.bytes, artBytes))) {
         _setArt(artBytes);
       }
-      // Player artwork is displayed first; a strict song match may upgrade it.
-      if (changed && artLookupEnabled) {
-        final expectedTrack = key;
-        _sessionVerificationTimer?.cancel();
-        _sessionVerificationTimer = Timer(const Duration(milliseconds: 1500), () {
-          _findSongCoverUpgrade(expectedTrack);
-        });
-      }
+      // A valid media-session cover is authoritative, including YouTube Music.
+      // Never replace it through an automatic catalog search. The explicit
+      // placeholder rejection and missing-cover paths still search normally.
+      _sessionVerificationTimer?.cancel();
     } else if (rejectedSessionImage) {
       sessionArtworkStatus = 'Known player placeholder rejected';
       final currentIsRejected = art != null &&
@@ -629,9 +625,9 @@ class NowPlayingModel extends ChangeNotifier {
         title.trim().isEmpty || artist.trim().isEmpty) return;
     final requestedTitle = title;
     final requestedArtist = artist;
-    // Keep the media-session (including compilation) cover visible while
-    // checking for a verified artist + song replacement. Reuse only a
-    // track-specific cache entry: album-level caches may hold compilation art.
+    // Only invoked when a provisional original-song remix fallback is being
+    // checked for newly available exact-remix art. Genuine player-provided
+    // artwork must not enter this upgrade path automatically.
     final songKey = '${requestedArtist.trim().toLowerCase()}|${requestedTitle.trim().toLowerCase()}';
     Uint8List? bytes = _artCache[songKey];
     bytes ??= await MediaCache.getArt(songKey);
@@ -684,6 +680,10 @@ class NowPlayingModel extends ChangeNotifier {
     if (track.isEmpty || _localArtLookupTrack == track) return;
     _localArtLookupTrack = track;
     try {
+      // Read the fast in-memory/disk cache and begin verified network lookup
+      // concurrently with checking the local music index. Do not make a
+      // potentially slow SAF read block all album-art requests.
+      unawaited(_lookupArt());
       final bytes = await LocalArtwork.instance.albumArt(artist, album);
       if (token != _artToken || track != _trackKey ||
           (art != null && !_needsArt)) return;
@@ -692,11 +692,9 @@ class NowPlayingModel extends ChangeNotifier {
         artworkStatus = 'Matched local album artwork';
         unawaited(_setArt(bytes));
         notifyListeners();
-      } else {
-        // The first online request now starts as soon as the local index
-        // is checked, ahead of online fanart / clearlogo requests.
-        unawaited(_lookupArt());
       }
+      // No additional network request here: the concurrent one is already
+      // in flight and guarded against duplicate requests.
     } finally {
       if (_localArtLookupTrack == track) _localArtLookupTrack = '';
     }
