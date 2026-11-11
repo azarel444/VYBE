@@ -883,7 +883,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       }
       if ((bytes == null || bytes.isEmpty) && settings.fanartProjectKey.isNotEmpty) {
         bytes = await _fanart.getClearLogo(artist, settings.fanartProjectKey,
-            personalKey: settings.fanartApiKey);
+            personalKey: settings.fanartApiKey, cacheChecked: true);
         transferred = false;
       }
       if ((bytes == null || bytes.isEmpty) &&
@@ -901,7 +901,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           bytes = savedLead;
         } else if (settings.fanartProjectKey.isNotEmpty) {
           bytes = await _fanart.getClearLogo(lead, settings.fanartProjectKey,
-              personalKey: settings.fanartApiKey);
+              personalKey: settings.fanartApiKey, cacheChecked: true);
         }
         if (bytes != null && bytes.isNotEmpty) {
           debugPrint('VYBE clearlogo: using lead artist $lead for $artist');
@@ -1094,7 +1094,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       Uint8List? bytes = localBytes ?? cached ??
           (settings.fanartProjectKey.isEmpty ? null :
               await _fanart.get(artist, settings.fanartProjectKey,
-                  personalKey: settings.fanartApiKey));
+                  personalKey: settings.fanartApiKey, cacheChecked: true));
       var resolvedArtist = artist;
       if ((bytes == null || bytes.isEmpty) &&
           _canTryLeadArtistArtwork(artist)) {
@@ -1106,7 +1106,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         final foundLead = localLead ?? savedLead ??
             (settings.fanartProjectKey.isEmpty ? null :
                 await _fanart.get(lead, settings.fanartProjectKey,
-                    personalKey: settings.fanartApiKey));
+                    personalKey: settings.fanartApiKey, cacheChecked: true));
         if (foundLead != null && foundLead.isNotEmpty) {
           resolvedArtist = lead;
           localGallery = galleryLead;
