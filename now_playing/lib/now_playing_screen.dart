@@ -1013,7 +1013,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         _fanartCycleTimer?.cancel();
         _fanartLoadingArtist = artist;
         final request = ++_fanartRequest;
-        LocalArtwork.instance.fanartGallery(artist).then((gallery) {
+        // Incoming Connect artwork must not wait on a potentially huge
+        // music-folder scan. The existing local index is checked immediately.
+        LocalArtwork.instance.fanartGallery(
+            artist, rescanOnMiss: false).then((gallery) {
           if (!mounted || request != _fanartRequest || _fanartArtist != artist) return;
           if (gallery.isNotEmpty) {
             _fanartGallery = gallery;
