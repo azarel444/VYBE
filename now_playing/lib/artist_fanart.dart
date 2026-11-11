@@ -27,9 +27,9 @@ class ArtistFanartCache {
 
   static String _normalizeArtist(String name) => name.toLowerCase().trim()
       .replaceAll(RegExp(r'[-‐‑‒–—_]'), ' ')
-      .replaceAll(RegExp(r'\\s*&\\s*'), ' and ')
-      .replaceAll(RegExp(r'[.\\u2018\\u2019]'), '')
-      .replaceAll(RegExp(r'\\s+'), ' ')
+      .replaceAll(RegExp(r'\s*&\s*'), ' and ')
+      .replaceAll(RegExp(r'[.\u2018\u2019]'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
       .replaceFirst(RegExp(r'^the '), '')
       .trim();
 
@@ -211,6 +211,8 @@ class ArtistFanartCache {
   Future<Uint8List?> getCachedClearLogo(String artist) async {
     final key = artist.toLowerCase().trim();
     if (key.isEmpty) return null;
+    final memory = _logoMemory[key];
+    if (memory != null && memory.isNotEmpty) return memory;
     try {
       final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
       final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
@@ -218,6 +220,7 @@ class ArtistFanartCache {
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
         if (bytes.isNotEmpty) {
+          _logoMemory[key] = bytes;
           lastStatus = 'Internal clearlogo cache hit';
           return bytes;
         }
@@ -226,7 +229,8 @@ class ArtistFanartCache {
       if (restored != null && restored.isNotEmpty) {
         await folder.create(recursive: true);
         try { await file.writeAsBytes(restored, flush: false); } catch (_) {}
-        lastStatus = 'Persistent music-folder clearlogo cache hit';
+        _logoMemory[key] = restored;
+        lastStatus = 'Persistent artwork-folder clearlogo cache hit';
         return restored;
       }
     } catch (e) {
