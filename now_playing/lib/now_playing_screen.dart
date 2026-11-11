@@ -4757,6 +4757,37 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // a long empty right-side bearing; E also leaves too much whitespace.
   // This one method is used by both glyph placement and line measurement.
   double _riotPairOverlap(String previous, String character,
+      double fontSize, double glyphWidth, double previousGlyphWidth) {
+    final requested = _riotRequestedPairOverlap(
+        previous, character, fontSize, glyphWidth);
+
+    // I's measured advance is particularly narrow (about 27% of the font
+    // size). Previous pair corrections could consume almost ALL of that
+    // advance, especially S-I-C in MUSIC or R-I-S in MORRISSEY. Keep a
+    // substantial visible center without putting gaps between its neighbors.
+    //
+    // Cap BOTH the inbound and outbound overlaps against I's own measured
+    // width, never the width of the much broader neighboring C/S/N glyph.
+    // Keep F-I and T-I slightly closer for their diagonal/brush terminals.
+    if (character == 'I') {
+      final incomingLimit = glyphWidth *
+          ((previous == 'F' || previous == 'T') ? .35 : .29);
+      if (previous == 'I') {
+        return math.min(requested,
+            math.min(incomingLimit, previousGlyphWidth * .29));
+      }
+      return math.min(requested, incomingLimit);
+    }
+    if (previous == 'I') {
+      return math.min(requested, previousGlyphWidth * .29);
+    }
+    return requested;
+  }
+
+  // Existing approved optical adjustments for every other character pair.
+  // The outer helper protects the legibility of I consistently in both
+  // the positioned glyph painter and the line width measurement.
+  double _riotRequestedPairOverlap(String previous, String character,
       double fontSize, double glyphWidth) {
     final pair = previous + character;
     // Riot is a connected brush alphabet: maintain contact, not overlap that
@@ -4913,6 +4944,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final glyphHeights = <double>[];
     var x = 0.0;
     var previous = '';
+    var previousGlyphWidth = 0.0;
     var maxHeight = fontSize;
     for (final rune in lettering.runes) {
       final character = String.fromCharCode(rune);
@@ -4922,6 +4954,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (previous.isNotEmpty && previous != ' ') {
           x += fontSize * .22;
           previous = ' ';
+          previousGlyphWidth = 0;
         }
         continue;
       }
@@ -4937,7 +4970,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final glyphWidth = painter.width;
       maxHeight = math.max(maxHeight, painter.height);
       if (previous.isNotEmpty && previous != ' ') {
-        x -= _riotPairOverlap(previous, character, fontSize, glyphWidth);
+        x -= _riotPairOverlap(
+            previous, character, fontSize, glyphWidth, previousGlyphWidth);
       }
       glyphCharacters.add(character);
       glyphStyles.add(glyphStyle);
@@ -4945,6 +4979,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       glyphHeights.add(painter.height);
       x += glyphWidth;
       previous = character;
+      previousGlyphWidth = glyphWidth;
     }
     return Transform(
       alignment: Alignment.center,
@@ -5004,6 +5039,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         fontSize: fontSize, letterSpacing: 0, wordSpacing: 0);
     var x = 0.0;
     var prev = '';
+    var previousGlyphWidth = 0.0;
     for (final rune in lettering.runes) {
       final c = String.fromCharCode(rune);
       // Match the exact gap and initial sizing used in _artistText so
@@ -5012,6 +5048,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (prev.isNotEmpty && prev != ' ') {
           x += fontSize * .22;
           prev = ' ';
+          previousGlyphWidth = 0;
         }
         continue;
       }
@@ -5023,10 +5060,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           textDirection: TextDirection.ltr, maxLines: 1)..layout();
       final width = p.width;
       if (prev.isNotEmpty && prev != ' ') {
-        x -= _riotPairOverlap(prev, c, fontSize, width);
+        x -= _riotPairOverlap(prev, c, fontSize, width, previousGlyphWidth);
       }
       x += width;
       prev = c;
+      previousGlyphWidth = width;
     }
     if (_artistWidthCache.length > 256) _artistWidthCache.clear();
     _artistWidthCache[key] = x;
