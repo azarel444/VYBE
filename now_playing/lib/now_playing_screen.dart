@@ -4790,7 +4790,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     if (pair == 'VI') {
       // The V must not engulf the narrow I.
-      return math.min(fontSize * .065, glyphWidth * .18);
+      return math.min(fontSize * .035, glyphWidth * .13);
     }
     if (pair == 'LI') {
       return math.min(fontSize * .23, glyphWidth * .62);
