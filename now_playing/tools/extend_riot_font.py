@@ -165,6 +165,23 @@ for chars,specs,row in rows:
         font['hmtx'].metrics[name]=metrics
         generated[ord(char)]=name
 
+# Quadratic curve conversion rounds individual extrema by a few units.
+# Normalize the FINAL TrueType coordinates, not just the source SVG bounds,
+# so 0-9 have one precisely shared cap height and baseline in the APK.
+digit_base = round(digit_bottom)
+digit_top = digit_base + round(digit_height)
+for char in '0123456789':
+    glyph = glyf[generated[ord(char)]]
+    glyph.recalcBounds(glyf)
+    bottom, top = glyph.yMin, glyph.yMax
+    if top <= bottom:
+        raise RuntimeError('Riot digit has an empty outline: %s' % char)
+    for i, (x, y) in enumerate(glyph.coordinates):
+        y_fixed = digit_base + round((y - bottom) *
+                                    (digit_top - digit_base) / (top - bottom))
+        glyph.coordinates[i] = (x, y_fixed)
+    glyph.recalcBounds(glyf)
+
 font.setGlyphOrder(new_order)
 font['maxp'].numGlyphs=len(new_order)
 font['hhea'].numberOfHMetrics=len(new_order)
