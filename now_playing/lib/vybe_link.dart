@@ -25,6 +25,8 @@ class VybeLink extends ChangeNotifier {
   bool searchingReceivers = false;
   String discoveryStatus = 'Not checked';
   LinkDiscoveryResponder? _responder;
+  bool _startingResponder = false;
+  int _lastResponderAttemptMs = 0;
   Timer? _helloTimer;
   int _lastMetadataSentAt = 0;
   String _lastMetadataState = '';
@@ -375,7 +377,12 @@ class VybeLink extends ChangeNotifier {
         try { peer.writeln(jsonEncode({'v': 2, 'kind': 'ping'})); }
         catch (_) { if (role == 'sender') _senderDisconnected(peer); else _receiverDisconnected(peer); }
       }
-      if (!enabled || !autoConnect || _connecting || _retry?.isActive == true) return;
+      if (!enabled || !autoConnect) return;
+      // Keep UDP pairing discoverable even if it failed after TCP binding.
+      if (role == 'receiver' && _server != null && _responder == null) {
+        unawaited(_ensureResponder());
+      }
+      if (_connecting || _retry?.isActive == true) return;
       if (role == 'sender' && _socket == null) connect();
       if (role == 'receiver' && _server == null) connect();
     });
@@ -498,6 +505,34 @@ class VybeLink extends ChangeNotifier {
     await connection;
   }
 
+  /// The TCP server can be listening before the separate UDP discovery
+  /// responder has bound. Retry discovery without restarting a working server.
+  Future<void> _ensureResponder() async {
+    if (_responder != null || _startingResponder || !enabled ||
+        role != 'receiver' || _server == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastResponderAttemptMs < 5000) return;
+    _lastResponderAttemptMs = now;
+    _startingResponder = true;
+    final generation = _generation;
+    try {
+      final started = await LinkDiscoveryResponder.start(localDeviceId);
+      if (generation == _generation && enabled &&
+          role == 'receiver' && _server != null) {
+        _responder = started;
+        discoveryStatus = 'UDP discovery responder ready';
+      } else {
+        await started.close();
+      }
+    } catch (error) {
+      discoveryStatus = 'TCP ready but UDP discovery unavailable: $error';
+      debugPrint('VYBE Connect discovery responder failed: $error');
+    } finally {
+      _startingResponder = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> _updateAddresses() async {
     try {
       final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
@@ -570,14 +605,7 @@ class VybeLink extends ChangeNotifier {
         if (generation != _generation) { await server.close(); return; }
         _server = server;
         // Discovery must not interfere with accepting a manually entered IP.
-        try {
-          _responder = await LinkDiscoveryResponder.start(localDeviceId);
-          discoveryStatus = 'UDP discovery responder ready';
-        } catch (error) {
-          _responder = null;
-          discoveryStatus = 'TCP ready but UDP discovery unavailable: $error';
-          debugPrint('VYBE Connect discovery responder failed: $error');
-        }
+        await _ensureResponder();
         if (generation != _generation) {
           await _responder?.close(); _responder = null;
           await server.close();
