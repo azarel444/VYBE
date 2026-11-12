@@ -442,9 +442,11 @@ class VybeLink extends ChangeNotifier {
       return;
     }
     if (role == 'receiver') {
-      wiredStatus = _server == null
-          ? 'USB detected; starting receiver'
-          : 'USB detected; listening for phone';
+      wiredStatus = activeTransport == 'USB tethering' && _socket != null
+          ? 'Connected over USB'
+          : (_server == null
+              ? 'USB detected; starting receiver'
+              : 'USB detected; listening for phone');
       notifyListeners();
       if (_server == null) await connect();
     } else if (_tcpConnectedViaWired && _socket != null) {
