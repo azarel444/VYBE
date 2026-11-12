@@ -486,6 +486,8 @@ class VybeLink extends ChangeNotifier {
         (savedRole == 'receiver' ? 'head_unit' : 'phone');
     role = deviceType == 'head_unit' ? 'receiver' : 'sender';
     autoConnect = p.getBool('link_auto') ?? true;
+    preferWired = p.getBool('link_prefer_wired') ?? true;
+    _savedWiredReceiverIp = (p.getString('link_wired_address') ?? '').trim();
     receiverAddress = (p.getString('link_address') ?? '').trim();
     pairedReceiverId = p.getString('link_paired_receiver') ?? '';
     _savedDirectPeerAddress = p.getString('link_direct_peer') ?? '';
@@ -501,6 +503,7 @@ class VybeLink extends ChangeNotifier {
     model.addListener(_onModel);
     await directInitialize();
     await _updateAddresses();
+    await refreshWired(reconnect: false);
     if (enabled && autoConnect) {
       // A P2P group may already exist when VYBE launches. Register for its
       // native state and reuse the automatically resolved group owner IP.
@@ -526,6 +529,10 @@ class VybeLink extends ChangeNotifier {
     // Periodically recover a missing connection without user interaction.
     _connectionWatchdog?.cancel();
     _connectionWatchdog = Timer.periodic(const Duration(seconds: 3), (_) {
+      // Detect tether activation/unplugging after the initial app launch.
+      if (++_wiredWatchdogTicks % 2 == 0) {
+        unawaited(refreshWired());
+      }
       final peer = _socket;
       if (peer != null) {
         if (DateTime.now().millisecondsSinceEpoch - _lastPeerResponse > 11000) {
@@ -587,6 +594,7 @@ class VybeLink extends ChangeNotifier {
   /// best-effort: Android can suspend this Flutter process.
   void onResumed() {
     if (!enabled || !autoConnect) return;
+    unawaited(refreshWired());
     if (_directPreferred) unawaited(_recoverDirect(immediately: true));
     if (_connecting) return;
     if (role == 'receiver' && _server == null) { connect(); return; }
@@ -597,6 +605,7 @@ class VybeLink extends ChangeNotifier {
   /// TCP transport. It never requires a numeric IP address.
   Future<void> reconnectAutomatically() async {
     if (!enabled) await configure(isEnabled: true, automatic: true);
+    await refreshWired();
     if (_directPreferred) {
       await _recoverDirect(immediately: true);
     } else if (role == 'sender') {
