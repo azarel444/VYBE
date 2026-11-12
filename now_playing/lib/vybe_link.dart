@@ -864,19 +864,30 @@ class VybeLink extends ChangeNotifier {
 
   Future<void> _sendArtwork(Socket socket, String track, Uint8List bytes, int token) async {
     try {
-      // Decode and downscale on the sender, rather than asking the A5L to
-      // decode a multi-megabyte original. PNG encoding is supported by Flutter.
-      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 320);
-      final frame = await codec.getNextFrame();
-      final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-      frame.image.dispose(); codec.dispose();
-      if (data == null || token != _artGeneration || !identical(socket, _socket) || track != _lastTrack) return;
-      final compressed = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-      // Cap line size to protect low-RAM receivers; report failures rather
-      // than silently sending a missing-art payload.
-      if (compressed.length > 950000) { artworkStatus = 'Artwork too large after resize'; notifyListeners(); return; }
-      socket.write('${jsonEncode({'v': 2, 'kind': 'art', 'track': track, 'art': base64Encode(compressed)})}\n');
-    } catch (e) { artworkStatus = 'Sender artwork error: $e'; notifyListeners(); }
+      // The small cover shown on screen and the full-screen album-art
+      // backdrop both need the original image. Never downsample to 320 px
+      // merely because the receiver is a head unit.
+      final transfer = await _imageTransferBytes(bytes);
+      if (token != _artGeneration || !identical(socket, _socket) ||
+          track != _lastTrack) return;
+      if (transfer == null) {
+        artworkStatus = 'Album artwork too large for transfer';
+        _lastArtHash = 0;
+        notifyListeners();
+        return;
+      }
+      socket.write('${jsonEncode({'v': 2, 'kind': 'art', 'track': track, 'art': base64Encode(transfer)})}\n');
+      artworkStatus = identical(transfer, bytes)
+          ? 'Original album artwork sent (${(transfer.length / 1024).round()} KB)'
+          : 'Album artwork resized to fit transfer (${(transfer.length / 1024).round()} KB)';
+      notifyListeners();
+    } catch (error) {
+      if (token == _artGeneration && identical(socket, _socket)) {
+        _lastArtHash = 0;
+        artworkStatus = 'Sender artwork error: $error';
+        notifyListeners();
+      }
+    }
   }
 
   /// Invalidate older artist encodes even while the new image downloads.
@@ -888,14 +899,13 @@ class VybeLink extends ChangeNotifier {
     ++_fanartGeneration;
   }
 
-  // The receiver and its Drive companion cache already accept 6 MB images.
-  // Fanart.tv backgrounds are normally JPEGs well below this cap. Keep those
-  // ORIGINAL bytes: forced 480 px PNG transcoding made 7-inch head-unit
-  // backdrops visibly pixelated even when the phone displayed sharp fanart.
-  static const int _maxTransferFanartBytes = 6 * 1024 * 1024;
+  // Original JPEG/PNG bytes are usually small enough to send unchanged.
+  // Keep the same cap for album art and artist fanart; only unusually large
+  // local source images need a bounded, screen-quality fallback.
+  static const int _maxTransferImageBytes = 6 * 1024 * 1024;
 
-  Future<Uint8List?> _fanartTransferBytes(Uint8List original) async {
-    if (original.length <= _maxTransferFanartBytes) {
+  Future<Uint8List?> _imageTransferBytes(Uint8List original) async {
+    if (original.length <= _maxTransferImageBytes) {
       // No decode, resize or PNG conversion: highest quality, fastest send.
       return original;
     }
@@ -911,7 +921,7 @@ class VybeLink extends ChangeNotifier {
           if (data == null) continue;
           final reduced = data.buffer.asUint8List(
               data.offsetInBytes, data.lengthInBytes);
-          if (reduced.length <= _maxTransferFanartBytes) return reduced;
+          if (reduced.length <= _maxTransferImageBytes) return reduced;
         } finally {
           frame.image.dispose();
         }
@@ -933,7 +943,7 @@ class VybeLink extends ChangeNotifier {
     final token = ++_fanartGeneration;
     () async {
       try {
-        final transfer = await _fanartTransferBytes(bytes);
+        final transfer = await _imageTransferBytes(bytes);
         if (token != _fanartGeneration || !identical(socket, _socket) ||
             artist != _currentSenderArtist) return;
         if (transfer == null) {
@@ -1042,7 +1052,10 @@ class VybeLink extends ChangeNotifier {
   // Socket data is ordered, but asynchronous artwork decoding must not allow
   // an older cover to overwrite a newly selected track.
   void _receive(String line) {
-    if (!enabled || role != 'receiver' || line.length > 1600000) return;
+    // 6 MB binary artwork becomes ~8 MB of base64. The previous 1.6M
+    // character gate silently discarded higher-resolution covers/fanart.
+    // Keep a bounded limit while accepting the full-quality transfer cap.
+    if (!enabled || role != 'receiver' || line.length > 9 * 1024 * 1024) return;
     try {
       final data = jsonDecode(line);
       if (data is! Map || data['v'] != 2) return;
