@@ -565,6 +565,27 @@ open class MainActivity : FlutterActivity() {
                 }
             })
 
+        // Opening USB tether settings is user-controlled; normal apps cannot
+        // enable tethering silently. VYBE detects the resulting IP link.
+        MethodChannel(messenger, "vybe/wired").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "openTetherSettings" -> {
+                    try {
+                        startActivity(Intent("android.settings.TETHER_SETTINGS"))
+                        result.success(true)
+                    } catch (_: Exception) {
+                        try {
+                            startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("USB_TETHER_SETTINGS", error.message, null)
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+
         val directChannel = MethodChannel(messenger, "vybe/direct")
         vybeDirect = VybeDirect(this, directChannel)
         directChannel.setMethodCallHandler { call, result ->
