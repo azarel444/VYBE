@@ -37,6 +37,20 @@ class VybeLink extends ChangeNotifier {
   String receiverAddress = '';
   String status = 'Disabled';
   String localAddresses = '';
+  // USB tethering is an ordinary point-to-point IPv4 LAN. Prefer it for
+  // stability when detected; Wi-Fi Direct and shared Wi-Fi remain fallback.
+  static const MethodChannel _wired = MethodChannel('vybe/wired');
+  bool preferWired = true;
+  bool wiredAvailable = false;
+  String wiredStatus = 'No USB tethering network detected';
+  String activeTransport = 'Disconnected';
+  List<String> _wiredAddresses = <String>[];
+  String _savedWiredReceiverIp = '';
+  bool _tcpConnectedViaWired = false;
+  bool _wiredRefreshing = false;
+  bool _wiredUpgradeBusy = false;
+  int _lastWiredUpgradeMs = 0;
+  int _wiredWatchdogTicks = 0;
   ServerSocket? _server;
   Socket? _socket;
   StreamSubscription? _socketSub;
@@ -304,6 +318,152 @@ class VybeLink extends ChangeNotifier {
   }
 
   int _generation = 0;
+
+  bool _isWiredDestination(String address) {
+    final parts = address.split('.');
+    if (parts.length != 4) return false;
+    for (final local in _wiredAddresses) {
+      final segment = local.split('.');
+      if (segment.length == 4 &&
+          segment[0] == parts[0] &&
+          segment[1] == parts[1] &&
+          segment[2] == parts[2] &&
+          local != address) return true;
+    }
+    return false;
+  }
+
+  List<LinkReceiver> _matchingReceivers(List<LinkReceiver> devices) {
+    if (pairedReceiverId.isNotEmpty) {
+      return devices.where((d) => d.id == pairedReceiverId).toList();
+    }
+    // Never guess which head unit should be paired when several answer.
+    return devices.length == 1 ? devices : <LinkReceiver>[];
+  }
+
+  /// Refresh without interrupting a healthy connection. The OS exposes
+  /// RNDIS/NCM/USB ethernet once tethering is active; a charging-only cable
+  /// is not a valid network link.
+  Future<void> refreshWired({bool reconnect = true}) async {
+    if (_wiredRefreshing) return;
+    _wiredRefreshing = true;
+    try {
+      final addresses = await LinkDiscovery.wiredAddresses();
+      final changed = addresses.join('|') != _wiredAddresses.join('|');
+      _wiredAddresses = addresses;
+      wiredAvailable = addresses.isNotEmpty;
+      if (!wiredAvailable) {
+        wiredStatus = 'No USB tethering network detected';
+      } else if (_tcpConnectedViaWired && _socket != null) {
+        wiredStatus = 'Connected over USB';
+      } else {
+        wiredStatus = 'USB network detected: ${addresses.join(', ')}';
+      }
+      if (changed) notifyListeners();
+      if (!changed || !reconnect || !enabled || !autoConnect ||
+          role != 'sender') return;
+      if (!wiredAvailable && _tcpConnectedViaWired) {
+        // Network disappeared before TCP noticed: reconnect over Wi-Fi.
+        final peer = _socket;
+        if (peer != null) {
+          _senderDisconnected(peer);
+          peer.destroy();
+        }
+      } else if (wiredAvailable && preferWired) {
+        if (_socket == null && !_connecting) {
+          unawaited(connect());
+        } else if (_socket != null && !_tcpConnectedViaWired) {
+          // Verify the trusted receiver responds over USB before switching.
+          unawaited(_upgradeToWired());
+        }
+      }
+    } finally {
+      _wiredRefreshing = false;
+    }
+  }
+
+  Future<void> _upgradeToWired() async {
+    if (_wiredUpgradeBusy || !enabled || !autoConnect || !preferWired ||
+        !wiredAvailable || role != 'sender' || _tcpConnectedViaWired ||
+        _socket == null || _connecting) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastWiredUpgradeMs < 15000) return;
+    _lastWiredUpgradeMs = now;
+    _wiredUpgradeBusy = true;
+    try {
+      for (final local in _wiredAddresses) {
+        final devices = await LinkDiscovery.scan(
+            sourceAddress: local,
+            timeout: const Duration(milliseconds: 1100));
+        final matching = _matchingReceivers(devices);
+        if (matching.isEmpty || _socket == null || !wiredAvailable) continue;
+        final candidate = matching.first.address;
+        if (!_isWiredDestination(candidate)) continue;
+        _savedWiredReceiverIp = candidate;
+        wiredStatus = 'Paired head unit found over USB; switching';
+        notifyListeners();
+        // The exact receiver ID was confirmed by its UDP reply. Keep the
+        // existing Wi-Fi session until this point, not at cable insertion.
+        await connect();
+        return;
+      }
+      wiredStatus = 'USB network found, but paired head unit not discovered';
+      notifyListeners();
+    } catch (error) {
+      wiredStatus = 'USB discovery failed: $error';
+      notifyListeners();
+    } finally {
+      _wiredUpgradeBusy = false;
+    }
+  }
+
+  Future<void> setPreferWired(bool value) async {
+    preferWired = value;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('link_prefer_wired', value);
+    if (value) await requestWiredConnection();
+  }
+
+  Future<void> requestWiredConnection() async {
+    await refreshWired(reconnect: false);
+    if (!enabled) {
+      wiredStatus = 'Enable VYBE Connect to use USB';
+      notifyListeners();
+      return;
+    }
+    if (!wiredAvailable) {
+      wiredStatus = 'Connect USB and enable USB tethering on the phone';
+      notifyListeners();
+      return;
+    }
+    if (role == 'receiver') {
+      wiredStatus = _server == null
+          ? 'USB detected; starting receiver'
+          : 'USB detected; listening for phone';
+      notifyListeners();
+      if (_server == null) await connect();
+    } else if (_tcpConnectedViaWired && _socket != null) {
+      wiredStatus = 'Connected over USB';
+      notifyListeners();
+    } else if (_socket != null) {
+      // A manual Retry bypasses the normal automatic upgrade cooldown.
+      _lastWiredUpgradeMs = 0;
+      await _upgradeToWired();
+    } else {
+      await connect();
+    }
+  }
+
+  Future<bool> openUsbTetheringSettings() async {
+    try {
+      return await _wired.invokeMethod<bool>('openTetherSettings') ?? false;
+    } catch (error) {
+      wiredStatus = 'Open Android Settings → Hotspot and tethering: $error';
+      notifyListeners();
+      return false;
+    }
+  }
 
   Future<void> initialize(NowPlayingModel model) async {
     if (_initialized) {
