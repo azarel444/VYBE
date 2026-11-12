@@ -126,7 +126,7 @@ class AppSettings extends ChangeNotifier {
   double cinematicDarkness = 0.0;
   double cinematicBlur = 0.0;
   double cinematicContrast = 1.0;
-  double cinematicAnimationSpeed = 1.0; // premium shader playback multiplier
+  double cinematicAnimationSpeed = 1.0; // shared album-art and fanart drift speed (0..3)
   String fanartApiKey = '';
   String fanartProjectKey = bundledFanartProjectKey;
   double sensitivity = 0.5; // Fixed visualizer gain (no user control).
@@ -164,7 +164,7 @@ class AppSettings extends ChangeNotifier {
   int clubBlendMode = 0; // 0 Normal, 1 Add, 2 Screen, 3 Lighten, 4 Overlay, 5 Soft light, 6 Difference, 7 Exclusion, 8 Color dodge, 9 Hard light
   int backgroundSource = 0; // 0 artwork, 1 palette, 2 club, 3 album + club, 4 laser tunnel, 5 album + tunnel
   bool animatedTemplateBackground = false; // alternative to blurred album art
-  double templateBackgroundMotion = 0.65; // 0 = still, 1 = full motion
+  double templateBackgroundMotion = 0.65; // animated scene playback speed (0 = still)
   bool bgEffects = true; // slow drift + beat pulse
   bool particles = false;
   bool fxNebula = false;
