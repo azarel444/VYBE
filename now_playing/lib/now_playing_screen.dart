@@ -87,7 +87,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   late final Ticker _ticker;
   Duration _last = Duration.zero;
   double _time = 0;
-  double _artworkMotionTime = 0; // shared phase; speed changes never jump
+  final _artworkMotionPhase = ValueNotifier<double>(0);
   double _slowAcc = 0;
 
   double _nextGlitch = 5;
@@ -258,6 +258,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _driveConnectArtTimer?.cancel();
     _noise?.dispose();
     _recAngle.dispose();
+    _artworkMotionPhase.dispose();
     model.dispose();
     super.dispose();
   }
@@ -497,8 +498,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // A shared clock keeps album-art and fanart motion identical. Integrate
     // the speed rather than multiplying elapsed time: dragging the slider
     // must never jump the photo to a different position.
-    _artworkMotionTime += dt *
-        settings.cinematicAnimationSpeed.clamp(0.0, 3.0);
+    if (settings.cinematicAnimationSpeed > 0) {
+      _artworkMotionPhase.value += dt *
+          settings.cinematicAnimationSpeed.clamp(0.0, 3.0);
+    }
 
     sim.update(dt, model.playing, real: model.realActive ? model.fft : null);
     final bass = sim.bass;
@@ -1394,9 +1397,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ]);
       // Motion speed is controlled by the shared Artwork speed slider,
       // not by the unrelated FX enable switch.
-      if (settings.cinematicAnimationSpeed > 0) {
-        fanart = _drift(RepaintBoundary(child: fanart));
-      }
+      // A speed of zero pauses the photo in place, without a jump.
+      fanart = _drift(RepaintBoundary(child: fanart));
       if (settings.bgEffects) {
         fanart = FxComposite(
           mode: settings.fxBlendMode['Background Motion'] ?? 0,
@@ -1425,9 +1427,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ),
     );
-    if (settings.cinematicAnimationSpeed > 0) {
-      blurred = _drift(blurred);
-    }
+    // Keep the same transform when paused; only the shared phase stops.
+    blurred = _drift(blurred);
     if (settings.bgEffects) {
       blurred = FxComposite(
         mode: settings.fxBlendMode['Background Motion'] ?? 0,
@@ -1451,15 +1452,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// finished layer around.
   Widget _drift(Widget child) {
     return AnimatedBuilder(
-      animation: _tick,
+      // A zero speed means no notifier updates and no useless GPU motion.
+      animation: _artworkMotionPhase,
       child: child,
       builder: (context, c) {
         final size = MediaQuery.sizeOf(context);
         // This is a slow, continuous pan with safe overscan on all sides.
-        // Do not multiply time by speed here; the shared phase integrates
-        // slider changes so the image does not jump when speed is adjusted.
-        final dx = math.sin(_artworkMotionTime * 0.16) * size.width * 0.085;
-        final dy = math.cos(_artworkMotionTime * 0.12) * size.height * 0.075;
+        // Do not multiply elapsed time by speed: speed edits must not jump.
+        final dx = math.sin(_artworkMotionPhase.value * 0.16) * size.width * 0.085;
+        final dy = math.cos(_artworkMotionPhase.value * 0.12) * size.height * 0.075;
         return Transform.translate(
           offset: Offset(dx, dy),
           child: Transform.scale(scale: 1.28, child: c),
@@ -1516,8 +1517,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: background);
     // In BigFan/Muzine, move the chosen fanart OR album background without
     // moving the sleeve, vinyl or metadata. Placeholder images stay still.
-    final movingImage = (showFanart || useAlbum) &&
-            settings.cinematicAnimationSpeed > 0
+    final movingImage = showFanart || useAlbum
         ? _drift(RepaintBoundary(child: image))
         : image;
     // Muzine portrait hides the upper fifth behind its album-art backing.
