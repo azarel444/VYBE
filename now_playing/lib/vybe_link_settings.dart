@@ -47,6 +47,38 @@ class VybeLinkSettings extends StatelessWidget {
             onChanged: (v) => link.configure(automatic: v),
           ),
           const SizedBox(height: 14),
+          const Text('USB cable connection',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const Text('Uses the existing Connect music and artwork transfer '
+              'over USB tethering instead of wireless. Plug the phone into '
+              'a data-capable USB port on the head unit and enable USB '
+              'tethering on the phone. A charging-only cable does not work.'),
+          if (link.role == 'sender')
+            SwitchListTile(
+              title: const Text('Prefer USB when connected'),
+              subtitle: const Text('Automatically switch to the paired head '
+                  'unit on a working USB network; Wi-Fi remains the fallback'),
+              value: link.preferWired,
+              onChanged: (v) => link.setPreferWired(v),
+            ),
+          Text('USB link: ${link.wiredStatus}'),
+          Text('Active transport: ${link.activeTransport}'),
+          if (link.role == 'sender')
+            ElevatedButton.icon(
+              onPressed: () => link.openUsbTetheringSettings(),
+              icon: const Icon(Icons.usb),
+              label: const Text('Open phone USB tethering settings'),
+            ),
+          ElevatedButton.icon(
+            onPressed: () => link.requestWiredConnection(),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Detect / connect USB now'),
+          ),
+          const Text('Android controls USB tethering: VYBE cannot turn it '
+              'on automatically. Some head units do not support USB '
+              'networking; in that case Wi-Fi Direct continues working.',
+              style: TextStyle(color: Colors.white70)),
+          const SizedBox(height: 20),
           const Text('VYBE Wi-Fi Direct',
               style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
           const Text('For initial pairing, set up the connection on the '
