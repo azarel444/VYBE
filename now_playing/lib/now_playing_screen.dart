@@ -87,6 +87,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   late final Ticker _ticker;
   Duration _last = Duration.zero;
   double _time = 0;
+  double _artworkMotionTime = 0; // shared phase; speed changes never jump
   double _slowAcc = 0;
 
   double _nextGlitch = 5;
@@ -493,6 +494,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _last = elapsed;
     dt = dt.clamp(0.0, 0.1).toDouble();
     _time += dt;
+    // A shared clock keeps album-art and fanart motion identical. Integrate
+    // the speed rather than multiplying elapsed time: dragging the slider
+    // must never jump the photo to a different position.
+    _artworkMotionTime += dt *
+        settings.cinematicAnimationSpeed.clamp(0.0, 3.0);
 
     sim.update(dt, model.playing, real: model.realActive ? model.fft : null);
     final bass = sim.bass;
@@ -1386,11 +1392,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ColoredBox(color: Colors.black.withOpacity(
           settings.cinematicDarkness.clamp(0.0, 1.0))),
       ]);
+      // Motion speed is controlled by the shared Artwork speed slider,
+      // not by the unrelated FX enable switch.
+      if (settings.cinematicAnimationSpeed > 0) {
+        fanart = _drift(RepaintBoundary(child: fanart));
+      }
       if (settings.bgEffects) {
         fanart = FxComposite(
           mode: settings.fxBlendMode['Background Motion'] ?? 0,
           opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
-          child: _drift(fanart, speed: settings.cinematicAnimationSpeed * 2.5));
+          child: fanart);
       }
       return fanart;
     }
@@ -1414,11 +1425,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       ),
     );
+    if (settings.cinematicAnimationSpeed > 0) {
+      blurred = _drift(blurred);
+    }
     if (settings.bgEffects) {
       blurred = FxComposite(
         mode: settings.fxBlendMode['Background Motion'] ?? 0,
         opacity: settings.fxBlendOpacity['Background Motion'] ?? 1.0,
-        child: _drift(blurred),
+        child: blurred,
       );
     }
     final child = SizedBox.expand(
@@ -1435,24 +1449,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Slow pan and zoom. The blurred image is cached, so this only moves a
   /// finished layer around.
-  Widget _drift(Widget child, {double speed = 1.0}) {
+  Widget _drift(Widget child) {
     return AnimatedBuilder(
       animation: _tick,
       child: child,
       builder: (context, c) {
-        final size = MediaQuery.of(context).size;
-        final m = settings.kMotion;
-        final motionSize = settings.fxSize['Background Motion'] ?? 1.0;
-        final dx = math.sin(_time * 0.08 * speed) * size.width * 0.085 * m * motionSize;
-        final dy = math.cos(_time * 0.06 * speed) * size.height * 0.075 * m * motionSize;
+        final size = MediaQuery.sizeOf(context);
+        // This is a slow, continuous pan with safe overscan on all sides.
+        // Do not multiply time by speed here; the shared phase integrates
+        // slider changes so the image does not jump when speed is adjusted.
+        final dx = math.sin(_artworkMotionTime * 0.16) * size.width * 0.085;
+        final dy = math.cos(_artworkMotionTime * 0.12) * size.height * 0.075;
         return Transform.translate(
           offset: Offset(dx, dy),
-          child: Transform.scale(
-            // Overscan must cover the maximum pan in both axes, otherwise
-            // the top/right edges can expose empty strips during motion.
-            scale: 1.0 + math.max(0.28 * motionSize.abs(),
-                0.24 * m.abs() * motionSize.abs()),
-            child: c),
+          child: Transform.scale(scale: 1.28, child: c),
         );
       },
     );
@@ -1504,12 +1514,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : ColorFiltered(
             colorFilter: _contrastFilter(settings.cinematicContrast),
             child: background);
-    // Bigfan/Muzine fanart must respond to Background Motion; only the
-    // cached image moves, leaving album sleeve, vinyl and info stationary.
-    final movingImage = showFanart && settings.bgEffects &&
+    // In BigFan/Muzine, move the chosen fanart OR album background without
+    // moving the sleeve, vinyl or metadata. Placeholder images stay still.
+    final movingImage = (showFanart || useAlbum) &&
             settings.cinematicAnimationSpeed > 0
-        ? _drift(RepaintBoundary(child: image),
-            speed: settings.cinematicAnimationSpeed * 2.5)
+        ? _drift(RepaintBoundary(child: image))
         : image;
     // Muzine portrait hides the upper fifth behind its album-art backing.
     // Start fanart at the actual horizontal divider instead of fitting it
