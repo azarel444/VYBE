@@ -512,23 +512,15 @@ class SettingsScreen extends StatelessWidget {
     return [
       _section('Backgrounds & visual effects'),
       const Text('Choose a theme in the Theme Library on the playback controls. Use Customize for the most common adjustments; these advanced visual settings remain available here.'),
-      // Animated scene selection now lives beside the source selection in
-      // Quick Customize. Keep advanced animation colors and motion here.
+      // Scene selection and both speed sliders live in Quick Customize.
+      // Keep the advanced scene color override here.
       _choices('Animation colors',
         const ['Default', 'Use album colors'],
         s.animationUseAlbumColors ? 1 : 0,
         (i) => s.update(() => s.animationUseAlbumColors = i == 1)),
       const Text('Default keeps each animated scene\'s original colors. '
           'Use album colors applies the current album artwork palette.'),
-      // Live source/darkness/blur/contrast controls moved to Quick Customize.
-      _slider('Background animation', '${(s.templateBackgroundMotion * 100).round()}%',
-        s.templateBackgroundMotion, 0.0, 1.0,
-        (v) => s.update(() => s.templateBackgroundMotion = v, persist: false), s.save),
-      _slider('Fanart animation speed',
-        '${(s.cinematicAnimationSpeed * 100).round()}%',
-        s.cinematicAnimationSpeed, 0.0, 3.0,
-        (v) => s.update(() => s.cinematicAnimationSpeed = v, persist: false),
-        s.save),
+      // Live source, tone and motion-speed controls are in Quick Customize.
       // Clearlogo visibility and size now live in Quick Customize.
       _section('Artist fanart slideshow'),
       const Text('Randomly cycle through available artist images. Applies to every theme using artist fanart and to fanart sent over VYBE Connect.'),
