@@ -3,6 +3,7 @@
 Do not edit the original A-Z outlines. Run after side-bearing normalization.
 """
 from pathlib import Path
+from statistics import median
 from lxml import etree
 from fontTools.ttLib import TTFont
 from fontTools.pens.boundsPen import BoundsPen
@@ -60,8 +61,22 @@ cap_bottom = a.yMin
 # The hand-traced extended caps have body heights of roughly 54 SVG units;
 # their accents extend above that cap, rather than shrinking the letter.
 scale_caps = cap_height / 54.0
-# SVG digits have about a 104-unit design height; punctuation shares scale.
+# Keep the established punctuation/symbol sizes. The traced numeral source
+# has visibly unequal outlines (notably 5 versus 2), so digits will instead
+# receive the SAME cap height as a typical A-Z letter.
 scale_other = cap_height / 104.0
+normal_caps = []
+for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+    cap_name = cmap.get(ord(letter))
+    if cap_name is None:
+        continue
+    cap_glyph = glyf[cap_name]
+    cap_glyph.recalcBounds(glyf)
+    normal_caps.append(cap_glyph)
+if len(normal_caps) != 26:
+    raise RuntimeError('Riot A-Z metrics are required for consistent digits')
+digit_height = median(g.yMax - g.yMin for g in normal_caps)
+digit_bottom = median(g.yMin for g in normal_caps)
 
 def path_bounds(el):
     p=BoundsPen(None)
@@ -102,13 +117,19 @@ def make_glyph(char,spec,cap_row):
     xmax=max(b[2] for _,b in shapes)
     ymin=min(b[1] for _,b in shapes)
     ymax=max(b[3] for _,b in shapes)
-    scale=scale_caps if cap_row else scale_other
-    # Use the bottom of the row as baseline, not each accent's own bottom.
+    is_digit = cap_row == 0 and char in '0123456789'
+    # Equalize all ten visible numeral bounds to the median normal Riot
+    # uppercase cap height, not the unusually tall A or the arbitrary
+    # source-row height. Preserve each numeral's aspect ratio.
+    scale = (digit_height / max(1.0, ymax - ymin) if is_digit else
+        (scale_caps if cap_row else scale_other))
+    # Preserve the existing accented-letter and punctuation baselines.
     row_bottom=543 if cap_row==3 else (647 if cap_row==4 else
         (118 if cap_row==0 else (260 if cap_row==1 else 407)))
-    # Bottom-align glyph bodies; keep accents/descenders relative to this.
     dx=8-xmin*scale
-    dy=cap_bottom+row_bottom*scale
+    # For numerals, a common optical baseline makes 5 and 2 the same
+    # height on screen. Alphabetic outlines remain untouched.
+    dy=(digit_bottom+ymax*scale) if is_digit else (cap_bottom+row_bottom*scale)
     pen=TTGlyphPen(None)
     # Every SVG cubic becomes quadratic to form a valid TrueType glyf outline.
     quad=Cu2QuPen(pen,max_err=1.0,reverse_direction=False)
@@ -153,4 +174,13 @@ for table in font['cmap'].tables:
 font.save(FONT)
 print('VYBE Riot: added/replaced %d Unicode glyphs, font now %d glyphs (%d bytes)' %
       (len(generated),len(new_order),FONT.stat().st_size))
-assert ord('Á') in TTFont(FONT).getBestCmap()
+check_font = TTFont(FONT)
+check_cmap = check_font.getBestCmap()
+assert ord('Á') in check_cmap
+digit_bounds = []
+for char in '0123456789':
+    glyph = check_font['glyf'][check_cmap[ord(char)]]
+    glyph.recalcBounds(check_font['glyf'])
+    digit_bounds.append(glyph.yMax - glyph.yMin)
+assert max(digit_bounds) - min(digit_bounds) <= 3, (
+    'Riot digits must have uniform visible heights: %r' % digit_bounds)
