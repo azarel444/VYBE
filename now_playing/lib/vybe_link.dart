@@ -888,6 +888,40 @@ class VybeLink extends ChangeNotifier {
     ++_fanartGeneration;
   }
 
+  // The receiver and its Drive companion cache already accept 6 MB images.
+  // Fanart.tv backgrounds are normally JPEGs well below this cap. Keep those
+  // ORIGINAL bytes: forced 480 px PNG transcoding made 7-inch head-unit
+  // backdrops visibly pixelated even when the phone displayed sharp fanart.
+  static const int _maxTransferFanartBytes = 6 * 1024 * 1024;
+
+  Future<Uint8List?> _fanartTransferBytes(Uint8List original) async {
+    if (original.length <= _maxTransferFanartBytes) {
+      // No decode, resize or PNG conversion: highest quality, fastest send.
+      return original;
+    }
+    // Unusually large local backgrounds still need a bounded payload.
+    // Attempt HD first and step down only if the encoded PNG is too large.
+    // Never default to a tiny 480 px image just to make the transfer work.
+    for (final width in <int>[1600, 1280, 960, 720, 480]) {
+      final codec = await ui.instantiateImageCodec(original, targetWidth: width);
+      try {
+        final frame = await codec.getNextFrame();
+        try {
+          final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+          if (data == null) continue;
+          final reduced = data.buffer.asUint8List(
+              data.offsetInBytes, data.lengthInBytes);
+          if (reduced.length <= _maxTransferFanartBytes) return reduced;
+        } finally {
+          frame.image.dispose();
+        }
+      } finally {
+        codec.dispose();
+      }
+    }
+    return null;
+  }
+
   void sendFanart(String artist, Uint8List? bytes) {
     final socket = _socket;
     if (artist != _currentSenderArtist) return;
@@ -899,15 +933,31 @@ class VybeLink extends ChangeNotifier {
     final token = ++_fanartGeneration;
     () async {
       try {
-        final codec = await ui.instantiateImageCodec(bytes, targetWidth: 480);
-        final frame = await codec.getNextFrame();
-        final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-        frame.image.dispose(); codec.dispose();
-        if (data == null || token != _fanartGeneration || !identical(socket, _socket)) return;
-        final compact = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-        if (compact.length > 950000) return;
-        socket.write('${jsonEncode({'v': 2, 'kind': 'fanart', 'artist': artist, 'art': base64Encode(compact)})}\n');
-      } catch (e) { artworkStatus = 'Fanart transfer error: $e'; notifyListeners(); }
+        final transfer = await _fanartTransferBytes(bytes);
+        if (token != _fanartGeneration || !identical(socket, _socket) ||
+            artist != _currentSenderArtist) return;
+        if (transfer == null) {
+          artworkStatus = 'Fanart too large to send at supported quality';
+          _sentFanartArtist = '';
+          _sentFanartHash = 0;
+          notifyListeners();
+          return;
+        }
+        // JPEG and PNG bytes are both decoded by image signature, not by the
+        // .png extension of the shared app-private Drive cache file.
+        socket.write('${jsonEncode({'v': 2, 'kind': 'fanart', 'artist': artist, 'art': base64Encode(transfer)})}\n');
+        artworkStatus = identical(transfer, bytes)
+            ? 'Original fanart sent (${(transfer.length / 1024).round()} KB)'
+            : 'HD fanart resized for transfer (${(transfer.length / 1024).round()} KB)';
+        notifyListeners();
+      } catch (e) {
+        if (token == _fanartGeneration && identical(socket, _socket)) {
+          _sentFanartArtist = '';
+          _sentFanartHash = 0;
+          artworkStatus = 'Fanart transfer error: $e';
+          notifyListeners();
+        }
+      }
     }();
   }
 
