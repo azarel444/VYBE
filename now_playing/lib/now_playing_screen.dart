@@ -4812,6 +4812,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Other I-following pairs retain the stronger narrow-I protection.
       return math.min(fontSize * .225, glyphWidth * .50);
     }
+    if (pair == 'ID') {
+      // SIDE: D's angled lead-in leaves an optical gap after narrow I.
+      // Bring the strokes nearer, but never use the aggressive I-A overlap.
+      return math.min(fontSize * .155, glyphWidth * .37);
+    }
     if (previous == 'I') {
       return math.min(fontSize * .085, glyphWidth * .35);
     }
@@ -4933,6 +4938,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // below the rest of the word. Keep the approved per-pair optical kerning.
   static const double _riotWordInitialScale = 1.27;
 
+  // Hand-traced numbers belong to the regular cap-height row, not the
+  // enlarged first-letter treatment reserved for alphabetic word initials.
+  bool _riotIsAsciiDigit(String character) =>
+      character.length == 1 &&
+      character.codeUnitAt(0) >= 48 &&
+      character.codeUnitAt(0) <= 57;
+
+  // Y's slanted exit and S's angled entry exaggerate the normal word gap.
+  // Tighten this shape combination only; distinct words remain readable.
+  double _riotWordGap(String previous, String next, double fontSize) =>
+      fontSize * (previous == 'Y' && next == 'S' ? .11 : .22);
+
   Widget _artistText(double size, {Color? color, String? letteringOverride}) {
     final lettering = (letteringOverride ?? _artistStr).toUpperCase();
     final fontSize = size * 1.45;
@@ -4954,20 +4971,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final glyphHeights = <double>[];
     var x = 0.0;
     var previous = '';
+    var pendingWordGap = false;
     var maxHeight = fontSize;
     for (final rune in lettering.runes) {
       final character = String.fromCharCode(rune);
-      // Use an explicit, modest word gap. Measuring a fallback-font space
-      // previously added too much whitespace between words.
+      // Delay the space until the next glyph so optical word-gap pairs can
+      // be measured and painted exactly the same way.
       if (character == ' ') {
-        if (previous.isNotEmpty && previous != ' ') {
-          x += fontSize * .22;
-          previous = ' ';
-        }
+        if (previous.isNotEmpty) pendingWordGap = true;
         continue;
       }
-      final isWordInitial = previous.isEmpty || previous == ' ';
-      final glyphStyle = isWordInitial
+      final isWordInitial = previous.isEmpty || pendingWordGap;
+      final glyphStyle = isWordInitial && !_riotIsAsciiDigit(character)
           ? style.copyWith(fontSize: fontSize * _riotWordInitialScale)
           : style;
       final painter = TextPainter(
@@ -4977,7 +4992,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       )..layout();
       final glyphWidth = painter.width;
       maxHeight = math.max(maxHeight, painter.height);
-      if (previous.isNotEmpty && previous != ' ') {
+      if (pendingWordGap) {
+        x += _riotWordGap(previous, character, fontSize);
+      } else if (previous.isNotEmpty) {
         x -= _riotPairOverlap(previous, character, fontSize, glyphWidth);
       }
       glyphCharacters.add(character);
@@ -4986,6 +5003,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       glyphHeights.add(painter.height);
       x += glyphWidth;
       previous = character;
+      pendingWordGap = false;
     }
     return Transform(
       alignment: Alignment.center,
@@ -5045,29 +5063,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         fontSize: fontSize, letterSpacing: 0, wordSpacing: 0);
     var x = 0.0;
     var prev = '';
+    var pendingWordGap = false;
     for (final rune in lettering.runes) {
       final c = String.fromCharCode(rune);
-      // Match the exact gap and initial sizing used in _artistText so
-      // line-breaking widths stay faithful to what is drawn on screen.
+      // Identical glyph sizing and spacing to _artistText; otherwise
+      // line breaks will disagree with the rendered Riot wordmark.
       if (c == ' ') {
-        if (prev.isNotEmpty && prev != ' ') {
-          x += fontSize * .22;
-          prev = ' ';
-        }
+        if (prev.isNotEmpty) pendingWordGap = true;
         continue;
       }
-      final isWordInitial = prev.isEmpty || prev == ' ';
-      final glyphStyle = isWordInitial
+      final isWordInitial = prev.isEmpty || pendingWordGap;
+      final glyphStyle = isWordInitial && !_riotIsAsciiDigit(c)
           ? style.copyWith(fontSize: fontSize * _riotWordInitialScale)
           : style;
       final p = TextPainter(text: TextSpan(text: c, style: glyphStyle),
           textDirection: TextDirection.ltr, maxLines: 1)..layout();
       final width = p.width;
-      if (prev.isNotEmpty && prev != ' ') {
+      if (pendingWordGap) {
+        x += _riotWordGap(prev, c, fontSize);
+      } else if (prev.isNotEmpty) {
         x -= _riotPairOverlap(prev, c, fontSize, width);
       }
       x += width;
       prev = c;
+      pendingWordGap = false;
     }
     if (_artistWidthCache.length > 256) _artistWidthCache.clear();
     _artistWidthCache[key] = x;
