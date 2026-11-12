@@ -55,6 +55,7 @@ class VybeLinkSettings extends StatelessWidget {
               'automatically.'),
           Text('Direct support: ${link.directAvailable ? "Detected" : "Not detected"}'),
           Text('Direct status: ${link.directStatus}'),
+          Text('Local discovery: ${link.discoveryStatus}'),
           ElevatedButton(
             onPressed: () => link.directStart(receiver: link.role == 'receiver'),
             child: Text(link.role == 'receiver'
