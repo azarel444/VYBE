@@ -14,18 +14,48 @@ class LinkReceiver {
 
 class LinkDiscovery {
   static const int port = 38928;
+
+  /// Android exposes a tethered USB/RNDIS/NCM link as an IPv4 network
+  /// interface, not as an ordinary USB serial connection. Do not interpret
+  /// an attached charging cable alone as a working network connection.
+  static Future<List<String>> wiredAddresses() async {
+    final found = <String>{};
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4, includeLoopback: false);
+      for (final network in interfaces) {
+        final name = network.name.toLowerCase();
+        if (!(name.startsWith('rndis') || name.startsWith('usb') ||
+            name.startsWith('ncm') || name.startsWith('eth') ||
+            name.startsWith('enx'))) continue;
+        for (final address in network.addresses) {
+          if (address.type != InternetAddressType.IPv4 ||
+              address.isLoopback || address.address.startsWith('169.254.') ||
+              address.address == '0.0.0.0') continue;
+          found.add(address.address);
+        }
+      }
+    } catch (_) {
+      // A restricted Android network API must not break ordinary Wi-Fi.
+    }
+    return found.toList();
+  }
   static final List<int> _probe = utf8.encode(
     jsonEncode(<String, dynamic>{'kind': 'vybe_discover', 'v': 1}),
   );
 
   static Future<List<LinkReceiver>> scan({
     Duration timeout = const Duration(milliseconds: 1400),
+    String? sourceAddress,
   }) async {
     final found = <String, LinkReceiver>{};
     RawDatagramSocket? socket;
     StreamSubscription<RawSocketEvent>? subscription;
     try {
-      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      // Bind to the USB interface explicitly when scanning a tethered
+      // network. Otherwise Android may send discovery on Wi-Fi instead.
+      socket = await RawDatagramSocket.bind(
+          InternetAddress(sourceAddress ?? '0.0.0.0'), 0);
       socket.broadcastEnabled = true;
       final listening = socket;
       subscription = listening.listen((event) {
@@ -48,21 +78,26 @@ class LinkDiscovery {
       });
 
       final targets = <String>{'255.255.255.255'};
-      try {
-        for (final network in await NetworkInterface.list(
-          type: InternetAddressType.IPv4,
-          includeLoopback: false,
-        )) {
-          for (final address in network.addresses) {
-            final octets = address.address.split('.');
-            if (octets.length == 4) {
-              // Common car head-unit, hotspot, and USB tethering networks
-              // use /24. All-subnets broadcast is attempted as well.
-              targets.add('${octets[0]}.${octets[1]}.${octets[2]}.255');
+      if (sourceAddress != null) {
+        final octets = sourceAddress.split('.');
+        if (octets.length == 4) {
+          targets.add('${octets[0]}.${octets[1]}.${octets[2]}.255');
+        }
+      } else {
+        try {
+          for (final network in await NetworkInterface.list(
+            type: InternetAddressType.IPv4,
+            includeLoopback: false,
+          )) {
+            for (final address in network.addresses) {
+              final octets = address.address.split('.');
+              if (octets.length == 4) {
+                targets.add('${octets[0]}.${octets[1]}.${octets[2]}.255');
+              }
             }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
       for (final target in targets) {
         try { listening.send(_probe, InternetAddress(target), port); } catch (_) {}
       }
