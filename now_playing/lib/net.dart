@@ -441,9 +441,11 @@ List<_ReleaseGroup> _rankSongGroups(
 }
 
 Future<Uint8List?> _coverArtArchiveImage(String releaseGroupId) async {
+  // Prefer the original source cover. The /front-500 variant looks blurry
+  // in large layouts and should only be used if the original is unavailable.
   for (final path in [
-    '/release-group/$releaseGroupId/front-500',
     '/release-group/$releaseGroupId/front',
+    '/release-group/$releaseGroupId/front-500',
   ]) {
     final bytes = await httpGetBytes(Uri.https('coverartarchive.org', path));
     if (bytes != null && _looksLikeImage(bytes)) return bytes;
@@ -531,22 +533,28 @@ Future<Uint8List?> _coverForGroups(List<_ReleaseGroup> groups) async {
   // of Cover Art Archive endpoints WITHIN that group instead of serially
   // waiting for timeouts from missing front images.
   for (final group in groups.take(10)) {
-    final urls = <Uri>[
-      Uri.https('coverartarchive.org',
-          '/release-group/${group.id}/front-500'),
+    // Race the verified original-resolution images first, rather than
+    // allowing a quick 500 px thumbnail to beat its higher-quality source.
+    // This keeps selection fast while preserving full-sized cover details.
+    final originals = <Uri>[
       Uri.https('coverartarchive.org',
           '/release-group/${group.id}/front'),
-      for (final releaseId in group.releaseIds.take(2))
-        Uri.https('coverartarchive.org',
-            '/release/$releaseId/front-500'),
-    ];
-    final cover = await _firstVerifiedCover(urls);
-    if (cover != null) return cover;
-    final alternative = await _firstVerifiedCover([
       for (final releaseId in group.releaseIds.take(3))
         Uri.https('coverartarchive.org',
             '/release/$releaseId/front'),
-    ]);
+    ];
+    final cover = await _firstVerifiedCover(originals);
+    if (cover != null) return cover;
+    // Some archives expose only resized variants or original files exceed
+    // the 6 MB download limit. Still show a cover in those cases.
+    final thumbnailFallbacks = <Uri>[
+      Uri.https('coverartarchive.org',
+          '/release-group/${group.id}/front-500'),
+      for (final releaseId in group.releaseIds.take(3))
+        Uri.https('coverartarchive.org',
+            '/release/$releaseId/front-500'),
+    ];
+    final alternative = await _firstVerifiedCover(thumbnailFallbacks);
     if (alternative != null) return alternative;
     final fanart = await _fanartAlbumImage(group.id);
     if (fanart != null) return fanart;
