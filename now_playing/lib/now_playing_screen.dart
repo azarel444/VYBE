@@ -1376,6 +1376,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ));
   }
 
+  // Render from the ORIGINAL cover bytes at the screen's useful resolution.
+  // The 96 px palette sample must never fill a backdrop.
+  // A display-sized image-cache decode protects slow head units from decoding
+  // enormous camera originals while avoiding blurry, blown-up thumbnails.
+  Widget _albumBackgroundImage(ArtAssets art) {
+    final screen = MediaQuery.sizeOf(context);
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final decodeWidth = (screen.longestSide * pixelRatio * 1.15)
+        .round().clamp(720, 2048).toInt();
+    return Image.memory(
+      art.bytes,
+      fit: BoxFit.cover,
+      cacheWidth: decodeWidth,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.high,
+    );
+  }
+
   Widget _albumBackdrop() {
     if ((settings.backgroundSource == 6 ||
         (settings.backgroundSource == 0 && settings.fanartMode == 1)) &&
@@ -1422,8 +1440,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           child: usingVybePlaceholder
               ? Image.asset('assets/vybe_album_placeholder.png',
                   fit: BoxFit.cover, filterQuality: FilterQuality.high)
-              : RawImage(image: art!.tiny, fit: BoxFit.cover,
-                  filterQuality: FilterQuality.high),
+              : _albumBackgroundImage(art!),
         ),
       ),
     );
@@ -1499,7 +1516,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ? Image.memory(fanart, fit: BoxFit.cover,
             alignment: Alignment.topCenter, gaplessPlayback: true)
         : useAlbum
-            ? RawImage(image: art.tiny, fit: BoxFit.cover)
+            ? _albumBackgroundImage(art)
             : useVybePlaceholder
                 ? Image.asset('assets/vybe_album_placeholder.png',
                     fit: BoxFit.cover)
@@ -1561,7 +1578,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   ? Image.memory(fanart, fit: BoxFit.cover,
                       alignment: Alignment.topCenter, gaplessPlayback: true)
                   : useAlbum
-                      ? RawImage(image: art?.tiny, fit: BoxFit.cover)
+                      ? _albumBackgroundImage(art!)
                       : Image.asset('assets/vybe_album_placeholder.png',
                           fit: BoxFit.cover)),
             ),
@@ -1689,8 +1706,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         sleeveCenterY + sleeveSize * (portrait ? vinylEdgeOffset : -vinylEdgeOffset);
     final musiczineVinylX = musiczineVinylCenterX - musiczineVinylSize * .5;
     final musiczineVinylY = musiczineVinylCenterY - musiczineVinylSize * .5;
-    // The sleeve must use full-resolution artwork. art.tiny is a 96px
-    // palette/background thumbnail and becomes visibly pixelated here.
+    // The sleeve uses full-resolution artwork, independent of the cached
+    // backdrop decode.
     final cover = hasCover
         ? Image.memory(art.bytes, fit: BoxFit.cover,
             gaplessPlayback: true, filterQuality: FilterQuality.high)
@@ -1708,8 +1725,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ]),
           child: Transform.scale(
             scale: 1.7,
-            child: readable(RawImage(image: art.tiny, fit: BoxFit.cover,
-              filterQuality: FilterQuality.high)))),
+            child: readable(_albumBackgroundImage(art)))),
       // Deepen only the grayscale backing, leaving the cover and fanart untouched.
       const ColoredBox(color: Color(0x99000000)),
     ]);
@@ -3725,13 +3741,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             alignment: Alignment.center,
             transform: Matrix4.diagonal3Values(
                 counterFlipText ? -1 : 1, 1, 1),
-            child: RawImage(
-              // A cached low-resolution backing avoids repeatedly blurring
-              // the full-resolution cover on less powerful head units.
-              image: art.tiny,
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.high,
-            ));
+            child: _albumBackgroundImage(art));
     final gray = ClipPath(
       clipper: PolyClipper(poly),
       child: RepaintBoundary(
