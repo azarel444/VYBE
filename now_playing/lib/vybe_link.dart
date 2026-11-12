@@ -23,6 +23,7 @@ class VybeLink extends ChangeNotifier {
   String pairedReceiverId = '';
   List<LinkReceiver> receivers = [];
   bool searchingReceivers = false;
+  String discoveryStatus = 'Not checked';
   LinkDiscoveryResponder? _responder;
   Timer? _helloTimer;
   int _lastMetadataSentAt = 0;
@@ -177,14 +178,12 @@ class VybeLink extends ChangeNotifier {
             // The Android Wi-Fi Direct API supplies groupOwnerAddress.
             // NEVER ask the user for an IP or hardcode one for all networks.
             await _updateAddresses();
-            if (role == 'sender' && host.isNotEmpty) {
-              final targetChanged = receiverAddress != host;
+            if (role == 'sender' && host.isNotEmpty && _socket == null) {
+              // The Android group-owner IP is the preferred TCP target.
+              // Never interrupt an already working LAN/hotspot socket just
+              // because a duplicate Direct broadcast announces another IP.
               receiverAddress = host;
-              // Duplicate Wi-Fi Direct broadcasts must NOT tear down an
-              // already working music/artwork socket.
-              if (targetChanged || _socket == null) {
-                unawaited(connect());
-              }
+              unawaited(connect());
             }
             break;
           case 'disconnected':
@@ -393,9 +392,13 @@ class VybeLink extends ChangeNotifier {
     final results = await LinkDiscovery.scan();
     receivers = results;
     searchingReceivers = false;
+    discoveryStatus = results.isEmpty
+        ? 'No UDP response on this network (Direct or saved IP may still work)'
+        : 'Found ' + results.length.toString() + ' receiver(s)';
     if (_socket == null && role == 'sender') {
-      status = results.isEmpty ? 'No VYBE receiver found on this network'
-          : 'Found ${results.length} VYBE receiver(s)';
+      status = results.isEmpty
+          ? 'Discovery did not respond; automatic reconnect is still active'
+          : 'Found ' + results.length.toString() + ' VYBE receiver(s)';
     }
     notifyListeners();
   }
@@ -520,7 +523,10 @@ class VybeLink extends ChangeNotifier {
       do {
         _connectPending = false;
         await _connectInternal();
-      } while (_connectPending && enabled);
+      // Native Direct broadcasts often arrive while TCP is connecting.
+      // A queued retry must NEVER tear down a socket that just succeeded.
+      } while (_connectPending && enabled &&
+          (role == 'receiver' ? _server == null : _socket == null));
     } finally {
       _connecting = false;
     }
@@ -566,8 +572,11 @@ class VybeLink extends ChangeNotifier {
         // Discovery must not interfere with accepting a manually entered IP.
         try {
           _responder = await LinkDiscoveryResponder.start(localDeviceId);
-        } catch (_) {
+          discoveryStatus = 'UDP discovery responder ready';
+        } catch (error) {
           _responder = null;
+          discoveryStatus = 'TCP ready but UDP discovery unavailable: $error';
+          debugPrint('VYBE Connect discovery responder failed: $error');
         }
         if (generation != _generation) {
           await _responder?.close(); _responder = null;
@@ -623,7 +632,10 @@ class VybeLink extends ChangeNotifier {
     // saved reachable IP can be tried briefly while dynamic discovery runs.
     // No manual entry is needed, including on first pairing.
     Socket? socket;
-    String address = receiverAddress;
+    // On Wi-Fi Direct prefer Android's current group-owner IP, not the
+    // remembered IP from a previous drive or hotspot session.
+    String address = _directGroupConnected && _directGroupOwnerIp.isNotEmpty
+        ? _directGroupOwnerIp : receiverAddress;
     if (address.isNotEmpty) {
       try {
         socket = await Socket.connect(
@@ -632,11 +644,25 @@ class VybeLink extends ChangeNotifier {
     }
     if (generation != _generation) { socket?.destroy(); return; }
 
+    // A Direct connection can form during the saved-IP attempt. Try the
+    // new owner IP immediately rather than waiting for the next retry timer.
+    if (socket == null && _directGroupConnected &&
+        _directGroupOwnerIp.isNotEmpty && address != _directGroupOwnerIp) {
+      address = _directGroupOwnerIp;
+      try {
+        socket = await Socket.connect(
+            address, port, timeout: const Duration(seconds: 2));
+      } catch (_) {}
+      if (generation != _generation) { socket?.destroy(); return; }
+    }
+
     if (socket == null) {
       status = 'Discovering head unit automatically...';
       notifyListeners();
       try {
         final devices = await LinkDiscovery.scan();
+        discoveryStatus = devices.isEmpty ? 'No UDP response yet'
+            : 'Found ' + devices.length.toString() + ' receiver(s)';
         if (generation != _generation) return;
         // Reconnect ONLY to the paired receiver when its identity is known.
         // With one discovered receiver and no pairing, initial setup can
@@ -707,8 +733,16 @@ class VybeLink extends ChangeNotifier {
         final id = (data['id'] as String?) ?? '';
         if (id.length < 16 || id.length > 128) return;
         if (pairedReceiverId.isNotEmpty && pairedReceiverId != id) {
-          status = 'Connected IP belongs to a different receiver';
+          // A previously saved IP may now belong to another device. Never
+          // keep reconnecting to that stale address forever; rediscover the
+          // paired receiver by its stable identity on the next attempt.
+          status = 'Saved IP belongs to a different receiver; rediscovering';
+          receiverAddress = '';
           notifyListeners();
+          SharedPreferences.getInstance().then((prefs) =>
+              prefs.setString('link_address', '')).catchError((Object error) {
+            debugPrint('VYBE Link could not clear stale IP: $error');
+          });
           peer.destroy();
           _senderDisconnected(peer);
           return;
@@ -750,7 +784,9 @@ class VybeLink extends ChangeNotifier {
   void _scheduleRetry(int generation) {
     if (!enabled || !autoConnect || role != 'sender') return;
     _retry?.cancel();
-    _retry = Timer(const Duration(seconds: 8), () {
+    // A head unit can finish booting its Wi-Fi and TCP server shortly after
+    // the phone starts. Retry promptly without requiring the user to tap.
+    _retry = Timer(const Duration(seconds: 4), () {
       if (generation == _generation) connect();
     });
   }
