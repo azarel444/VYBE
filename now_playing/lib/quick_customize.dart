@@ -74,7 +74,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
     return SizedBox(
       height: 47,
       child: Row(children: [
-        SizedBox(width: 78, child: Text(label, maxLines: 1,
+        SizedBox(width: 110, child: Text(label, maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 13, color: Colors.white))),
         Expanded(child: SliderTheme(
@@ -107,7 +107,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
     return Padding(
       padding: const EdgeInsets.only(top: 5, bottom: 3),
       child: Row(children: [
-        const SizedBox(width: 78, child: Text('Scene',
+        const SizedBox(width: 110, child: Text('Scene',
             style: TextStyle(color: Colors.white, fontSize: 13))),
         Expanded(child: Container(
           height: 43,
@@ -198,6 +198,16 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
         _compactSlider('Fanart dim', s.cinematicDarkness, 0, 1,
           (s.cinematicDarkness * 100).round().toString() + '%',
           (v) => s.cinematicDarkness = v),
+      // One motion speed drives both album-art and artist-fanart backgrounds.
+      _compactSlider('Artwork speed', s.cinematicAnimationSpeed, 0, 3,
+        s.cinematicAnimationSpeed == 0
+            ? 'Off' : s.cinematicAnimationSpeed.toStringAsFixed(1) + 'x',
+        (v) => s.cinematicAnimationSpeed = v),
+      // Shader scenes retain their independent animation clock and speed.
+      _compactSlider('Animated speed', s.templateBackgroundMotion, 0, 1,
+        s.templateBackgroundMotion == 0
+            ? 'Off' : (s.templateBackgroundMotion * 100).round().toString() + '%',
+        (v) => s.templateBackgroundMotion = v),
     ];
 
     return Material(
@@ -294,12 +304,6 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         selected: s.useVybePalette,
                         onSelected: (v) =>
                             s.update(() => s.useVybePalette = v),
-                        visualDensity: VisualDensity.compact),
-                      FilterChip(
-                        label: const Text('Motion'),
-                        selected: s.bgEffects,
-                        onSelected: (v) =>
-                            s.update(() => s.bgEffects = v),
                         visualDensity: VisualDensity.compact),
                       OutlinedButton.icon(
                         onPressed: widget.onOpenFx,
