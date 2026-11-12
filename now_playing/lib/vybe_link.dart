@@ -739,10 +739,11 @@ class VybeLink extends ChangeNotifier {
           status = 'Saved IP belongs to a different receiver; rediscovering';
           receiverAddress = '';
           notifyListeners();
-          SharedPreferences.getInstance().then((prefs) =>
-              prefs.setString('link_address', '')).catchError((Object error) {
+          unawaited(SharedPreferences.getInstance().then((prefs) async {
+            await prefs.setString('link_address', '');
+          }).catchError((Object error) {
             debugPrint('VYBE Link could not clear stale IP: $error');
-          });
+          }));
           peer.destroy();
           _senderDisconnected(peer);
           return;
