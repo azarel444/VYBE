@@ -769,6 +769,7 @@ class VybeLink extends ChangeNotifier {
     if (!enabled) { status = 'Disabled'; notifyListeners(); return; }
 
     if (role == 'receiver') {
+      activeTransport = 'Listening on available networks';
       try {
         final server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
         if (generation != _generation) { await server.close(); return; }
@@ -790,7 +791,10 @@ class VybeLink extends ChangeNotifier {
           _socket?.destroy();
           _socket = client;
           _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
-          status = 'Connected to ${client.remoteAddress.address}';
+          final overUsb = _isWiredDestination(client.remoteAddress.address);
+          activeTransport = overUsb ? 'USB tethering' : 'Wi-Fi / LAN';
+          if (overUsb) wiredStatus = 'Connected over USB';
+          status = 'Connected via $activeTransport to ${client.remoteAddress.address}';
           _model?.setLinkReceiverActive(true);
           notifyListeners();
           // Optional non-blocking identity message, useful for future
@@ -825,19 +829,58 @@ class VybeLink extends ChangeNotifier {
     status = receiverAddress.isNotEmpty ? 'Connecting to saved head unit...' :
         'Searching for head unit...';
     notifyListeners();
-    // The group-owner IP is supplied by Android (Wi-Fi Direct), otherwise a
-    // saved reachable IP can be tried briefly while dynamic discovery runs.
-    // No manual entry is needed, including on first pairing.
+    // Wired USB is the first choice, but never trust an arbitrary connected
+    // device: discover its VYBE receiver ID before pairing. A saved wired
+    // address is tried first only on the active USB subnet for fast startup.
     Socket? socket;
-    // On Wi-Fi Direct prefer Android's current group-owner IP, not the
-    // remembered IP from a previous drive or hotspot session.
-    String address = _directGroupConnected && _directGroupOwnerIp.isNotEmpty
-        ? _directGroupOwnerIp : receiverAddress;
-    if (address.isNotEmpty) {
-      try {
-        socket = await Socket.connect(
-          address, port, timeout: const Duration(seconds: 2));
-      } catch (_) {}
+    String address = '';
+    if (preferWired && _wiredAddresses.isNotEmpty) {
+      status = 'Looking for head unit over USB tethering...';
+      notifyListeners();
+      if (_savedWiredReceiverIp.isNotEmpty &&
+          _isWiredDestination(_savedWiredReceiverIp)) {
+        try {
+          socket = await Socket.connect(_savedWiredReceiverIp, port,
+              timeout: const Duration(milliseconds: 1100));
+          address = _savedWiredReceiverIp;
+        } catch (_) {}
+      }
+      if (generation != _generation) { socket?.destroy(); return; }
+      if (socket == null) {
+        for (final source in _wiredAddresses) {
+          try {
+            final found = await LinkDiscovery.scan(
+                sourceAddress: source,
+                timeout: const Duration(milliseconds: 1100));
+            if (generation != _generation) return;
+            final matched = _matchingReceivers(found);
+            if (matched.isEmpty ||
+                !_isWiredDestination(matched.first.address)) continue;
+            address = matched.first.address;
+            try {
+              socket = await Socket.connect(address, port,
+                  timeout: const Duration(seconds: 2));
+            } catch (_) {}
+            if (socket != null) break;
+          } catch (error) {
+            wiredStatus = 'USB discovery: $error';
+          }
+        }
+        if (generation != _generation) { socket?.destroy(); return; }
+      }
+    }
+
+    // USB not ready or the receiver isn't reachable yet? Preserve the
+    // previously working Wi-Fi Direct, hotspot and LAN fallback paths.
+    if (socket == null) {
+      address = _directGroupConnected && _directGroupOwnerIp.isNotEmpty
+          ? _directGroupOwnerIp : receiverAddress;
+      if (address.isNotEmpty) {
+        try {
+          socket = await Socket.connect(address, port,
+              timeout: const Duration(seconds: 2));
+        } catch (_) {}
+      }
     }
     if (generation != _generation) { socket?.destroy(); return; }
 
@@ -886,8 +929,16 @@ class VybeLink extends ChangeNotifier {
     }
 
     _socket = socket;
-    _tcpConnectedViaDirect = _directGroupConnected &&
+    _tcpConnectedViaWired = _isWiredDestination(address);
+    _tcpConnectedViaDirect = !_tcpConnectedViaWired &&
+        _directGroupConnected &&
         _directGroupOwnerIp.isNotEmpty && address == _directGroupOwnerIp;
+    activeTransport = _tcpConnectedViaWired ? 'USB tethering'
+        : (_tcpConnectedViaDirect ? 'Wi-Fi Direct' : 'Wi-Fi / LAN');
+    if (_tcpConnectedViaWired) {
+      _savedWiredReceiverIp = address;
+      wiredStatus = 'Connected over USB';
+    }
     _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
     receiverAddress = address;
     // Persist automatically discovered network addresses for faster next
@@ -898,12 +949,15 @@ class VybeLink extends ChangeNotifier {
       await prefs.setBool('link_auto', true);
       await prefs.setString('link_role', 'sender');
       await prefs.setString('link_address', address);
+      if (_tcpConnectedViaWired) {
+        await prefs.setString('link_wired_address', address);
+      }
       autoConnect = true;
     } catch (e) {
       debugPrint('VYBE Link failed to persist working receiver IP: $e');
     }
     if (generation != _generation || !identical(socket, _socket)) return;
-    status = 'Connected to $address';
+    status = 'Connected via $activeTransport to $address';
     // The original working method transmitted immediately upon TCP connect.
     // Do not wait for a hello packet, which could prevent all song data.
     final peer = socket;
@@ -935,9 +989,13 @@ class VybeLink extends ChangeNotifier {
           // paired receiver by its stable identity on the next attempt.
           status = 'Saved IP belongs to a different receiver; rediscovering';
           receiverAddress = '';
+          if (_tcpConnectedViaWired) _savedWiredReceiverIp = '';
           notifyListeners();
           unawaited(SharedPreferences.getInstance().then((prefs) async {
             await prefs.setString('link_address', '');
+            if (_tcpConnectedViaWired) {
+              await prefs.setString('link_wired_address', '');
+            }
           }).catchError((Object error) {
             debugPrint('VYBE Link could not clear stale IP: $error');
           }));
@@ -965,12 +1023,15 @@ class VybeLink extends ChangeNotifier {
   void _receiverDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
     _socket = null; _model?.setLinkReceiverActive(false);
+    activeTransport = 'Listening on available networks';
     status = 'Waiting for sender'; notifyListeners();
   }
   void _senderDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
     _socket = null;
     _tcpConnectedViaDirect = false;
+    _tcpConnectedViaWired = false;
+    activeTransport = 'Disconnected';
     _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
     _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
