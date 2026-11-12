@@ -115,6 +115,7 @@ class VybeLink extends ChangeNotifier {
   Future<void> _recoverDirect({bool immediately = false}) async {
     if (!enabled || !autoConnect || !_directPreferred || !directAvailable ||
         _directRecoveryBusy || _directGroupConnected ||
+        (activeTransport == 'USB tethering' && _socket != null) ||
         (role == 'sender' && _socket != null)) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (!immediately && now - _lastDirectRecoveryMs < 10000) return;
@@ -319,19 +320,22 @@ class VybeLink extends ChangeNotifier {
 
   int _generation = 0;
 
-  bool _isWiredDestination(String address) {
+  String? _wiredSourceFor(String address) {
     final parts = address.split('.');
-    if (parts.length != 4) return false;
+    if (parts.length != 4) return null;
     for (final local in _wiredAddresses) {
       final segment = local.split('.');
       if (segment.length == 4 &&
           segment[0] == parts[0] &&
           segment[1] == parts[1] &&
           segment[2] == parts[2] &&
-          local != address) return true;
+          local != address) return local;
     }
-    return false;
+    return null;
   }
+
+  bool _isWiredDestination(String address) =>
+      _wiredSourceFor(address) != null;
 
   List<LinkReceiver> _matchingReceivers(List<LinkReceiver> devices) {
     if (pairedReceiverId.isNotEmpty) {
@@ -354,7 +358,7 @@ class VybeLink extends ChangeNotifier {
       wiredAvailable = addresses.isNotEmpty;
       if (!wiredAvailable) {
         wiredStatus = 'No USB tethering network detected';
-      } else if (_tcpConnectedViaWired && _socket != null) {
+      } else if (activeTransport == 'USB tethering' && _socket != null) {
         wiredStatus = 'Connected over USB';
       } else {
         wiredStatus = 'USB network detected: ${addresses.join(', ')}';
@@ -841,6 +845,7 @@ class VybeLink extends ChangeNotifier {
           _isWiredDestination(_savedWiredReceiverIp)) {
         try {
           socket = await Socket.connect(_savedWiredReceiverIp, port,
+              sourceAddress: _wiredSourceFor(_savedWiredReceiverIp),
               timeout: const Duration(milliseconds: 1100));
           address = _savedWiredReceiverIp;
         } catch (_) {}
@@ -859,6 +864,7 @@ class VybeLink extends ChangeNotifier {
             address = matched.first.address;
             try {
               socket = await Socket.connect(address, port,
+                  sourceAddress: source,
                   timeout: const Duration(seconds: 2));
             } catch (_) {}
             if (socket != null) break;
