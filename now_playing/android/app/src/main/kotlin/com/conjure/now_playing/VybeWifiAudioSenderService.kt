@@ -19,6 +19,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import java.net.Socket
+import java.io.DataOutputStream
 
 /**
  * EXPERIMENTAL, opt-in raw PCM sender over an existing trusted VYBE Connect
@@ -46,6 +47,8 @@ class VybeWifiAudioSenderService : Service() {
     private var reconnectAttempts = 0
     private var totalSocketDrops = 0
     private var lastNetworkFailure = ""
+    private var activeAudioCodec = "Not started"
+    private var framesEncoded = 0L
 
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -61,6 +64,8 @@ class VybeWifiAudioSenderService : Service() {
             .putLong("chunksSent", chunksSent)
             .putInt("reconnectAttempts", totalSocketDrops)
             .putString("lastFailure", lastNetworkFailure)
+            .putString("codec", activeAudioCodec)
+            .putLong("framesEncoded", framesEncoded)
             .apply()
     }
 
@@ -94,6 +99,8 @@ class VybeWifiAudioSenderService : Service() {
             reconnectAttempts = 0
             totalSocketDrops = 0
             lastNetworkFailure = ""
+            activeAudioCodec = "Not started"
+            framesEncoded = 0L
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = "vybe_wifi_audio_sender"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -175,6 +182,7 @@ class VybeWifiAudioSenderService : Service() {
             // unless Android ends projection or the user stops the service.
             while (running) {
                 var client: Socket? = null
+                var encoder: VybeAacEncoder? = null
                 try {
                     status(if (reconnectAttempts == 0) "connecting" else "reconnecting",
                         "Opening Wi-Fi audio socket at $host:$PORT")
@@ -185,12 +193,19 @@ class VybeWifiAudioSenderService : Service() {
                     connected.keepAlive = true
                     connected.sendBufferSize = 131072
                     connected.connect(java.net.InetSocketAddress(host, PORT), 5000)
-                    val stream = connected.getOutputStream()
-                    stream.write("VYBEPCM1\n".toByteArray(Charsets.US_ASCII))
+                    val stream = DataOutputStream(
+                        java.io.BufferedOutputStream(connected.getOutputStream(), 16384))
+                    // AAC-LC @ 128 kbps reduces the bandwidth ~11-fold from
+                    // raw 16-bit stereo PCM. Keep PCM as a hidden fallback if
+                    // this phone's Android encoder cannot initialize.
+                    encoder = try { VybeAacEncoder() } catch (_: Exception) { null }
+                    activeAudioCodec = if (encoder != null)
+                        "AAC-LC 128 kbps stereo" else "PCM stereo (AAC unavailable)"
+                    stream.write(if (encoder != null) VybeAacFormat.HEADER
+                        else "VYBEPCM1\n".toByteArray(Charsets.US_ASCII))
                     stream.flush()
                     reconnectAttempts = 0
-                    // Keep the last error visible after a successful reconnect.
-                    status("streaming", "Sending permitted audio over Wi-Fi")
+                    status("streaming", "Sending $activeAudioCodec to head unit")
                     while (running) {
                         val read = record.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
                         if (read < 0) throw IllegalStateException("AudioRecord error $read")
@@ -201,15 +216,31 @@ class VybeWifiAudioSenderService : Service() {
                                 val amplitude = kotlin.math.abs(sample.toShort().toInt())
                                 if (amplitude > peakSample) peakSample = amplitude
                             }
-                            stream.write(chunk, 0, read)
-                            bytesSent += read
+                            val codec = encoder
+                            if (codec != null) {
+                                // Output packets contain complete AAC access
+                                // units; a 4-byte length allows the receiver
+                                // to reconstruct them across TCP boundaries.
+                                codec.encode(chunk, read) { frame ->
+                                    if (frame.size > 65536)
+                                        throw IllegalStateException("Oversized AAC access unit")
+                                    stream.writeInt(frame.size)
+                                    stream.write(frame)
+                                    bytesSent += frame.size + 4
+                                    framesEncoded++
+                                }
+                            } else {
+                                stream.write(chunk, 0, read)
+                                bytesSent += read
+                            }
                             chunksSent++
                             val now = android.os.SystemClock.elapsedRealtime()
-                            if (now - lastMetricsAt >= 1000) {
+                            if (now - lastMetricsAt >= 500L) {
                                 lastMetricsAt = now
+                                stream.flush()
                                 status("streaming", if (peakSample > 256)
-                                    "Sending audible PCM over Wi-Fi"
-                                    else "Sending silent PCM; check source playback")
+                                    "Streaming $activeAudioCodec; audible capture"
+                                    else "Streaming $activeAudioCodec; capture is silent")
                             }
                         }
                     }
@@ -229,6 +260,7 @@ class VybeWifiAudioSenderService : Service() {
                         break
                     }
                 } finally {
+                    try { encoder?.close() } catch (_: Exception) {}
                     try { client?.close() } catch (_: Exception) {}
                     if (socket === client) socket = null
                 }
