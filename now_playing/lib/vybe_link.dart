@@ -173,9 +173,22 @@ class VybeLink extends ChangeNotifier {
   /// a working socket, hotspot or manually established LAN connection.
   Future<void> _recoverDirect({bool immediately = false}) async {
     if (!enabled || !autoConnect || !_directPreferred || !directAvailable ||
-        _directRecoveryBusy || _directGroupConnected ||
+        _directRecoveryBusy ||
         (activeTransport == 'USB tethering' && _socket != null) ||
-        (role == 'sender' && _socket != null)) return;
+        (role == 'sender' && (_socket != null || _directGroupConnected))) return;
+    // A Wi-Fi Direct group can survive an Android process restart while the
+    // VYBE DNS-SD advertisement does not. Re-publish the receiver's identity
+    // even when the radio reports that the group is already formed.
+    if (role == 'receiver' && _directGroupConnected) {
+      try {
+        await _direct.invokeMethod<bool>(
+            'host', {'receiverId': localDeviceId});
+      } catch (error) {
+        directStatus = 'Cannot advertise VYBE head unit: $error';
+        notifyListeners();
+      }
+      return;
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     if (!immediately && now - _lastDirectRecoveryMs < 10000) return;
     _lastDirectRecoveryMs = now;
