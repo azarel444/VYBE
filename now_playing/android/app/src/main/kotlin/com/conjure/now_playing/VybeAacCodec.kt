@@ -46,8 +46,10 @@ internal class VybeAacEncoder : Closeable {
     /** Input is only captured PCM; emit never stores a recording. */
     fun encode(pcm: ByteArray, size: Int, emit: (ByteArray) -> Unit) {
         var offset = 0
+        val alignedSize = (size / VybeAacFormat.PCM_BYTES_PER_FRAME) *
+            VybeAacFormat.PCM_BYTES_PER_FRAME
         var noInputTries = 0
-        while (offset < size) {
+        while (offset < alignedSize) {
             val index = codec.dequeueInputBuffer(10000L)
             if (index < 0) {
                 drain(emit)
@@ -61,7 +63,7 @@ internal class VybeAacEncoder : Closeable {
                 ?: throw IllegalStateException("AAC encoder input unavailable")
             buffer.clear()
             val alignedCapacity = (buffer.remaining() / 4) * 4
-            val count = minOf(alignedCapacity, (size - offset) / 4 * 4)
+            val count = minOf(alignedCapacity, alignedSize - offset)
             if (count <= 0) throw IllegalStateException("AAC encoder PCM input too small")
             buffer.put(pcm, offset, count)
             val presentationUs = pcmFramesQueued * 1000000L / VybeAacFormat.RATE
