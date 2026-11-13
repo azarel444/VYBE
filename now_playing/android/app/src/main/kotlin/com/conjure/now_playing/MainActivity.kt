@@ -12,6 +12,9 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.media.AudioManager
+import android.media.AudioTrack
+import android.media.AudioAttributes
+import android.media.AudioFormat
 import android.media.projection.MediaProjectionManager
 import android.view.KeyEvent
 import android.net.Uri
@@ -583,6 +586,7 @@ open class MainActivity : FlutterActivity() {
                     result.success(wifiAudioState())
                 }
                 "status" -> result.success(wifiAudioState())
+                "testOutputTone" -> result.success(testWifiAudioOutputTone())
                 else -> result.notImplemented()
             }
         }
@@ -902,12 +906,90 @@ open class MainActivity : FlutterActivity() {
     private fun wifiAudioState(): Map<String, Any?> {
         val sender = getSharedPreferences(VybeWifiAudioSenderService.PREFS, Context.MODE_PRIVATE)
         val receiver = getSharedPreferences(VybeWifiAudioReceiverService.PREFS, Context.MODE_PRIVATE)
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         return mapOf(
             "sender" to (sender.getString("state", "off") ?: "off"),
             "senderDetail" to (sender.getString("detail", "Not started") ?: ""),
+            "senderTargetIp" to (sender.getString("targetIp", "") ?: ""),
+            "senderBytes" to sender.getLong("bytesSent", 0L),
+            "senderPeak" to sender.getInt("peakSample", 0),
             "receiver" to (receiver.getString("state", "off") ?: "off"),
-            "receiverDetail" to (receiver.getString("detail", "Not started") ?: "")
+            "receiverDetail" to (receiver.getString("detail", "Not started") ?: ""),
+            "receiverExpectedIp" to (receiver.getString("expectedIp", "") ?: ""),
+            "receiverPeerIp" to (receiver.getString("observedIp", "") ?: ""),
+            "receiverBytes" to receiver.getLong("bytesReceived", 0L),
+            "receiverPlayedBytes" to receiver.getLong("bytesPlayed", 0L),
+            "receiverPeak" to receiver.getInt("peakSample", 0),
+            "receiverConnections" to receiver.getInt("connections", 0),
+            "receiverRejected" to receiver.getInt("rejected", 0),
+            "receiverRoute" to (receiver.getString("route", "Unknown") ?: "Unknown"),
+            "outputVolume" to audio.getStreamVolume(AudioManager.STREAM_MUSIC),
+            "outputMaxVolume" to audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            "outputMusicActive" to audio.isMusicActive,
+            "toneState" to (receiver.getString("toneState", "Not tested") ?: "Not tested")
         )
+    }
+
+    /** Independently verifies Android media output on the head unit. It is
+     * manually triggered, low-level and brief; no phone or network required.
+     * A successful AudioTrack write is not proof the speakers were audible.
+     */
+    private fun testWifiAudioOutputTone(): Map<String, Any?> {
+        val prefs = getSharedPreferences(VybeWifiAudioReceiverService.PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putString("toneState", "Playing a short test tone...").apply()
+        Thread {
+            var track: AudioTrack? = null
+            try {
+                val rate = 44100
+                val frames = rate / 2
+                val pcm = ByteArray(frames * 2)
+                for (index in 0 until frames) {
+                    val amplitude = (kotlin.math.sin(
+                        2.0 * Math.PI * 523.25 * index.toDouble() / rate) * 2800.0).toInt()
+                    val offset = index * 2
+                    pcm[offset] = (amplitude and 255).toByte()
+                    pcm[offset + 1] = ((amplitude shr 8) and 255).toByte()
+                }
+                val audio = AudioTrack.Builder()
+                    .setAudioAttributes(AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setAudioFormat(AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(rate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                    .setBufferSizeInBytes(maxOf(8192, AudioTrack.getMinBufferSize(
+                        rate, AudioFormat.CHANNEL_OUT_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT)))
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+                track = audio
+                if (audio.state != AudioTrack.STATE_INITIALIZED) {
+                    throw IllegalStateException("Audio output cannot initialize")
+                }
+                audio.play()
+                var offset = 0
+                while (offset < pcm.size) {
+                    val count = audio.write(pcm, offset, pcm.size - offset)
+                    if (count <= 0) throw IllegalStateException("Audio output write error $count")
+                    offset += count
+                }
+                Thread.sleep(650)
+                val route = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                    audio.routedDevice?.productName?.toString() ?: "default Android route"
+                else "default Android route"
+                prefs.edit().putString("toneState",
+                    "Test tone sent to $route. Did you hear it?").apply()
+            } catch (error: Exception) {
+                prefs.edit().putString("toneState",
+                    "Android audio test failed: ${error.message}").apply()
+            } finally {
+                try { track?.stop() } catch (_: Exception) {}
+                try { track?.release() } catch (_: Exception) {}
+            }
+        }.start()
+        return mapOf("started" to true,
+            "message" to "Playing a short, low-volume tone on the head unit")
     }
 
     private fun stopWifiAudioService(serviceClass: Class<out android.app.Service>, action: String) {
