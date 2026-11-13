@@ -130,6 +130,70 @@ class VybeLinkSettings extends StatelessWidget {
             const Text('Listening for the paired phone on the available '
                 'network. VYBE determines its own network address.'),
           ],
+          if (link.role == 'receiver') ...[
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 14),
+            const Text('Android Bluetooth audio source',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+            const Text('VYBE can request PLAY from a receiver that exposes '
+                'an Android media session. This does not require Android Auto '
+                'or a manufacturer-specific integration. Some head units '
+                'hide their Bluetooth audio routing from regular apps.'),
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              onPressed: () => link.scanBluetoothSources(),
+              icon: const Icon(Icons.search),
+              label: const Text('Find Android media sources'),
+            ),
+            if (link.bluetoothSources.isEmpty)
+              const Text('No sources listed yet. Start Bluetooth audio '
+                  'once, then scan to identify the receiver session.'),
+            for (final source in link.bluetoothSources)
+              ListTile(
+                leading: Icon(source['package'] == link.bluetoothSourcePackage
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked),
+                title: Text(source['name']?.toString() ?? 'Android media source'),
+                subtitle: Text(
+                    '${source['package'] ?? ''} — '
+                    '${source['playing'] == true ? 'Playing' : 'Not playing'}'
+                    '${source['canPlay'] == true ? ' • PLAY control' : ''}'),
+                onTap: () => link.selectBluetoothSource(
+                    source['package']?.toString() ?? ''),
+              ),
+            SwitchListTile(
+              title: const Text('Activate audio on phone playback'),
+              subtitle: const Text('When VYBE Connect reports that music '
+                  'started, request PLAY from your selected Android receiver '
+                  'session. Off until you choose a source.'),
+              value: link.bluetoothAutoResume,
+              onChanged: (v) => link.setBluetoothAutoResume(v),
+            ),
+            ElevatedButton.icon(
+              onPressed: link.bluetoothSourcePackage.isEmpty
+                  ? null : () => link.requestBluetoothSourcePlay(),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Try activating selected source'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => link.requestSystemMediaPlay(),
+              icon: const Icon(Icons.settings_remote),
+              label: const Text('Test Android system PLAY key'),
+            ),
+            const Text('The system PLAY key is manual-only: Android may '
+                'send it to an unrelated media app. Automatic activation '
+                'only targets the source you selected.',
+                style: TextStyle(color: Colors.white70)),
+            Text('Source: ${link.bluetoothSourcePackage.isEmpty ? "Not selected" : link.bluetoothSourcePackage}'),
+            Text('Status: ${link.bluetoothSourceStatus}'),
+            Text('Diagnostics: ${link.bluetoothDeviceDiagnostics}'),
+            const Text('PLAY requests cannot guarantee audio routing. '
+                'If the receiver does not expose an Android media session '
+                'until its factory app opens, VYBE cannot start that private '
+                'service through standard Android APIs.',
+                style: TextStyle(color: Colors.white60)),
+          ],
           const Divider(),
           const SizedBox(height: 14),
           Text('Connection: ${link.status}',
