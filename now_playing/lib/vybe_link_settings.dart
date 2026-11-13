@@ -103,6 +103,10 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                   ? 'Set up head-unit Wi-Fi Direct'
                   : 'Find VYBE head units'),
             ),
+            if (headUnit && link.localDeviceId.length >= 6)
+              Text('Advertised as: VYBE Head Unit · '
+                  '${link.localDeviceId.substring(link.localDeviceId.length - 6).toUpperCase()}',
+                  style: const TextStyle(color: Colors.white70)),
             if (!headUnit) ...[
               if (link.directPeers.isEmpty)
                 const Padding(
