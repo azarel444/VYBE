@@ -92,21 +92,33 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
             const SizedBox(height: 8),
             const Text('Wi-Fi connection',
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-            const Text('Set up Wi-Fi Direct once, then VYBE will try to '
-                'restore the connection when you return.'),
+            const Text('Only head units advertising the VYBE receiver '
+                'service appear during pairing. Nearby printers and generic '
+                'Android devices are hidden.'),
             const SizedBox(height: 8),
             ElevatedButton.icon(
               onPressed: () => link.directStart(receiver: headUnit),
               icon: const Icon(Icons.wifi),
               label: Text(headUnit
                   ? 'Set up head-unit Wi-Fi Direct'
-                  : 'Find head unit with Wi-Fi Direct'),
+                  : 'Find VYBE head units'),
             ),
             if (!headUnit) ...[
+              if (link.directPeers.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text('No VYBE head units discovered yet. Enable '
+                      'VYBE Connect and set up Wi-Fi Direct on the head '
+                      'unit first, then search here. You can also use '
+                      'shared Wi-Fi pairing below.',
+                      style: TextStyle(color: Colors.white70)),
+                ),
               for (final peer in link.directPeers)
                 ListTile(
-                  title: Text(peer['name'] ?? 'Available device'),
-                  subtitle: const Text('Wi-Fi Direct'),
+                  title: Text(peer['name'] ?? 'VYBE Head Unit'),
+                  subtitle: Text(peer['id'] == link.pairedReceiverId
+                      ? 'Paired VYBE receiver'
+                      : 'VYBE receiver service detected'),
                   trailing: const Icon(Icons.link),
                   onTap: () => link.directConnectPeer(
                       peer['address'] ?? '', manuallySelected: true),
