@@ -235,7 +235,7 @@ class VybeWifiAudioSenderService : Service() {
                             }
                             chunksSent++
                             val now = android.os.SystemClock.elapsedRealtime()
-                            if (now - lastMetricsAt >= 500L) {
+                            if (now - lastMetricsAt >= 120L) {
                                 lastMetricsAt = now
                                 stream.flush()
                                 status("streaming", if (peakSample > 256)
