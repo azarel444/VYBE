@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
 import java.net.ServerSocket
@@ -36,14 +37,35 @@ class VybeWifiAudioReceiverService : Service() {
     private var listener: ServerSocket? = null
     private var peer: Socket? = null
     private var track: AudioTrack? = null
+    private var expectedPeerIp: String = ""
+    private var observedPeerIp: String = ""
+    private var bytesReceived = 0L
+    private var bytesPlayed = 0L
+    private var loudestSample = 0
+    private var audioRoute = "Unknown"
+    private var connectedClients = 0
+    private var rejectedClients = 0
+    private var lastMetricsAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun status(state: String, detail: String) {
+        val mixer = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("state", state)
             .putString("detail", detail)
             .putLong("updated", System.currentTimeMillis())
+            .putString("expectedIp", expectedPeerIp)
+            .putString("observedIp", observedPeerIp)
+            .putLong("bytesReceived", bytesReceived)
+            .putLong("bytesPlayed", bytesPlayed)
+            .putInt("peakSample", loudestSample)
+            .putInt("connections", connectedClients)
+            .putInt("rejected", rejectedClients)
+            .putString("route", audioRoute)
+            .putInt("streamVolume", mixer.getStreamVolume(AudioManager.STREAM_MUSIC))
+            .putInt("streamMaxVolume", mixer.getStreamMaxVolume(AudioManager.STREAM_MUSIC))
+            .putBoolean("musicActive", mixer.isMusicActive)
             .apply()
     }
 
@@ -62,6 +84,14 @@ class VybeWifiAudioReceiverService : Service() {
             return START_NOT_STICKY
         }
         try {
+            expectedPeerIp = allowedIp
+            observedPeerIp = ""
+            bytesReceived = 0L
+            bytesPlayed = 0L
+            loudestSample = 0
+            connectedClients = 0
+            rejectedClients = 0
+            audioRoute = "Not yet opened"
             val channel = "vybe_wifi_audio_receiver"
             val notifications =
                 getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -107,10 +137,14 @@ class VybeWifiAudioReceiverService : Service() {
                     }
                 peer = client
                 try {
-                    if (client.inetAddress.hostAddress != allowedIp) {
-                        status("rejected", "Audio attempt from an unpaired network device")
+                    observedPeerIp = client.inetAddress.hostAddress ?: "unknown"
+                    connectedClients++
+                    if (observedPeerIp != allowedIp) {
+                        rejectedClients++
+                        status("rejected", "Audio source $observedPeerIp does not match the connected VYBE phone $allowedIp")
                         continue
                     }
+                    status("connected", "Audio TCP connection accepted from $observedPeerIp")
                     client.tcpNoDelay = true
                     client.receiveBufferSize = 131072
                     client.soTimeout = 12000
@@ -142,17 +176,43 @@ class VybeWifiAudioReceiverService : Service() {
                     if (player.state != AudioTrack.STATE_INITIALIZED)
                         throw IllegalStateException("Head unit cannot initialize PCM output")
                     player.play()
-                    status("playing", "Playing Wi-Fi audio from the paired phone (44.1 kHz stereo PCM)")
+                    audioRoute = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                        (player.routedDevice?.productName?.toString() ?: "Android default output")
+                        else "Android default output"
+                    status("playing", "PCM connection established; waiting for music samples")
                     val chunk = ByteArray(8192)
                     while (running) {
                         val count = input.read(chunk)
                         if (count < 0) break
+                        if (count == 0) continue
+                        bytesReceived += count
+                        // 16-bit stereo little-endian PCM; only amplitude
+                        // statistics are recorded, never raw audio samples.
+                        for (index in 0 until count - 1 step 2) {
+                            val sample = (chunk[index].toInt() and 255) or
+                                (chunk[index + 1].toInt() shl 8)
+                            val signed = sample.toShort().toInt()
+                            val amplitude = kotlin.math.abs(signed)
+                            if (amplitude > loudestSample) loudestSample = amplitude
+                        }
                         var offset = 0
                         while (offset < count && running) {
                             val written = player.write(chunk, offset, count - offset)
                             if (written < 0) throw IllegalStateException("AudioTrack error $written")
                             if (written == 0) break
                             offset += written
+                            bytesPlayed += written
+                        }
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastMetricsAt > 1000) {
+                            lastMetricsAt = now
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                audioRoute = player.routedDevice?.productName?.toString()
+                                    ?: "Android default output"
+                            }
+                            status("playing", if (loudestSample > 256)
+                                "Music PCM received and written to Android audio output"
+                                else "PCM is arriving but audio samples are silent")
                         }
                     }
                 } catch (error: Exception) {
