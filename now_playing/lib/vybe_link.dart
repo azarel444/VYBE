@@ -159,6 +159,7 @@ class VybeLink extends ChangeNotifier {
   bool _directPreferred = false;
   String _savedDirectPeerAddress = '';
   String _savedDirectPeerName = '';
+  String _savedDirectReceiverId = '';
   bool _directGroupConnected = false;
   String _directGroupOwnerIp = '';
   bool _tcpConnectedViaDirect = false;
@@ -191,7 +192,9 @@ class VybeLink extends ChangeNotifier {
       directActive = true;
       if (role == 'receiver') {
         directStatus = 'Restoring head-unit Wi-Fi Direct group...';
-        await _direct.invokeMethod<bool>('host');
+        await _direct.invokeMethod<bool>('host', {
+          'receiverId': localDeviceId,
+        });
       } else if (role == 'sender') {
         directStatus = 'Searching for saved head unit over Wi-Fi Direct...';
         await _direct.invokeMethod<bool>('discover');
@@ -207,26 +210,26 @@ class VybeLink extends ChangeNotifier {
 
   void _trySavedDirectPeer() {
     if (!enabled || !autoConnect || !_directPreferred ||
-        role != 'sender' || _socket != null || _directGroupConnected ||
-        _savedDirectPeerAddress.isEmpty) return;
+        role != 'sender' || _socket != null || _directGroupConnected) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastDirectPeerAttemptMs < 12000) return;
-    // Android may rotate Wi-Fi Direct device addresses after a network reset.
-    // Prefer the saved address, or the unique saved device name when the
-    // address has rotated. Never guess among multiple matching devices.
-    Map<String, String>? peer;
-    for (final item in directPeers) {
-      if (item['address'] == _savedDirectPeerAddress) {
-        peer = item;
-        break;
-      }
-    }
-    if (peer == null && _savedDirectPeerName.isNotEmpty) {
-      final candidates = directPeers.where((item) =>
-          item['name'] == _savedDirectPeerName).toList();
-      if (candidates.length == 1) peer = candidates.single;
-    }
-    final address = peer?['address'];
+
+    // Only service-verified receivers appear in directPeers. Prefer the
+    // stable VYBE service identity over the rotating Android P2P address.
+    // An old generic Android device name must NEVER initiate pairing.
+    final receiverId = _savedDirectReceiverId.isNotEmpty
+        ? _savedDirectReceiverId : pairedReceiverId;
+    final matches = directPeers.where((item) {
+      final id = item['id'] ?? '';
+      if (id.length != 32) return false;
+      if (receiverId.isNotEmpty) return id == receiverId;
+      // Existing installations can recover a previously saved address,
+      // but ONLY if that address now advertises a VYBE service.
+      return _savedDirectPeerAddress.isNotEmpty &&
+          item['address'] == _savedDirectPeerAddress;
+    }).toList();
+    if (matches.length != 1) return;
+    final address = matches.single['address'];
     if (address == null || address.isEmpty) return;
     _lastDirectPeerAttemptMs = now;
     unawaited(directConnectPeer(address, remember: true));
@@ -241,7 +244,9 @@ class VybeLink extends ChangeNotifier {
         switch (data['type']) {
           case 'peers':
             directPeers = (data['items'] as List).map((e) => Map<String, String>.from(e as Map)).toList();
-            directStatus = 'Found ${directPeers.length} nearby Wi-Fi Direct devices';
+            directStatus = directPeers.isEmpty
+                ? 'No VYBE head units found yet; other devices are hidden'
+                : 'Found ${directPeers.length} VYBE head unit${directPeers.length == 1 ? "" : "s"}';
             _trySavedDirectPeer();
             break;
           case 'connected':
@@ -330,11 +335,12 @@ class VybeLink extends ChangeNotifier {
         if (role != 'receiver' || !enabled) await configure(isEnabled: true, deviceRole: 'receiver');
         directStatus = 'Requesting head-unit Wi-Fi Direct group...';
         notifyListeners();
-        final accepted = await _direct.invokeMethod<bool>('host') ?? false;
+        final accepted = await _direct.invokeMethod<bool>(
+            'host', {'receiverId': localDeviceId}) ?? false;
         if (!accepted) directStatus = 'Cannot start Wi-Fi Direct on head unit (permission or service unavailable)';
       } else {
         if (role != 'sender' || !enabled) await configure(isEnabled: true, deviceRole: 'sender');
-        directStatus = 'Scanning for Wi-Fi Direct devices...';
+        directStatus = 'Searching only for VYBE head units...';
         notifyListeners();
         final accepted = await _direct.invokeMethod<bool>('discover') ?? false;
         if (!accepted) directStatus = 'Cannot start Wi-Fi Direct discovery (permission or service unavailable)';
@@ -347,6 +353,13 @@ class VybeLink extends ChangeNotifier {
       {bool remember = true, bool manuallySelected = false}) async {
     if (address.isEmpty) return;
     try {
+      final candidates = directPeers.where((item) =>
+          item['address'] == address && (item['id'] ?? '').length == 32).toList();
+      if (candidates.length != 1) {
+        directStatus = 'Only verified VYBE head units can be paired';
+        notifyListeners();
+        return;
+      }
       final ok = await _direct.invokeMethod<bool>(
           'connect', {'address': address}) ?? false;
       directStatus = ok ? 'Connecting to head unit...' : 'Device no longer in nearby list';
@@ -358,11 +371,13 @@ class VybeLink extends ChangeNotifier {
             item['address'] == address).toList();
         if (chosen.isNotEmpty) {
           _savedDirectPeerName = chosen.first['name'] ?? '';
+          _savedDirectReceiverId = chosen.first['id'] ?? '';
         }
         _directPreferred = true;
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('link_direct_peer', address);
         await prefs.setString('link_direct_peer_name', _savedDirectPeerName);
+        await prefs.setString('link_direct_receiver_id', _savedDirectReceiverId);
         await prefs.setBool('link_direct_preferred', true);
         if (manuallySelected) {
           // Explicit selection authorizes fresh pairing after the ATOTO was
@@ -849,6 +864,7 @@ class VybeLink extends ChangeNotifier {
     pairedReceiverId = p.getString('link_paired_receiver') ?? '';
     _savedDirectPeerAddress = p.getString('link_direct_peer') ?? '';
     _savedDirectPeerName = p.getString('link_direct_peer_name') ?? '';
+    _savedDirectReceiverId = p.getString('link_direct_receiver_id') ?? '';
     _directPreferred = p.getBool('link_direct_preferred') ?? false;
     localDeviceId = p.getString('link_device_id') ?? '';
     if (localDeviceId.isEmpty) {
