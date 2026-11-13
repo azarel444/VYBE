@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -65,6 +67,12 @@
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/DriveTheme" />
         </activity>
+
+        <!-- Opt-in, short-lived music capture test. Does not store or transmit audio. -->
+        <service
+            android:name=".AudioCaptureProbeService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <service
             android:name=".MediaListenerService"
