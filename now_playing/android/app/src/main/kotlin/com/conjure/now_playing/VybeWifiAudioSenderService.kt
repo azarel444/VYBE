@@ -38,6 +38,11 @@ class VybeWifiAudioSenderService : Service() {
     private var audio: AudioRecord? = null
     private var projection: MediaProjection? = null
     private var socket: Socket? = null
+    private var targetIp = ""
+    private var bytesSent = 0L
+    private var peakSample = 0
+    private var chunksSent = 0L
+    private var lastMetricsAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -46,6 +51,10 @@ class VybeWifiAudioSenderService : Service() {
             .putString("state", state)
             .putString("detail", detail)
             .putLong("updated", System.currentTimeMillis())
+            .putString("targetIp", targetIp)
+            .putLong("bytesSent", bytesSent)
+            .putInt("peakSample", peakSample)
+            .putLong("chunksSent", chunksSent)
             .apply()
     }
 
@@ -72,6 +81,10 @@ class VybeWifiAudioSenderService : Service() {
             return START_NOT_STICKY
         }
         try {
+            targetIp = host
+            bytesSent = 0L
+            peakSample = 0
+            chunksSent = 0L
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = "vybe_wifi_audio_sender"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -155,12 +168,31 @@ class VybeWifiAudioSenderService : Service() {
             stream.write("VYBEPCM1\n".toByteArray(Charsets.US_ASCII))
             stream.flush()
             record.startRecording()
-            status("streaming", "Sending 44.1 kHz stereo PCM over Wi-Fi. Playback app permissions still apply.")
+            status("streaming", "Connected to head unit, capturing audio")
             val chunk = ByteArray(8192)
             while (running) {
                 val read = record.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
                 if (read < 0) throw IllegalStateException("AudioRecord error $read")
-                if (read > 0) stream.write(chunk, 0, read)
+                if (read > 0) {
+                    // Track whether Android delivers silence or audible PCM
+                    // without recording or persisting the actual music.
+                    for (index in 0 until read - 1 step 2) {
+                        val sample = (chunk[index].toInt() and 255) or
+                            (chunk[index + 1].toInt() shl 8)
+                        val amplitude = kotlin.math.abs(sample.toShort().toInt())
+                        if (amplitude > peakSample) peakSample = amplitude
+                    }
+                    stream.write(chunk, 0, read)
+                    bytesSent += read
+                    chunksSent++
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - lastMetricsAt > 1000) {
+                        lastMetricsAt = now
+                        status("streaming", if (peakSample > 256)
+                            "Sending audible PCM over Wi-Fi"
+                            else "Sending PCM but captured samples are silent")
+                    }
+                }
             }
             lastStatus = "stopped"
         } catch (error: Exception) {
