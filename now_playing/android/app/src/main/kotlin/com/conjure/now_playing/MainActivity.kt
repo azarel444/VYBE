@@ -11,6 +11,8 @@ import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.media.AudioManager
+import android.view.KeyEvent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -489,6 +491,20 @@ open class MainActivity : FlutterActivity() {
                 }
             } else result.notImplemented()
         }
+        // Android-wide media source control. This does not use vendor
+        // packages, hidden Bluetooth A2DP Sink APIs, root or special grants.
+        // A public MediaController may be able to request playback, but
+        // activating a proprietary Bluetooth audio route is not guaranteed.
+        MethodChannel(messenger, "vybe/bluetooth_audio").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "scan" -> result.success(bluetoothAudioSnapshot())
+                "requestPlay" -> result.success(requestExternalMediaPlay(
+                    call.argument<String>("package") ?: ""))
+                "systemPlay" -> result.success(requestSystemMediaPlay())
+                else -> result.notImplemented()
+            }
+        }
+
         MethodChannel(messenger, "vybe/preferences").setMethodCallHandler { call, result ->
             val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             val key = call.argument<String>("key")
@@ -792,6 +808,116 @@ open class MainActivity : FlutterActivity() {
 
     // Read-only inspection of the Android media-session contract. A published
     // queue is NOT proof of playlist browsing or arbitrary track playback.
+    /** Enumerate public Android media sessions without assuming an OEM
+     * Bluetooth receiver package or a particular head-unit architecture.
+     * "musicActive" and available audio devices are diagnostics only: they do
+     * NOT prove that incoming Bluetooth A2DP is routed to the amplifier.
+     */
+    private fun bluetoothAudioSnapshot(): Map<String, Any?> {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val routes: List<Map<String, Any?>> =
+            if (Build.VERSION.SDK_INT >= 23) {
+                try {
+                    audio.getDevices(AudioManager.GET_DEVICES_INPUTS or
+                        AudioManager.GET_DEVICES_OUTPUTS).map { device ->
+                        mapOf(
+                            "type" to device.type,
+                            "role" to if (device.isSource) "input" else "output",
+                            "name" to device.productName.toString()
+                        )
+                    }
+                } catch (_: Exception) { emptyList() }
+            } else emptyList()
+        if (!hasAccess()) return mapOf(
+            "access" to false,
+            "musicActive" to audio.isMusicActive,
+            "devices" to routes,
+            "sessions" to emptyList<Map<String, Any?>>(),
+            "message" to "Grant VYBE Notification Access to inspect active Android media sessions.")
+        return try {
+            val service = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val component = ComponentName(this, MediaListenerService::class.java)
+            val sources = service.getActiveSessions(component).map { controller ->
+                val pkg = controller.packageName
+                val name = try {
+                    packageManager.getApplicationLabel(
+                        packageManager.getApplicationInfo(pkg, 0)).toString()
+                } catch (_: Exception) { pkg }
+                val playback = controller.playbackState
+                val actions = playback?.actions ?: 0L
+                val metadata = controller.metadata
+                mapOf<String, Any?>(
+                    "package" to pkg,
+                    "name" to name,
+                    "state" to (playback?.state ?: PlaybackState.STATE_NONE),
+                    "playing" to (playback?.state == PlaybackState.STATE_PLAYING),
+                    "canPlay" to (actions and PlaybackState.ACTION_PLAY != 0L ||
+                        actions and PlaybackState.ACTION_PLAY_PAUSE != 0L),
+                    "title" to (metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""),
+                    "playbackType" to (controller.playbackInfo?.playbackType ?: 0)
+                )
+            }
+            mapOf("access" to true, "musicActive" to audio.isMusicActive,
+                "devices" to routes, "sessions" to sources,
+                "message" to if (sources.isEmpty)
+                    "No active media sessions. A receiver that exposes no session cannot be started through MediaController."
+                else "Select the Android media session belonging to the Bluetooth receiver.")
+        } catch (error: Exception) {
+            mapOf("access" to false, "musicActive" to audio.isMusicActive,
+                "devices" to routes, "sessions" to emptyList<Map<String, Any?>>(),
+                "message" to "Media session inspection unavailable: ${error.message}")
+        }
+    }
+
+    /** Send PLAY only to a session explicitly selected by the user. Never
+     * auto-start an unrelated music app or assume the command routed audio.
+     */
+    private fun requestExternalMediaPlay(pkg: String): Map<String, Any?> {
+        if (pkg.isBlank()) return mapOf(
+            "requested" to false, "message" to "Choose a receiver media session first.")
+        if (!hasAccess()) return mapOf(
+            "requested" to false, "message" to "Notification Access is required.")
+        return try {
+            val service = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val component = ComponentName(this, MediaListenerService::class.java)
+            val matches = service.getActiveSessions(component)
+                .filter { it.packageName == pkg }
+            val target = matches.firstOrNull {
+                it.playbackState?.state == PlaybackState.STATE_PLAYING
+            } ?: matches.firstOrNull()
+            if (target == null) {
+                mapOf("requested" to false,
+                    "message" to "Selected receiver has no active media session. Android cannot activate its private audio source through a public media session.")
+            } else {
+                val state = target.playbackState
+                val playing = state?.state == PlaybackState.STATE_PLAYING
+                if (!playing) target.transportControls.play()
+                mapOf("requested" to true,
+                    "alreadyPlaying" to playing,
+                    "message" to if (playing)
+                        "Selected Android media session is already playing. Bluetooth audio routing is not verified."
+                    else "PLAY requested on the selected Android media session. Audio routing is not verified.")
+            }
+        } catch (error: Exception) {
+            mapOf("requested" to false, "message" to
+                "Android refused media session control: ${error.message}")
+        }
+    }
+
+    /** Explicit manual diagnostic only. Dispatching a global play key may
+     * start an unrelated local player; never run this automatically.
+     */
+    private fun requestSystemMediaPlay(): Map<String, Any?> = try {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+        mapOf("requested" to true, "message" to
+            "System PLAY key sent to Android's current media-key consumer; Bluetooth source activation is not confirmed.")
+    } catch (error: Exception) {
+        mapOf("requested" to false,
+            "message" to "Could not dispatch system media key: ${error.message}")
+    }
+
     private fun integrationDiagnostics(service: String): Map<String, Any?> {
         val target = when (service) {
             "youtube_music" -> "com.google.android.apps.youtube.music"
