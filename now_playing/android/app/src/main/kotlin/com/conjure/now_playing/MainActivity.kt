@@ -12,6 +12,7 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.media.AudioManager
+import android.media.projection.MediaProjectionManager
 import android.view.KeyEvent
 import android.net.Uri
 import android.os.Bundle
@@ -40,10 +41,37 @@ open class MainActivity : FlutterActivity() {
     private var cacheFolderResult: MethodChannel.Result? = null
     private val artworkRequestCode = 8943
     private val cacheRequestCode = 8944
+    private val captureConsentRequestCode = 8945
+    private var pendingCaptureProbe: MethodChannel.Result? = null
 
     @Deprecated("Legacy activity result used for Android 9 compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == captureConsentRequestCode) {
+            val pending = pendingCaptureProbe
+            pendingCaptureProbe = null
+            if (pending == null) return
+            if (resultCode != android.app.Activity.RESULT_OK || data == null) {
+                pending.success(mapOf("state" to "cancelled",
+                    "details" to "Android playback-capture permission was declined."))
+                return
+            }
+            try {
+                val service = Intent(this, AudioCaptureProbeService::class.java).apply {
+                    putExtra("projectionResultCode", resultCode)
+                    putExtra("projectionToken", data)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    startForegroundService(service)
+                else startService(service)
+                pending.success(mapOf("state" to "starting",
+                    "details" to "Capture test started. Play audio in the selected music app for 25 seconds, then return to see results."))
+            } catch (error: Exception) {
+                pending.success(mapOf("state" to "error",
+                    "details" to "Android blocked capture startup: ${error.message}"))
+            }
+            return
+        }
         if (requestCode != artworkRequestCode && requestCode != cacheRequestCode) return
         val cachePicker = requestCode == cacheRequestCode
         val pending = if (cachePicker) cacheFolderResult else artworkFolderResult
@@ -495,6 +523,16 @@ open class MainActivity : FlutterActivity() {
         // packages, hidden Bluetooth A2DP Sink APIs, root or special grants.
         // A public MediaController may be able to request playback, but
         // activating a proprietary Bluetooth audio route is not guaranteed.
+        // Explicit, phone-side capture compatibility test. The probe runs
+        // briefly in a projection foreground service and stores statistics
+        // only; no audio samples are saved or sent over VYBE Connect.
+        MethodChannel(messenger, "vybe/audio_probe").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> startPlaybackCaptureProbe(result)
+                "status" -> result.success(playbackCaptureProbeStatus())
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(messenger, "vybe/bluetooth_audio").setMethodCallHandler { call, result ->
             when (call.method) {
                 "scan" -> result.success(bluetoothAudioSnapshot())
@@ -808,6 +846,58 @@ open class MainActivity : FlutterActivity() {
 
     // Read-only inspection of the Android media-session contract. A published
     // queue is NOT proof of playlist browsing or arbitrary track playback.
+    private fun playbackCaptureProbeStatus(): Map<String, Any?> {
+        val p = getSharedPreferences("vybe_audio_capture_probe", Context.MODE_PRIVATE)
+        return mapOf(
+            "state" to (p.getString("state", "not-tested") ?: "not-tested"),
+            "details" to (p.getString("details", "No compatibility test run yet.") ?: ""),
+            "peak" to p.getInt("peak", 0),
+            "rms" to p.getFloat("rms", 0f).toDouble(),
+            "signalFraction" to p.getFloat("signalFraction", 0f).toDouble(),
+            "samples" to p.getLong("samples", 0L),
+            "updatedAt" to p.getLong("updatedAt", 0L)
+        )
+    }
+
+    private fun startPlaybackCaptureProbe(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            result.success(mapOf("state" to "unavailable",
+                "details" to "Android 10 or later is required for music playback capture."))
+            return
+        }
+        if (pendingCaptureProbe != null) {
+            result.success(mapOf("state" to "busy",
+                "details" to "A capture permission request is already in progress."))
+            return
+        }
+        val existing = playbackCaptureProbeStatus()
+        if (existing["state"] == "capturing" &&
+            System.currentTimeMillis() - (existing["updatedAt"] as Long) < 40000L) {
+            result.success(mapOf("state" to "busy",
+                "details" to "A 25-second capture test is already running."))
+            return
+        }
+        pendingCaptureProbe = result
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_AUDIO_PROBE)
+        } else requestPlaybackCaptureConsent()
+    }
+
+    private fun requestPlaybackCaptureConsent() {
+        val pending = pendingCaptureProbe ?: return
+        try {
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+                as MediaProjectionManager
+            startActivityForResult(
+                projectionManager.createScreenCaptureIntent(), captureConsentRequestCode)
+        } catch (error: Exception) {
+            pendingCaptureProbe = null
+            pending.success(mapOf("state" to "error",
+                "details" to "Cannot request Android playback capture: ${error.message}"))
+        }
+    }
+
     /** Enumerate public Android media sessions without assuming an OEM
      * Bluetooth receiver package or a particular head-unit architecture.
      * "musicActive" and available audio devices are diagnostics only: they do
@@ -1377,6 +1467,16 @@ open class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_AUDIO_PROBE) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                requestPlaybackCaptureConsent()
+            } else {
+                pendingCaptureProbe?.success(mapOf("state" to "permission-denied",
+                    "details" to "Audio capture needs Android's record-audio permission."))
+                pendingCaptureProbe = null
+            }
+            return
+        }
         if (requestCode == REQ_AUDIO_ONBOARD) {
             pendingAudioResult?.success(
                 grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
@@ -1421,6 +1521,7 @@ open class MainActivity : FlutterActivity() {
         private const val BANDS = 96
         private const val REQ_AUDIO = 4711
         private const val REQ_AUDIO_ONBOARD = 4712
+        private const val REQ_AUDIO_PROBE = 4713
     }
 
     override fun onDestroy() {
