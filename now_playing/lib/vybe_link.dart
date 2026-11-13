@@ -61,6 +61,9 @@ class VybeLink extends ChangeNotifier {
   String wifiStreamExpectedPhoneIp = '';
   String wifiStreamObservedPhoneIp = '';
   String wifiStreamOutputRoute = '';
+  String wifiStreamSenderCodec = 'Not started';
+  String wifiStreamReceiverCodec = 'Not connected';
+  int wifiStreamFramesEncoded = 0;
   String wifiStreamToneStatus = 'Not tested';
   int wifiStreamSentBytes = 0;
   int wifiStreamSenderPeak = 0;
@@ -659,6 +662,9 @@ class VybeLink extends ChangeNotifier {
       wifiStreamSenderIp = result['senderTargetIp']?.toString() ?? '';
       wifiStreamSentBytes = (result['senderBytes'] as num?)?.toInt() ?? 0;
       wifiStreamSenderPeak = (result['senderPeak'] as num?)?.toInt() ?? 0;
+      wifiStreamSenderCodec = result['senderCodec']?.toString() ?? 'Unknown';
+      wifiStreamFramesEncoded =
+          (result['senderFramesEncoded'] as num?)?.toInt() ?? 0;
       wifiStreamSenderReconnects =
           (result['senderReconnects'] as num?)?.toInt() ?? 0;
       wifiStreamSenderLastFailure =
@@ -668,6 +674,7 @@ class VybeLink extends ChangeNotifier {
       wifiStreamReceivedBytes = (result['receiverBytes'] as num?)?.toInt() ?? 0;
       wifiStreamPlayedBytes = (result['receiverPlayedBytes'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverPeak = (result['receiverPeak'] as num?)?.toInt() ?? 0;
+      wifiStreamReceiverCodec = result['receiverCodec']?.toString() ?? 'Unknown';
       wifiStreamReceiverBufferedMs =
           (result['receiverBufferedMs'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverUnderruns =
