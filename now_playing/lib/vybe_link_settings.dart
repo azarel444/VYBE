@@ -163,6 +163,12 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text('Audio bytes received: ${link.wifiStreamReceivedBytes}'),
               Text('Audio bytes written: ${link.wifiStreamPlayedBytes}'),
               Text('Signal peak: ${link.wifiStreamReceiverPeak} / 32767'),
+              Text('Jitter buffer: ${link.wifiStreamReceiverBufferedMs} ms'),
+              Text('Buffer underruns: ${link.wifiStreamReceiverUnderruns}'),
+              Text('Android audio underruns: ${link.wifiStreamTrackUnderruns}'),
+              Text('Late packets dropped: ${link.wifiStreamDroppedPackets}'),
+              if (link.wifiStreamReceiverLastFailure.isNotEmpty)
+                Text('Last audio interruption: ${link.wifiStreamReceiverLastFailure}'),
               Text('Output: ${link.wifiStreamOutputRoute}'),
               Text('Media volume: ${link.wifiStreamMusicVolume} / '
                   '${link.wifiStreamMusicMaxVolume}'),
@@ -199,6 +205,9 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text(link.wifiStreamSenderDetail),
               Text('Audio bytes sent: ${link.wifiStreamSentBytes}'),
               Text('Captured signal peak: ${link.wifiStreamSenderPeak} / 32767'),
+              Text('Reconnect attempts: ${link.wifiStreamSenderReconnects}'),
+              if (link.wifiStreamSenderLastFailure.isNotEmpty)
+                Text('Last audio socket failure: ${link.wifiStreamSenderLastFailure}'),
               Text('Head unit IP: ${link.wifiStreamSenderIp.isEmpty ? "Not connected" : link.wifiStreamSenderIp}'),
               const Text('Start Wi-Fi audio reception on the head unit first. '
                   'Android will then ask permission to capture the playing '
