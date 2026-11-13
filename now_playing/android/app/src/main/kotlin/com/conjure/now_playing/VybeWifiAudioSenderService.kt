@@ -43,6 +43,9 @@ class VybeWifiAudioSenderService : Service() {
     private var peakSample = 0
     private var chunksSent = 0L
     private var lastMetricsAt = 0L
+    private var reconnectAttempts = 0
+    private var lastNetworkFailure = ""
+
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -55,6 +58,8 @@ class VybeWifiAudioSenderService : Service() {
             .putLong("bytesSent", bytesSent)
             .putInt("peakSample", peakSample)
             .putLong("chunksSent", chunksSent)
+            .putInt("reconnectAttempts", reconnectAttempts)
+            .putString("lastFailure", lastNetworkFailure)
             .apply()
     }
 
@@ -85,6 +90,8 @@ class VybeWifiAudioSenderService : Service() {
             bytesSent = 0L
             peakSample = 0
             chunksSent = 0L
+            reconnectAttempts = 0
+            lastNetworkFailure = ""
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = "vybe_wifi_audio_sender"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -159,45 +166,76 @@ class VybeWifiAudioSenderService : Service() {
             if (record.state != AudioRecord.STATE_INITIALIZED) {
                 throw IllegalStateException("Audio capture recorder initialization failed")
             }
-            val client = Socket()
-            socket = client
-            client.tcpNoDelay = true
-            client.sendBufferSize = 131072
-            client.connect(java.net.InetSocketAddress(host, PORT), 5000)
-            val stream = client.getOutputStream()
-            stream.write("VYBEPCM1\n".toByteArray(Charsets.US_ASCII))
-            stream.flush()
             record.startRecording()
-            status("streaming", "Connected to head unit, capturing audio")
             val chunk = ByteArray(8192)
+            // Retain the SAME user-approved MediaProjection and AudioRecord
+            // across brief TCP failures. A new capture prompt is unnecessary
+            // unless Android ends projection or the user stops the service.
             while (running) {
-                val read = record.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
-                if (read < 0) throw IllegalStateException("AudioRecord error $read")
-                if (read > 0) {
-                    // Track whether Android delivers silence or audible PCM
-                    // without recording or persisting the actual music.
-                    for (index in 0 until read - 1 step 2) {
-                        val sample = (chunk[index].toInt() and 255) or
-                            (chunk[index + 1].toInt() shl 8)
-                        val amplitude = kotlin.math.abs(sample.toShort().toInt())
-                        if (amplitude > peakSample) peakSample = amplitude
+                var client: Socket? = null
+                try {
+                    status(if (reconnectAttempts == 0) "connecting" else "reconnecting",
+                        "Opening Wi-Fi audio socket at $host:$PORT")
+                    val connected = Socket()
+                    client = connected
+                    socket = connected
+                    connected.tcpNoDelay = true
+                    connected.keepAlive = true
+                    connected.sendBufferSize = 131072
+                    connected.connect(java.net.InetSocketAddress(host, PORT), 5000)
+                    val stream = connected.getOutputStream()
+                    stream.write("VYBEPCM1\n".toByteArray(Charsets.US_ASCII))
+                    stream.flush()
+                    reconnectAttempts = 0
+                    lastNetworkFailure = ""
+                    status("streaming", "Sending permitted audio over Wi-Fi")
+                    while (running) {
+                        val read = record.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
+                        if (read < 0) throw IllegalStateException("AudioRecord error $read")
+                        if (read > 0) {
+                            for (index in 0 until read - 1 step 2) {
+                                val sample = (chunk[index].toInt() and 255) or
+                                    (chunk[index + 1].toInt() shl 8)
+                                val amplitude = kotlin.math.abs(sample.toShort().toInt())
+                                if (amplitude > peakSample) peakSample = amplitude
+                            }
+                            stream.write(chunk, 0, read)
+                            bytesSent += read
+                            chunksSent++
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (now - lastMetricsAt >= 1000) {
+                                lastMetricsAt = now
+                                status("streaming", if (peakSample > 256)
+                                    "Sending audible PCM over Wi-Fi"
+                                    else "Sending silent PCM; check source playback")
+                            }
+                        }
                     }
-                    stream.write(chunk, 0, read)
-                    bytesSent += read
-                    chunksSent++
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (now - lastMetricsAt > 1000) {
-                        lastMetricsAt = now
-                        status("streaming", if (peakSample > 256)
-                            "Sending audible PCM over Wi-Fi"
-                            else "Sending PCM but captured samples are silent")
+                } catch (error: Exception) {
+                    if (!running) break
+                    reconnectAttempts++
+                    lastNetworkFailure = error.message ?: error.javaClass.simpleName
+                    status("reconnecting",
+                        "Audio socket dropped ($lastNetworkFailure); trying to reconnect")
+                    // Back off, but allow unlimited retries while the user
+                    // explicitly has Wi-Fi audio enabled. The receiver remains
+                    // listening and does not require fresh permission.
+                    try {
+                        Thread.sleep(minOf(3000L, reconnectAttempts * 700L))
+                    } catch (_: InterruptedException) {
+                        break
                     }
+                } finally {
+                    try { client?.close() } catch (_: Exception) {}
+                    if (socket === client) socket = null
                 }
             }
             lastStatus = "stopped"
         } catch (error: Exception) {
-            lastStatus = "error"
-            details = "Audio stream ended: ${error.message}"
+            if (running) {
+                lastStatus = "error"
+                details = "Audio capture ended: ${error.message}"
+            }
         } finally {
             running = false
             try { audio?.stop() } catch (_: Exception) {}
