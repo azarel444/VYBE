@@ -172,6 +172,62 @@ class VybeLinkSettings extends StatelessWidget {
                 'using a different audio route.',
                 style: TextStyle(color: Colors.white70)),
           ],
+          const SizedBox(height: 20),
+          const Divider(),
+          const SizedBox(height: 14),
+          const Text('Experimental Wi-Fi music audio',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const Text('Send your music as uncompressed audio over the existing '
+              'VYBE Connect network, rather than Bluetooth. This is a '
+              'manual, early test and does not use Android Auto. Connect '
+              'the phone and head unit in VYBE Connect first.'),
+          const SizedBox(height: 8),
+          if (link.role == 'receiver') ...[
+            ElevatedButton.icon(
+              onPressed: link.wifiAudioPeerConnected
+                  ? () => link.startWifiAudioReceiver() : null,
+              icon: const Icon(Icons.speaker),
+              label: const Text('Start Wi-Fi audio receiver'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => link.stopWifiAudioReceiver(),
+              icon: const Icon(Icons.stop),
+              label: const Text('Stop Wi-Fi audio receiver'),
+            ),
+            Text('Receiver: ${link.wifiStreamReceiverStatus}'),
+            Text(link.wifiStreamReceiverDetail),
+            const Text('Start the receiver here first; then press Start '
+                'streaming on VYBE on your phone. This uses the head unit\'s '
+                'Android audio output and does not open the Bluetooth app.'),
+          ] else ...[
+            ElevatedButton.icon(
+              onPressed: link.wifiAudioPeerConnected
+                  ? () => link.startWifiAudioStream() : null,
+              icon: const Icon(Icons.wifi_tethering),
+              label: const Text('Start streaming music over Wi-Fi'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => link.stopWifiAudioStream(),
+              icon: const Icon(Icons.stop),
+              label: const Text('Stop Wi-Fi music streaming'),
+            ),
+            Text('Sender: ${link.wifiStreamSenderStatus}'),
+            Text(link.wifiStreamSenderDetail),
+            const Text('First enable the receiver on the head unit. VYBE '
+                'will ask Android for playback capture permission each '
+                'time you start. Your music player may still play locally '
+                'on the phone during this early test.'),
+          ],
+          OutlinedButton.icon(
+            onPressed: () => link.refreshWifiAudioStreamStatus(),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Refresh Wi-Fi audio status'),
+          ),
+          const Text('Experimental only: audio is transmitted as plain PCM '
+              'without encryption; test on a trusted Wi-Fi Direct or '
+              'private network. Music audio is never stored in a file. '
+              'Wi-Fi audio can only transmit playback permitted by Android.',
+              style: TextStyle(color: Colors.white70)),
           if (link.role == 'receiver') ...[
             const SizedBox(height: 20),
             const Divider(),
