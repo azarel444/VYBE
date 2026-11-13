@@ -44,6 +44,7 @@ class VybeWifiAudioSenderService : Service() {
     private var chunksSent = 0L
     private var lastMetricsAt = 0L
     private var reconnectAttempts = 0
+    private var totalSocketDrops = 0
     private var lastNetworkFailure = ""
 
 
@@ -58,7 +59,7 @@ class VybeWifiAudioSenderService : Service() {
             .putLong("bytesSent", bytesSent)
             .putInt("peakSample", peakSample)
             .putLong("chunksSent", chunksSent)
-            .putInt("reconnectAttempts", reconnectAttempts)
+            .putInt("reconnectAttempts", totalSocketDrops)
             .putString("lastFailure", lastNetworkFailure)
             .apply()
     }
@@ -91,6 +92,7 @@ class VybeWifiAudioSenderService : Service() {
             peakSample = 0
             chunksSent = 0L
             reconnectAttempts = 0
+            totalSocketDrops = 0
             lastNetworkFailure = ""
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = "vybe_wifi_audio_sender"
@@ -187,7 +189,7 @@ class VybeWifiAudioSenderService : Service() {
                     stream.write("VYBEPCM1\n".toByteArray(Charsets.US_ASCII))
                     stream.flush()
                     reconnectAttempts = 0
-                    lastNetworkFailure = ""
+                    // Keep the last error visible after a successful reconnect.
                     status("streaming", "Sending permitted audio over Wi-Fi")
                     while (running) {
                         val read = record.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
@@ -214,6 +216,7 @@ class VybeWifiAudioSenderService : Service() {
                 } catch (error: Exception) {
                     if (!running) break
                     reconnectAttempts++
+                    totalSocketDrops++
                     lastNetworkFailure = error.message ?: error.javaClass.simpleName
                     status("reconnecting",
                         "Audio socket dropped ($lastNetworkFailure); trying to reconnect")
