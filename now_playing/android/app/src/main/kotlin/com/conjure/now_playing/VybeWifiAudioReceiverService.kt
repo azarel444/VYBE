@@ -382,7 +382,7 @@ class VybeWifiAudioReceiverService : Service() {
         val decoderError = AtomicReference<String?>(null)
         val packets = ArrayBlockingQueue<ByteArray>(128)
         // Each AAC-LC frame contains 1024 PCM samples: ~23.2 ms of audio.
-        val startupPackets = 24
+        val startupPackets = 40 // ~930 ms of AAC for weak Wi-Fi adapters
         val minTrackBytes = AudioTrack.getMinBufferSize(
             RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         if (minTrackBytes <= 0) throw IllegalStateException("AAC PCM output unsupported")
@@ -402,7 +402,7 @@ class VybeWifiAudioReceiverService : Service() {
         if (player.state != AudioTrack.STATE_INITIALIZED)
             throw IllegalStateException("AAC Android audio output cannot initialize")
         track = player
-        status("buffering", "Collecting ~550 ms of compressed audio")
+        status("buffering", "Collecting ~930 ms of compressed audio")
 
         val worker = Thread({
             var decoder: VybeAacDecoder? = null
