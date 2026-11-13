@@ -50,6 +50,14 @@ class VybeLink extends ChangeNotifier {
   // unit; Android decides whether that session can start Bluetooth playback.
   static const MethodChannel _bluetoothAudio =
       MethodChannel('vybe/bluetooth_audio');
+  static const MethodChannel _audioProbe = MethodChannel('vybe/audio_probe');
+  String wifiAudioProbeStatus = 'Not tested';
+  String wifiAudioProbeDetails = 'Run a test while a music player is active.';
+  int wifiAudioProbePeak = 0;
+  double wifiAudioProbeRms = 0;
+  double wifiAudioProbeSignalFraction = 0;
+  int wifiAudioProbeSamples = 0;
+  bool _wifiAudioProbeBusy = false;
   String bluetoothSourcePackage = '';
   bool bluetoothAutoResume = false;
   List<Map<String, dynamic>> bluetoothSources = <Map<String, dynamic>>[];
@@ -485,6 +493,50 @@ class VybeLink extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  /// Audio only: VYBE never stores or forwards PCM in this test. The Android
+  /// projection permission request is explicit and applies to a single run.
+  Future<void> startWifiAudioCaptureTest() async {
+    if (role != 'sender' || _wifiAudioProbeBusy) return;
+    _wifiAudioProbeBusy = true;
+    wifiAudioProbeStatus = 'Requesting Android playback capture permission';
+    notifyListeners();
+    try {
+      final result = await _audioProbe.invokeMethod<dynamic>('start');
+      if (result is Map) {
+        wifiAudioProbeStatus = result['state']?.toString() ?? 'unknown';
+        wifiAudioProbeDetails = result['details']?.toString() ?? '';
+      } else {
+        wifiAudioProbeStatus = 'unknown';
+        wifiAudioProbeDetails = 'Android did not return a test result';
+      }
+    } catch (error) {
+      wifiAudioProbeStatus = 'error';
+      wifiAudioProbeDetails = 'Cannot start playback capture: $error';
+    } finally {
+      _wifiAudioProbeBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshWifiAudioCaptureTest() async {
+    if (role != 'sender') return;
+    try {
+      final result = await _audioProbe.invokeMethod<dynamic>('status');
+      if (result is! Map) throw StateError('No capture report');
+      wifiAudioProbeStatus = result['state']?.toString() ?? 'unknown';
+      wifiAudioProbeDetails = result['details']?.toString() ?? '';
+      wifiAudioProbePeak = (result['peak'] as num?)?.toInt() ?? 0;
+      wifiAudioProbeRms = (result['rms'] as num?)?.toDouble() ?? 0;
+      wifiAudioProbeSignalFraction =
+          (result['signalFraction'] as num?)?.toDouble() ?? 0;
+      wifiAudioProbeSamples = (result['samples'] as num?)?.toInt() ?? 0;
+    } catch (error) {
+      wifiAudioProbeStatus = 'error';
+      wifiAudioProbeDetails = 'Cannot read playback capture report: $error';
+    }
+    notifyListeners();
   }
 
   /// The built-in Android media session API is device-agnostic. A visible
