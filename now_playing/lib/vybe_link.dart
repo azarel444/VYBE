@@ -40,7 +40,8 @@ class VybeLink extends ChangeNotifier {
   // USB tethering is an ordinary point-to-point IPv4 LAN. Prefer it for
   // stability when detected; Wi-Fi Direct and shared Wi-Fi remain fallback.
   static const MethodChannel _wired = MethodChannel('vybe/wired');
-  bool preferWired = true;
+  // USB tether mode disabled while VYBE prioritizes Wi-Fi Direct.
+  bool preferWired = false;
   bool wiredAvailable = false;
   String wiredStatus = 'No USB tethering network detected';
   String activeTransport = 'Disconnected';
@@ -56,6 +57,21 @@ class VybeLink extends ChangeNotifier {
   String wifiStreamReceiverStatus = 'off';
   String wifiStreamSenderDetail = '';
   String wifiStreamReceiverDetail = '';
+  String wifiStreamSenderIp = '';
+  String wifiStreamExpectedPhoneIp = '';
+  String wifiStreamObservedPhoneIp = '';
+  String wifiStreamOutputRoute = '';
+  String wifiStreamToneStatus = 'Not tested';
+  int wifiStreamSentBytes = 0;
+  int wifiStreamSenderPeak = 0;
+  int wifiStreamReceivedBytes = 0;
+  int wifiStreamPlayedBytes = 0;
+  int wifiStreamReceiverPeak = 0;
+  int wifiStreamConnections = 0;
+  int wifiStreamRejected = 0;
+  int wifiStreamMusicVolume = 0;
+  int wifiStreamMusicMaxVolume = 0;
+  bool wifiStreamMusicActive = false;
   bool _wifiSenderRequested = false;
   bool _wifiReceiverRequested = false;
 
@@ -582,6 +598,21 @@ class VybeLink extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> testHeadUnitAudioOutput() async {
+    if (role != 'receiver') return;
+    wifiStreamToneStatus = 'Starting Android output test...';
+    notifyListeners();
+    try {
+      final response = await _wifiAudio.invokeMethod<dynamic>('testOutputTone');
+      wifiStreamToneStatus = response is Map
+          ? response['message']?.toString() ?? 'Started output test'
+          : 'Started output test';
+    } catch (error) {
+      wifiStreamToneStatus = 'Android audio output test failed: $error';
+    }
+    notifyListeners();
+  }
+
   Future<void> refreshWifiAudioStreamStatus() async {
     try {
       final result = await _wifiAudio.invokeMethod<dynamic>('status');
@@ -590,6 +621,21 @@ class VybeLink extends ChangeNotifier {
       wifiStreamSenderDetail = result['senderDetail']?.toString() ?? '';
       wifiStreamReceiverStatus = result['receiver']?.toString() ?? 'unknown';
       wifiStreamReceiverDetail = result['receiverDetail']?.toString() ?? '';
+      wifiStreamSenderIp = result['senderTargetIp']?.toString() ?? '';
+      wifiStreamSentBytes = (result['senderBytes'] as num?)?.toInt() ?? 0;
+      wifiStreamSenderPeak = (result['senderPeak'] as num?)?.toInt() ?? 0;
+      wifiStreamExpectedPhoneIp = result['receiverExpectedIp']?.toString() ?? '';
+      wifiStreamObservedPhoneIp = result['receiverPeerIp']?.toString() ?? '';
+      wifiStreamReceivedBytes = (result['receiverBytes'] as num?)?.toInt() ?? 0;
+      wifiStreamPlayedBytes = (result['receiverPlayedBytes'] as num?)?.toInt() ?? 0;
+      wifiStreamReceiverPeak = (result['receiverPeak'] as num?)?.toInt() ?? 0;
+      wifiStreamConnections = (result['receiverConnections'] as num?)?.toInt() ?? 0;
+      wifiStreamRejected = (result['receiverRejected'] as num?)?.toInt() ?? 0;
+      wifiStreamOutputRoute = result['receiverRoute']?.toString() ?? '';
+      wifiStreamMusicVolume = (result['outputVolume'] as num?)?.toInt() ?? 0;
+      wifiStreamMusicMaxVolume = (result['outputMaxVolume'] as num?)?.toInt() ?? 0;
+      wifiStreamMusicActive = result['outputMusicActive'] == true;
+      wifiStreamToneStatus = result['toneState']?.toString() ?? 'Not tested';
     } catch (error) {
       if (role == 'sender') {
         wifiStreamSenderStatus = 'error';
@@ -775,7 +821,8 @@ class VybeLink extends ChangeNotifier {
     autoConnect = p.getBool('link_auto') ?? true;
     bluetoothSourcePackage = p.getString('link_bluetooth_source') ?? '';
     bluetoothAutoResume = p.getBool('link_bluetooth_auto_resume') ?? false;
-    preferWired = p.getBool('link_prefer_wired') ?? true;
+    // Earlier builds experimented with USB tethering, now disabled.
+    preferWired = false;
     _savedWiredReceiverIp = (p.getString('link_wired_address') ?? '').trim();
     receiverAddress = (p.getString('link_address') ?? '').trim();
     pairedReceiverId = p.getString('link_paired_receiver') ?? '';
@@ -792,7 +839,6 @@ class VybeLink extends ChangeNotifier {
     model.addListener(_onModel);
     await directInitialize();
     await _updateAddresses();
-    await refreshWired(reconnect: false);
     if (enabled && autoConnect) {
       // A P2P group may already exist when VYBE launches. Register for its
       // native state and reuse the automatically resolved group owner IP.
@@ -818,10 +864,7 @@ class VybeLink extends ChangeNotifier {
     // Periodically recover a missing connection without user interaction.
     _connectionWatchdog?.cancel();
     _connectionWatchdog = Timer.periodic(const Duration(seconds: 3), (_) {
-      // Detect tether activation/unplugging after the initial app launch.
-      if (++_wiredWatchdogTicks % 2 == 0) {
-        unawaited(refreshWired());
-      }
+      // No USB tethering polling while this mode is disabled.
       final peer = _socket;
       if (peer != null) {
         if (DateTime.now().millisecondsSinceEpoch - _lastPeerResponse > 11000) {
@@ -883,7 +926,6 @@ class VybeLink extends ChangeNotifier {
   /// best-effort: Android can suspend this Flutter process.
   void onResumed() {
     if (!enabled || !autoConnect) return;
-    unawaited(refreshWired());
     if (_directPreferred) unawaited(_recoverDirect(immediately: true));
     if (_connecting) return;
     if (role == 'receiver' && _server == null) { connect(); return; }
@@ -894,7 +936,6 @@ class VybeLink extends ChangeNotifier {
   /// TCP transport. It never requires a numeric IP address.
   Future<void> reconnectAutomatically() async {
     if (!enabled) await configure(isEnabled: true, automatic: true);
-    await refreshWired();
     if (_directPreferred) {
       await _recoverDirect(immediately: true);
     } else if (role == 'sender') {
