@@ -22,8 +22,9 @@ import java.net.Socket
 import java.io.DataOutputStream
 
 /**
- * EXPERIMENTAL, opt-in raw PCM sender over an existing trusted VYBE Connect
- * network. Captures only apps which Android explicitly allows to be captured.
+ * EXPERIMENTAL, opt-in AAC-LC 128 kbps sender over an existing trusted
+ * VYBE Connect network, with a legacy PCM fallback when AAC is unavailable.
+ * Captures only apps which Android explicitly allows to be captured.
  * No recording is saved. This is plaintext, local-network test code, NOT an
  * encrypted production transport. A separate TCP stream leaves VYBE Connect's
  * metadata/artwork protocol entirely untouched.
