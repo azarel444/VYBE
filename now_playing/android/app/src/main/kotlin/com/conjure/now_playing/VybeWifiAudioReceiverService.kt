@@ -407,7 +407,8 @@ class VybeWifiAudioReceiverService : Service() {
         val worker = Thread({
             var decoder: VybeAacDecoder? = null
             try {
-                decoder = VybeAacDecoder()
+                val activeDecoder = VybeAacDecoder()
+                decoder = activeDecoder
                 var started = false
                 var primedBytes = 0
                 val primeTarget = RATE * 4 / 3 // ~333 ms of decoded audio
@@ -429,7 +430,7 @@ class VybeWifiAudioReceiverService : Service() {
                         }
                         continue
                     }
-                    decoder.decode(frame) { pcm ->
+                    activeDecoder.decode(frame) { pcm ->
                         for (index in 0 until pcm.size - 1 step 2) {
                             val sample = (pcm[index].toInt() and 255) or
                                 (pcm[index + 1].toInt() shl 8)
