@@ -130,6 +130,48 @@ class VybeLinkSettings extends StatelessWidget {
             const Text('Listening for the paired phone on the available '
                 'network. VYBE determines its own network address.'),
           ],
+          if (link.role == 'sender') ...[
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 14),
+            const Text('Wi-Fi audio compatibility test',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+            const Text('Checks whether Android lets VYBE receive audio '
+                'samples from your phone music player. This is a test only: '
+                'audio is not saved, transmitted, or played over Wi-Fi yet.'),
+            const SizedBox(height: 8),
+            const Text('Start your music in Musicolet, YouTube Music or '
+                'another player. Tap Start, approve Android\'s capture '
+                'permission, keep the music playing for 25 seconds, '
+                'then return here and read the results. The Android prompt '
+                'may say screen recording, but VYBE collects only audio '
+                'signal statistics, not screen images.'),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: () => link.startWifiAudioCaptureTest(),
+              icon: const Icon(Icons.multitrack_audio),
+              label: const Text('Start 25-second audio test'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => link.refreshWifiAudioCaptureTest(),
+              icon: const Icon(Icons.analytics_outlined),
+              label: const Text('Read audio test results'),
+            ),
+            Text('Audio test: ${link.wifiAudioProbeStatus}'),
+            Text(link.wifiAudioProbeDetails),
+            if (link.wifiAudioProbeSamples > 0) ...[
+              Text('PCM samples read: ${link.wifiAudioProbeSamples}'),
+              Text('Peak: ${link.wifiAudioProbePeak} / 32767; '
+                  'RMS: ${link.wifiAudioProbeRms.toStringAsFixed(0)}'),
+              Text('Samples above silence threshold: '
+                  '${(link.wifiAudioProbeSignalFraction * 100).toStringAsFixed(1)}%'),
+            ],
+            const Text('A detected signal shows that the current playback '
+                'can be captured. Silence alone does not prove the app '
+                'forbids capture; the player may be muted, paused, or '
+                'using a different audio route.',
+                style: TextStyle(color: Colors.white70)),
+          ],
           if (link.role == 'receiver') ...[
             const SizedBox(height: 20),
             const Divider(),
