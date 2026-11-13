@@ -44,6 +44,22 @@ class VybeLink extends ChangeNotifier {
   bool wiredAvailable = false;
   String wiredStatus = 'No USB tethering network detected';
   String activeTransport = 'Disconnected';
+
+  // Android-wide Bluetooth audio source integration. No OEM package names
+  // are hardcoded. The user selects a media session discovered on the head
+  // unit; Android decides whether that session can start Bluetooth playback.
+  static const MethodChannel _bluetoothAudio =
+      MethodChannel('vybe/bluetooth_audio');
+  String bluetoothSourcePackage = '';
+  bool bluetoothAutoResume = false;
+  List<Map<String, dynamic>> bluetoothSources = <Map<String, dynamic>>[];
+  String bluetoothSourceStatus = 'Not checked';
+  String bluetoothDeviceDiagnostics = '';
+  bool bluetoothSessionAccess = false;
+  bool _bluetoothRequestBusy = false;
+  bool _remoteWasPlaying = false;
+  int _lastBluetoothAutoMs = 0;
+
   List<String> _wiredAddresses = <String>[];
   String _savedWiredReceiverIp = '';
   bool _tcpConnectedViaWired = false;
@@ -471,6 +487,112 @@ class VybeLink extends ChangeNotifier {
     }
   }
 
+  /// The built-in Android media session API is device-agnostic. A visible
+  /// session is necessary for the public PLAY command; a proprietary head
+  /// unit may require privileges that an ordinary app does not possess.
+  Future<void> scanBluetoothSources() async {
+    if (role != 'receiver') return;
+    bluetoothSourceStatus = 'Inspecting Android media sessions...';
+    notifyListeners();
+    try {
+      final result = await _bluetoothAudio.invokeMethod<dynamic>('scan');
+      if (result is! Map) throw StateError('No session information returned');
+      final response = Map<String, dynamic>.from(result);
+      bluetoothSessionAccess = response['access'] == true;
+      final raw = response['sessions'];
+      bluetoothSources = raw is List ? raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e)).toList()
+          : <Map<String, dynamic>>[];
+      bluetoothDeviceDiagnostics = 'Audio active: ${response['musicActive'] == true}; '
+          'routes: ${(response['devices'] as List?)?.length ?? 0}';
+      final details = response['message']?.toString() ?? 'No result';
+      final selected = bluetoothSources.where(
+          (s) => s['package'] == bluetoothSourcePackage);
+      bluetoothSourceStatus = selected.isNotEmpty
+          ? 'Selected source detected: ${selected.first['name']}'
+          : details;
+    } catch (error) {
+      bluetoothSessionAccess = false;
+      bluetoothSources = <Map<String, dynamic>>[];
+      bluetoothSourceStatus = 'Android media session check failed: $error';
+    }
+    notifyListeners();
+  }
+
+  Future<void> selectBluetoothSource(String packageName) async {
+    if (role != 'receiver') return;
+    // A source can be selected only from the Android sessions that the user
+    // inspected. Do not allow hardcoded/guessed OEM package identities.
+    if (!bluetoothSources.any((s) => s['package'] == packageName)) return;
+    bluetoothSourcePackage = packageName;
+    bluetoothSourceStatus = 'Saved Android media source: $packageName';
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('link_bluetooth_source', packageName);
+  }
+
+  Future<void> setBluetoothAutoResume(bool selected) async {
+    if (role != 'receiver') return;
+    if (selected && bluetoothSourcePackage.isEmpty) {
+      bluetoothSourceStatus = 'Select a detected Android media source first';
+      notifyListeners();
+      return;
+    }
+    bluetoothAutoResume = selected;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('link_bluetooth_auto_resume', selected);
+  }
+
+  /// A request is not proof that Bluetooth audio is routed to speakers.
+  /// Never retry continuously, take audio focus, or launch an arbitrary app.
+  Future<void> requestBluetoothSourcePlay({bool automatic = false}) async {
+    if (role != 'receiver' || _bluetoothRequestBusy) return;
+    if (bluetoothSourcePackage.isEmpty) {
+      bluetoothSourceStatus = 'Select an Android media source first';
+      notifyListeners();
+      return;
+    }
+    if (automatic && (!bluetoothAutoResume || !enabled)) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (automatic && now - _lastBluetoothAutoMs < 20000) return;
+    if (automatic) _lastBluetoothAutoMs = now;
+    _bluetoothRequestBusy = true;
+    try {
+      final response = await _bluetoothAudio.invokeMethod<dynamic>(
+          'requestPlay', <String, dynamic>{
+        'package': bluetoothSourcePackage,
+      });
+      if (response is Map) {
+        bluetoothSourceStatus =
+            response['message']?.toString() ?? 'No response to play request';
+      } else {
+        bluetoothSourceStatus = 'Android did not return a play-request result';
+      }
+    } catch (error) {
+      bluetoothSourceStatus = 'Android cannot activate the selected source: $error';
+    } finally {
+      _bluetoothRequestBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Manual-only diagnostic. Android sends the key to whichever system
+  /// media consumer currently holds it, which may be an unrelated player.
+  Future<void> requestSystemMediaPlay() async {
+    if (role != 'receiver') return;
+    try {
+      final response = await _bluetoothAudio.invokeMethod<dynamic>('systemPlay');
+      bluetoothSourceStatus = response is Map
+          ? (response['message']?.toString() ?? 'Media key dispatched')
+          : 'No response from system media key';
+    } catch (error) {
+      bluetoothSourceStatus = 'System media key unavailable: $error';
+    }
+    notifyListeners();
+  }
+
   Future<void> initialize(NowPlayingModel model) async {
     if (_initialized) {
       if (!identical(_model, model)) {
@@ -492,6 +614,8 @@ class VybeLink extends ChangeNotifier {
         (savedRole == 'receiver' ? 'head_unit' : 'phone');
     role = deviceType == 'head_unit' ? 'receiver' : 'sender';
     autoConnect = p.getBool('link_auto') ?? true;
+    bluetoothSourcePackage = p.getString('link_bluetooth_source') ?? '';
+    bluetoothAutoResume = p.getBool('link_bluetooth_auto_resume') ?? false;
     preferWired = p.getBool('link_prefer_wired') ?? true;
     _savedWiredReceiverIp = (p.getString('link_wired_address') ?? '').trim();
     receiverAddress = (p.getString('link_address') ?? '').trim();
@@ -762,6 +886,7 @@ class VybeLink extends ChangeNotifier {
     _encodingClearLogoArtist = ''; _encodingClearLogoHash = 0;
     _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
     _lastMetadataSentAt = 0; _lastMetadataState = '';
+    _remoteWasPlaying = false;
 
     // The sender must never clear its own media playback. A receiver retains
     // the current song briefly while the TCP session is being recovered.
@@ -1031,6 +1156,7 @@ class VybeLink extends ChangeNotifier {
   void _receiverDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
     _socket = null; _model?.setLinkReceiverActive(false);
+    _remoteWasPlaying = false;
     activeTransport = 'Listening on available networks';
     status = 'Waiting for sender'; notifyListeners();
   }
@@ -1329,6 +1455,16 @@ class VybeLink extends ChangeNotifier {
           notifyListeners();
         }
         metadataReceived++;
+        // The phone's existing VYBE Connect playback state is an Android-
+        // independent trigger. Only the first PLAYING transition requests
+        // activation of the user-selected media session on the head unit.
+        // Never dispatch global media keys automatically.
+        final remotePlaying = data['playing'] == true && data['active'] == true;
+        if (remotePlaying && !_remoteWasPlaying && bluetoothAutoResume &&
+            bluetoothSourcePackage.isNotEmpty) {
+          unawaited(requestBluetoothSourcePlay(automatic: true));
+        }
+        _remoteWasPlaying = remotePlaying;
         _model?.applyLinkMetadata(
           titleValue: data['title'] is String ? data['title'] : '',
           artistValue: data['artist'] is String ? data['artist'] : '',
