@@ -43,10 +43,40 @@ open class MainActivity : FlutterActivity() {
     private val cacheRequestCode = 8944
     private val captureConsentRequestCode = 8945
     private var pendingCaptureProbe: MethodChannel.Result? = null
+    private val wifiStreamConsentRequestCode = 8946
+    private var pendingWifiStream: MethodChannel.Result? = null
+    private var pendingWifiStreamHost: String? = null
 
     @Deprecated("Legacy activity result used for Android 9 compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == wifiStreamConsentRequestCode) {
+            val pending = pendingWifiStream
+            val host = pendingWifiStreamHost
+            pendingWifiStream = null
+            pendingWifiStreamHost = null
+            if (pending == null) return
+            if (resultCode != android.app.Activity.RESULT_OK || data == null || host.isNullOrEmpty()) {
+                pending.success(mapOf("state" to "cancelled",
+                    "detail" to "Wi-Fi audio capture authorization was not granted"))
+                return
+            }
+            try {
+                val service = Intent(this, VybeWifiAudioSenderService::class.java).apply {
+                    putExtra("host", host)
+                    putExtra("projectionResultCode", resultCode)
+                    putExtra("projectionToken", data)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service)
+                else startService(service)
+                pending.success(mapOf("state" to "starting",
+                    "detail" to "Starting Wi-Fi audio to the connected VYBE head unit"))
+            } catch (error: Exception) {
+                pending.success(mapOf("state" to "error",
+                    "detail" to "Cannot start Wi-Fi capture: ${error.message}"))
+            }
+            return
+        }
         if (requestCode == captureConsentRequestCode) {
             val pending = pendingCaptureProbe
             pendingCaptureProbe = null
@@ -533,6 +563,29 @@ open class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        // Opt-in experimental Wi-Fi audio. Separate TCP port from artwork
+        // metadata, receiver address always derived from an active Connect
+        // socket by Flutter. No system Bluetooth APIs or OEM-specific code.
+        MethodChannel(messenger, "vybe/wifi_audio").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startSender" -> startWifiAudioSender(
+                    call.argument<String>("host") ?: "", result)
+                "startReceiver" -> result.success(startWifiAudioReceiver(
+                    call.argument<String>("allowedIp") ?: ""))
+                "stopSender" -> {
+                    stopWifiAudioService(VybeWifiAudioSenderService::class.java,
+                        VybeWifiAudioSenderService.ACTION_STOP)
+                    result.success(wifiAudioState())
+                }
+                "stopReceiver" -> {
+                    stopWifiAudioService(VybeWifiAudioReceiverService::class.java,
+                        VybeWifiAudioReceiverService.ACTION_STOP)
+                    result.success(wifiAudioState())
+                }
+                "status" -> result.success(wifiAudioState())
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(messenger, "vybe/bluetooth_audio").setMethodCallHandler { call, result ->
             when (call.method) {
                 "scan" -> result.success(bluetoothAudioSnapshot())
@@ -846,6 +899,84 @@ open class MainActivity : FlutterActivity() {
 
     // Read-only inspection of the Android media-session contract. A published
     // queue is NOT proof of playlist browsing or arbitrary track playback.
+    private fun wifiAudioState(): Map<String, Any?> {
+        val sender = getSharedPreferences(VybeWifiAudioSenderService.PREFS, Context.MODE_PRIVATE)
+        val receiver = getSharedPreferences(VybeWifiAudioReceiverService.PREFS, Context.MODE_PRIVATE)
+        return mapOf(
+            "sender" to (sender.getString("state", "off") ?: "off"),
+            "senderDetail" to (sender.getString("detail", "Not started") ?: ""),
+            "receiver" to (receiver.getString("state", "off") ?: "off"),
+            "receiverDetail" to (receiver.getString("detail", "Not started") ?: "")
+        )
+    }
+
+    private fun stopWifiAudioService(serviceClass: Class<out android.app.Service>, action: String) {
+        try {
+            val intent = Intent(this, serviceClass).apply { this.action = action }
+            // Service is already running when this call is used; a stop action
+            // explicitly closes its socket and releases Android audio resources.
+            startService(intent)
+        } catch (_: Exception) {
+            stopService(Intent(this, serviceClass))
+        }
+    }
+
+    private fun startWifiAudioReceiver(ip: String): Map<String, Any?> {
+        if (ip.isBlank()) return mapOf(
+            "state" to "error", "detail" to "Connect VYBE to your phone first")
+        return try {
+            val service = Intent(this, VybeWifiAudioReceiverService::class.java)
+                .putExtra("allowedIp", ip)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                startForegroundService(service)
+            else startService(service)
+            mapOf("state" to "starting",
+                "detail" to "Opening Wi-Fi audio output for paired phone $ip")
+        } catch (error: Exception) {
+            mapOf("state" to "error",
+                "detail" to "Could not activate receiver: ${error.message}")
+        }
+    }
+
+    private fun startWifiAudioSender(host: String, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            result.success(mapOf("state" to "unsupported",
+                "detail" to "Wi-Fi audio capture requires Android 10+"))
+            return
+        }
+        if (host.isBlank()) {
+            result.success(mapOf("state" to "error",
+                "detail" to "Connect your phone to the VYBE head unit first"))
+            return
+        }
+        if (pendingWifiStream != null) {
+            result.success(mapOf("state" to "busy",
+                "detail" to "Wi-Fi audio capture approval is already open"))
+            return
+        }
+        pendingWifiStream = result
+        pendingWifiStreamHost = host
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_WIFI_AUDIO)
+        } else requestWifiAudioConsent()
+    }
+
+    private fun requestWifiAudioConsent() {
+        val pending = pendingWifiStream ?: return
+        try {
+            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+                as MediaProjectionManager
+            startActivityForResult(
+                manager.createScreenCaptureIntent(), wifiStreamConsentRequestCode)
+        } catch (error: Exception) {
+            pendingWifiStream = null
+            pendingWifiStreamHost = null
+            pending.success(mapOf("state" to "error",
+                "detail" to "Android could not request capture permission: ${error.message}"))
+        }
+    }
+
     private fun playbackCaptureProbeStatus(): Map<String, Any?> {
         val p = getSharedPreferences("vybe_audio_capture_probe", Context.MODE_PRIVATE)
         return mapOf(
@@ -1467,6 +1598,17 @@ open class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_WIFI_AUDIO) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                requestWifiAudioConsent()
+            } else {
+                pendingWifiStream?.success(mapOf("state" to "permission-denied",
+                    "detail" to "Audio capture permission denied"))
+                pendingWifiStream = null
+                pendingWifiStreamHost = null
+            }
+            return
+        }
         if (requestCode == REQ_AUDIO_PROBE) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
                 requestPlaybackCaptureConsent()
@@ -1522,6 +1664,7 @@ open class MainActivity : FlutterActivity() {
         private const val REQ_AUDIO = 4711
         private const val REQ_AUDIO_ONBOARD = 4712
         private const val REQ_AUDIO_PROBE = 4713
+        private const val REQ_WIFI_AUDIO = 4714
     }
 
     override fun onDestroy() {
