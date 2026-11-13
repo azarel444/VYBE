@@ -71,6 +71,13 @@ class VybeLink extends ChangeNotifier {
   int wifiStreamRejected = 0;
   int wifiStreamMusicVolume = 0;
   int wifiStreamMusicMaxVolume = 0;
+  int wifiStreamReceiverBufferedMs = 0;
+  int wifiStreamReceiverUnderruns = 0;
+  int wifiStreamTrackUnderruns = 0;
+  int wifiStreamDroppedPackets = 0;
+  int wifiStreamSenderReconnects = 0;
+  String wifiStreamSenderLastFailure = '';
+  String wifiStreamReceiverLastFailure = '';
   bool wifiStreamMusicActive = false;
   bool _wifiSenderRequested = false;
   bool _wifiReceiverRequested = false;
@@ -624,11 +631,25 @@ class VybeLink extends ChangeNotifier {
       wifiStreamSenderIp = result['senderTargetIp']?.toString() ?? '';
       wifiStreamSentBytes = (result['senderBytes'] as num?)?.toInt() ?? 0;
       wifiStreamSenderPeak = (result['senderPeak'] as num?)?.toInt() ?? 0;
+      wifiStreamSenderReconnects =
+          (result['senderReconnects'] as num?)?.toInt() ?? 0;
+      wifiStreamSenderLastFailure =
+          result['senderLastFailure']?.toString() ?? '';
       wifiStreamExpectedPhoneIp = result['receiverExpectedIp']?.toString() ?? '';
       wifiStreamObservedPhoneIp = result['receiverPeerIp']?.toString() ?? '';
       wifiStreamReceivedBytes = (result['receiverBytes'] as num?)?.toInt() ?? 0;
       wifiStreamPlayedBytes = (result['receiverPlayedBytes'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverPeak = (result['receiverPeak'] as num?)?.toInt() ?? 0;
+      wifiStreamReceiverBufferedMs =
+          (result['receiverBufferedMs'] as num?)?.toInt() ?? 0;
+      wifiStreamReceiverUnderruns =
+          (result['receiverUnderruns'] as num?)?.toInt() ?? 0;
+      wifiStreamTrackUnderruns =
+          (result['receiverAudioTrackUnderruns'] as num?)?.toInt() ?? 0;
+      wifiStreamDroppedPackets =
+          (result['receiverDroppedPackets'] as num?)?.toInt() ?? 0;
+      wifiStreamReceiverLastFailure =
+          result['receiverLastFailure']?.toString() ?? '';
       wifiStreamConnections = (result['receiverConnections'] as num?)?.toInt() ?? 0;
       wifiStreamRejected = (result['receiverRejected'] as num?)?.toInt() ?? 0;
       wifiStreamOutputRoute = result['receiverRoute']?.toString() ?? '';
