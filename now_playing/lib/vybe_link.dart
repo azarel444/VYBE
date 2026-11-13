@@ -51,6 +51,17 @@ class VybeLink extends ChangeNotifier {
   static const MethodChannel _bluetoothAudio =
       MethodChannel('vybe/bluetooth_audio');
   static const MethodChannel _audioProbe = MethodChannel('vybe/audio_probe');
+  static const MethodChannel _wifiAudio = MethodChannel('vybe/wifi_audio');
+  String wifiStreamSenderStatus = 'off';
+  String wifiStreamReceiverStatus = 'off';
+  String wifiStreamSenderDetail = '';
+  String wifiStreamReceiverDetail = '';
+  bool _wifiSenderRequested = false;
+  bool _wifiReceiverRequested = false;
+
+  bool get wifiAudioPeerConnected => enabled && _socket != null;
+  bool get wifiAudioStreamingSupported => enabled && _socket != null &&
+      (role == 'sender' || role == 'receiver');
   String wifiAudioProbeStatus = 'Not tested';
   String wifiAudioProbeDetails = 'Run a test while a music player is active.';
   int wifiAudioProbePeak = 0;
@@ -493,6 +504,102 @@ class VybeLink extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  /// Initial raw-PCM prototype. A separate native TCP connection handles
+  /// audio so artist metadata and artwork continue at their existing pace.
+  /// This is opt-in and local-network plaintext until authenticated encrypted
+  /// audio can be implemented; do not use on untrusted shared networks.
+  Future<void> startWifiAudioStream() async {
+    if (role != 'sender') return;
+    final host = _socket?.remoteAddress.address;
+    if (!enabled || host == null) {
+      wifiStreamSenderStatus = 'error';
+      wifiStreamSenderDetail = 'Connect VYBE to the head unit first';
+      notifyListeners();
+      return;
+    }
+    wifiStreamSenderStatus = 'requesting';
+    wifiStreamSenderDetail = 'Android will ask permission to capture playback audio';
+    notifyListeners();
+    try {
+      final result = await _wifiAudio.invokeMethod<dynamic>(
+          'startSender', <String, dynamic>{'host': host});
+      if (result is Map) {
+        wifiStreamSenderStatus = result['state']?.toString() ?? 'unknown';
+        wifiStreamSenderDetail = result['detail']?.toString() ?? '';
+      }
+      _wifiSenderRequested = wifiStreamSenderStatus == 'starting';
+    } catch (error) {
+      wifiStreamSenderStatus = 'error';
+      wifiStreamSenderDetail = 'Could not start Wi-Fi audio: $error';
+    }
+    notifyListeners();
+  }
+
+  Future<void> startWifiAudioReceiver() async {
+    if (role != 'receiver') return;
+    final phoneIp = _socket?.remoteAddress.address;
+    if (!enabled || phoneIp == null) {
+      wifiStreamReceiverStatus = 'error';
+      wifiStreamReceiverDetail = 'Connect the phone in VYBE Connect first';
+      notifyListeners();
+      return;
+    }
+    wifiStreamReceiverStatus = 'starting';
+    wifiStreamReceiverDetail = 'Listening for audio from the connected VYBE phone';
+    notifyListeners();
+    try {
+      final result = await _wifiAudio.invokeMethod<dynamic>(
+          'startReceiver', <String, dynamic>{'allowedIp': phoneIp});
+      if (result is Map) {
+        wifiStreamReceiverStatus = result['state']?.toString() ?? 'unknown';
+        wifiStreamReceiverDetail = result['detail']?.toString() ?? '';
+      }
+      _wifiReceiverRequested = wifiStreamReceiverStatus == 'starting';
+    } catch (error) {
+      wifiStreamReceiverStatus = 'error';
+      wifiStreamReceiverDetail = 'Could not start Wi-Fi audio receiver: $error';
+    }
+    notifyListeners();
+  }
+
+  Future<void> stopWifiAudioStream() async {
+    if (role != 'sender') return;
+    _wifiSenderRequested = false;
+    try { await _wifiAudio.invokeMethod<dynamic>('stopSender'); } catch (_) {}
+    wifiStreamSenderStatus = 'stopped';
+    wifiStreamSenderDetail = 'Wi-Fi audio stopped';
+    notifyListeners();
+  }
+
+  Future<void> stopWifiAudioReceiver() async {
+    if (role != 'receiver') return;
+    _wifiReceiverRequested = false;
+    try { await _wifiAudio.invokeMethod<dynamic>('stopReceiver'); } catch (_) {}
+    wifiStreamReceiverStatus = 'stopped';
+    wifiStreamReceiverDetail = 'Wi-Fi audio receiver stopped';
+    notifyListeners();
+  }
+
+  Future<void> refreshWifiAudioStreamStatus() async {
+    try {
+      final result = await _wifiAudio.invokeMethod<dynamic>('status');
+      if (result is! Map) throw StateError('No audio status returned');
+      wifiStreamSenderStatus = result['sender']?.toString() ?? 'unknown';
+      wifiStreamSenderDetail = result['senderDetail']?.toString() ?? '';
+      wifiStreamReceiverStatus = result['receiver']?.toString() ?? 'unknown';
+      wifiStreamReceiverDetail = result['receiverDetail']?.toString() ?? '';
+    } catch (error) {
+      if (role == 'sender') {
+        wifiStreamSenderStatus = 'error';
+        wifiStreamSenderDetail = 'Audio diagnostic unavailable: $error';
+      } else {
+        wifiStreamReceiverStatus = 'error';
+        wifiStreamReceiverDetail = 'Audio diagnostic unavailable: $error';
+      }
+    }
+    notifyListeners();
   }
 
   /// Audio only: VYBE never stores or forwards PCM in this test. The Android
@@ -939,6 +1046,8 @@ class VybeLink extends ChangeNotifier {
     _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
     _lastMetadataSentAt = 0; _lastMetadataState = '';
     _remoteWasPlaying = false;
+    if (_wifiSenderRequested) unawaited(stopWifiAudioStream());
+    if (_wifiReceiverRequested) unawaited(stopWifiAudioReceiver());
 
     // The sender must never clear its own media playback. A receiver retains
     // the current song briefly while the TCP session is being recovered.
@@ -1209,12 +1318,14 @@ class VybeLink extends ChangeNotifier {
     if (!identical(client, _socket)) return;
     _socket = null; _model?.setLinkReceiverActive(false);
     _remoteWasPlaying = false;
+    if (_wifiReceiverRequested) unawaited(stopWifiAudioReceiver());
     activeTransport = 'Listening on available networks';
     status = 'Waiting for sender'; notifyListeners();
   }
   void _senderDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
     _socket = null;
+    if (_wifiSenderRequested) unawaited(stopWifiAudioStream());
     _tcpConnectedViaDirect = false;
     _tcpConnectedViaWired = false;
     activeTransport = 'Disconnected';
