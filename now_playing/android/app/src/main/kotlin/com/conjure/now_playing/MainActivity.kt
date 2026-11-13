@@ -949,7 +949,7 @@ open class MainActivity : FlutterActivity() {
             }
             mapOf("access" to true, "musicActive" to audio.isMusicActive,
                 "devices" to routes, "sessions" to sources,
-                "message" to if (sources.isEmpty)
+                "message" to if (sources.isEmpty())
                     "No active media sessions. A receiver that exposes no session cannot be started through MediaController."
                 else "Select the Android media session belonging to the Bluetooth receiver.")
         } catch (error: Exception) {
