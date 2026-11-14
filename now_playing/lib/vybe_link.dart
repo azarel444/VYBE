@@ -220,6 +220,10 @@ class VybeLink extends ChangeNotifier {
         return;
       }
       directActive = true;
+      if (role == 'sender' &&
+          (_directGroupConnected || _directPairingInProgress)) {
+        return; // A group is already ready or still negotiating.
+      }
       if (role == 'receiver') {
         directStatus = 'Restoring head-unit Wi-Fi Direct group...';
         await _direct.invokeMethod<bool>('host', {
@@ -1047,7 +1051,17 @@ class VybeLink extends ChangeNotifier {
         unawaited(_ensureResponder());
       }
       if (_connecting || _retry?.isActive == true) return;
-      if (role == 'sender' && _socket == null) connect();
+      if (role == 'sender' && _socket == null) {
+        if (_directPreferred && !_directGroupConnected &&
+            directPeers.isNotEmpty) {
+          // We can see a verified VYBE receiver. Do not repeatedly dial a
+          // stale TCP IP while Android is forming its Wi-Fi Direct group.
+          // Pair the matching receiver once and wait for the group event.
+          _trySavedDirectPeer();
+          return;
+        }
+        connect();
+      }
       if (role == 'receiver' && _server == null) connect();
     });
     notifyListeners();
