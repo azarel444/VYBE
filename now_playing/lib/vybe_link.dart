@@ -1136,14 +1136,29 @@ class VybeLink extends ChangeNotifier {
     final endpointChanged = (isEnabled != null && isEnabled != enabled) ||
         (deviceRole != null && deviceRole != role) ||
         (address != null && address.trim() != receiverAddress);
+    final disabledAuto = automatic == false && autoConnect;
     if (isEnabled != null) enabled = isEnabled;
     if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
     if (automatic != null) autoConnect = automatic;
-    if (!enabled) {
+    if (!enabled || disabledAuto) {
+      _retry?.cancel();
+      _retry = null;
       _connectPending = false;
-      _directGroupConnected = false;
-      // The periodic timer checks enabled/autoConnect and should remain
-      // installed so re-enabling VYBE Connect restores automatic recovery.
+      _manualPairDeadlineMs = 0;
+      if (_connecting && _socket == null) {
+        // Invalidate any pending saved-IP/UDP attempt. It must not finish
+        // after the user explicitly selected manual-only operation.
+        _generation++;
+      }
+    }
+    if (!enabled) _directGroupConnected = false;
+    if (disabledAuto) {
+      _directPairingInProgress = false;
+      _directPairingStartedMs = 0;
+      // Cancel ONLY uncompleted Android pairing/discovery. An established
+      // Wi-Fi Direct group and a working metadata/audio stream are retained.
+      try { await _direct.invokeMethod<bool>('cancelAuto'); }
+      catch (error) { debugPrint('VYBE could not cancel auto pairing: $error'); }
     }
     if (address != null) {
       final requested = address.trim();
@@ -1152,16 +1167,27 @@ class VybeLink extends ChangeNotifier {
       }
       receiverAddress = requested;
     }
+    final manualWindow = DateTime.now().millisecondsSinceEpoch <
+        _manualPairDeadlineMs;
     status = !enabled ? 'Disabled' :
-        (!endpointChanged && _socket != null && role == 'sender')
-            ? 'Connected to ${receiverAddress}' : 'Connecting...';
+        (_socket != null && role == 'sender')
+            ? 'Connected to ${receiverAddress}' :
+        (!autoConnect && !manualWindow && role == 'sender')
+            ? 'Manual mode: select your VYBE head unit to connect' :
+        'Connecting...';
     notifyListeners();
-    // Start reconfiguration immediately, but do not hold UI updates hostage
-    // to the socket teardown or an unreachable receiver.
-    final connection = !endpointChanged && enabled &&
-        ((role == 'sender' && _socket != null) ||
-         (role == 'receiver' && _server != null))
-        ? Future<void>.value() : connect();
+    // Turning off automatic reconnection must NOT call connect() again.
+    // Receiver TCP listening is allowed in manual mode; sender discovery and
+    // connection occur only after a deliberate manual action.
+    final hasEndpoint = (role == 'sender' && _socket != null) ||
+        (role == 'receiver' && _server != null);
+    final shouldConnect = !enabled ||
+        (role == 'receiver' && !hasEndpoint) ||
+        (enabled && role == 'sender' && (autoConnect || manualWindow) &&
+            (endpointChanged || !hasEndpoint));
+    final connection = shouldConnect
+        ? connect(manual: !autoConnect && manualWindow)
+        : Future<void>.value();
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool('link_enabled', enabled);
@@ -1174,6 +1200,9 @@ class VybeLink extends ChangeNotifier {
       notifyListeners();
     }
     await connection;
+    if (enabled && automatic == true && _directPreferred && _socket == null) {
+      unawaited(_recoverDirect(immediately: true));
+    }
   }
 
   /// The TCP server can be listening before the separate UDP discovery
