@@ -11,6 +11,7 @@ import android.net.wifi.p2p.nsd.WifiP2pServiceRequest
 import android.net.wifi.WpsInfo
 import android.os.Build
 import android.os.Looper
+import android.os.Handler
 import io.flutter.plugin.common.MethodChannel
 
 /**
@@ -46,6 +47,9 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     // published VYBE ID is the more stable identifier.
     private val verifiedReceivers = linkedMapOf<String, Map<String, String>>()
     private var hostPending = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var connectingAddress: String? = null
+    private var connectAttemptGeneration = 0
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -58,10 +62,19 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     val ch = p2pChannel ?: return
                     service.requestConnectionInfo(ch) { info ->
                         if (info.groupFormed && info.groupOwnerAddress != null) {
+                            connectingAddress = null
+                            connectAttemptGeneration++
                             event(mapOf(
                                 "type" to "connected",
                                 "host" to info.groupOwnerAddress.hostAddress,
                                 "owner" to info.isGroupOwner))
+                        } else if (connectingAddress != null) {
+                            // Android can broadcast a disconnected state
+                            // DURING initial group negotiation. This is not
+                            // a failed pairing and must not trigger another
+                            // simultaneous discover/connect cycle.
+                            event(mapOf("type" to "pairing",
+                                "message" to "Waiting for Android to form Wi-Fi Direct group..."))
                         } else {
                             event(mapOf("type" to "disconnected"))
                         }
@@ -206,10 +219,12 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     record["port"] == "38927" &&
                     receiverId.matches(Regex("[0-9a-fA-F]{32}"))
                 if (!valid || device.deviceAddress.isNullOrBlank()) return@DnsSdTxtRecordListener
-                val key = device.deviceAddress
+                val address = device.deviceAddress
                 val id = receiverId.lowercase()
-                verifiedReceivers[key] = mapOf(
-                    "address" to key,
+                // Key by stable VYBE identity, not a rotating Android MAC.
+                // A new broadcast updates the same visible row in place.
+                verifiedReceivers[id] = mapOf(
+                    "address" to address,
                     "id" to id,
                     "name" to "VYBE Head Unit · ${id.takeLast(6).uppercase()}")
                 publishVerifiedReceivers()
@@ -223,10 +238,17 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
         installServiceResponseListeners()
-        verifiedReceivers.clear()
+        // Do not erase a verified head unit on every scan. A flaky Wi-Fi
+        // adapter may need repeated service discovery and users must retain
+        // the ability to tap the last recognized VYBE device.
         publishVerifiedReceivers()
+        if (connectingAddress != null) {
+            event(mapOf("type" to "pairing",
+                "message" to "Pairing in progress; waiting for Wi-Fi Direct group"))
+            return true
+        }
         event(mapOf("type" to "status",
-            "message" to "Searching for VYBE head units (other devices hidden)..."))
+            "message" to "Refreshing VYBE head units (other devices hidden)..."))
         if (discoveryPending) return true
         discoveryPending = true
 
@@ -332,19 +354,69 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
 
     fun connect(address: String): Boolean {
         if (!start()) return false
-        // Never accept a raw peer address from Android's generic P2P list.
-        // The chosen device must currently advertise the VYBE service.
-        if (!verifiedReceivers.containsKey(address)) {
+        val service = manager ?: return false
+        val ch = p2pChannel ?: return false
+        // Never allow a generic Android peer to connect. A VYBE DNS-SD
+        // advertisement must have been verified first.
+        val known = verifiedReceivers.values.any { it["address"] == address }
+        if (!known) {
             event(mapOf("type" to "error",
                 "message" to "Device has not advertised a VYBE receiver service"))
             return false
         }
+        if (connectingAddress != null) {
+            event(mapOf("type" to "pairing",
+                "message" to "Already pairing with a VYBE head unit; no repeat request sent"))
+            return true
+        }
+
         val config = WifiP2pConfig().apply {
             deviceAddress = address
             wps.setup = WpsInfo.PBC
             groupOwnerIntent = 0
         }
-        action("connect") { manager!!.connect(p2pChannel!!, config, it) }
+        connectingAddress = address
+        val generation = ++connectAttemptGeneration
+        event(mapOf("type" to "pairing",
+            "message" to "Preparing Wi-Fi Direct pairing with VYBE head unit..."))
+
+        // An accepted Android connect request is NOT a completed Wi-Fi
+        // Direct group. Only the connection-info callback confirms success.
+        mainHandler.postDelayed({
+            if (generation == connectAttemptGeneration &&
+                connectingAddress == address) {
+                connectingAddress = null
+                event(mapOf("type" to "pairing_timeout",
+                    "message" to "Wi-Fi Direct group not formed; retry pairing if needed"))
+            }
+        }, 25000L)
+
+        val requestConnection = {
+            if (generation == connectAttemptGeneration &&
+                connectingAddress == address) {
+                service.connect(ch, config, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        event(mapOf("type" to "pairing",
+                            "message" to "Connection request accepted; waiting for actual Wi-Fi Direct group..."))
+                    }
+                    override fun onFailure(reason: Int) {
+                        if (generation == connectAttemptGeneration) {
+                            connectingAddress = null
+                            connectAttemptGeneration++
+                            event(mapOf("type" to "pairing_failed",
+                                "message" to "Wi-Fi Direct pairing request failed ($reason)"))
+                        }
+                    }
+                })
+            }
+        }
+        // Stop discovery before pairing to reduce contention on inexpensive
+        // radios. Android may report BUSY if a group is negotiating, so
+        // in either callback let the protected connect attempt proceed.
+        service.stopPeerDiscovery(ch, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() { requestConnection() }
+            override fun onFailure(reason: Int) { requestConnection() }
+        })
         return true
     }
 
@@ -368,5 +440,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         discoveryPending = false
         listenersInstalled = false
         verifiedReceivers.clear()
+        connectingAddress = null
+        connectAttemptGeneration++
     }
 }
