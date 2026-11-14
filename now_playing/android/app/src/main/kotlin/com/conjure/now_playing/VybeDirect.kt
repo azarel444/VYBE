@@ -41,6 +41,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private var localServiceId = ""
     private var serviceRequest: WifiP2pServiceRequest? = null
     private var discoveryPending = false
+    private var discoveryGeneration = 0
     private var listenersInstalled = false
 
     // Device addresses can rotate between reconnections. The receiver's
@@ -234,60 +235,105 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         listenersInstalled = true
     }
 
-    /** Discover only branded VYBE head units, not generic P2P neighbors. */
+    /**
+     * Android's Wi-Fi P2P framework can silently forget DNS-SD service
+     * requests after a group disconnect or Wi-Fi radio reset. In that case,
+     * discoverServices() fails with NO_SERVICE_REQUESTS (=3) even though our
+     * local 'serviceRequest' field still contains a non-null request object.
+     *
+     * Always rebuild the request for a new discovery and do not treat our
+     * cached Kotlin request object as proof it exists in Android's stack.
+     * Retain verified VYBE identities during radio outages.
+     */
     fun discover(): Boolean {
         if (!start()) return false
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
         installServiceResponseListeners()
-        // Do not erase a verified head unit on every scan. A flaky Wi-Fi
-        // adapter may need repeated service discovery and users must retain
-        // the ability to tap the last recognized VYBE device.
         publishVerifiedReceivers()
         if (connectingAddress != null) {
             event(mapOf("type" to "pairing",
                 "message" to "Pairing in progress; waiting for Wi-Fi Direct group"))
             return true
         }
-        event(mapOf("type" to "status",
-            "message" to "Refreshing VYBE head units (other devices hidden)..."))
         if (discoveryPending) return true
         discoveryPending = true
+        val generation = ++discoveryGeneration
+        event(mapOf("type" to "status",
+            "message" to "Registering VYBE-only discovery request..."))
 
-        fun launchDiscovery() {
-            service.discoverServices(ch, object : WifiP2pManager.ActionListener {
-                override fun onSuccess() {
-                    discoveryPending = false
-                    event(mapOf("type" to "status",
-                        "message" to "Scanning for VYBE receiver advertisements..."))
-                }
-                override fun onFailure(reason: Int) {
-                    discoveryPending = false
-                    event(mapOf("type" to "error",
-                        "message" to "VYBE-only discovery failed ($reason). You can pair through shared Wi-Fi instead."))
-                }
-            })
+        fun fail(message: String) {
+            if (generation != discoveryGeneration) return
+            discoveryPending = false
+            event(mapOf("type" to "error", "message" to message))
         }
 
-        if (serviceRequest != null) {
-            launchDiscovery()
-        } else {
-            // Restricted to VYBE's exact DNS-SD TXT service. No generic
-            // peer list and no automatic connections to unnamed devices.
+        fun registerAndSearch(recoveriesRemaining: Int) {
+            if (generation != discoveryGeneration) return
             val request = WifiP2pDnsSdServiceRequest.newInstance(
                 INSTANCE_NAME, SERVICE_TYPE)
             service.addServiceRequest(ch, request, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
+                    if (generation != discoveryGeneration) return
                     serviceRequest = request
-                    launchDiscovery()
+                    event(mapOf("type" to "status",
+                        "message" to "VYBE service request registered; searching for head units..."))
+                    service.discoverServices(ch, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() {
+                            if (generation != discoveryGeneration) return
+                            discoveryPending = false
+                            event(mapOf("type" to "status",
+                                "message" to "Scanning for verified VYBE receivers..."))
+                        }
+                        override fun onFailure(reason: Int) {
+                            if (generation != discoveryGeneration) return
+                            if (reason == WifiP2pManager.NO_SERVICE_REQUESTS &&
+                                recoveriesRemaining > 0) {
+                                // Android lost the request between the add
+                                // callback and discoverServices. Re-register.
+                                serviceRequest = null
+                                event(mapOf("type" to "status",
+                                    "message" to "Android reset Wi-Fi discovery; repairing VYBE search..."))
+                                service.clearServiceRequests(ch,
+                                    object : WifiP2pManager.ActionListener {
+                                        override fun onSuccess() {
+                                            registerAndSearch(recoveriesRemaining - 1)
+                                        }
+                                        override fun onFailure(reason: Int) {
+                                            registerAndSearch(recoveriesRemaining - 1)
+                                        }
+                                    })
+                            } else {
+                                val description = if (reason == WifiP2pManager.NO_SERVICE_REQUESTS)
+                                    "Android lost Wi-Fi Direct service requests (3); toggle Wi-Fi to reset its radio"
+                                else "VYBE service search failed (Android code $reason)"
+                                fail(description)
+                            }
+                        }
+                    })
                 }
                 override fun onFailure(reason: Int) {
-                    discoveryPending = false
-                    event(mapOf("type" to "error",
-                        "message" to "Cannot start VYBE service discovery ($reason)"))
+                    fail("Cannot register VYBE discovery request (Android code $reason)")
                 }
             })
         }
+
+        // Clear only requests on VYBE's own P2P channel, so neither stale
+        // requests nor doubled requests can race a fresh DNS-SD search.
+        service.clearServiceRequests(ch, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                if (generation != discoveryGeneration) return
+                serviceRequest = null
+                registerAndSearch(1)
+            }
+            override fun onFailure(reason: Int) {
+                if (generation != discoveryGeneration) return
+                // Some vendors return an error when there were no requests.
+                // Still register our fresh one rather than giving up.
+                serviceRequest = null
+                registerAndSearch(1)
+            }
+        })
         return true
     }
 
@@ -436,6 +482,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         connectingAddress = null
         connectAttemptGeneration++
         discoveryPending = false
+        discoveryGeneration++
         val service = manager
         val ch = p2pChannel
         if (service != null && ch != null) {
@@ -467,6 +514,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         advertised = false
         advertisingPending = false
         discoveryPending = false
+        discoveryGeneration++
         listenersInstalled = false
         verifiedReceivers.clear()
         connectingAddress = null
