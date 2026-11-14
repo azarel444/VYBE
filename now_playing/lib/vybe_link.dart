@@ -1102,7 +1102,7 @@ class VybeLink extends ChangeNotifier {
     // Do not route pairing through configure(address:): it intentionally
     // clears the saved receiver identity for manual IP changes.
     await configure(isEnabled: true, deviceRole: 'sender');
-    await connect(manual: true);
+    if (_socket == null) await connect(manual: true);
   }
 
   /// Called when the UI returns from another app. Background reconnect is
