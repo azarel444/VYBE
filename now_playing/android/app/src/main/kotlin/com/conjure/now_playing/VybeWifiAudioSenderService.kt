@@ -213,9 +213,33 @@ class VybeWifiAudioSenderService : Service() {
                     stream.flush()
                     reconnectAttempts = 0
                     status("streaming", "Sending $activeAudioCodec to head unit")
+                    var lastAacFrameAt = android.os.SystemClock.elapsedRealtime()
+                    var lastKeepaliveAt = lastAacFrameAt
                     while (running) {
-                        val read = record.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
+                        // Blocking capture reads can strand the sender forever
+                        // when Android temporarily stops supplying PCM. Polling
+                        // lets us keep the socket alive and detect AAC failures.
+                        val read = record.read(chunk, 0, chunk.size, AudioRecord.READ_NON_BLOCKING)
                         if (read < 0) throw IllegalStateException("AudioRecord error $read")
+                        if (read == 0) {
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (encoder != null && now - lastKeepaliveAt >= 750L) {
+                                // Length zero is a control heartbeat, not AAC.
+                                // It lets the head unit distinguish idle audio
+                                // capture from a broken TCP connection.
+                                stream.writeInt(0)
+                                stream.flush()
+                                lastKeepaliveAt = now
+                            }
+                            if (now - lastAacFrameAt >= 1500L &&
+                                now - lastMetricsAt >= 1000L) {
+                                lastMetricsAt = now
+                                status("streaming",
+                                    "Android capture is idle; waiting for audio, socket active")
+                            }
+                            Thread.sleep(10L)
+                            continue
+                        }
                         if (read > 0) {
                             for (index in 0 until read - 1 step 2) {
                                 val sample = (chunk[index].toInt() and 255) or
@@ -235,6 +259,14 @@ class VybeWifiAudioSenderService : Service() {
                                     stream.write(frame)
                                     bytesSent += frame.size + 4
                                     framesEncoded++
+                                    lastAacFrameAt = android.os.SystemClock.elapsedRealtime()
+                                }
+                                // A stopped AAC encoder must be rebuilt instead
+                                // of leaving the receiver stuck buffering.
+                                if (android.os.SystemClock.elapsedRealtime() -
+                                    lastAacFrameAt > 2500L) {
+                                    throw IllegalStateException(
+                                        "AAC encoder stopped producing frames")
                                 }
                             } else {
                                 stream.write(chunk, 0, read)
