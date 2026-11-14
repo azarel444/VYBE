@@ -1245,7 +1245,17 @@ class VybeLink extends ChangeNotifier {
   /// information or from VYBE's UDP discovery. A user-entered IP is never
   /// required. Receiver identity is learned asynchronously without blocking
   /// the first metadata packet.
-  Future<void> connect() async {
+  Future<void> connect({bool manual = false}) async {
+    if (enabled && role == 'sender' && !autoConnect && !manual &&
+        DateTime.now().millisecondsSinceEpoch >= _manualPairDeadlineMs) {
+      return; // User explicitly chose manual-only mode.
+    }
+    if (enabled && role == 'sender' && _directPairingInProgress &&
+        !_directGroupConnected) {
+      status = 'Waiting for Wi-Fi Direct pairing to complete';
+      notifyListeners();
+      return; // Never race a TCP connection with group negotiation.
+    }
     // A Wi-Fi Direct "connected" event can arrive while an old-IP attempt
     // is in progress. Do not discard it: run one fresh connection attempt
     // using Android's new group-owner IP as soon as the old attempt ends.
@@ -1261,7 +1271,9 @@ class VybeLink extends ChangeNotifier {
       // Native Direct broadcasts often arrive while TCP is connecting.
       // A queued retry must NEVER tear down a socket that just succeeded.
       } while (_connectPending && enabled &&
-          (role == 'receiver' ? _server == null : _socket == null));
+          (role == 'receiver' ? _server == null : _socket == null) &&
+          (role != 'sender' || autoConnect ||
+              DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs));
     } finally {
       _connecting = false;
     }
@@ -1368,6 +1380,11 @@ class VybeLink extends ChangeNotifier {
       return;
     }
 
+    if (_directPairingInProgress && !_directGroupConnected) {
+      status = 'Waiting for Android to form Wi-Fi Direct group...';
+      notifyListeners();
+      return;
+    }
     status = receiverAddress.isNotEmpty ? 'Connecting to saved head unit...' :
         'Searching for head unit...';
     notifyListeners();
@@ -1441,7 +1458,9 @@ class VybeLink extends ChangeNotifier {
     }
 
     if (socket == null) {
-      status = 'Discovering head unit automatically...';
+      status = autoConnect
+          ? 'Discovering VYBE head unit automatically...'
+          : 'Checking selected VYBE head unit...';
       notifyListeners();
       try {
         final devices = await LinkDiscovery.scan();
@@ -1472,6 +1491,9 @@ class VybeLink extends ChangeNotifier {
       return;
     }
 
+    // A user-initiated manual session is complete. From now on, a later
+    // disconnect must stay disconnected until another explicit action.
+    _manualPairDeadlineMs = 0;
     _socket = socket;
     _tcpConnectedViaWired = _isWiredDestination(address);
     _tcpConnectedViaDirect = !_tcpConnectedViaWired &&
@@ -1490,13 +1512,12 @@ class VybeLink extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('link_enabled', true);
-      await prefs.setBool('link_auto', true);
+      // Keep the user's persisted auto-connect preference unchanged.
       await prefs.setString('link_role', 'sender');
       await prefs.setString('link_address', address);
       if (_tcpConnectedViaWired) {
         await prefs.setString('link_wired_address', address);
       }
-      autoConnect = true;
     } catch (e) {
       debugPrint('VYBE Link failed to persist working receiver IP: $e');
     }
@@ -1586,13 +1607,20 @@ class VybeLink extends ChangeNotifier {
     _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
     _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
-    status = 'Connection lost; reconnecting automatically...';
+    status = autoConnect
+        ? 'Connection lost; reconnecting automatically...'
+        : 'Connection lost; manual reconnection is enabled';
     notifyListeners();
-    if (_directPreferred) unawaited(_recoverDirect());
-    _scheduleRetry(_generation);
+    if (autoConnect) {
+      if (_directPreferred) unawaited(_recoverDirect());
+      _scheduleRetry(_generation);
+    }
   }
   void _scheduleRetry(int generation) {
-    if (!enabled || !autoConnect || role != 'sender') return;
+    if (!enabled || role != 'sender' ||
+        (!autoConnect &&
+            DateTime.now().millisecondsSinceEpoch >= _manualPairDeadlineMs))
+      return;
     _retry?.cancel();
     // A head unit can finish booting its Wi-Fi and TCP server shortly after
     // the phone starts. Retry promptly without requiring the user to tap.
