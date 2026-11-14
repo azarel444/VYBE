@@ -119,6 +119,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         // Android may have kept the P2P group after an app restart.
         manager?.requestConnectionInfo(p2pChannel!!) { info ->
             if (info.groupFormed && info.groupOwnerAddress != null) {
+                connectingAddress = null
+                connectAttemptGeneration++
                 event(mapOf("type" to "connected",
                     "host" to info.groupOwnerAddress.hostAddress,
                     "owner" to info.isGroupOwner))
