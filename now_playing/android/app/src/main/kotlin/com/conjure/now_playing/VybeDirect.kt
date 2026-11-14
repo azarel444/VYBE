@@ -420,6 +420,30 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         return true
     }
 
+    /**
+     * Called when the user turns automatic pairing off. Abort any pending
+     * automatic request and peer discovery, but preserve verified VYBE
+     * receiver identities for a subsequent deliberate manual selection.
+     * This does not tear down an already formed Wi-Fi Direct group.
+     */
+    fun cancelAutomaticPairing(): Boolean {
+        val active = connectingAddress != null
+        connectingAddress = null
+        connectAttemptGeneration++
+        discoveryPending = false
+        val service = manager
+        val ch = p2pChannel
+        if (service != null && ch != null) {
+            if (active) {
+                try { service.cancelConnect(ch, null) } catch (_: Exception) {}
+            }
+            try { service.stopPeerDiscovery(ch, null) } catch (_: Exception) {}
+        }
+        event(mapOf("type" to "manual",
+            "message" to "Automatic pairing paused; choose a VYBE head unit manually"))
+        return true
+    }
+
     fun stop() {
         if (registered) {
             try { activity.unregisterReceiver(receiver) } catch (_: Exception) {}
