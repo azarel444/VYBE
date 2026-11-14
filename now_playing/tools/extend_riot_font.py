@@ -61,9 +61,11 @@ cap_bottom = a.yMin
 # The hand-traced extended caps have body heights of roughly 54 SVG units;
 # their accents extend above that cap, rather than shrinking the letter.
 scale_caps = cap_height / 54.0
-# Keep the established punctuation/symbol sizes. The traced numeral source
-# has visibly unequal outlines (notably 5 versus 2), so digits will instead
-# receive the SAME cap height as a typical A-Z letter.
+# The hand-traced punctuation sheet originally used A's unusually tall bounds
+# as its size reference. A is NOT representative of the Riot alphabet, and
+# this made &, @, +, etc. tower over adjacent artist letters. Keep the
+# original scale as an upper limit, then normalize full-height symbols to
+# the median A-Z cap height below. Do not enlarge tiny punctuation.
 scale_other = cap_height / 104.0
 normal_caps = []
 for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
@@ -118,18 +120,29 @@ def make_glyph(char,spec,cap_row):
     ymin=min(b[1] for _,b in shapes)
     ymax=max(b[3] for _,b in shapes)
     is_digit = cap_row == 0 and char in '0123456789'
-    # Equalize all ten visible numeral bounds to the median normal Riot
-    # uppercase cap height, not the unusually tall A or the arbitrary
-    # source-row height. Preserve each numeral's aspect ratio.
-    scale = (digit_height / max(1.0, ymax - ymin) if is_digit else
-        (scale_caps if cap_row else scale_other))
-    # Preserve the existing accented-letter and punctuation baselines.
+    is_symbol = cap_row in (0, 1, 2) and not is_digit
+    source_height = max(1.0, ymax - ymin)
+    # Equalize ten numerals to the median standard cap height. For symbols
+    # such as &, @, # and %, LIMIT visible height to a regular-size Riot cap.
+    # The older cap_height/104 scale used an oversized reference A, making
+    # the ampersand as tall as multiple letters on real VYBE themes.
+    scale = (digit_height / source_height if is_digit else
+        (scale_caps if cap_row in (3, 4) else scale_other))
+    normalized_symbol = False
+    if is_symbol and source_height * scale > digit_height * .95:
+        scale = (digit_height * .95) / source_height
+        normalized_symbol = True
+    # Preserve the existing accented-letter and small punctuation baselines.
     row_bottom=543 if cap_row==3 else (647 if cap_row==4 else
         (118 if cap_row==0 else (260 if cap_row==1 else 407)))
     dx=8-xmin*scale
     # For numerals, a common optical baseline makes 5 and 2 the same
     # height on screen. Alphabetic outlines remain untouched.
-    dy=(digit_bottom+ymax*scale) if is_digit else (cap_bottom+row_bottom*scale)
+    # Normalized full-height symbols share the same baseline as ordinary
+    # caps. Small punctuation (periods, commas, quote marks) retains its
+    # original optical positioning.
+    dy=(digit_bottom+ymax*scale) if (is_digit or normalized_symbol) else (
+        cap_bottom+row_bottom*scale)
     pen=TTGlyphPen(None)
     # Every SVG cubic becomes quadratic to form a valid TrueType glyf outline.
     quad=Cu2QuPen(pen,max_err=1.0,reverse_direction=False)
@@ -201,3 +214,10 @@ for char in '0123456789':
     digit_bounds.append(glyph.yMax - glyph.yMin)
 assert max(digit_bounds) - min(digit_bounds) <= 3, (
     'Riot digits must have uniform visible heights: %r' % digit_bounds)
+# Prevent the regressions seen with '&' and other full-height glyphs.
+# These bounds are checked after cubic-to-quadratic conversion.
+for char in '&@#$%^*+=~\\|¦<>≤≥×÷':
+    glyph = check_font['glyf'][check_cmap[ord(char)]]
+    glyph.recalcBounds(check_font['glyf'])
+    assert (glyph.yMax - glyph.yMin) <= digit_height * .97 + 3, (
+        'Riot symbol %r exceeds regular cap height' % char)
