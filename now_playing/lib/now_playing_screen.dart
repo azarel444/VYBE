@@ -4948,12 +4948,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // below the rest of the word. Keep the approved per-pair optical kerning.
   static const double _riotWordInitialScale = 1.27;
 
-  // Hand-traced numbers belong to the regular cap-height row, not the
-  // enlarged first-letter treatment reserved for alphabetic word initials.
-  bool _riotIsAsciiDigit(String character) =>
-      character.length == 1 &&
-      character.codeUnitAt(0) >= 48 &&
-      character.codeUnitAt(0) <= 57;
+  // Only alphabetic initials receive Riot's 1.27x first-letter treatment.
+  // The old digit-only exception enlarged &, @, # and other symbols at
+  // word starts, creating giant ampersands in artist names.
+  bool _riotIsLetter(String character) {
+    if (character.runes.length != 1) return false;
+    final cp = character.runes.first;
+    return (cp >= 65 && cp <= 90) ||
+        (cp >= 0x00C0 && cp <= 0x00D6) ||
+        (cp >= 0x00D8 && cp <= 0x00DE) ||
+        (cp >= 0x0100 && cp <= 0x017F);
+  }
 
   // Y's slanted exit and S's angled entry exaggerate the normal word gap.
   // Tighten this shape combination only; distinct words remain readable.
@@ -4992,7 +4997,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         continue;
       }
       final isWordInitial = previous.isEmpty || pendingWordGap;
-      final glyphStyle = isWordInitial && !_riotIsAsciiDigit(character)
+      final glyphStyle = isWordInitial && _riotIsLetter(character)
           ? style.copyWith(fontSize: fontSize * _riotWordInitialScale)
           : style;
       final painter = TextPainter(
@@ -5083,7 +5088,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         continue;
       }
       final isWordInitial = prev.isEmpty || pendingWordGap;
-      final glyphStyle = isWordInitial && !_riotIsAsciiDigit(c)
+      final glyphStyle = isWordInitial && _riotIsLetter(c)
           ? style.copyWith(fontSize: fontSize * _riotWordInitialScale)
           : style;
       final p = TextPainter(text: TextSpan(text: c, style: glyphStyle),
