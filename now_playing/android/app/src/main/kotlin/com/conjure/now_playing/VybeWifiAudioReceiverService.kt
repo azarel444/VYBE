@@ -382,7 +382,9 @@ class VybeWifiAudioReceiverService : Service() {
         val decoderError = AtomicReference<String?>(null)
         val packets = ArrayBlockingQueue<ByteArray>(128)
         // Each AAC-LC frame contains 1024 PCM samples: ~23.2 ms of audio.
-        val startupPackets = 40 // ~930 ms of AAC for weak Wi-Fi adapters
+        // Grow the prebuffer after a real dropout instead of endlessly
+        // restarting with the same insufficient ~930 ms window.
+        var startupPackets = 40 // ~930 ms initially; adaptive up to ~1.86 s
         val minTrackBytes = AudioTrack.getMinBufferSize(
             RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         if (minTrackBytes <= 0) throw IllegalStateException("AAC PCM output unsupported")
@@ -417,16 +419,20 @@ class VybeWifiAudioReceiverService : Service() {
                         Thread.sleep(15L)
                         continue
                     }
-                    val frame = packets.poll(260L, TimeUnit.MILLISECONDS)
+                    // A 260 ms poll previously flushed audible audio during
+                    // brief Wi-Fi jitter even when AudioTrack was still primed.
+                    val frame = packets.poll(600L, TimeUnit.MILLISECONDS)
                     if (frame == null) {
                         if (inputFinished.get()) break
                         if (started) {
                             bufferUnderruns++
+                            startupPackets = minOf(80, startupPackets + 12)
                             player.pause()
                             player.flush()
                             started = false
                             primedBytes = 0
-                            status("buffering", "AAC data stalled, refilling music buffer")
+                            status("buffering",
+                                "AAC data stalled; refilling ~${startupPackets * 1024 * 1000 / RATE} ms buffer")
                         }
                         continue
                     }
@@ -492,7 +498,10 @@ class VybeWifiAudioReceiverService : Service() {
             worker.start()
             while (running) {
                 val length = input.readInt()
-                if (length <= 0 || length > 65536)
+                // The sender sends length-zero keepalives when Android's
+                // playback capture yields no PCM. Never feed these to AAC.
+                if (length == 0) continue
+                if (length < 0 || length > 65536)
                     throw IOException("Invalid AAC audio packet length: $length")
                 val packet = ByteArray(length)
                 input.readFully(packet)
