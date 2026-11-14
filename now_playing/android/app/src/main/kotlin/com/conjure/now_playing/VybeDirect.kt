@@ -49,6 +49,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private val verifiedReceivers = linkedMapOf<String, Map<String, String>>()
     private var hostPending = false
     private var hostReadyChecks = 0
+    private var pendingHostReceiverId = ""
     private val mainHandler = Handler(Looper.getMainLooper())
     private var connectingAddress: String? = null
     private var connectAttemptGeneration = 0
@@ -66,6 +67,11 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                         if (info.groupFormed && info.groupOwnerAddress != null) {
                             hostPending = false
                             hostReadyChecks = 0
+                            // Advertise the head unit only once its actual
+                            // group is ready for the phone to join.
+                            if (info.isGroupOwner && pendingHostReceiverId.isNotEmpty) {
+                                advertiseReceiver(pendingHostReceiverId)
+                            }
                             connectingAddress = null
                             connectAttemptGeneration++
                             event(mapOf(
@@ -361,6 +367,9 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 info.groupOwnerAddress != null) {
                 hostPending = false
                 hostReadyChecks = 0
+                if (pendingHostReceiverId.isNotEmpty) {
+                    advertiseReceiver(pendingHostReceiverId)
+                }
                 event(mapOf("type" to "action", "name" to "host", "ok" to true))
                 event(mapOf("type" to "connected",
                     "host" to info.groupOwnerAddress.hostAddress,
@@ -417,7 +426,15 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
 
     fun host(receiverId: String): Boolean {
         if (!start()) return false
-        advertiseReceiver(receiverId)
+        if (!receiverId.matches(Regex("[0-9a-fA-F]{32}"))) {
+            event(mapOf("type" to "error",
+                "message" to "VYBE receiver identity unavailable; reopen Connect"))
+            return false
+        }
+        pendingHostReceiverId = receiverId
+        // Don't broadcast VYBE's identity before Android finishes creating
+        // the group. Advertising too early lets the phone tap a receiver
+        // that cannot yet accept a connect() invitation (often ERROR 0).
         if (hostPending) return true
         hostPending = true
         hostReadyChecks = 0
@@ -585,6 +602,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         discoveryGeneration++
         hostPending = false
         hostReadyChecks = 0
+        pendingHostReceiverId = ""
         listenersInstalled = false
         verifiedReceivers.clear()
         connectingAddress = null
