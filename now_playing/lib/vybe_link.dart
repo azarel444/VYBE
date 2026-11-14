@@ -169,6 +169,11 @@ class VybeLink extends ChangeNotifier {
   bool _directRecoveryBusy = false;
   int _lastDirectRecoveryMs = 0;
   int _lastDirectPeerAttemptMs = 0;
+  // A manual pair should retry its TCP handshake for a short bounded period
+  // without silently switching on permanent auto-reconnect.
+  int _manualPairDeadlineMs = 0;
+  bool _directPairingInProgress = false;
+  int _directPairingStartedMs = 0;
   Timer? _directRecoveryTimer;
 
   /// Restore the head-unit's Direct group or discover the previously paired
@@ -178,7 +183,9 @@ class VybeLink extends ChangeNotifier {
     if (!enabled || !autoConnect || !_directPreferred || !directAvailable ||
         _directRecoveryBusy ||
         (activeTransport == 'USB tethering' && _socket != null) ||
-        (role == 'sender' && (_socket != null || _directGroupConnected))) return;
+        (role == 'sender' &&
+            (_socket != null || _directGroupConnected ||
+             _directPairingInProgress))) return;
     // A Wi-Fi Direct group can survive an Android process restart while the
     // VYBE DNS-SD advertisement does not. Re-publish the receiver's identity
     // even when the radio reports that the group is already formed.
@@ -226,23 +233,25 @@ class VybeLink extends ChangeNotifier {
 
   void _trySavedDirectPeer() {
     if (!enabled || !autoConnect || !_directPreferred ||
-        role != 'sender' || _socket != null || _directGroupConnected) return;
+        role != 'sender' || _socket != null || _directGroupConnected ||
+        _directPairingInProgress) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastDirectPeerAttemptMs < 12000) return;
 
-    // Only service-verified receivers appear in directPeers. Prefer the
-    // stable VYBE service identity over the rotating Android P2P address.
-    // An old generic Android device name must NEVER initiate pairing.
+    // All visible peers passed Android's VYBE DNS-SD service check. For a
+    // returning user, choose ONLY the previously paired receiver by stable
+    // VYBE ID. For FIRST-TIME setup, automatically choose only when exactly
+    // one VYBE head unit is advertised. Never guess between two receivers.
     final receiverId = _savedDirectReceiverId.isNotEmpty
         ? _savedDirectReceiverId : pairedReceiverId;
     final matches = directPeers.where((item) {
       final id = item['id'] ?? '';
       if (id.length != 32) return false;
       if (receiverId.isNotEmpty) return id == receiverId;
-      // Existing installations can recover a previously saved address,
-      // but ONLY if that address now advertises a VYBE service.
-      return _savedDirectPeerAddress.isNotEmpty &&
-          item['address'] == _savedDirectPeerAddress;
+      if (_savedDirectPeerAddress.isNotEmpty) {
+        return item['address'] == _savedDirectPeerAddress;
+      }
+      return directPeers.length == 1;
     }).toList();
     if (matches.length != 1) return;
     final address = matches.single['address'];
@@ -267,6 +276,8 @@ class VybeLink extends ChangeNotifier {
             break;
           case 'connected':
             final host = data['host']?.toString() ?? '';
+            _directPairingInProgress = false;
+            _directPairingStartedMs = 0;
             _directGroupConnected = true;
             _directGroupOwnerIp = host;
             directActive = true;
@@ -279,11 +290,16 @@ class VybeLink extends ChangeNotifier {
               // Never interrupt an already working LAN/hotspot socket just
               // because a duplicate Direct broadcast announces another IP.
               receiverAddress = host;
-              unawaited(connect());
+              if (autoConnect || DateTime.now().millisecondsSinceEpoch <
+                  _manualPairDeadlineMs) {
+                unawaited(connect());
+              }
             }
             break;
           case 'disconnected':
             _directGroupConnected = false;
+            _directPairingInProgress = false;
+            _directPairingStartedMs = 0;
             _lastDirectPeerAttemptMs = 0;
             directStatus = 'Wi-Fi Direct disconnected; restoring automatically';
             // The underlying Direct link disappeared. A TCP Socket can stay
@@ -302,6 +318,29 @@ class VybeLink extends ChangeNotifier {
             if (_directPreferred && enabled && autoConnect) {
               Future<void>.delayed(const Duration(seconds: 2), () {
                 if (enabled && autoConnect && !_directGroupConnected) {
+                  unawaited(_recoverDirect(immediately: true));
+                }
+              });
+            }
+            break;
+          case 'pairing':
+            _directPairingInProgress = true;
+            if (_directPairingStartedMs == 0) {
+              _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
+            }
+            directStatus = data['message']?.toString() ??
+                'Waiting for Wi-Fi Direct group to form';
+            break;
+          case 'pairing_failed':
+          case 'pairing_timeout':
+            _directPairingInProgress = false;
+            _directPairingStartedMs = 0;
+            directStatus = data['message']?.toString() ??
+                'Wi-Fi Direct pairing did not finish';
+            if (enabled && autoConnect && _directPreferred) {
+              Future<void>.delayed(const Duration(seconds: 3), () {
+                if (enabled && autoConnect && !_directGroupConnected &&
+                    !_directPairingInProgress) {
                   unawaited(_recoverDirect(immediately: true));
                 }
               });
@@ -376,9 +415,28 @@ class VybeLink extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      if (_directPairingInProgress) {
+        directStatus = 'Pairing already in progress; waiting for Android to connect';
+        notifyListeners();
+        return;
+      }
+      // Selecting the device manually authorizes a single, bounded pairing
+      // session even if persistent auto-reconnect is disabled.
+      if (manuallySelected) {
+        _manualPairDeadlineMs =
+            DateTime.now().millisecondsSinceEpoch + 40000;
+      }
+      _directPairingInProgress = true;
+      _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
       final ok = await _direct.invokeMethod<bool>(
           'connect', {'address': address}) ?? false;
-      directStatus = ok ? 'Connecting to head unit...' : 'Device no longer in nearby list';
+      if (!ok) {
+        _directPairingInProgress = false;
+        _directPairingStartedMs = 0;
+      }
+      directStatus = ok
+          ? 'Pairing requested; waiting for Android to form Wi-Fi Direct group'
+          : 'Device no longer in nearby list';
       if (ok && remember) {
         // Save Wi-Fi Direct identity. The TCP IP is determined automatically
         // from Android's connection information every time a group forms.
@@ -395,15 +453,20 @@ class VybeLink extends ChangeNotifier {
         await prefs.setString('link_direct_peer_name', _savedDirectPeerName);
         await prefs.setString('link_direct_receiver_id', _savedDirectReceiverId);
         await prefs.setBool('link_direct_preferred', true);
-        if (manuallySelected) {
-          // Explicit selection authorizes fresh pairing after the ATOTO was
-          // reinstalled and generated a new VYBE receiver identity.
-          // Automatic recovery must never discard the trusted receiver ID.
+        if (manuallySelected &&
+            pairedReceiverId.isNotEmpty &&
+            pairedReceiverId != _savedDirectReceiverId) {
+          // A user deliberately selected a DIFFERENT VYBE receiver.
+          // Keep identity when reconnecting manually to the same unit.
           pairedReceiverId = '';
           await prefs.setString('link_paired_receiver', '');
         }
       }
-    } catch (e) { directStatus = 'Direct connection failed: $e'; }
+    } catch (e) {
+      _directPairingInProgress = false;
+      _directPairingStartedMs = 0;
+      directStatus = 'Direct connection failed: $e';
+    }
     notifyListeners();
   }
 
