@@ -166,6 +166,7 @@ class VybeLink extends ChangeNotifier {
   String get savedDirectReceiverId => _savedDirectReceiverId.isNotEmpty
       ? _savedDirectReceiverId : pairedReceiverId;
   bool get hasSavedDirectReceiver => savedDirectReceiverId.length >= 6;
+  bool get directPairingInProgress => _directPairingInProgress;
   String get savedDirectReceiverLabel => hasSavedDirectReceiver
       ? 'VYBE Head Unit · ${savedDirectReceiverId.substring(savedDirectReceiverId.length - 6).toUpperCase()}'
       : '';
