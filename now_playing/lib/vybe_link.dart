@@ -163,6 +163,12 @@ class VybeLink extends ChangeNotifier {
   String _savedDirectPeerAddress = '';
   String _savedDirectPeerName = '';
   String _savedDirectReceiverId = '';
+  String get savedDirectReceiverId => _savedDirectReceiverId.isNotEmpty
+      ? _savedDirectReceiverId : pairedReceiverId;
+  bool get hasSavedDirectReceiver => savedDirectReceiverId.length >= 6;
+  String get savedDirectReceiverLabel => hasSavedDirectReceiver
+      ? 'VYBE Head Unit · ${savedDirectReceiverId.substring(savedDirectReceiverId.length - 6).toUpperCase()}'
+      : '';
   bool _directGroupConnected = false;
   String _directGroupOwnerIp = '';
   bool _tcpConnectedViaDirect = false;
@@ -322,6 +328,12 @@ class VybeLink extends ChangeNotifier {
                 }
               });
             }
+            break;
+          case 'manual':
+            _directPairingInProgress = false;
+            _directPairingStartedMs = 0;
+            directStatus = data['message']?.toString() ??
+                'Automatic pairing disabled; select a VYBE head unit';
             break;
           case 'pairing':
             _directPairingInProgress = true;
@@ -1047,7 +1059,9 @@ class VybeLink extends ChangeNotifier {
         : 'Found ' + results.length.toString() + ' receiver(s)';
     if (_socket == null && role == 'sender') {
       status = results.isEmpty
-          ? 'Discovery did not respond; automatic reconnect is still active'
+          ? (autoConnect
+              ? 'Shared Wi-Fi discovery unavailable; checking saved pairing'
+              : 'No receiver found; manual pairing only')
           : 'Found ' + results.length.toString() + ' VYBE receiver(s)';
     }
     notifyListeners();
@@ -1056,14 +1070,16 @@ class VybeLink extends ChangeNotifier {
   Future<void> pairReceiver(LinkReceiver receiver) async {
     pairedReceiverId = receiver.id;
     receiverAddress = receiver.address;
+    _manualPairDeadlineMs =
+        DateTime.now().millisecondsSinceEpoch + 40000;
     enabled = true;
-    autoConnect = true;
     final p = await SharedPreferences.getInstance();
     await p.setString('link_paired_receiver', pairedReceiverId);
     await p.setString('link_address', receiverAddress);
     // Do not route pairing through configure(address:): it intentionally
     // clears the saved receiver identity for manual IP changes.
-    await configure(isEnabled: true, deviceRole: 'sender', automatic: true);
+    await configure(isEnabled: true, deviceRole: 'sender');
+    await connect(manual: true);
   }
 
   /// Called when the UI returns from another app. Background reconnect is
@@ -1079,15 +1095,27 @@ class VybeLink extends ChangeNotifier {
   /// One recovery action covers BOTH the underlying Wi-Fi Direct network and
   /// TCP transport. It never requires a numeric IP address.
   Future<void> reconnectAutomatically() async {
-    if (!enabled) await configure(isEnabled: true, automatic: true);
-    if (_directPreferred) {
-      await _recoverDirect(immediately: true);
-    } else if (role == 'sender') {
-      unawaited(findReceivers());
+    // This is a one-shot USER action, not authorization to turn on
+    // persistent automatic reconnection.
+    if (!enabled) await configure(isEnabled: true);
+    if (role == 'receiver') {
+      if (_directPreferred && !_directGroupConnected) {
+        await directStart(receiver: true);
+      }
+      if (_server == null) await connect(manual: true);
+      return;
     }
-    if (role == 'receiver' && _server != null) return;
-    if (role == 'sender' && _socket != null) return;
-    await connect();
+    if (_socket != null) return;
+    _manualPairDeadlineMs =
+        DateTime.now().millisecondsSinceEpoch + 40000;
+    if (_directPreferred && !_directGroupConnected) {
+      // Refresh the VYBE-only list; selecting the receiver is manual when
+      // autoConnect is off, automatic when its saved ID matches and ON.
+      await directStart(receiver: false);
+      return;
+    }
+    if (!_directPreferred) unawaited(findReceivers());
+    await connect(manual: true);
   }
 
 
