@@ -398,8 +398,11 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 connectingAddress == address) {
                 service.connect(ch, config, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        event(mapOf("type" to "pairing",
-                            "message" to "Connection request accepted; waiting for actual Wi-Fi Direct group..."))
+                        if (generation == connectAttemptGeneration &&
+                            connectingAddress == address) {
+                            event(mapOf("type" to "pairing",
+                                "message" to "Connection request accepted; waiting for actual Wi-Fi Direct group..."))
+                        }
                     }
                     override fun onFailure(reason: Int) {
                         if (generation == connectAttemptGeneration) {
