@@ -337,10 +337,18 @@ class VybeLink extends ChangeNotifier {
                 'Automatic pairing disabled; select a VYBE head unit';
             break;
           case 'pairing':
+            if (!_directPairingInProgress && _connecting && _socket == null) {
+              // A saved-IP/UDP TCP attempt can have started before Android
+              // began forming the Direct group. Discard its eventual result;
+              // the group-formed event will connect to the correct owner IP.
+              _generation++;
+            }
             _directPairingInProgress = true;
             if (_directPairingStartedMs == 0) {
               _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
             }
+            _retry?.cancel();
+            _retry = null;
             directStatus = data['message']?.toString() ??
                 'Waiting for Wi-Fi Direct group to form';
             break;
