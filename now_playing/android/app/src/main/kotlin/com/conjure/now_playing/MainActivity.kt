@@ -716,6 +716,7 @@ open class MainActivity : FlutterActivity() {
                     call.argument<String>("receiverId") ?: ""))
                 "discover" -> result.success(direct.discover())
                 "connect" -> result.success(direct.connect(call.argument<String>("address") ?: ""))
+                "cancelAuto" -> result.success(direct.cancelAutomaticPairing())
                 "stop" -> { direct.stop(); result.success(true) }
                 else -> result.notImplemented()
             }
