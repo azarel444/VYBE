@@ -85,6 +85,8 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
             Text('Network: ${link.activeTransport}'),
             SwitchListTile(
               title: const Text('Reconnect automatically'),
+              subtitle: const Text('Off: no background pairing or retries. '
+                  'Use Find VYBE head units to connect manually.'),
               value: link.autoConnect,
               onChanged: (value) => link.configure(automatic: value),
             ),
@@ -108,7 +110,19 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                   '${link.localDeviceId.substring(link.localDeviceId.length - 6).toUpperCase()}',
                   style: const TextStyle(color: Colors.white70)),
             if (!headUnit) ...[
-              if (link.directPeers.isEmpty)
+              // Saved identity is persistent even if the head unit's Wi-Fi
+              // briefly vanishes or a new scan yields no advertisements.
+              if (link.hasSavedDirectReceiver &&
+                  !link.directPeers.any(
+                      (peer) => peer['id'] == link.savedDirectReceiverId))
+                ListTile(
+                  title: Text(link.savedDirectReceiverLabel),
+                  subtitle: const Text('Saved head unit · not responding yet. '
+                      'Tap to scan again without losing the pairing.'),
+                  trailing: const Icon(Icons.refresh),
+                  onTap: () => link.directStart(receiver: false),
+                ),
+              if (link.directPeers.isEmpty && !link.hasSavedDirectReceiver)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
                   child: Text('No VYBE head units discovered yet. Enable '
@@ -120,12 +134,15 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               for (final peer in link.directPeers)
                 ListTile(
                   title: Text(peer['name'] ?? 'VYBE Head Unit'),
-                  subtitle: Text(peer['id'] == link.pairedReceiverId
-                      ? 'Paired VYBE receiver'
-                      : 'VYBE receiver service detected'),
-                  trailing: const Icon(Icons.link),
-                  onTap: () => link.directConnectPeer(
-                      peer['address'] ?? '', manuallySelected: true),
+                  subtitle: Text(peer['id'] == link.savedDirectReceiverId
+                      ? 'Saved VYBE head unit'
+                      : 'Verified VYBE receiver found'),
+                  trailing: link.directPairingInProgress
+                      ? const Icon(Icons.hourglass_top)
+                      : const Icon(Icons.link),
+                  onTap: link.directPairingInProgress
+                      ? null : () => link.directConnectPeer(
+                          peer['address'] ?? '', manuallySelected: true),
                 ),
               OutlinedButton.icon(
                 onPressed: link.searchingReceivers
