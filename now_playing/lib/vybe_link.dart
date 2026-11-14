@@ -459,9 +459,15 @@ class VybeLink extends ChangeNotifier {
         _directPairingInProgress = false;
         _directPairingStartedMs = 0;
       }
-      directStatus = ok
-          ? 'Pairing requested; waiting for Android to form Wi-Fi Direct group'
-          : 'Device no longer in nearby list';
+      // Native connect() returns as soon as the request is submitted, but
+      // Android can report pairing_failed or connected before that Future
+      // completes. Never overwrite the newer native result with "requested".
+      if (!ok) {
+        directStatus = 'Device no longer in nearby list; scan again';
+      } else if (_directPairingInProgress && !_directGroupConnected) {
+        directStatus =
+            'Pairing requested; waiting for Android to form Wi-Fi Direct group';
+      }
       if (ok && remember) {
         // Save Wi-Fi Direct identity. The TCP IP is determined automatically
         // from Android's connection information every time a group forms.
