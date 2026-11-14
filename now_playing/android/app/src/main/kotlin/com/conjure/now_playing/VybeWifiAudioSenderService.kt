@@ -48,6 +48,7 @@ class VybeWifiAudioSenderService : Service() {
     private var reconnectAttempts = 0
     private var totalSocketDrops = 0
     private var lastNetworkFailure = ""
+    @Volatile private var stopReason = ""
     private var activeAudioCodec = "Not started"
     private var framesEncoded = 0L
 
@@ -72,6 +73,7 @@ class VybeWifiAudioSenderService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            stopReason = "Wi-Fi audio stopped by VYBE"
             running = false
             try { socket?.close() } catch (_: Exception) {}
             try { audio?.stop() } catch (_: Exception) {}
@@ -100,6 +102,7 @@ class VybeWifiAudioSenderService : Service() {
             reconnectAttempts = 0
             totalSocketDrops = 0
             lastNetworkFailure = ""
+            stopReason = ""
             activeAudioCodec = "Not started"
             framesEncoded = 0L
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -150,6 +153,9 @@ class VybeWifiAudioSenderService : Service() {
             projection = p
             p.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
+                    if (running) {
+                        stopReason = "Android ended playback capture permission"
+                    }
                     running = false
                     try { socket?.close() } catch (_: Exception) {}
                 }
@@ -266,7 +272,10 @@ class VybeWifiAudioSenderService : Service() {
                     if (socket === client) socket = null
                 }
             }
-            lastStatus = "stopped"
+            lastStatus = if (stopReason.startsWith("Android"))
+                "capture-ended" else "stopped"
+            details = if (stopReason.isNotEmpty())
+                stopReason else "Wi-Fi audio stream ended"
         } catch (error: Exception) {
             if (running) {
                 lastStatus = "error"
