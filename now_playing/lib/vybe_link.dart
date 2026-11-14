@@ -618,6 +618,30 @@ class VybeLink extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Called only for Connect turned off or a real device-role change,
+  // NEVER when the metadata socket restarts or times out. Stop both native
+  // services without relying on the current role: it may already have
+  // switched from sender to receiver (or vice versa).
+  Future<void> _stopWifiAudioForConfigurationChange() async {
+    final wasSending = _wifiSenderRequested;
+    final wasReceiving = _wifiReceiverRequested;
+    _wifiSenderRequested = false;
+    _wifiReceiverRequested = false;
+    if (wasSending) {
+      try { await _wifiAudio.invokeMethod<dynamic>('stopSender'); }
+      catch (error) { debugPrint('VYBE could not stop Wi-Fi audio sender: $error'); }
+      wifiStreamSenderStatus = 'stopped';
+      wifiStreamSenderDetail = 'Stopped because VYBE Connect was disabled or its role changed';
+    }
+    if (wasReceiving) {
+      try { await _wifiAudio.invokeMethod<dynamic>('stopReceiver'); }
+      catch (error) { debugPrint('VYBE could not stop Wi-Fi audio receiver: $error'); }
+      wifiStreamReceiverStatus = 'stopped';
+      wifiStreamReceiverDetail = 'Stopped because VYBE Connect was disabled or its role changed';
+    }
+    if (wasSending || wasReceiving) notifyListeners();
+  }
+
   Future<void> stopWifiAudioStream() async {
     if (role != 'sender') return;
     _wifiSenderRequested = false;
@@ -1144,8 +1168,16 @@ class VybeLink extends ChangeNotifier {
     _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
     _lastMetadataSentAt = 0; _lastMetadataState = '';
     _remoteWasPlaying = false;
-    if (_wifiSenderRequested) unawaited(stopWifiAudioStream());
-    if (_wifiReceiverRequested) unawaited(stopWifiAudioReceiver());
+    // Artwork/metadata uses a different TCP connection from native Wi-Fi
+    // music audio. A short Wi-Fi Direct or metadata watchdog interruption
+    // must NEVER stop a healthy audio stream or revoke MediaProjection.
+    // Only an explicit user stop, Connect disabled, or a device-role change
+    // should shut down the native audio services.
+    if (!enabled ||
+        (role != 'sender' && _wifiSenderRequested) ||
+        (role != 'receiver' && _wifiReceiverRequested)) {
+      await _stopWifiAudioForConfigurationChange();
+    }
 
     // The sender must never clear its own media playback. A receiver retains
     // the current song briefly while the TCP session is being recovered.
@@ -1416,14 +1448,18 @@ class VybeLink extends ChangeNotifier {
     if (!identical(client, _socket)) return;
     _socket = null; _model?.setLinkReceiverActive(false);
     _remoteWasPlaying = false;
-    if (_wifiReceiverRequested) unawaited(stopWifiAudioReceiver());
+    // Native Wi-Fi music audio is independent of artwork/metadata.
+    // Do not close the receiver's AudioTrack or socket because a metadata
+    // heartbeat timed out: the underlying audio link may still be healthy.
     activeTransport = 'Listening on available networks';
     status = 'Waiting for sender'; notifyListeners();
   }
   void _senderDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
     _socket = null;
-    if (_wifiSenderRequested) unawaited(stopWifiAudioStream());
+    // Keep the separately authorized Android audio-capture service alive.
+    // It has its own socket reconnect loop and should not be torn down when
+    // the VYBE metadata connection briefly drops.
     _tcpConnectedViaDirect = false;
     _tcpConnectedViaWired = false;
     activeTransport = 'Disconnected';
