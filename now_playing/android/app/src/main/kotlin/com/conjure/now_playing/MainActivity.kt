@@ -919,6 +919,11 @@ open class MainActivity : FlutterActivity() {
             "senderPeak" to sender.getInt("peakSample", 0),
             "senderCodec" to (sender.getString("codec", "Not started") ?: "Not started"),
             "senderFramesEncoded" to sender.getLong("framesEncoded", 0L),
+            "senderSendQueueMs" to sender.getInt("sendQueueMs", 0),
+            "senderDroppedFrames" to sender.getLong("sendFramesDropped", 0L),
+            "senderCaptureIdleMs" to sender.getLong("captureIdleMs", 0L),
+            "senderEncoderIdleMs" to sender.getLong("encoderIdleMs", 0L),
+            "senderNetworkIdleMs" to sender.getLong("networkIdleMs", 0L),
             "senderReconnects" to sender.getInt("reconnectAttempts", 0),
             "senderLastFailure" to (sender.getString("lastFailure", "") ?: ""),
             "receiver" to (receiver.getString("state", "off") ?: "off"),
@@ -936,6 +941,12 @@ open class MainActivity : FlutterActivity() {
             "receiverUnderruns" to receiver.getInt("bufferUnderruns", 0),
             "receiverAudioTrackUnderruns" to receiver.getInt("androidUnderruns", 0),
             "receiverDroppedPackets" to receiver.getInt("droppedPackets", 0),
+            "receiverLastPacketAgeMs" to receiver.getLong(
+                "lastAacPacketAtMs", 0L).let { when {
+                    it <= 0L -> 0L
+                    android.os.SystemClock.elapsedRealtime() < it -> 0L
+                    else -> android.os.SystemClock.elapsedRealtime() - it
+                } },
             "receiverLastFailure" to (receiver.getString("lastFailure", "") ?: ""),
             "outputVolume" to audio.getStreamVolume(AudioManager.STREAM_MUSIC),
             "outputMaxVolume" to audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
