@@ -59,6 +59,9 @@ class VybeWifiAudioReceiverService : Service() {
     private var droppedPackets = 0
     private var androidUnderruns = 0
     private var bufferedMs = 0
+    // Time between complete AAC packets helps distinguish a network stall
+    // from a deliberate AudioTrack buffering/re-prime cycle.
+    private var maxAacPacketGapMs = 0L
     private var lastFailure = ""
     private var audioCodec = "Not connected"
 
@@ -83,6 +86,7 @@ class VybeWifiAudioReceiverService : Service() {
             .putInt("droppedPackets", droppedPackets)
             .putInt("androidUnderruns", androidUnderruns)
             .putInt("bufferedMs", bufferedMs)
+            .putLong("maxAacPacketGapMs", maxAacPacketGapMs)
             .putString("lastFailure", lastFailure)
             .putString("codec", audioCodec)
             .putInt("streamVolume", mixer.getStreamVolume(AudioManager.STREAM_MUSIC))
@@ -118,6 +122,7 @@ class VybeWifiAudioReceiverService : Service() {
             droppedPackets = 0
             androidUnderruns = 0
             bufferedMs = 0
+            maxAacPacketGapMs = 0L
             lastFailure = ""
             audioCodec = "Not connected"
             lastMetricsAt = 0L
@@ -212,7 +217,7 @@ class VybeWifiAudioReceiverService : Service() {
                         // A dead TCP connection must not strand the receiver
                         // indefinitely. A timeout closes this audio socket;
                         // the phone-side sender will reconnect automatically.
-                        client.soTimeout = 7000
+                        client.soTimeout = 12000
                         receiveCompressedAac(client, input)
                         continue
                     }
@@ -382,7 +387,8 @@ class VybeWifiAudioReceiverService : Service() {
         val decoderError = AtomicReference<String?>(null)
         val packets = ArrayBlockingQueue<ByteArray>(128)
         // Each AAC-LC frame contains 1024 PCM samples: ~23.2 ms of audio.
-        val startupPackets = 40 // ~930 ms of AAC for weak Wi-Fi adapters
+        val startupPackets = 64 // ~1.49 s, tolerate radio bursts on low-end head units
+        val recoveryPackets = 80 // ~1.86 s after a real prolonged stream gap
         val minTrackBytes = AudioTrack.getMinBufferSize(
             RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         if (minTrackBytes <= 0) throw IllegalStateException("AAC PCM output unsupported")
@@ -402,18 +408,24 @@ class VybeWifiAudioReceiverService : Service() {
         if (player.state != AudioTrack.STATE_INITIALIZED)
             throw IllegalStateException("AAC Android audio output cannot initialize")
         track = player
-        status("buffering", "Collecting ~930 ms of compressed audio")
+        status("buffering", "Collecting ~1.5 s of compressed audio")
 
         val worker = Thread({
             var decoder: VybeAacDecoder? = null
             try {
+                // Playback and decoding should not wait behind a busy GPU /
+                // Flutter UI on a low-memory Android head unit.
+                android.os.Process.setThreadPriority(
+                    android.os.Process.THREAD_PRIORITY_AUDIO)
                 val activeDecoder = VybeAacDecoder()
                 decoder = activeDecoder
                 var started = false
                 var primedBytes = 0
+                var prebufferPackets = startupPackets
+                var lastFrameAtMs = android.os.SystemClock.elapsedRealtime()
                 val primeTarget = RATE * 4 / 3 // ~333 ms of decoded audio
                 while (running && !Thread.currentThread().isInterrupted) {
-                    if (!started && packets.size < startupPackets && !inputFinished.get()) {
+                    if (!started && packets.size < prebufferPackets && !inputFinished.get()) {
                         Thread.sleep(15L)
                         continue
                     }
@@ -421,15 +433,28 @@ class VybeWifiAudioReceiverService : Service() {
                     if (frame == null) {
                         if (inputFinished.get()) break
                         if (started) {
-                            bufferUnderruns++
-                            player.pause()
-                            player.flush()
-                            started = false
-                            primedBytes = 0
-                            status("buffering", "AAC data stalled, refilling music buffer")
+                            // A 260 ms TCP/decoder gap is NOT a genuine
+                            // underrun: AudioTrack can still have hundreds
+                            // of milliseconds of already-written PCM. The
+                            // old code paused+flushed it immediately, causing
+                            // audible dropouts even with zero Android
+                            // AudioTrack underruns.
+                            val gapMs = android.os.SystemClock.elapsedRealtime() -
+                                lastFrameAtMs
+                            if (gapMs >= 1100L) {
+                                bufferUnderruns++
+                                player.pause()
+                                player.flush()
+                                started = false
+                                primedBytes = 0
+                                prebufferPackets = recoveryPackets
+                                status("buffering",
+                                    "AAC gap ${gapMs} ms; refilling ~1.9 s buffer")
+                            }
                         }
                         continue
                     }
+                    lastFrameAtMs = android.os.SystemClock.elapsedRealtime()
                     activeDecoder.decode(frame) { pcm ->
                         for (index in 0 until pcm.size - 1 step 2) {
                             val sample = (pcm[index].toInt() and 255) or
@@ -490,12 +515,19 @@ class VybeWifiAudioReceiverService : Service() {
 
         try {
             worker.start()
+            var lastPacketAtMs = 0L
             while (running) {
                 val length = input.readInt()
                 if (length <= 0 || length > 65536)
                     throw IOException("Invalid AAC audio packet length: $length")
                 val packet = ByteArray(length)
                 input.readFully(packet)
+                val packetAtMs = android.os.SystemClock.elapsedRealtime()
+                if (lastPacketAtMs != 0L) {
+                    val gapMs = packetAtMs - lastPacketAtMs
+                    if (gapMs > maxAacPacketGapMs) maxAacPacketGapMs = gapMs
+                }
+                lastPacketAtMs = packetAtMs
                 bytesReceived += length + 4L
                 if (!packets.offer(packet)) {
                     // Skip old compressed audio before building seconds of
@@ -509,7 +541,7 @@ class VybeWifiAudioReceiverService : Service() {
         } catch (error: EOFException) {
             if (running) lastFailure = "AAC sender disconnected"
         } catch (error: SocketTimeoutException) {
-            if (running) lastFailure = "AAC data stalled for 7 s; awaiting sender reconnect"
+            if (running) lastFailure = "AAC network stalled for 12 s; awaiting sender reconnect"
         } catch (error: Exception) {
             if (running) lastFailure =
                 decoderError.get() ?: "AAC network: ${error.message}"
