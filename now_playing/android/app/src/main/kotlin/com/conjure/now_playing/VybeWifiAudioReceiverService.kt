@@ -187,6 +187,10 @@ class VybeWifiAudioReceiverService : Service() {
      * Drop oldest packets when a slow device falls behind live music.
      */
     private fun receive(allowedIp: String) {
+        // Ensure a busy VYBE visualizer/UI cannot starve the lightweight
+        // network-reader thread on the low-memory ATOTO.
+        try { android.os.Process.setThreadPriority(
+            android.os.Process.THREAD_PRIORITY_AUDIO) } catch (_: Exception) {}
         try {
             val server = ServerSocket()
             server.reuseAddress = true
@@ -446,6 +450,8 @@ class VybeWifiAudioReceiverService : Service() {
         status("buffering", "Initializing independent AAC decoder and speaker writer")
 
         val speakerThread = Thread({
+            try { android.os.Process.setThreadPriority(
+                android.os.Process.THREAD_PRIORITY_AUDIO) } catch (_: Exception) {}
             var started = false
             var primedBytes = 0
             var waitingForPcm = false
@@ -532,6 +538,8 @@ class VybeWifiAudioReceiverService : Service() {
         }, "VYBE-AAC-SpeakerOutput")
 
         val decoderThread = Thread({
+            try { android.os.Process.setThreadPriority(
+                android.os.Process.THREAD_PRIORITY_AUDIO) } catch (_: Exception) {}
             var decoder: VybeAacDecoder? = null
             try {
                 val activeDecoder = VybeAacDecoder()
