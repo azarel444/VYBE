@@ -209,10 +209,13 @@ class VybeWifiAudioReceiverService : Service() {
                         "AAC-LC 128 kbps stereo" else "PCM stereo (legacy)"
                     status("connected", "Receiving $audioCodec from phone")
                     if (isAac) {
-                        // A dead TCP connection must not strand the receiver
-                        // indefinitely. A timeout closes this audio socket;
-                        // the phone-side sender will reconnect automatically.
-                        client.soTimeout = 7000
+                        // Let Wi-Fi Direct survive longer radio stalls:
+                        // the former 7-second socket timeout was causing
+                        // forced disconnects and sender-side Broken pipes.
+                        // This is only a dead-peer safeguard; the decoder
+                        // handles brief gaps by rebufferring without closing
+                        // the healthy TCP stream.
+                        client.soTimeout = 18000
                         receiveCompressedAac(client, input)
                         continue
                     }
@@ -382,7 +385,8 @@ class VybeWifiAudioReceiverService : Service() {
         val decoderError = AtomicReference<String?>(null)
         val packets = ArrayBlockingQueue<ByteArray>(128)
         // Each AAC-LC frame contains 1024 PCM samples: ~23.2 ms of audio.
-        val startupPackets = 40 // ~930 ms of AAC for weak Wi-Fi adapters
+        val startupPackets = 48 // ~1.11 s of AAC for weak Wi-Fi adapters
+        val recoveryPackets = 76 // ~1.76 s after a demonstrated underrun
         val minTrackBytes = AudioTrack.getMinBufferSize(
             RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         if (minTrackBytes <= 0) throw IllegalStateException("AAC PCM output unsupported")
@@ -402,7 +406,7 @@ class VybeWifiAudioReceiverService : Service() {
         if (player.state != AudioTrack.STATE_INITIALIZED)
             throw IllegalStateException("AAC Android audio output cannot initialize")
         track = player
-        status("buffering", "Collecting ~930 ms of compressed audio")
+        status("buffering", "Collecting ~1.1 s of compressed audio")
 
         val worker = Thread({
             var decoder: VybeAacDecoder? = null
@@ -410,14 +414,19 @@ class VybeWifiAudioReceiverService : Service() {
                 val activeDecoder = VybeAacDecoder()
                 decoder = activeDecoder
                 var started = false
+                var hasUnderrun = false
                 var primedBytes = 0
                 val primeTarget = RATE * 4 / 3 // ~333 ms of decoded audio
                 while (running && !Thread.currentThread().isInterrupted) {
-                    if (!started && packets.size < startupPackets && !inputFinished.get()) {
+                    val targetPackets = if (hasUnderrun) recoveryPackets else startupPackets
+                    if (!started && packets.size < targetPackets && !inputFinished.get()) {
                         Thread.sleep(15L)
                         continue
                     }
-                    val frame = packets.poll(260L, TimeUnit.MILLISECONDS)
+                    // A short radio gap can be shorter than the data already
+                    // buffered by AudioTrack. Do not flush the player merely
+                    // because the network was quiet for 260 ms.
+                    val frame = packets.poll(500L, TimeUnit.MILLISECONDS)
                     if (frame == null) {
                         if (inputFinished.get()) break
                         if (started) {
@@ -425,8 +434,9 @@ class VybeWifiAudioReceiverService : Service() {
                             player.pause()
                             player.flush()
                             started = false
+                            hasUnderrun = true
                             primedBytes = 0
-                            status("buffering", "AAC data stalled, refilling music buffer")
+                            status("buffering", "AAC packets paused; refilling adaptive buffer (~1.8 s)")
                         }
                         continue
                     }
@@ -509,7 +519,7 @@ class VybeWifiAudioReceiverService : Service() {
         } catch (error: EOFException) {
             if (running) lastFailure = "AAC sender disconnected"
         } catch (error: SocketTimeoutException) {
-            if (running) lastFailure = "AAC data stalled for 7 s; awaiting sender reconnect"
+            if (running) lastFailure = "AAC data stalled for 18 s; awaiting sender reconnect"
         } catch (error: Exception) {
             if (running) lastFailure =
                 decoderError.get() ?: "AAC network: ${error.message}"
