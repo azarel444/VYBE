@@ -312,7 +312,9 @@ class VybeLink extends ChangeNotifier {
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             _lastDirectPeerAttemptMs = 0;
-            directStatus = 'Wi-Fi Direct disconnected; restoring automatically';
+            directStatus = autoConnect
+            ? 'Wi-Fi Direct disconnected; restoring automatically'
+            : 'Wi-Fi Direct disconnected; manual pairing only';
             // The underlying Direct link disappeared. A TCP Socket can stay
             // non-null for several seconds even though its route is dead.
             // Invalidate ONLY a socket actually using the Direct host; do
@@ -413,6 +415,9 @@ class VybeLink extends ChangeNotifier {
       await prefs.setBool('link_direct_preferred', true);
       if (receiver) {
         if (role != 'receiver' || !enabled) await configure(isEnabled: true, deviceRole: 'receiver');
+        // The head unit must accept the metadata TCP connection even when
+        // automatic pairing is switched OFF or the app was restarted.
+        if (_server == null) await connect(manual: true);
         directStatus = 'Requesting head-unit Wi-Fi Direct group...';
         notifyListeners();
         final accepted = await _direct.invokeMethod<bool>(
@@ -1014,10 +1019,11 @@ class VybeLink extends ChangeNotifier {
     model.addListener(_onModel);
     await directInitialize();
     await _updateAddresses();
-    if (enabled && autoConnect) {
-      // A P2P group may already exist when VYBE launches. Register for its
-      // native state and reuse the automatically resolved group owner IP.
-      if (_directPreferred && directAvailable) {
+    if (enabled && (autoConnect || role == 'receiver')) {
+      // The head unit must listen for an explicitly paired phone even when
+      // auto-reconnect is OFF. Sender discovery remains manual in that mode.
+      // A P2P group may already exist when VYBE launches.
+      if (autoConnect && _directPreferred && directAvailable) {
         try { await _direct.invokeMethod<bool>('start'); } catch (_) {}
       }
       unawaited(connect());
@@ -1114,10 +1120,16 @@ class VybeLink extends ChangeNotifier {
   /// Called when the UI returns from another app. Background reconnect is
   /// best-effort: Android can suspend this Flutter process.
   void onResumed() {
-    if (!enabled || !autoConnect) return;
+    if (!enabled) return;
+    // Manual mode disables proactive pairing, not the receiver's listener.
+    // An explicitly chosen phone cannot connect if the listener disappeared
+    // when Android backgrounded or relaunched the head unit.
+    if (role == 'receiver' && _server == null && !_connecting) {
+      unawaited(connect(manual: true));
+    }
+    if (!autoConnect) return;
     if (_directPreferred) unawaited(_recoverDirect(immediately: true));
     if (_connecting) return;
-    if (role == 'receiver' && _server == null) { connect(); return; }
     if (role == 'sender' && _socket == null) connect();
   }
 
