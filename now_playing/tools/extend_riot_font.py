@@ -4,6 +4,7 @@ Do not edit the original A-Z outlines. Run after side-bearing normalization.
 """
 from pathlib import Path
 from statistics import median
+from copy import deepcopy
 from lxml import etree
 from fontTools.ttLib import TTFont
 from fontTools.pens.boundsPen import BoundsPen
@@ -58,9 +59,10 @@ a = glyf[a_name]
 a.recalcBounds(glyf)
 cap_height = a.yMax - a.yMin
 cap_bottom = a.yMin
-# The hand-traced extended caps have body heights of roughly 54 SVG units;
-# their accents extend above that cap, rather than shrinking the letter.
-scale_caps = cap_height / 54.0
+# The hand-traced extended caps have body heights of roughly 54 SVG units.
+# Wait until the NORMAL cap-height median is known before scaling them.
+# Riot's A is an extreme outlier: scaling Í or É from A's height made accented
+# letters tower above the rest of an artist name.
 # The hand-traced punctuation sheet originally used A's unusually tall bounds
 # as its size reference. A is NOT representative of the Riot alphabet, and
 # this made &, @, +, etc. tower over adjacent artist letters. Keep the
@@ -79,6 +81,7 @@ if len(normal_caps) != 26:
     raise RuntimeError('Riot A-Z metrics are required for consistent digits')
 digit_height = median(g.yMax - g.yMin for g in normal_caps)
 digit_bottom = median(g.yMin for g in normal_caps)
+scale_caps = digit_height / 54.0
 
 def path_bounds(el):
     p=BoundsPen(None)
@@ -178,6 +181,71 @@ for chars,specs,row in rows:
         font['hmtx'].metrics[name]=metrics
         generated[ord(char)]=name
 
+# Accented capitals must look like their unaccented base letters, with a
+# restrained mark above them. Normalize *rendered outlines* because the source
+# SVG contains inconsistent heights and Riot's A was not representative.
+# Every accented capital may be up to 20% taller than a standard cap, but
+# never the huge 150%-plus Í that appeared in VYBE themes.
+accent_cap_height = round(digit_height * 1.20)
+accent_bottom = round(digit_bottom)
+for char in row3_chars + row4_chars:
+    glyph = glyf[generated[ord(char)]]
+    glyph.recalcBounds(glyf)
+    old_bottom, old_top = glyph.yMin, glyph.yMax
+    old_height = old_top - old_bottom
+    if old_height <= 0:
+        raise RuntimeError('Empty Riot accented glyph: %s' % char)
+    ratio = min(1.0, accent_cap_height / old_height)
+    # Keep the established 8-unit side bearing, shrinking wide outlier
+    # accents together with the letter to prevent abnormal spacing.
+    for i, (x, y) in enumerate(glyph.coordinates):
+        glyph.coordinates[i] = (
+            round(8 + (x - 8) * ratio),
+            round(accent_bottom + (y - old_bottom) * ratio))
+    # Ç and ogonek capitals retain their intentional descenders.
+    if char in 'ÇĘĮ':
+        for i, (x, y) in enumerate(glyph.coordinates):
+            glyph.coordinates[i] = (x, y - round(digit_height * .10))
+    glyph.recalcBounds(glyf)
+    font['hmtx'].metrics[generated[ord(char)]] = (
+        max(30, glyph.xMax + 8), 8)
+
+# Keep a hyphen as a short, CENTERED separator, not an oversized elevated
+# cap-height glyph. Derived Unicode dashes use the same Riot stroke/position,
+# so YouTube Music artist/song metadata never falls back to a mismatched
+# system-font dash.
+hyphen = glyf[generated[ord('-')]]
+hyphen.recalcBounds(glyf)
+hyphen_width = max(1, hyphen.xMax - hyphen.xMin)
+hyphen_height = max(1, hyphen.yMax - hyphen.yMin)
+hyphen_ratio = min(1.0, digit_height * .59 / hyphen_width,
+                   digit_height * .14 / hyphen_height)
+hyphen_target_mid = round(digit_bottom + digit_height * .47)
+hyphen_old_mid = (hyphen.yMax + hyphen.yMin) / 2
+for i, (x, y) in enumerate(hyphen.coordinates):
+    hyphen.coordinates[i] = (
+        round(8 + (x - hyphen.xMin) * hyphen_ratio),
+        round(hyphen_target_mid + (y - hyphen_old_mid) * hyphen_ratio))
+hyphen.recalcBounds(glyf)
+font['hmtx'].metrics[generated[ord('-')]] = (
+    max(30, hyphen.xMax + 8), 8)
+
+# Distinct code points appear in streaming artist and title tags. Their
+# shapes can differ in length but should share the regular hyphen's
+# vertical center and stroke thickness.
+for char, stretch in [('‐', 1.0), ('‑', 1.0), ('‒', 1.30),
+                      ('–', 1.45), ('—', 1.95), ('−', 1.10)]:
+    name = 'riotExtra%04X' % ord(char)
+    variant = deepcopy(hyphen)
+    for i, (x, y) in enumerate(variant.coordinates):
+        variant.coordinates[i] = (round(8 + (x - 8) * stretch), y)
+    variant.recalcBounds(glyf)
+    glyf[name] = variant
+    font['hmtx'].metrics[name] = (max(30, variant.xMax + 8), 8)
+    generated[ord(char)] = name
+    if name not in new_order:
+        new_order.append(name)
+
 # Quadratic curve conversion rounds individual extrema by a few units.
 # Normalize the FINAL TrueType coordinates, not just the source SVG bounds,
 # so 0-9 have one precisely shared cap height and baseline in the APK.
@@ -221,3 +289,16 @@ for char in '&@#$%^*+=~\\|¦<>≤≥×÷':
     glyph.recalcBounds(check_font['glyf'])
     assert (glyph.yMax - glyph.yMin) <= digit_height * .97 + 3, (
         'Riot symbol %r exceeds regular cap height' % char)
+for char in row3_chars + row4_chars:
+    glyph = check_font['glyf'][check_cmap[ord(char)]]
+    glyph.recalcBounds(check_font['glyf'])
+    assert (glyph.yMax - glyph.yMin) <= accent_cap_height + 2, (
+        'Riot accent %r is oversized compared to regular capitals' % char)
+for char in '-‐‑‒–—−':
+    glyph = check_font['glyf'][check_cmap[ord(char)]]
+    glyph.recalcBounds(check_font['glyf'])
+    mid = (glyph.yMin + glyph.yMax) / 2
+    assert abs(mid - hyphen_target_mid) <= 3, (
+        'Riot dash %r is not vertically centered' % char)
+    assert glyph.yMax - glyph.yMin <= digit_height * .14 + 2, (
+        'Riot dash %r is too tall' % char)
