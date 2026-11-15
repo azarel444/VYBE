@@ -417,7 +417,7 @@ class VybeLink extends ChangeNotifier {
         if (role != 'receiver' || !enabled) await configure(isEnabled: true, deviceRole: 'receiver');
         // The head unit must accept the metadata TCP connection even when
         // automatic pairing is switched OFF or the app was restarted.
-        if (_server == null) await connect(manual: true);
+        if (_server == null && !_connecting) await connect(manual: true);
         directStatus = 'Requesting head-unit Wi-Fi Direct group...';
         notifyListeners();
         final accepted = await _direct.invokeMethod<bool>(
@@ -1526,9 +1526,11 @@ class VybeLink extends ChangeNotifier {
     }
     if (generation != _generation) { socket?.destroy(); return; }
     if (socket == null) {
-      status = 'Waiting for head unit; automatic discovery and reconnection active';
+      status = autoConnect
+          ? 'Waiting for head unit; automatic discovery and reconnection active'
+          : 'Selected head unit is not reachable; use Reconnect to try again';
       notifyListeners();
-      if (_directPreferred) unawaited(_recoverDirect());
+      if (autoConnect && _directPreferred) unawaited(_recoverDirect());
       _scheduleRetry(generation);
       return;
     }
