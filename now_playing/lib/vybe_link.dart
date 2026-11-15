@@ -380,7 +380,17 @@ class VybeLink extends ChangeNotifier {
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct in progress';
             break;
           case 'state':
-            if (data['enabled'] != true) _directGroupConnected = false;
+            if (data['enabled'] != true) {
+              // Android invalidates any pending native connect() when the
+              // P2P radio switches off. Clear Flutter's pairing gate too;
+              // otherwise manually selecting a receiver stays disabled even
+              // after Wi-Fi Direct becomes available again.
+              _directGroupConnected = false;
+              _directGroupOwnerIp = '';
+              _directPairingInProgress = false;
+              _directPairingStartedMs = 0;
+              _lastDirectPeerAttemptMs = 0;
+            }
             directStatus = data['enabled'] == true
                 ? 'Wi-Fi Direct available' : 'Wi-Fi Direct disabled';
             if (data['enabled'] == true && _directPreferred && enabled && autoConnect) {
