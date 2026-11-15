@@ -427,7 +427,8 @@ class VybeLink extends ChangeNotifier {
         if (role != 'sender' || !enabled) await configure(isEnabled: true, deviceRole: 'sender');
         directStatus = 'Searching only for VYBE head units...';
         notifyListeners();
-        final accepted = await _direct.invokeMethod<bool>('discover') ?? false;
+        final accepted = await _direct.invokeMethod<bool>(
+            'discover', {'force': true}) ?? false;
         if (!accepted) directStatus = 'Cannot start Wi-Fi Direct discovery (permission or service unavailable)';
       }
     } catch (e) { directStatus = 'Wi-Fi Direct setup failed: $e'; }
