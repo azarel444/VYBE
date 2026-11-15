@@ -73,7 +73,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                             hostReadyChecks = 0
                             // Advertise the head unit only once its actual
                             // group is ready for the phone to join.
-                            if (info.isGroupOwner && pendingHostReceiverId.isNotEmpty) {
+                            if (info.isGroupOwner && pendingHostReceiverId.isNotEmpty()) {
                                 advertiseReceiver(pendingHostReceiverId)
                             }
                             connectingAddress = null
@@ -94,7 +94,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                             // be silently destroyed by Android. Its earlier
                             // DNS-SD registration is no longer proof it is
                             // advertising on the new P2P session.
-                            if (pendingHostReceiverId.isNotEmpty && !hostPending) {
+                            if (pendingHostReceiverId.isNotEmpty() && !hostPending) {
                                 forgetReceiverAdvertisement()
                             }
                             event(mapOf("type" to "disconnected"))
@@ -443,7 +443,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 info.groupOwnerAddress != null) {
                 hostPending = false
                 hostReadyChecks = 0
-                if (pendingHostReceiverId.isNotEmpty) {
+                if (pendingHostReceiverId.isNotEmpty()) {
                     advertiseReceiver(pendingHostReceiverId)
                 }
                 event(mapOf("type" to "action", "name" to "host", "ok" to true))
