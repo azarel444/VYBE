@@ -61,6 +61,7 @@ class VybeWifiAudioReceiverService : Service() {
     private var bufferedMs = 0
     private var lastFailure = ""
     private var audioCodec = "Not connected"
+    @Volatile private var lastAacPacketAtMs = 0L
 
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -85,6 +86,7 @@ class VybeWifiAudioReceiverService : Service() {
             .putInt("bufferedMs", bufferedMs)
             .putString("lastFailure", lastFailure)
             .putString("codec", audioCodec)
+            .putLong("lastAacPacketAtMs", lastAacPacketAtMs)
             .putInt("streamVolume", mixer.getStreamVolume(AudioManager.STREAM_MUSIC))
             .putInt("streamMaxVolume", mixer.getStreamMaxVolume(AudioManager.STREAM_MUSIC))
             .putBoolean("musicActive", mixer.isMusicActive)
@@ -120,6 +122,7 @@ class VybeWifiAudioReceiverService : Service() {
             bufferedMs = 0
             lastFailure = ""
             audioCodec = "Not connected"
+            lastAacPacketAtMs = 0L
             lastMetricsAt = 0L
             val channel = "vybe_wifi_audio_receiver"
             val notifications =
@@ -507,6 +510,7 @@ class VybeWifiAudioReceiverService : Service() {
                 val packet = ByteArray(length)
                 input.readFully(packet)
                 bytesReceived += length + 4L
+                lastAacPacketAtMs = android.os.SystemClock.elapsedRealtime()
                 if (!packets.offer(packet)) {
                     // Skip old compressed audio before building seconds of
                     // delay when this low-end head unit can't keep pace.
