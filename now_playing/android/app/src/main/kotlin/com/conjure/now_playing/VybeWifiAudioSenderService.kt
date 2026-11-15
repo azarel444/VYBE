@@ -316,7 +316,7 @@ class VybeWifiAudioSenderService : Service() {
                                 lastMetricsAt = now
                                 val networkIdle = now - lastSentAtMs
                                 status("streaming", if (networkIdle > 1500L)
-                                    "AAC capture active; network stalled for ${networkIdle} ms (queued ~${txQueueMs} ms)"
+                                    "Audio capture active; network stalled for ${networkIdle} ms (queued ~${txQueueMs} ms)"
                                     else if (peakSample > 256)
                                     "Streaming $activeAudioCodec; queued ~${txQueueMs} ms"
                                     else "Streaming $activeAudioCodec; capture is silent")
@@ -331,6 +331,10 @@ class VybeWifiAudioSenderService : Service() {
                     lastNetworkFailure = error.message ?: error.javaClass.simpleName
                     status("reconnecting",
                         "Audio socket dropped ($lastNetworkFailure); trying to reconnect")
+                    // Release the stale TCP writer before backoff, not after
+                    // sleeping; otherwise its output can remain blocked and
+                    // delay a healthy new stream.
+                    try { client?.close() } catch (_: Exception) {}
                     try {
                         Thread.sleep(minOf(3000L, reconnectAttempts * 700L))
                     } catch (_: InterruptedException) {
