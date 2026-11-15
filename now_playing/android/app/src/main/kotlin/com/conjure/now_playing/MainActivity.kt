@@ -911,6 +911,9 @@ open class MainActivity : FlutterActivity() {
         val sender = getSharedPreferences(VybeWifiAudioSenderService.PREFS, Context.MODE_PRIVATE)
         val receiver = getSharedPreferences(VybeWifiAudioReceiverService.PREFS, Context.MODE_PRIVATE)
         val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val clockNow = android.os.SystemClock.elapsedRealtime()
+        fun ageSince(lastAt: Long): Long =
+            if (lastAt <= 0L || lastAt > clockNow) 0L else clockNow - lastAt
         return mapOf(
             "sender" to (sender.getString("state", "off") ?: "off"),
             "senderDetail" to (sender.getString("detail", "Not started") ?: ""),
@@ -921,9 +924,9 @@ open class MainActivity : FlutterActivity() {
             "senderFramesEncoded" to sender.getLong("framesEncoded", 0L),
             "senderSendQueueMs" to sender.getInt("sendQueueMs", 0),
             "senderDroppedFrames" to sender.getLong("sendFramesDropped", 0L),
-            "senderCaptureIdleMs" to sender.getLong("captureIdleMs", 0L),
-            "senderEncoderIdleMs" to sender.getLong("encoderIdleMs", 0L),
-            "senderNetworkIdleMs" to sender.getLong("networkIdleMs", 0L),
+            "senderCaptureIdleMs" to ageSince(sender.getLong("captureAtMs", 0L)),
+            "senderEncoderIdleMs" to ageSince(sender.getLong("encoderAtMs", 0L)),
+            "senderNetworkIdleMs" to ageSince(sender.getLong("networkAtMs", 0L)),
             "senderReconnects" to sender.getInt("reconnectAttempts", 0),
             "senderLastFailure" to (sender.getString("lastFailure", "") ?: ""),
             "receiver" to (receiver.getString("state", "off") ?: "off"),
