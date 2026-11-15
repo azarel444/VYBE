@@ -198,6 +198,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text('Decoded PCM bytes written: ${link.wifiStreamPlayedBytes}'),
               Text('Signal peak: ${link.wifiStreamReceiverPeak} / 32767'),
               Text('Jitter buffer: ${link.wifiStreamReceiverBufferedMs} ms'),
+              Text('Time since last AAC packet: ${link.wifiStreamReceiverLastPacketAgeMs} ms'),
               Text('Buffer underruns: ${link.wifiStreamReceiverUnderruns}'),
               Text('Android audio underruns: ${link.wifiStreamTrackUnderruns}'),
               Text('Late packets dropped: ${link.wifiStreamDroppedPackets}'),
@@ -240,6 +241,11 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text('Audio format: ${link.wifiStreamSenderCodec}'),
               Text('Network bytes sent: ${link.wifiStreamSentBytes}'),
               Text('AAC frames encoded: ${link.wifiStreamFramesEncoded}'),
+              Text('Network send queue: ${link.wifiStreamSendQueueMs} ms'),
+              Text('Stale audio frames dropped: ${link.wifiStreamSendFramesDropped}'),
+              Text('Capture idle: ${link.wifiStreamCaptureIdleMs} ms'),
+              Text('Encoder idle: ${link.wifiStreamEncoderIdleMs} ms'),
+              Text('Network output idle: ${link.wifiStreamNetworkIdleMs} ms'),
               Text('Captured signal peak: ${link.wifiStreamSenderPeak} / 32767'),
               Text('Reconnect attempts: ${link.wifiStreamSenderReconnects}'),
               if (link.wifiStreamSenderLastFailure.isNotEmpty)
@@ -256,8 +262,8 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               icon: const Icon(Icons.analytics_outlined),
               label: const Text('Refresh audio diagnostics'),
             ),
-            const Text('For this beta, audio is unencrypted PCM. '
-                'Use a trusted Wi-Fi Direct or private network.',
+            const Text('For this beta, audio uses unencrypted AAC '
+                '(or PCM fallback). Use a trusted Wi-Fi Direct or private network.',
                 style: TextStyle(color: Colors.white60)),
             const Divider(),
             ExpansionTile(
