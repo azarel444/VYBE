@@ -45,6 +45,10 @@ class VybeWifiAudioSenderService : Service() {
     private var peakSample = 0
     private var chunksSent = 0L
     private var lastMetricsAt = 0L
+    private var lastFlushAt = 0L
+    private var maxCaptureReadMs = 0L
+    private var maxEncodeMs = 0L
+    private var maxNetworkFlushMs = 0L
     private var reconnectAttempts = 0
     private var totalSocketDrops = 0
     private var lastNetworkFailure = ""
@@ -68,6 +72,9 @@ class VybeWifiAudioSenderService : Service() {
             .putString("lastFailure", lastNetworkFailure)
             .putString("codec", activeAudioCodec)
             .putLong("framesEncoded", framesEncoded)
+            .putLong("maxCaptureReadMs", maxCaptureReadMs)
+            .putLong("maxEncodeMs", maxEncodeMs)
+            .putLong("maxNetworkFlushMs", maxNetworkFlushMs)
             .apply()
     }
 
@@ -105,6 +112,11 @@ class VybeWifiAudioSenderService : Service() {
             stopReason = ""
             activeAudioCodec = "Not started"
             framesEncoded = 0L
+            lastMetricsAt = 0L
+            lastFlushAt = 0L
+            maxCaptureReadMs = 0L
+            maxEncodeMs = 0L
+            maxNetworkFlushMs = 0L
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = "vybe_wifi_audio_sender"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -214,7 +226,10 @@ class VybeWifiAudioSenderService : Service() {
                     reconnectAttempts = 0
                     status("streaming", "Sending $activeAudioCodec to head unit")
                     while (running) {
+                        val captureStartedAt = android.os.SystemClock.elapsedRealtime()
                         val read = record.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
+                        val readMs = android.os.SystemClock.elapsedRealtime() - captureStartedAt
+                        if (readMs > maxCaptureReadMs) maxCaptureReadMs = readMs
                         if (read < 0) throw IllegalStateException("AudioRecord error $read")
                         if (read > 0) {
                             for (index in 0 until read - 1 step 2) {
@@ -224,6 +239,7 @@ class VybeWifiAudioSenderService : Service() {
                                 if (amplitude > peakSample) peakSample = amplitude
                             }
                             val codec = encoder
+                            val encodeStartedAt = android.os.SystemClock.elapsedRealtime()
                             if (codec != null) {
                                 // Output packets contain complete AAC access
                                 // units; a 4-byte length allows the receiver
@@ -240,11 +256,24 @@ class VybeWifiAudioSenderService : Service() {
                                 stream.write(chunk, 0, read)
                                 bytesSent += read
                             }
+                            val encodeMs = android.os.SystemClock.elapsedRealtime() -
+                                encodeStartedAt
+                            if (encodeMs > maxEncodeMs) maxEncodeMs = encodeMs
                             chunksSent++
                             val now = android.os.SystemClock.elapsedRealtime()
-                            if (now - lastMetricsAt >= 120L) {
-                                lastMetricsAt = now
+                            if (now - lastFlushAt >= 120L) {
+                                lastFlushAt = now
+                                val flushStart = android.os.SystemClock.elapsedRealtime()
                                 stream.flush()
+                                val flushMs = android.os.SystemClock.elapsedRealtime() -
+                                    flushStart
+                                if (flushMs > maxNetworkFlushMs) maxNetworkFlushMs = flushMs
+                            }
+                            // Keep short audio network flushes, but write
+                            // diagnostics to SharedPreferences only once per
+                            // second instead of eight times every second.
+                            if (now - lastMetricsAt >= 1000L) {
+                                lastMetricsAt = now
                                 status("streaming", if (peakSample > 256)
                                     "Streaming $activeAudioCodec; audible capture"
                                     else "Streaming $activeAudioCodec; capture is silent")
