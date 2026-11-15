@@ -67,6 +67,9 @@ class VybeLink extends ChangeNotifier {
   String wifiStreamToneStatus = 'Not tested';
   int wifiStreamSentBytes = 0;
   int wifiStreamSenderPeak = 0;
+  int wifiStreamMaxCaptureReadMs = 0;
+  int wifiStreamMaxEncodeMs = 0;
+  int wifiStreamMaxNetworkFlushMs = 0;
   int wifiStreamReceivedBytes = 0;
   int wifiStreamPlayedBytes = 0;
   int wifiStreamReceiverPeak = 0;
@@ -75,6 +78,7 @@ class VybeLink extends ChangeNotifier {
   int wifiStreamMusicVolume = 0;
   int wifiStreamMusicMaxVolume = 0;
   int wifiStreamReceiverBufferedMs = 0;
+  int wifiStreamMaxPacketGapMs = 0;
   int wifiStreamReceiverUnderruns = 0;
   int wifiStreamTrackUnderruns = 0;
   int wifiStreamDroppedPackets = 0;
@@ -802,6 +806,12 @@ class VybeLink extends ChangeNotifier {
       wifiStreamSenderCodec = result['senderCodec']?.toString() ?? 'Unknown';
       wifiStreamFramesEncoded =
           (result['senderFramesEncoded'] as num?)?.toInt() ?? 0;
+      wifiStreamMaxCaptureReadMs =
+          (result['senderMaxCaptureReadMs'] as num?)?.toInt() ?? 0;
+      wifiStreamMaxEncodeMs =
+          (result['senderMaxEncodeMs'] as num?)?.toInt() ?? 0;
+      wifiStreamMaxNetworkFlushMs =
+          (result['senderMaxNetworkFlushMs'] as num?)?.toInt() ?? 0;
       wifiStreamSenderReconnects =
           (result['senderReconnects'] as num?)?.toInt() ?? 0;
       wifiStreamSenderLastFailure =
@@ -814,6 +824,8 @@ class VybeLink extends ChangeNotifier {
       wifiStreamReceiverCodec = result['receiverCodec']?.toString() ?? 'Unknown';
       wifiStreamReceiverBufferedMs =
           (result['receiverBufferedMs'] as num?)?.toInt() ?? 0;
+      wifiStreamMaxPacketGapMs =
+          (result['receiverMaxPacketGapMs'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverUnderruns =
           (result['receiverUnderruns'] as num?)?.toInt() ?? 0;
       wifiStreamTrackUnderruns =
