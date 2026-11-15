@@ -421,7 +421,10 @@ class VybeLink extends ChangeNotifier {
         directStatus = 'Requesting head-unit Wi-Fi Direct group...';
         notifyListeners();
         final accepted = await _direct.invokeMethod<bool>(
-            'host', {'receiverId': localDeviceId}) ?? false;
+            'host', {
+          'receiverId': localDeviceId,
+          'refreshAdvertisement': true,
+        }) ?? false;
         if (!accepted) directStatus = 'Cannot start Wi-Fi Direct on head unit (permission or service unavailable)';
       } else {
         if (role != 'sender' || !enabled) await configure(isEnabled: true, deviceRole: 'sender');
