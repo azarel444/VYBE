@@ -947,6 +947,22 @@ open class MainActivity : FlutterActivity() {
                     android.os.SystemClock.elapsedRealtime() < it -> 0L
                     else -> android.os.SystemClock.elapsedRealtime() - it
                 } },
+            "receiverDecoderIdleMs" to receiver.getLong(
+                "lastDecodedPcmAtMs", 0L).let { when {
+                    it <= 0L -> 0L
+                    android.os.SystemClock.elapsedRealtime() < it -> 0L
+                    else -> android.os.SystemClock.elapsedRealtime() - it
+                } },
+            "receiverSpeakerIdleMs" to receiver.getLong(
+                "lastSpeakerWriteAtMs", 0L).let { when {
+                    it <= 0L -> 0L
+                    android.os.SystemClock.elapsedRealtime() < it -> 0L
+                    else -> android.os.SystemClock.elapsedRealtime() - it
+                } },
+            "receiverPcmQueueMs" to receiver.getInt("decodedPcmQueueMs", 0),
+            "receiverPcmDropped" to receiver.getInt("decodedPcmBlocksDropped", 0),
+            "receiverMaxDecodeMs" to receiver.getLong("longestDecoderCallMs", 0L),
+            "receiverMaxSpeakerWriteMs" to receiver.getLong("longestSpeakerWriteMs", 0L),
             "receiverLastFailure" to (receiver.getString("lastFailure", "") ?: ""),
             "outputVolume" to audio.getStreamVolume(AudioManager.STREAM_MUSIC),
             "outputMaxVolume" to audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
