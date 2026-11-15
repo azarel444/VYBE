@@ -713,7 +713,8 @@ open class MainActivity : FlutterActivity() {
                 }
                 "start" -> result.success(direct.start())
                 "host" -> result.success(direct.host(
-                    call.argument<String>("receiverId") ?: ""))
+                    call.argument<String>("receiverId") ?: "",
+                    call.argument<Boolean>("refreshAdvertisement") ?: false))
                 "discover" -> result.success(direct.discover(
                     call.argument<Boolean>("force") ?: false))
                 "connect" -> result.success(direct.connect(call.argument<String>("address") ?: ""))
