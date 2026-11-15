@@ -415,8 +415,13 @@ class VybeWifiAudioReceiverService : Service() {
             try {
                 // Playback and decoding should not wait behind a busy GPU /
                 // Flutter UI on a low-memory Android head unit.
-                android.os.Process.setThreadPriority(
-                    android.os.Process.THREAD_PRIORITY_AUDIO)
+                try {
+                    android.os.Process.setThreadPriority(
+                        android.os.Process.THREAD_PRIORITY_AUDIO)
+                } catch (_: Exception) {
+                    // Some vendor kernels limit thread scheduling priority.
+                    // Continue decoding even when priority elevation fails.
+                }
                 val activeDecoder = VybeAacDecoder()
                 decoder = activeDecoder
                 var started = false
