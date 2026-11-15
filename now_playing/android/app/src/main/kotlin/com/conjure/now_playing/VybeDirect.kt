@@ -39,6 +39,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private var advertisingPending = false
     private var localService: WifiP2pDnsSdServiceInfo? = null
     private var localServiceId = ""
+    private var advertisingGeneration = 0
     private var serviceRequest: WifiP2pServiceRequest? = null
     private var discoveryPending = false
     private var discoveryGeneration = 0
@@ -86,12 +87,31 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                             event(mapOf("type" to "pairing",
                                 "message" to "Waiting for Android to form Wi-Fi Direct group..."))
                         } else {
+                            // A receiver group that was previously ready may
+                            // be silently destroyed by Android. Its earlier
+                            // DNS-SD registration is no longer proof it is
+                            // advertising on the new P2P session.
+                            if (pendingHostReceiverId.isNotEmpty && !hostPending) {
+                                forgetReceiverAdvertisement()
+                            }
                             event(mapOf("type" to "disconnected"))
                         }
                     }
                 }
                 WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION -> {
                     val state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1)
+                    if (state != WifiP2pManager.WIFI_P2P_STATE_ENABLED) {
+                        connectingAddress = null
+                        connectAttemptGeneration++
+                        hostPending = false
+                        hostReadyChecks = 0
+                        discoveryPending = false
+                        discoveryGeneration++
+                        serviceRequest = null
+                        forgetReceiverAdvertisement()
+                        verifiedReceivers.clear()
+                        publishVerifiedReceivers()
+                    }
                     event(mapOf("type" to "state",
                         "enabled" to (state == WifiP2pManager.WIFI_P2P_STATE_ENABLED)))
                 }
@@ -156,6 +176,22 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
      * every Android with the app installed; phones should not appear as
      * selectable head units.
      */
+    private fun forgetReceiverAdvertisement() {
+        advertisingGeneration++
+        val previous = localService
+        localService = null
+        advertised = false
+        advertisingPending = false
+        if (previous != null) {
+            val service = manager
+            val ch = p2pChannel
+            if (service != null && ch != null) {
+                try { service.removeLocalService(ch, previous, null) }
+                catch (_: Exception) {}
+            }
+        }
+    }
+
     private fun advertiseReceiver(receiverId: String) {
         val service = manager ?: return
         val ch = p2pChannel ?: return
@@ -183,8 +219,10 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 "id" to receiverId.lowercase(),
                 "port" to "38927"))
         advertisingPending = true
+        val generation = ++advertisingGeneration
         service.addLocalService(ch, info, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
+                if (generation != advertisingGeneration) return
                 advertisingPending = false
                 advertised = true
                 localService = info
@@ -192,6 +230,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     "message" to "VYBE Head Unit visible to VYBE devices"))
             }
             override fun onFailure(reason: Int) {
+                if (generation != advertisingGeneration) return
                 advertisingPending = false
                 advertised = false
                 event(mapOf("type" to "error",
@@ -598,6 +637,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         localService = null
         advertised = false
         advertisingPending = false
+        advertisingGeneration++
         discoveryPending = false
         discoveryGeneration++
         hostPending = false
