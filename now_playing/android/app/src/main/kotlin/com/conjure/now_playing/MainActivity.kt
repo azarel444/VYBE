@@ -714,7 +714,8 @@ open class MainActivity : FlutterActivity() {
                 "start" -> result.success(direct.start())
                 "host" -> result.success(direct.host(
                     call.argument<String>("receiverId") ?: ""))
-                "discover" -> result.success(direct.discover())
+                "discover" -> result.success(direct.discover(
+                    call.argument<Boolean>("force") ?: false))
                 "connect" -> result.success(direct.connect(call.argument<String>("address") ?: ""))
                 "cancelAuto" -> result.success(direct.cancelAutomaticPairing())
                 "stop" -> { direct.stop(); result.success(true) }
