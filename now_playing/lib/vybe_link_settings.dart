@@ -260,7 +260,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               icon: const Icon(Icons.analytics_outlined),
               label: const Text('Refresh audio diagnostics'),
             ),
-            const Text('For this beta, audio is unencrypted PCM. '
+            const Text('For this beta, audio is unencrypted AAC-LC with PCM fallback. '
                 'Use a trusted Wi-Fi Direct or private network.',
                 style: TextStyle(color: Colors.white60)),
             const Divider(),
