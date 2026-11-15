@@ -41,6 +41,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private var localService: WifiP2pDnsSdServiceInfo? = null
     private var localServiceId = ""
     private var advertisingGeneration = 0
+    private var advertisingFailures = 0
     private var serviceRequest: WifiP2pServiceRequest? = null
     private var discoveryPending = false
     private var discoveryGeneration = 0
@@ -185,6 +186,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         localService = null
         advertised = false
         advertisingPending = false
+        advertisingFailures = 0
         if (previous != null) {
             val service = manager
             val ch = p2pChannel
@@ -228,6 +230,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 if (generation != advertisingGeneration) return
                 advertisingPending = false
                 advertised = true
+                advertisingFailures = 0
                 localService = info
                 event(mapOf("type" to "status",
                     "message" to "VYBE Head Unit visible to VYBE devices"))
@@ -236,8 +239,29 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 if (generation != advertisingGeneration) return
                 advertisingPending = false
                 advertised = false
-                event(mapOf("type" to "error",
-                    "message" to "Could not advertise VYBE receiver ($reason); shared Wi-Fi remains available"))
+                if (advertisingFailures < 2 &&
+                    pendingHostReceiverId == receiverId &&
+                    (reason == WifiP2pManager.ERROR ||
+                     reason == WifiP2pManager.BUSY)) {
+                    advertisingFailures++
+                    event(mapOf("type" to "status",
+                        "message" to "Android rejected VYBE advertisement ($reason); retrying once the group settles..."))
+                    mainHandler.postDelayed({
+                        if (generation == advertisingGeneration &&
+                            pendingHostReceiverId == receiverId && !advertised &&
+                            !advertisingPending) {
+                            service.requestConnectionInfo(ch) { state ->
+                                if (state.groupFormed && state.isGroupOwner &&
+                                    pendingHostReceiverId == receiverId) {
+                                    advertiseReceiver(receiverId)
+                                }
+                            }
+                        }
+                    }, 1200L * advertisingFailures)
+                } else {
+                    event(mapOf("type" to "error",
+                        "message" to "Could not advertise VYBE receiver ($reason); use Set up head-unit Wi-Fi Direct again"))
+                }
             }
         })
     }
@@ -476,7 +500,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         }
     }
 
-    fun host(receiverId: String): Boolean {
+    fun host(receiverId: String, refreshAdvertisement: Boolean = false): Boolean {
         if (!start()) return false
         if (!receiverId.matches(Regex("[0-9a-fA-F]{32}"))) {
             event(mapOf("type" to "error",
@@ -484,6 +508,10 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             return false
         }
         pendingHostReceiverId = receiverId
+        // A deliberate setup tap must recover even if the Android framework
+        // silently forgot a DNS-SD service while keeping the same P2P group.
+        // Automatic recovery leaves a healthy advertisement untouched.
+        if (refreshAdvertisement) forgetReceiverAdvertisement()
         // Don't broadcast VYBE's identity before Android finishes creating
         // the group. Advertising too early lets the phone tap a receiver
         // that cannot yet accept a connect() invitation (often ERROR 0).
