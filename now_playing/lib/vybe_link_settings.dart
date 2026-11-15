@@ -198,6 +198,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text('Decoded PCM bytes written: ${link.wifiStreamPlayedBytes}'),
               Text('Signal peak: ${link.wifiStreamReceiverPeak} / 32767'),
               Text('Jitter buffer: ${link.wifiStreamReceiverBufferedMs} ms'),
+              Text('Longest AAC packet gap: ${link.wifiStreamMaxPacketGapMs} ms'),
               Text('Buffer underruns: ${link.wifiStreamReceiverUnderruns}'),
               Text('Android audio underruns: ${link.wifiStreamTrackUnderruns}'),
               Text('Late packets dropped: ${link.wifiStreamDroppedPackets}'),
@@ -240,6 +241,9 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text('Audio format: ${link.wifiStreamSenderCodec}'),
               Text('Network bytes sent: ${link.wifiStreamSentBytes}'),
               Text('AAC frames encoded: ${link.wifiStreamFramesEncoded}'),
+              Text('Longest audio capture read: ${link.wifiStreamMaxCaptureReadMs} ms'),
+              Text('Longest AAC encoder operation: ${link.wifiStreamMaxEncodeMs} ms'),
+              Text('Longest Wi-Fi socket flush: ${link.wifiStreamMaxNetworkFlushMs} ms'),
               Text('Captured signal peak: ${link.wifiStreamSenderPeak} / 32767'),
               Text('Reconnect attempts: ${link.wifiStreamSenderReconnects}'),
               if (link.wifiStreamSenderLastFailure.isNotEmpty)
