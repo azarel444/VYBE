@@ -12,6 +12,7 @@ import android.net.wifi.WpsInfo
 import android.os.Build
 import android.os.Looper
 import android.os.Handler
+import android.os.SystemClock
 import io.flutter.plugin.common.MethodChannel
 
 /**
@@ -43,6 +44,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private var serviceRequest: WifiP2pServiceRequest? = null
     private var discoveryPending = false
     private var discoveryGeneration = 0
+    private var lastDiscoveryStartedMs = 0L
     private var listenersInstalled = false
 
     // Device addresses can rotate between reconnections. The receiver's
@@ -107,6 +109,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                         hostReadyChecks = 0
                         discoveryPending = false
                         discoveryGeneration++
+                        lastDiscoveryStartedMs = 0L
                         serviceRequest = null
                         forgetReceiverAdvertisement()
                         verifiedReceivers.clear()
@@ -291,9 +294,10 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
      *
      * Always rebuild the request for a new discovery and do not treat our
      * cached Kotlin request object as proof it exists in Android's stack.
-     * Retain verified VYBE identities during radio outages.
+     * Saved receiver identity remains in Flutter preferences. Discovered
+     * addresses must be refreshed because Android can rotate their MACs.
      */
-    fun discover(): Boolean {
+    fun discover(force: Boolean = false): Boolean {
         if (!start()) return false
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
@@ -304,6 +308,14 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             return true
         }
         if (discoveryPending) return true
+        val now = SystemClock.elapsedRealtime()
+        // Android's discovery callback means the SEARCH started, not that
+        // the scan finished. The 10-second Flutter recovery loop must not
+        // cancel a still-running search by clearing its service request.
+        // A user's Find button may explicitly force a fresh scan.
+        if (!force && lastDiscoveryStartedMs != 0L &&
+            now - lastDiscoveryStartedMs < 20000L) return true
+        lastDiscoveryStartedMs = now
         // A VYBE DNS-SD advertisement proves identity only at the time it
         // was received. Android can rotate peer MACs when its P2P group is
         // rebuilt. Never let yesterday's verified address look connectable.
@@ -318,6 +330,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         fun fail(message: String) {
             if (generation != discoveryGeneration) return
             discoveryPending = false
+            lastDiscoveryStartedMs = 0L
             event(mapOf("type" to "error", "message" to message))
         }
 
@@ -640,6 +653,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         advertisingGeneration++
         discoveryPending = false
         discoveryGeneration++
+        lastDiscoveryStartedMs = 0L
         hostPending = false
         hostReadyChecks = 0
         pendingHostReceiverId = ""
