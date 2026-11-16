@@ -34,7 +34,10 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     }
 
     private val manager = activity.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
-    private val p2pChannel = manager?.initialize(activity, Looper.getMainLooper(), null)
+    // Android can drop the underlying P2P framework channel without a Wi-Fi
+    // radio broadcast. A permanently-held null-listener channel required an
+    // app force-close to recover. Recreate it and all per-channel state.
+    private var p2pChannel: WifiP2pManager.Channel? = createP2pChannel()
     private var registered = false
     private var advertised = false
     private var advertisingPending = false
@@ -51,12 +54,51 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     // Device addresses can rotate between reconnections. The receiver's
     // published VYBE ID is the more stable identifier.
     private val verifiedReceivers = linkedMapOf<String, Map<String, String>>()
+    private val verifiedReceiverSeen = mutableMapOf<String, Long>()
     private var hostPending = false
     private var hostReadyChecks = 0
     private var pendingHostReceiverId = ""
     private val mainHandler = Handler(Looper.getMainLooper())
     private var connectingAddress: String? = null
     private var connectAttemptGeneration = 0
+
+    private fun createP2pChannel(): WifiP2pManager.Channel? {
+        val service = manager ?: return null
+        return service.initialize(activity, Looper.getMainLooper(),
+            object : WifiP2pManager.ChannelListener {
+                override fun onChannelDisconnected() {
+                    p2pChannel = null
+                    connectingAddress = null
+                    connectAttemptGeneration++
+                    hostPending = false
+                    hostReadyChecks = 0
+                    discoveryPending = false
+                    discoveryGeneration++
+                    lastDiscoveryStartedMs = 0L
+                    serviceRequest = null
+                    listenersInstalled = false
+                    localService = null
+                    advertised = false
+                    advertisingPending = false
+                    advertisingGeneration++
+                    verifiedReceivers.clear()
+                    verifiedReceiverSeen.clear()
+                    publishVerifiedReceivers()
+                    event(mapOf("type" to "channel_reset",
+                        "message" to "Android Wi-Fi Direct channel disconnected; reopening"))
+                    mainHandler.postDelayed({
+                        // Do not resurrect a channel after Activity disposal.
+                        if (registered && p2pChannel == null) {
+                            p2pChannel = createP2pChannel()
+                            if (p2pChannel != null) {
+                                event(mapOf("type" to "channel_recovered",
+                                    "message" to "Wi-Fi Direct framework reconnected"))
+                            }
+                        }
+                    }, 500L)
+                }
+            })
+    }
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -114,6 +156,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                         serviceRequest = null
                         forgetReceiverAdvertisement()
                         verifiedReceivers.clear()
+                        verifiedReceiverSeen.clear()
                         publishVerifiedReceivers()
                     }
                     event(mapOf("type" to "state",
@@ -150,11 +193,13 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             activity.registerReceiver(receiver, filter)
             registered = true
         }
-        // Android may have kept the P2P group after an app restart.
-        manager?.requestConnectionInfo(p2pChannel!!) { info ->
-            if (info.groupFormed && info.groupOwnerAddress != null) {
-                connectingAddress = null
-                connectAttemptGeneration++
+        // Android may keep a P2P group across app restarts. This is only
+        // a ROUTE hint, not proof the group is with the chosen head unit;
+        // Dart must verify the receiver's TCP hello before marking Connect up.
+        val ch = p2pChannel ?: return false
+        manager?.requestConnectionInfo(ch) { info ->
+            if (info.groupFormed && info.groupOwnerAddress != null &&
+                connectingAddress == null) {
                 event(mapOf("type" to "connected",
                     "host" to info.groupOwnerAddress.hostAddress,
                     "owner" to info.isGroupOwner))
@@ -301,6 +346,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 val id = receiverId.lowercase()
                 // Key by stable VYBE identity, not a rotating Android MAC.
                 // A new broadcast updates the same visible row in place.
+                verifiedReceiverSeen[id] = SystemClock.elapsedRealtime()
                 verifiedReceivers[id] = mapOf(
                     "address" to address,
                     "id" to id,
@@ -340,11 +386,17 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         if (!force && lastDiscoveryStartedMs != 0L &&
             now - lastDiscoveryStartedMs < 20000L) return true
         lastDiscoveryStartedMs = now
-        // A VYBE DNS-SD advertisement proves identity only at the time it
-        // was received. Android can rotate peer MACs when its P2P group is
-        // rebuilt. Never let yesterday's verified address look connectable.
-        // Saved receiver identity remains in Flutter preferences, not here.
-        verifiedReceivers.clear()
+        // Don't erase a valid, just-discovered peer while the user taps it.
+        // The old behavior cleared the entire verified list on EVERY scan
+        // (including background recovery), so connect(address) immediately
+        // rejected the address the UI had just displayed. Expire old records
+        // instead and refresh their timestamp on the next DNS-SD TXT reply.
+        verifiedReceivers.keys.filter { id ->
+            now - (verifiedReceiverSeen[id] ?: 0L) > 60000L
+        }.toList().forEach { id ->
+            verifiedReceivers.remove(id)
+            verifiedReceiverSeen.remove(id)
+        }
         publishVerifiedReceivers()
         discoveryPending = true
         val generation = ++discoveryGeneration
@@ -408,22 +460,42 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             })
         }
 
-        // Clear only requests on VYBE's own P2P channel, so neither stale
-        // requests nor doubled requests can race a fresh DNS-SD search.
-        service.clearServiceRequests(ch, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                if (generation != discoveryGeneration) return
-                serviceRequest = null
-                registerAndSearch(1)
+        // Reuse a registered service request during normal scans. Clearing
+        // and re-adding it every 20 seconds was interrupting in-flight
+        // discovery just as a user selected the head unit.
+        fun beginSearch(recoveriesRemaining: Int) {
+            service.discoverServices(ch, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    if (generation != discoveryGeneration) return
+                    discoveryPending = false
+                    event(mapOf("type" to "status",
+                        "message" to "Scanning for verified VYBE receivers..."))
+                }
+                override fun onFailure(reason: Int) {
+                    if (generation != discoveryGeneration) return
+                    if (reason == WifiP2pManager.NO_SERVICE_REQUESTS &&
+                        recoveriesRemaining > 0) {
+                        serviceRequest = null
+                        service.clearServiceRequests(ch,
+                            object : WifiP2pManager.ActionListener {
+                                override fun onSuccess() { registerAndSearch(0) }
+                                override fun onFailure(reason: Int) {
+                                    registerAndSearch(0)
+                                }
+                            })
+                    } else fail("VYBE service discovery failed (Android code $reason)")
+                }
+            })
+        }
+        if (serviceRequest != null) beginSearch(1)
+        else registerAndSearch(1)
+        // Service callbacks can be lost on some radios; allow the next
+        // deliberate scan to recover without restarting the app.
+        mainHandler.postDelayed({
+            if (generation == discoveryGeneration && discoveryPending) {
+                fail("Wi-Fi Direct discovery timed out; retrying with a fresh request")
             }
-            override fun onFailure(reason: Int) {
-                if (generation != discoveryGeneration) return
-                // Some vendors return an error when there were no requests.
-                // Still register our fresh one rather than giving up.
-                serviceRequest = null
-                registerAndSearch(1)
-            }
-        })
+        }, 12000L)
         return true
     }
 
