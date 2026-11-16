@@ -188,6 +188,7 @@ class VybeLink extends ChangeNotifier {
   bool _directGroupConnected = false;
   String _directGroupOwnerIp = '';
   bool _tcpConnectedViaDirect = false;
+  bool _senderReceiverIdentityVerified = false;
   bool _directRecoveryBusy = false;
   int _lastDirectRecoveryMs = 0;
   int _lastDirectPeerAttemptMs = 0;
@@ -394,10 +395,18 @@ class VybeLink extends ChangeNotifier {
             _directPairingStartedMs = 0;
             directStatus = data['message']?.toString() ??
                 'Wi-Fi Direct pairing did not finish';
-            if (enabled && autoConnect && _directPreferred) {
-              Future<void>.delayed(const Duration(seconds: 3), () {
-                if (enabled && autoConnect && !_directGroupConnected &&
-                    !_directPairingInProgress) {
+            final manualRecovery = _pendingDirectReceiverId.isNotEmpty &&
+                DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs &&
+                _manualDirectRecoveryAttempts < 2;
+            if (_directPreferred && enabled &&
+                (manualRecovery || _mayAutoPairDirect)) {
+              Future<void>.delayed(const Duration(milliseconds: 1800), () {
+                if (!enabled || _directGroupConnected ||
+                    _directPairingInProgress) return;
+                if (manualRecovery) {
+                  unawaited(_direct.invokeMethod<bool>(
+                      'discover', {'force': true}));
+                } else {
                   unawaited(_recoverDirect(immediately: true));
                 }
               });
@@ -498,7 +507,14 @@ class VybeLink extends ChangeNotifier {
       // session even if persistent auto-reconnect is disabled.
       if (manuallySelected) {
         _manualPairDeadlineMs =
-            DateTime.now().millisecondsSinceEpoch + 40000;
+            DateTime.now().millisecondsSinceEpoch + 90000;
+        _manualDirectRecoveryAttempts = 0;
+      }
+      if (remember) {
+        _pendingDirectReceiverId = candidates.single['id'] ?? '';
+        _pendingDirectPeerAddress = address;
+        _pendingDirectPeerName = candidates.single['name'] ?? '';
+        _pendingDirectRemember = true;
       }
       _directPairingInProgress = true;
       _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
@@ -517,31 +533,8 @@ class VybeLink extends ChangeNotifier {
         directStatus =
             'Pairing requested; waiting for Android to form Wi-Fi Direct group';
       }
-      if (ok && remember) {
-        // Save Wi-Fi Direct identity. The TCP IP is determined automatically
-        // from Android's connection information every time a group forms.
-        _savedDirectPeerAddress = address;
-        final chosen = directPeers.where((item) =>
-            item['address'] == address).toList();
-        if (chosen.isNotEmpty) {
-          _savedDirectPeerName = chosen.first['name'] ?? '';
-          _savedDirectReceiverId = chosen.first['id'] ?? '';
-        }
-        _directPreferred = true;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('link_direct_peer', address);
-        await prefs.setString('link_direct_peer_name', _savedDirectPeerName);
-        await prefs.setString('link_direct_receiver_id', _savedDirectReceiverId);
-        await prefs.setBool('link_direct_preferred', true);
-        if (manuallySelected &&
-            pairedReceiverId.isNotEmpty &&
-            pairedReceiverId != _savedDirectReceiverId) {
-          // A user deliberately selected a DIFFERENT VYBE receiver.
-          // Keep identity when reconnecting manually to the same unit.
-          pairedReceiverId = '';
-          await prefs.setString('link_paired_receiver', '');
-        }
-      }
+      // Android accepting WifiP2pManager.connect() is not proof of pairing.
+      // Save the selected stable ID ONLY after the head unit's TCP hello.
     } catch (e) {
       _directPairingInProgress = false;
       _directPairingStartedMs = 0;
@@ -1264,11 +1257,12 @@ class VybeLink extends ChangeNotifier {
       }
     }
     if (!enabled) _directGroupConnected = false;
-    if (disabledAuto) {
+    if (disabledAuto &&
+        DateTime.now().millisecondsSinceEpoch >= _manualPairDeadlineMs) {
       _directPairingInProgress = false;
       _directPairingStartedMs = 0;
-      // Cancel ONLY uncompleted Android pairing/discovery. An established
-      // Wi-Fi Direct group and a working metadata/audio stream are retained.
+      // Preference changes must not cancel an explicitly requested manual
+      // pairing session while Android is still negotiating it.
       try { await _direct.invokeMethod<bool>('cancelAuto'); }
       catch (error) { debugPrint('VYBE could not cancel auto pairing: $error'); }
     }
@@ -1408,6 +1402,7 @@ class VybeLink extends ChangeNotifier {
     _socket?.destroy(); _socket = null;
     await _server?.close(); _server = null;
     _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0;
+    _senderReceiverIdentityVerified = false;
     _artGeneration++; _rxGeneration++;
     _sentFanartArtist = ''; _currentSenderArtist = '';
     _sentFanartHash = 0; _fanartGeneration++;
@@ -1611,9 +1606,8 @@ class VybeLink extends ChangeNotifier {
       return;
     }
 
-    // A user-initiated manual session is complete. From now on, a later
-    // disconnect must stay disconnected until another explicit action.
-    _manualPairDeadlineMs = 0;
+    // The manual pairing session completes ONLY after verifying the TCP
+    // hello, not when an arbitrary TCP port accepts a connection.
     _socket = socket;
     _tcpConnectedViaWired = _isWiredDestination(address);
     _tcpConnectedViaDirect = !_tcpConnectedViaWired &&
@@ -1642,10 +1636,18 @@ class VybeLink extends ChangeNotifier {
       debugPrint('VYBE Link failed to persist working receiver IP: $e');
     }
     if (generation != _generation || !identical(socket, _socket)) return;
-    status = 'Connected via $activeTransport to $address';
-    // The original working method transmitted immediately upon TCP connect.
-    // Do not wait for a hello packet, which could prevent all song data.
+    _senderReceiverIdentityVerified = false;
+    status = 'Verifying VYBE head unit identity...';
+    // The selected receiver must send a valid hello before song data flows.
     final peer = socket;
+    _helloTimer?.cancel();
+    _helloTimer = Timer(const Duration(seconds: 7), () {
+      if (identical(_socket, peer) && !_senderReceiverIdentityVerified) {
+        status = 'Receiver did not confirm its VYBE identity';
+        peer.destroy();
+        _senderDisconnected(peer);
+      }
+    });
     final lines = peer.cast<List<int>>()
         .transform(utf8.decoder).transform(const LineSplitter());
     _socketSub = lines.listen((line) {
@@ -1668,7 +1670,9 @@ class VybeLink extends ChangeNotifier {
         if (data['kind'] != 'hello') return;
         final id = (data['id'] as String?) ?? '';
         if (id.length < 16 || id.length > 128) return;
-        if (pairedReceiverId.isNotEmpty && pairedReceiverId != id) {
+        final expectedReceiverId = _pendingDirectReceiverId.isNotEmpty
+            ? _pendingDirectReceiverId : pairedReceiverId;
+        if (expectedReceiverId.isNotEmpty && expectedReceiverId != id) {
           // A previously saved IP may now belong to another device. Never
           // keep reconnecting to that stale address forever; rediscover the
           // paired receiver by its stable identity on the next attempt.
@@ -1688,10 +1692,39 @@ class VybeLink extends ChangeNotifier {
           _senderDisconnected(peer);
           return;
         }
+        _helloTimer?.cancel();
+        _helloTimer = null;
         pairedReceiverId = id;
+        _senderReceiverIdentityVerified = true;
+        status = 'Connected via $activeTransport to $address';
+        if (_tcpConnectedViaDirect && _pendingDirectRemember &&
+            _pendingDirectReceiverId == id) {
+          _savedDirectReceiverId = id;
+          _savedDirectPeerAddress = _pendingDirectPeerAddress;
+          _savedDirectPeerName = _pendingDirectPeerName;
+        }
+        _pendingDirectReceiverId = '';
+        _pendingDirectPeerAddress = '';
+        _pendingDirectPeerName = '';
+        _pendingDirectRemember = false;
+        _manualDirectRecoveryAttempts = 0;
+        _manualPairDeadlineMs = 0;
+        _directPreferred = _directPreferred || _tcpConnectedViaDirect;
+        if (!_autoPreferenceExplicit && _tcpConnectedViaDirect) {
+          autoConnect = true;
+        }
+        _send();
+        notifyListeners();
         SharedPreferences.getInstance().then((p) async {
           await p.setString('link_address', address);
           await p.setString('link_paired_receiver', id);
+          if (_tcpConnectedViaDirect) {
+            await p.setString('link_direct_receiver_id', id);
+            await p.setString('link_direct_peer', _savedDirectPeerAddress);
+            await p.setString('link_direct_peer_name', _savedDirectPeerName);
+            await p.setBool('link_direct_preferred', true);
+            if (!_autoPreferenceExplicit) await p.setBool('link_auto', true);
+          }
         }).catchError((Object e) {
           debugPrint('VYBE Link could not remember receiver: $e');
         });
@@ -1699,7 +1732,7 @@ class VybeLink extends ChangeNotifier {
     }, onDone: () => _senderDisconnected(peer),
         onError: (_) => _senderDisconnected(peer), cancelOnError: true);
     _sendTimer = Timer.periodic(const Duration(seconds: 2), (_) => _send());
-    _send();
+    // The verified hello callback starts metadata delivery. 
     // Send cached clearlogos only after the first metadata packet, so the
     // receiver already knows which artist a logo belongs to.
     notifyListeners();
@@ -1723,6 +1756,7 @@ class VybeLink extends ChangeNotifier {
     // the VYBE metadata connection briefly drops.
     _tcpConnectedViaDirect = false;
     _tcpConnectedViaWired = false;
+    _senderReceiverIdentityVerified = false;
     activeTransport = 'Disconnected';
     _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
@@ -1755,7 +1789,8 @@ class VybeLink extends ChangeNotifier {
   // transmit position updates on every model notification.
   void _send() {
     final socket = _socket, model = _model;
-    if (socket == null || model == null || !enabled || role != 'sender') return;
+    if (socket == null || model == null || !enabled || role != 'sender' ||
+        !_senderReceiverIdentityVerified) return;
     final track = '${model.title}|${model.artist}|${model.album}';
     final changed = track != _lastTrack;
     if (changed) { _lastTrack = track; _lastArtHash = 0; _artGeneration++; }
