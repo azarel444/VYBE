@@ -373,6 +373,9 @@ class VybeLink extends ChangeNotifier {
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             _bandRefreshRetries = 0;
+            directBandVerified = false;
+            directActualBand = 'Measuring new Wi-Fi Direct group...';
+            directFrequencyMHz = 0;
             _directGroupConnected = true;
             directPairingDiagnostic = '';
             _directTcpFailureCount = 0;
@@ -1572,6 +1575,15 @@ class VybeLink extends ChangeNotifier {
   /// required. Receiver identity is learned asynchronously without blocking
   /// the first metadata packet.
   Future<void> connect({bool manual = false}) async {
+    if (enabled && role == 'sender' && _directPreferred &&
+        _directGroupConnected && directBandMode != 'auto') {
+      final expected = directBandMode == '5ghz' ? '5 GHz' : '2.4 GHz';
+      if (!directBandVerified || directActualBand != expected) {
+        // Other watchdog/retry paths must not bypass the strict-band test.
+        // Only the band's *actual* measured group frequency permits TCP.
+        return;
+      }
+    }
     if (enabled && role == 'sender' && _directPreferred &&
         !_directGroupConnected) {
       // Wi-Fi Direct must complete group negotiation before TCP.
