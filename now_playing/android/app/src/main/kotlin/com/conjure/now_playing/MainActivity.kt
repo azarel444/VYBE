@@ -911,9 +911,6 @@ open class MainActivity : FlutterActivity() {
         val sender = getSharedPreferences(VybeWifiAudioSenderService.PREFS, Context.MODE_PRIVATE)
         val receiver = getSharedPreferences(VybeWifiAudioReceiverService.PREFS, Context.MODE_PRIVATE)
         val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val clockNow = android.os.SystemClock.elapsedRealtime()
-        fun ageSince(lastAt: Long): Long =
-            if (lastAt <= 0L || lastAt > clockNow) 0L else clockNow - lastAt
         return mapOf(
             "sender" to (sender.getString("state", "off") ?: "off"),
             "senderDetail" to (sender.getString("detail", "Not started") ?: ""),
@@ -924,9 +921,9 @@ open class MainActivity : FlutterActivity() {
             "senderFramesEncoded" to sender.getLong("framesEncoded", 0L),
             "senderSendQueueMs" to sender.getInt("sendQueueMs", 0),
             "senderDroppedFrames" to sender.getLong("sendFramesDropped", 0L),
-            "senderCaptureIdleMs" to ageSince(sender.getLong("captureAtMs", 0L)),
-            "senderEncoderIdleMs" to ageSince(sender.getLong("encoderAtMs", 0L)),
-            "senderNetworkIdleMs" to ageSince(sender.getLong("networkAtMs", 0L)),
+            "senderCaptureIdleMs" to sender.getLong("captureIdleMs", 0L),
+            "senderEncoderIdleMs" to sender.getLong("encoderIdleMs", 0L),
+            "senderNetworkIdleMs" to sender.getLong("networkIdleMs", 0L),
             "senderReconnects" to sender.getInt("reconnectAttempts", 0),
             "senderLastFailure" to (sender.getString("lastFailure", "") ?: ""),
             "receiver" to (receiver.getString("state", "off") ?: "off"),
@@ -950,22 +947,6 @@ open class MainActivity : FlutterActivity() {
                     android.os.SystemClock.elapsedRealtime() < it -> 0L
                     else -> android.os.SystemClock.elapsedRealtime() - it
                 } },
-            "receiverDecoderIdleMs" to receiver.getLong(
-                "lastDecodedPcmAtMs", 0L).let { when {
-                    it <= 0L -> 0L
-                    android.os.SystemClock.elapsedRealtime() < it -> 0L
-                    else -> android.os.SystemClock.elapsedRealtime() - it
-                } },
-            "receiverSpeakerIdleMs" to receiver.getLong(
-                "lastSpeakerWriteAtMs", 0L).let { when {
-                    it <= 0L -> 0L
-                    android.os.SystemClock.elapsedRealtime() < it -> 0L
-                    else -> android.os.SystemClock.elapsedRealtime() - it
-                } },
-            "receiverPcmQueueMs" to receiver.getInt("decodedPcmQueueMs", 0),
-            "receiverPcmDropped" to receiver.getInt("decodedPcmBlocksDropped", 0),
-            "receiverMaxDecodeMs" to receiver.getLong("longestDecoderCallMs", 0L),
-            "receiverMaxSpeakerWriteMs" to receiver.getLong("longestSpeakerWriteMs", 0L),
             "receiverLastFailure" to (receiver.getString("lastFailure", "") ?: ""),
             "outputVolume" to audio.getStreamVolume(AudioManager.STREAM_MUSIC),
             "outputMaxVolume" to audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
