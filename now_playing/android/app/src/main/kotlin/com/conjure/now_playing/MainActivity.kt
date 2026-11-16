@@ -703,6 +703,8 @@ open class MainActivity : FlutterActivity() {
             val direct = vybeDirect!!
             when (call.method) {
                 "available" -> result.success(direct.available())
+                "bandCapabilities" -> result.success(direct.bandCapabilities())
+                "refreshBandInfo" -> result.success(direct.refreshBandInfo())
                 "permission" -> result.success(direct.permission())
                 "requestPermission" -> {
                     val permission = direct.permission()
@@ -717,7 +719,9 @@ open class MainActivity : FlutterActivity() {
                     call.argument<Boolean>("refreshAdvertisement") ?: false))
                 "discover" -> result.success(direct.discover(
                     call.argument<Boolean>("force") ?: false))
-                "connect" -> result.success(direct.connect(call.argument<String>("address") ?: ""))
+                "connect" -> result.success(direct.connect(
+                    call.argument<String>("address") ?: "",
+                    call.argument<String>("bandMode") ?: "auto"))
                 "cancelAuto" -> result.success(direct.cancelAutomaticPairing())
                 "resetGroup" -> result.success(direct.resetStaleGroup())
                 "stop" -> { direct.stop(); result.success(true) }
