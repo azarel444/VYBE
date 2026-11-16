@@ -62,6 +62,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private val mainHandler = Handler(Looper.getMainLooper())
     private var connectingAddress: String? = null
     private var connectAttemptGeneration = 0
+    private var connectPreflightPassed = false
     private var resettingStaleGroup = false
 
     private fun createP2pChannel(): WifiP2pManager.Channel? {
@@ -72,6 +73,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     p2pChannel = null
                     resettingStaleGroup = false
                     connectingAddress = null
+                    connectPreflightPassed = false
                     connectAttemptGeneration++
                     hostPending = false
                     hostReadyChecks = 0
@@ -127,10 +129,16 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                                     if (connectingAddress != requestedAddress)
                                         return@requestGroupInfo
                                     val actualOwner = group?.owner?.deviceAddress
-                                    if (group?.isGroupOwner == false &&
-                                        actualOwner?.equals(requestedAddress,
-                                            ignoreCase = true) == true) {
+                                    if (connectPreflightPassed &&
+                                        group?.isGroupOwner == false) {
+                                        // Android can randomize the owner's
+                                        // P2P MAC at group formation. Once
+                                        // preflight has cleared an unrelated
+                                        // group, trust group formation
+                                        // provisionally and let TCP hello
+                                        // validate the receiver's stable ID.
                                         connectingAddress = null
+                                        connectPreflightPassed = false
                                         connectAttemptGeneration++
                                         event(mapOf(
                                             "type" to "connected",
@@ -138,7 +146,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                                             "owner" to false))
                                     } else {
                                         event(mapOf("type" to "pairing",
-                                            "message" to "Waiting for selected head unit; existing P2P group is not its group"))
+                                            "message" to "Waiting for selected Wi-Fi Direct group, preflight still active"))
                                     }
                                 }
                             } else {
@@ -698,6 +706,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             groupOwnerIntent = 0
         }
         connectingAddress = address
+        connectPreflightPassed = false
         val generation = ++connectAttemptGeneration
         event(mapOf("type" to "pairing",
             "message" to "Requesting Wi-Fi Direct pairing with verified VYBE head unit..."))
@@ -705,6 +714,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         fun formedGroup(host: String, isOwner: Boolean) {
             if (generation != connectAttemptGeneration) return
             connectingAddress = null
+            connectPreflightPassed = false
             connectAttemptGeneration++
             event(mapOf("type" to "connected",
                 "host" to host, "owner" to isOwner))
@@ -713,6 +723,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         fun rejected(reason: Int) {
             if (generation != connectAttemptGeneration) return
             connectingAddress = null
+            connectPreflightPassed = false
             connectAttemptGeneration++
             // ERROR=0 is generic. It does NOT prove an expired MAC and must
             // not erase a fresh verified TXT record. The caller can refresh
@@ -790,6 +801,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             if (generation == connectAttemptGeneration &&
                 connectingAddress == address) {
                 connectingAddress = null
+                connectPreflightPassed = false
                 connectAttemptGeneration++
                 event(mapOf("type" to "pairing_timeout",
                     "message" to "Wi-Fi Direct group not formed; refresh VYBE discovery"))
@@ -805,6 +817,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 connectingAddress != address) return@requestGroupInfo
             val ownerAddress = existing?.owner?.deviceAddress
             if (existing == null) {
+                connectPreflightPassed = true
                 attemptConnect(1)
             } else if (!existing.isGroupOwner &&
                 ownerAddress?.equals(address, ignoreCase = true) == true) {
@@ -813,6 +826,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     if (info.groupFormed && info.groupOwnerAddress != null) {
                         formedGroup(info.groupOwnerAddress.hostAddress, info.isGroupOwner)
                     } else {
+                        connectPreflightPassed = true
                         attemptConnect(1)
                     }
                 }
@@ -821,8 +835,10 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     "message" to "Releasing old Wi-Fi Direct group before pairing selected head unit"))
                 service.removeGroup(ch, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        if (generation == connectAttemptGeneration)
+                        if (generation == connectAttemptGeneration) {
+                            connectPreflightPassed = true
                             mainHandler.postDelayed({ attemptConnect(1) }, 650L)
+                        }
                     }
                     override fun onFailure(reason: Int) {
                         if (generation == connectAttemptGeneration)
