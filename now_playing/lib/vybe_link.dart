@@ -170,6 +170,7 @@ class VybeLink extends ChangeNotifier {
   bool directAvailable = false;
   bool directActive = false;
   String directStatus = 'Not started';
+  String directPairingDiagnostic = '';
   List<Map<String, String>> directPeers = [];
   bool _directRegistered = false;
   // Remember that Wi-Fi Direct was actually chosen, not just that TCP auto
@@ -344,6 +345,7 @@ class VybeLink extends ChangeNotifier {
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             _directGroupConnected = true;
+            directPairingDiagnostic = '';
             _directTcpFailureCount = 0;
             _directGroupOwnerIp = host;
             directActive = true;
@@ -449,6 +451,9 @@ class VybeLink extends ChangeNotifier {
                 }
               });
             }
+            break;
+          case 'diagnostic':
+            directPairingDiagnostic = data['message']?.toString() ?? '';
             break;
           case 'error':
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct error';
@@ -587,6 +592,7 @@ class VybeLink extends ChangeNotifier {
         _pendingDirectRemember = true;
       }
       _directPairingInProgress = true;
+      directPairingDiagnostic = '';
       _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
       final ok = await _direct.invokeMethod<bool>(
           'connect', {'address': address}) ?? false;
