@@ -181,3 +181,63 @@ internal class VybeAacDecoder : Closeable {
         try { codec.release() } catch (_: Exception) {}
     }
 }
+
+
+/**
+ * Experimental VYBE private RTP-style AAC-LC transport over UDP.
+ * RTP v2 fixed 12-byte header, dynamic payload type 97. The raw AAC access
+ * unit payload is VYBE-specific (not interoperable RFC 3640 AU framing).
+ * Each datagram contains exactly one 1024-sample AAC frame, below the usual
+ * Wi-Fi MTU to avoid IP fragmentation.
+ *
+ * Sequence numbers distinguish missing/late packets; 44.1kHz timestamps
+ * track capture time. SSRC distinguishes restarts without requiring TCP.
+ */
+internal object VybeRtpAudio {
+    const val PORT = 38928
+    const val HEADER_SIZE = 12
+    const val PAYLOAD_TYPE = 97
+    const val MAX_DATAGRAM = 1400
+
+    data class Packet(
+        val sequence: Int,
+        val timestamp: Long,
+        val streamId: Int,
+        val aac: ByteArray
+    )
+
+    fun encode(aac: ByteArray, sequence: Int, timestamp: Long, streamId: Int): ByteArray {
+        require(aac.isNotEmpty() && aac.size <= MAX_DATAGRAM - HEADER_SIZE) {
+            "AAC frame exceeds safe UDP datagram length"
+        }
+        val data = ByteBuffer.allocate(HEADER_SIZE + aac.size)
+        data.put(0x80.toByte()) // RTP v2, no header extensions / padding
+        data.put(PAYLOAD_TYPE.toByte())
+        data.putShort(sequence.toShort())
+        data.putInt(timestamp.toInt())
+        data.putInt(streamId)
+        data.put(aac)
+        return data.array()
+    }
+
+    fun decode(data: ByteArray, length: Int): Packet? {
+        if (length <= HEADER_SIZE || length > MAX_DATAGRAM ||
+            (data[0].toInt() and 0xff) != 0x80 ||
+            (data[1].toInt() and 0xff) != PAYLOAD_TYPE) return null
+        val buffer = ByteBuffer.wrap(data, 0, length)
+        buffer.position(2)
+        val seq = buffer.short.toInt() and 0xffff
+        val time = buffer.int.toLong() and 0xffffffffL
+        val stream = buffer.int
+        val aac = ByteArray(length - HEADER_SIZE)
+        buffer.get(aac)
+        return Packet(seq, time, stream, aac)
+    }
+
+    fun unwrap(sequence16: Int, reference: Int): Int {
+        var candidate = (reference and -65536) or sequence16
+        if (candidate < reference - 32768) candidate += 65536
+        if (candidate > reference + 32768) candidate -= 65536
+        return candidate
+    }
+}
