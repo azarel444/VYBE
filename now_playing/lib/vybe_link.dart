@@ -70,12 +70,6 @@ class VybeLink extends ChangeNotifier {
   int wifiStreamEncoderIdleMs = 0;
   int wifiStreamNetworkIdleMs = 0;
   int wifiStreamReceiverLastPacketAgeMs = 0;
-  int wifiStreamReceiverDecoderIdleMs = 0;
-  int wifiStreamReceiverSpeakerIdleMs = 0;
-  int wifiStreamReceiverPcmQueueMs = 0;
-  int wifiStreamReceiverPcmDropped = 0;
-  int wifiStreamReceiverMaxDecodeMs = 0;
-  int wifiStreamReceiverMaxSpeakerWriteMs = 0;
   String wifiStreamToneStatus = 'Not tested';
   int wifiStreamSentBytes = 0;
   int wifiStreamSenderPeak = 0;
@@ -844,18 +838,6 @@ class VybeLink extends ChangeNotifier {
           (result['receiverDroppedPackets'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverLastPacketAgeMs =
           (result['receiverLastPacketAgeMs'] as num?)?.toInt() ?? 0;
-      wifiStreamReceiverDecoderIdleMs =
-          (result['receiverDecoderIdleMs'] as num?)?.toInt() ?? 0;
-      wifiStreamReceiverSpeakerIdleMs =
-          (result['receiverSpeakerIdleMs'] as num?)?.toInt() ?? 0;
-      wifiStreamReceiverPcmQueueMs =
-          (result['receiverPcmQueueMs'] as num?)?.toInt() ?? 0;
-      wifiStreamReceiverPcmDropped =
-          (result['receiverPcmDropped'] as num?)?.toInt() ?? 0;
-      wifiStreamReceiverMaxDecodeMs =
-          (result['receiverMaxDecodeMs'] as num?)?.toInt() ?? 0;
-      wifiStreamReceiverMaxSpeakerWriteMs =
-          (result['receiverMaxSpeakerWriteMs'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverLastFailure =
           result['receiverLastFailure']?.toString() ?? '';
       wifiStreamConnections = (result['receiverConnections'] as num?)?.toInt() ?? 0;
