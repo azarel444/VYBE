@@ -24,6 +24,11 @@ class NowPlayingModel extends ChangeNotifier {
   bool visualizerEnabled = true;
   bool artLookupEnabled = true;
   bool lyricsEnabled = false;
+  // The phone must resolve lyrics for its paired head unit even when its own
+  // current theme does not display them. This flag never forces the phone UI
+  // to show lyrics, and doesn't depend on a second network connection.
+  bool _sendLyricsOverLink = false;
+  bool get _needsLyrics => lyricsEnabled || _sendLyricsOverLink;
   List<LyricLine>? lyrics;
   bool active = false;
   bool playing = false;
@@ -361,7 +366,7 @@ class NowPlayingModel extends ChangeNotifier {
     if (artwork != null && (changed || art == null || !listEquals(art!.bytes, artwork))) {
       _setArt(artwork);
     }
-    if (changed && lyricsEnabled) _fetchLyrics();
+    if (changed && _needsLyrics) _fetchLyrics();
     notifyListeners();
     if (changed && _missingAlbumTag) _resolveMissingAlbum(key);
   }
@@ -864,7 +869,7 @@ class NowPlayingModel extends ChangeNotifier {
       }
       if (_lyricsCache.length > 12) _lyricsCache.remove(_lyricsCache.keys.first);
     }
-    if (token != _lyricsToken || track != _trackKey || !lyricsEnabled) return;
+    if (token != _lyricsToken || track != _trackKey || !_needsLyrics) return;
     lyrics = found;
     notifyListeners();
     // A temporary network failure must not leave lyrics blank for the entire
@@ -873,7 +878,7 @@ class NowPlayingModel extends ChangeNotifier {
       final seconds = _lyricsRetryAttempts++ == 0 ? 8 : 25;
       _lyricsRetryTimer = Timer(Duration(seconds: seconds), () {
         _lyricsRetryTimer = null;
-        if (lyricsEnabled && active && _trackKey == track && lyrics == null) {
+        if (_needsLyrics && active && _trackKey == track && lyrics == null) {
           _fetchLyrics();
         }
       });
@@ -897,15 +902,53 @@ class NowPlayingModel extends ChangeNotifier {
     return ans;
   }
 
+  /// The paired sender needs timed lyrics regardless of its own displayed
+  /// theme. On the head unit, received lines can still be displayed according
+  /// to the user's lyrics preference.
+  void setLinkLyricsSourceEnabled(bool on) {
+    if (_sendLyricsOverLink == on) return;
+    _sendLyricsOverLink = on;
+    if (on && title.isNotEmpty && (lyrics == null || lyrics!.isEmpty)) {
+      _resetLyricsLookup();
+      _fetchLyrics();
+    } else if (!on && !lyricsEnabled) {
+      _resetLyricsLookup();
+      _lyricsToken++;
+      lyrics = null;
+      notifyListeners();
+    }
+  }
+
+  /// Apply a full ordered set of synchronized lyric lines from the verified
+  /// phone. Ignore delayed packets from a prior song and prevent an in-flight
+  /// local LRCLIB lookup from replacing the phone's version afterward.
+  void applyLinkLyrics(String track, List<LyricLine> lines) {
+    if (!_linkReceiverActive || track != _trackKey || lines.isEmpty) return;
+    _resetLyricsLookup();
+    _lyricsToken++;
+    lyrics = List<LyricLine>.unmodifiable(lines);
+    final cacheKey = '${artist.toLowerCase()}|${title.toLowerCase()}';
+    _lyricsCache[cacheKey] = lyrics;
+    if (_lyricsCache.length > 12) _lyricsCache.remove(_lyricsCache.keys.first);
+    notifyListeners();
+  }
+
   void setLyricsEnabled(bool on) {
+    if (lyricsEnabled == on) return;
     lyricsEnabled = on;
     if (on) {
       _resetLyricsLookup();
-      if (title.isNotEmpty) _fetchLyrics();
-    } else {
+      // A receiver may already have the synchronized lines from the phone.
+      // Don't start a redundant lookup or replace those lines.
+      if (title.isNotEmpty && (lyrics == null || lyrics!.isEmpty)) _fetchLyrics();
+      notifyListeners();
+    } else if (!_sendLyricsOverLink) {
       _resetLyricsLookup();
       lyrics = null;
       _lyricsToken++;
+      notifyListeners();
+    } else {
+      // Keep fetching for the head unit but honor the phone's display toggle.
       notifyListeners();
     }
   }
