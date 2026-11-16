@@ -214,6 +214,8 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               children: [
                 Text('Local discovery: ${link.discoveryStatus}'),
                 Text('Metadata packets: ${link.metadataReceived}'),
+                Text('Synchronized lyric sheets received: ${link.lyricsReceived}'),
+                if (headUnit) Text('Lyrics: ${link.lyricsTransferStatus}'),
                 Text('Album art received: ${link.artworkReceived}'),
                 Text('Network / artwork errors: ${link.artworkErrors}'),
                 Text('Last track: ${link.lastReceivedTrack}'),
