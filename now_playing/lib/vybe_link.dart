@@ -379,6 +379,9 @@ class VybeLink extends ChangeNotifier {
             directStatus = owner && role == 'receiver'
                 ? 'Head-unit Wi-Fi Direct group ready; waiting for verified phone'
                 : 'Wi-Fi Direct group formed; verifying receiver connection';
+            // Read the *actual* P2P group frequency from modern phones.
+            // Android 9 reports Unknown rather than guessing from STA Wi-Fi.
+            unawaited(refreshDirectBandInfo());
             // The Android Wi-Fi Direct API supplies groupOwnerAddress.
             // NEVER ask the user for an IP or hardcode one for all networks.
             await _updateAddresses();
