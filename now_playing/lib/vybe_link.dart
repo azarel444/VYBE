@@ -249,6 +249,11 @@ class VybeLink extends ChangeNotifier {
     // A Wi-Fi Direct group can survive an Android process restart while the
     // VYBE DNS-SD advertisement does not. Re-publish the receiver's identity
     // even when the radio reports that the group is already formed.
+    if (role == 'receiver' && _server == null) {
+      // Do not advertise a P2P receiver until the TCP listener is bound.
+      // The independent receiver watchdog will retry opening that listener.
+      return;
+    }
     if (role == 'receiver' && _directGroupConnected) {
       try {
         await _direct.invokeMethod<bool>(
@@ -1164,8 +1169,10 @@ class VybeLink extends ChangeNotifier {
     await directInitialize();
     await _updateAddresses();
     if (enabled && role == 'receiver') {
-      // Head unit must be listening before a phone can finish its handshake.
-      unawaited(connect());
+      // Finish binding the TCP listener BEFORE automatically publishing the
+      // head unit's P2P group. A delayed ATOTO startup previously advertised
+      // a receiver that couldn't answer the very first TCP hello.
+      await connect();
     } else if (enabled && role == 'sender' && autoConnect &&
         !_directPreferred) {
       // Shared Wi-Fi uses its own discovery. Direct must form a P2P group
@@ -1272,7 +1279,13 @@ class VybeLink extends ChangeNotifier {
     // An explicitly chosen phone cannot connect if the listener disappeared
     // when Android backgrounded or relaunched the head unit.
     if (role == 'receiver' && _server == null && !_connecting) {
-      unawaited(connect(manual: true));
+      unawaited(() async {
+        await connect(manual: true);
+        if (enabled && autoConnect && _directPreferred && _server != null) {
+          await _recoverDirect(immediately: true);
+        }
+      }());
+      return;
     }
     if (!autoConnect) return;
     if (_directPreferred) unawaited(_recoverDirect(immediately: true));
