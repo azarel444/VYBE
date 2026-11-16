@@ -1529,13 +1529,11 @@ class VybeLink extends ChangeNotifier {
         final server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
         if (generation != _generation) { await server.close(); return; }
         _server = server;
-        // Discovery must not interfere with accepting a manually entered IP.
-        await _ensureResponder();
-        if (generation != _generation) {
-          await _responder?.close(); _responder = null;
-          await server.close();
-          return;
-        }
+        // Critical ordering: make the TCP listener accept immediately.
+        // Starting the optional UDP LAN discovery responder can be slow on
+        // the ATOTO. Awaiting it BEFORE server.listen previously let the
+        // phone establish TCP while the head unit wasn't reading any hello,
+        // producing timeouts and repeated failed initial connections.
         status = 'Listening on ${localAddresses.isEmpty ? "no network IP detected" : localAddresses}:$port';
         notifyListeners();
         server.listen((client) {
@@ -1566,6 +1564,9 @@ class VybeLink extends ChangeNotifier {
             cancelOnError: true,
           );
         });
+        // Start LAN discovery independently; Wi-Fi Direct joins and the
+        // VYBE TCP handshake must never depend on this optional responder.
+        unawaited(_ensureResponder());
       } catch (e) {
         if (generation == _generation) {
           status = 'Cannot listen for connections: $e';
@@ -1726,7 +1727,7 @@ class VybeLink extends ChangeNotifier {
       await prefs.setBool('link_enabled', true);
       // Keep the user's persisted auto-connect preference unchanged.
       await prefs.setString('link_role', 'sender');
-      await prefs.setString('link_address', address);
+      // Save IP only after the receiver hello establishes its identity.
       if (_tcpConnectedViaWired) {
         await prefs.setString('link_wired_address', address);
       }
