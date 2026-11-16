@@ -342,6 +342,13 @@ class VybeLink extends ChangeNotifier {
           case 'connected':
             final host = data['host']?.toString() ?? '';
             final owner = data['owner'] == true;
+            // An old P2P group can survive reinstall/relaunch. Do not let a
+            // first-time sender treat it as a verified receiver connection.
+            if (role == 'sender' && !_hasConfirmedDirectReceiver &&
+                _pendingDirectReceiverId.isEmpty) {
+              directStatus = 'Found an existing Wi-Fi Direct group; choose a verified VYBE head unit';
+              break;
+            }
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             _directGroupConnected = true;
@@ -481,9 +488,10 @@ class VybeLink extends ChangeNotifier {
             directStatus = data['message']?.toString() ??
                 'Android Wi-Fi Direct service ready again';
             if (enabled && _directPreferred) {
-              final manuallyRetrying = _pendingDirectReceiverId.isNotEmpty &&
+              final recoveringManualChannel =
+                  _pendingDirectReceiverId.isNotEmpty &&
                   DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs;
-              if (role == 'sender' && manuallyRetrying) {
+              if (role == 'sender' && recoveringManualChannel) {
                 unawaited(_direct.invokeMethod<bool>(
                     'discover', {'force': true}));
               } else if (autoConnect) {
@@ -2152,6 +2160,18 @@ class VybeLink extends ChangeNotifier {
           notifyListeners();
         }
         metadataReceived++;
+        // After a real VYBE metadata exchange, the head unit can restore
+        // its P2P group automatically on later starts. New installations
+        // remain manual until this first successful session; never override
+        // an explicit Auto Connect OFF preference.
+        if (!_autoPreferenceExplicit && !autoConnect &&
+            _directPreferred && _directGroupConnected) {
+          autoConnect = true;
+          unawaited(SharedPreferences.getInstance().then((prefs) async {
+            await prefs.setBool('link_auto', true);
+          }));
+          notifyListeners();
+        }
         // The phone's existing VYBE Connect playback state is an Android-
         // independent trigger. Only the first PLAYING transition requests
         // activation of the user-selected media session on the head unit.
