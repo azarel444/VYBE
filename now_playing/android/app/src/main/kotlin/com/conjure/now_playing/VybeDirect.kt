@@ -815,6 +815,47 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     }
 
     /**
+     * Repair a P2P group that Android calls "connected" but whose
+     * group-owner IP cannot complete VYBE's receiver identity handshake.
+     * The Flutter side calls this only after several actual TCP failures or
+     * a wrong receiver hello. It does not remove healthy connected groups.
+     */
+    fun resetStaleGroup(): Boolean {
+        if (!start()) return false
+        val service = manager ?: return false
+        val ch = p2pChannel ?: return false
+        if (connectingAddress != null) {
+            event(mapOf("type" to "pairing",
+                "message" to "Cannot reset Direct during an active invitation"))
+            return false
+        }
+        service.requestGroupInfo(ch) { group ->
+            if (group == null) {
+                verifiedReceivers.clear()
+                verifiedReceiverSeen.clear()
+                publishVerifiedReceivers()
+                event(mapOf("type" to "disconnected"))
+                return@requestGroupInfo
+            }
+            event(mapOf("type" to "status",
+                "message" to "Repairing unverified Wi-Fi Direct group"))
+            service.removeGroup(ch, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    verifiedReceivers.clear()
+                    verifiedReceiverSeen.clear()
+                    publishVerifiedReceivers()
+                    event(mapOf("type" to "disconnected"))
+                }
+                override fun onFailure(reason: Int) {
+                    event(mapOf("type" to "error",
+                        "message" to "Failed to release stale P2P group ($reason)"))
+                }
+            })
+        }
+        return true
+    }
+
+    /**
      * Called when the user turns automatic pairing off. Abort any pending
      * automatic request and peer discovery, but preserve verified VYBE
      * receiver identities for a subsequent deliberate manual selection.
