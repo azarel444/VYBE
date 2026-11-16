@@ -63,6 +63,13 @@ class VybeLink extends ChangeNotifier {
   String wifiStreamOutputRoute = '';
   String wifiStreamSenderCodec = 'Not started';
   String wifiStreamReceiverCodec = 'Not connected';
+  String wifiStreamSenderTransport = '';
+  String wifiStreamReceiverTransport = '';
+  int wifiStreamSenderUdpDatagrams = 0;
+  int wifiStreamRtpMissing = 0;
+  int wifiStreamRtpLate = 0;
+  int wifiStreamRtpReordered = 0;
+  int wifiStreamRtpRestarts = 0;
   int wifiStreamFramesEncoded = 0;
   int wifiStreamSendQueueMs = 0;
   int wifiStreamSendFramesDropped = 0;
@@ -806,6 +813,9 @@ class VybeLink extends ChangeNotifier {
       wifiStreamSentBytes = (result['senderBytes'] as num?)?.toInt() ?? 0;
       wifiStreamSenderPeak = (result['senderPeak'] as num?)?.toInt() ?? 0;
       wifiStreamSenderCodec = result['senderCodec']?.toString() ?? 'Unknown';
+      wifiStreamSenderTransport = result['senderTransport']?.toString() ?? '';
+      wifiStreamSenderUdpDatagrams =
+          (result['senderUdpDatagrams'] as num?)?.toInt() ?? 0;
       wifiStreamFramesEncoded =
           (result['senderFramesEncoded'] as num?)?.toInt() ?? 0;
       wifiStreamSendQueueMs =
@@ -828,6 +838,11 @@ class VybeLink extends ChangeNotifier {
       wifiStreamPlayedBytes = (result['receiverPlayedBytes'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverPeak = (result['receiverPeak'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverCodec = result['receiverCodec']?.toString() ?? 'Unknown';
+      wifiStreamReceiverTransport = result['receiverTransport']?.toString() ?? '';
+      wifiStreamRtpMissing = (result['receiverRtpMissing'] as num?)?.toInt() ?? 0;
+      wifiStreamRtpLate = (result['receiverRtpLate'] as num?)?.toInt() ?? 0;
+      wifiStreamRtpReordered = (result['receiverRtpReordered'] as num?)?.toInt() ?? 0;
+      wifiStreamRtpRestarts = (result['receiverRtpRestarts'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverBufferedMs =
           (result['receiverBufferedMs'] as num?)?.toInt() ?? 0;
       wifiStreamReceiverUnderruns =
