@@ -5571,73 +5571,51 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
-  /// Mirrored, fading copy of the art plus a thin contact shadow, so the
-  /// card looks like it is standing on a glass surface.
+  /// Artwork reflected across its lower edge. Apply the opacity mask to
+  /// the FINAL, already-flipped and clipped reflection, never to the artwork
+  /// before mirroring: the edge touching the cover is most visible, then the
+  /// reflection fades continuously toward transparent at its lower edge.
   Widget _reflection(double s) {
     final h = s * 0.28;
     return SizedBox(
       width: s,
       height: h,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: ShaderMask(
-              blendMode: BlendMode.dstIn,
-              shaderCallback: (rect) => const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0x66FFFFFF), Color(0x00FFFFFF)],
-              ).createShader(rect),
-              child: ClipRect(
-                child: OverflowBox(
-                  alignment: Alignment.topCenter,
-                  minWidth: s,
-                  maxWidth: s,
-                  minHeight: s,
-                  maxHeight: s,
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 500),
-                    child: Transform(
-                      key: ValueKey<Object>(model.art ?? 'placeholder'),
-                      alignment: Alignment.center,
-                      transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
-                      // Same rounded corners and stroke as the cover.
-                      child: Container(
-                        width: s,
-                        height: s,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(s * 0.018),
-                          border: Border.all(
-                              color: _palette.a.withOpacity(0.85), width: 1.5),
-                        ),
-                        child: _artContent(s),
-                      ),
-                    ),
-                  ),
+      child: ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (_) => LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          stops: const [0.0, 0.18, 1.0],
+          colors: const [
+            Color(0xB3FFFFFF),
+            Color(0x80FFFFFF),
+            Color(0x00FFFFFF),
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, s, h)),
+        child: ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.topCenter,
+            minWidth: s,
+            maxWidth: s,
+            minHeight: s,
+            maxHeight: s,
+            child: Transform(
+              key: ValueKey<Object>(model.art ?? 'placeholder'),
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
+              child: Container(
+                width: s,
+                height: s,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(s * 0.018),
+                  border: Border.all(
+                    color: _palette.a.withOpacity(0.85), width: 1.5),
                 ),
+                child: _artContent(s),
               ),
             ),
           ),
-          // Rounded to match the cover: it starts where the cover's straight
-          // bottom edge starts, so no square corners poke out.
-          Positioned(
-            top: 0,
-            left: s * 0.018,
-            right: s * 0.018,
-            height: s * 0.018,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius:
-                    BorderRadius.vertical(bottom: Radius.circular(s * 0.018)),
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xA6000000), Color(0x00000000)],
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
