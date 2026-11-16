@@ -179,8 +179,10 @@ class VybeLink extends ChangeNotifier {
   String _savedDirectPeerAddress = '';
   String _savedDirectPeerName = '';
   String _savedDirectReceiverId = '';
-  String get savedDirectReceiverId => _savedDirectReceiverId.isNotEmpty
-      ? _savedDirectReceiverId : pairedReceiverId;
+  // Older builds stored a receiver after Android merely accepted connect().
+  // Only a receiver verified by its TCP hello counts as saved/paired.
+  String get savedDirectReceiverId =>
+      _hasConfirmedDirectReceiver ? pairedReceiverId : '';
   bool get hasSavedDirectReceiver => savedDirectReceiverId.length >= 6;
   bool get directPairingInProgress => _directPairingInProgress;
   String get savedDirectReceiverLabel => hasSavedDirectReceiver
