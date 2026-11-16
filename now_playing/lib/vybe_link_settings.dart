@@ -162,6 +162,65 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                   onTap: () => link.pairReceiver(receiver),
                 ),
             ],
+            const SizedBox(height: 10),
+            const Text('Wi-Fi Direct band test',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            Text(headUnit
+                ? 'This head unit runs Android 9. Android does not provide '
+                    'an app-controlled 2.4/5 GHz Wi-Fi Direct setting or '
+                    'an actual-frequency reading on Android 9. '
+                    'Check the measured band on the connected phone.'
+                : 'Automatic is recommended. Strict 2.4/5 GHz modes '
+                    'restrict which Wi-Fi Direct group your phone will JOIN. '
+                    'They cannot force the Android 9 head unit to change bands.',
+                style: const TextStyle(color: Colors.white70)),
+            if (!headUnit) ...[
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: link.directBandMode,
+                decoration: const InputDecoration(
+                  labelText: 'Phone Wi-Fi Direct connection band'),
+                items: const [
+                  DropdownMenuItem(value: 'auto',
+                      child: Text('Automatic (recommended)')),
+                  DropdownMenuItem(value: '2ghz',
+                      child: Text('2.4 GHz only — test')),
+                  DropdownMenuItem(value: '5ghz',
+                      child: Text('5 GHz only — test')),
+                ],
+                onChanged: link.directBandSelectable
+                    ? (value) {
+                        if (value != null) {
+                          unawaited(link.setDirectBandMode(value));
+                        }
+                      }
+                    : null,
+              ),
+              if (!link.directBandSelectable)
+                const Text('This phone needs Android 10 or newer for band '
+                    'selection; Automatic remains available.',
+                    style: TextStyle(color: Colors.white70)),
+              if (link.directBandMode != 'auto')
+                const Text('Test mode applies when establishing a new '
+                    'Wi-Fi Direct connection. The ATOTO must already host '
+                    'on the chosen band. If pairing fails, choose Automatic '
+                    'and reconnect; continuous automatic retries are '
+                    'suppressed in test mode.',
+                    style: TextStyle(color: Colors.white70)),
+            ],
+            const SizedBox(height: 6),
+            Text('Actual Wi-Fi Direct band: ${link.directActualBand}'
+                '${link.directFrequencyMHz > 0 ? " (${link.directFrequencyMHz} MHz)" : ""}'),
+            Text(link.directBandVerified
+                ? 'Measured from the active Wi-Fi Direct group'
+                : 'Band not verified. An ordinary Wi-Fi network frequency '
+                    'does not identify the Wi-Fi Direct channel.',
+                style: const TextStyle(color: Colors.white70)),
+            OutlinedButton.icon(
+              onPressed: () => link.refreshDirectBandInfo(),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh Wi-Fi Direct frequency'),
+            ),
             Text('Wi-Fi Direct: ${link.directStatus}',
                 style: const TextStyle(color: Colors.white70)),
             if (link.directPairingDiagnostic.isNotEmpty)
