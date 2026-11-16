@@ -164,6 +164,10 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
             ],
             Text('Wi-Fi Direct: ${link.directStatus}',
                 style: const TextStyle(color: Colors.white70)),
+            if (link.directPairingDiagnostic.isNotEmpty)
+              SelectableText('Last Android pairing diagnostic: '
+                  '${link.directPairingDiagnostic}',
+                  style: const TextStyle(color: Colors.white70)),
             OutlinedButton.icon(
               onPressed: () => link.reconnectAutomatically(),
               icon: const Icon(Icons.refresh),
