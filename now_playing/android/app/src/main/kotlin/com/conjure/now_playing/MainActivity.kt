@@ -697,6 +697,38 @@ open class MainActivity : FlutterActivity() {
             }
         }
 
+        // Keep the user-enabled VYBE Connect process alive when switching to
+        // Bluetooth Audio, Maps or the launcher. This only maintains the
+        // existing TCP and P2P session; it never starts audio capture.
+        MethodChannel(messenger, "vybe/link_background")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "setEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled") == true
+                        try {
+                            val intent = Intent(this,
+                                VybeLinkKeepAliveService::class.java).apply {
+                                action = if (enabled)
+                                    VybeLinkKeepAliveService.ACTION_START
+                                    else VybeLinkKeepAliveService.ACTION_STOP
+                            }
+                            if (enabled) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                                    startForegroundService(intent)
+                                else startService(intent)
+                            } else {
+                                stopService(intent)
+                            }
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("LINK_BACKGROUND_SERVICE",
+                                "Cannot maintain VYBE Connect in background: ${error.message}", null)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         val directChannel = MethodChannel(messenger, "vybe/direct")
         vybeDirect = VybeDirect(this, directChannel)
         directChannel.setMethodCallHandler { call, result ->
