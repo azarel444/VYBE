@@ -318,12 +318,15 @@ class VybeLink extends ChangeNotifier {
             break;
           case 'connected':
             final host = data['host']?.toString() ?? '';
+            final owner = data['owner'] == true;
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             _directGroupConnected = true;
             _directGroupOwnerIp = host;
             directActive = true;
-            directStatus = 'Wi-Fi Direct connected; receiver address resolved automatically';
+            directStatus = owner && role == 'receiver'
+                ? 'Head-unit Wi-Fi Direct group ready; waiting for verified phone'
+                : 'Wi-Fi Direct group formed; verifying receiver connection';
             // The Android Wi-Fi Direct API supplies groupOwnerAddress.
             // NEVER ask the user for an IP or hardcode one for all networks.
             await _updateAddresses();
@@ -391,6 +394,9 @@ class VybeLink extends ChangeNotifier {
             break;
           case 'pairing_failed':
           case 'pairing_timeout':
+            // The next TXT discovery should be allowed to reconnect promptly
+            // after a failed manual attempt, not throttled for 12 seconds.
+            _lastDirectPeerAttemptMs = 0;
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             directStatus = data['message']?.toString() ??
@@ -418,6 +424,35 @@ class VybeLink extends ChangeNotifier {
           case 'status':
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct in progress';
             break;
+          case 'channel_reset':
+            _directGroupConnected = false;
+            _directGroupOwnerIp = '';
+            _directPairingInProgress = false;
+            _directPairingStartedMs = 0;
+            _lastDirectPeerAttemptMs = 0;
+            directPeers = [];
+            directStatus = data['message']?.toString() ??
+                'Android Wi-Fi Direct service was reset';
+            if (_tcpConnectedViaDirect && _socket != null) {
+              final oldSocket = _socket!;
+              _senderDisconnected(oldSocket);
+              oldSocket.destroy();
+            }
+            break;
+          case 'channel_recovered':
+            directStatus = data['message']?.toString() ??
+                'Android Wi-Fi Direct service ready again';
+            if (enabled && _directPreferred) {
+              final manuallyRetrying = _pendingDirectReceiverId.isNotEmpty &&
+                  DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs;
+              if (role == 'sender' && manuallyRetrying) {
+                unawaited(_direct.invokeMethod<bool>(
+                    'discover', {'force': true}));
+              } else if (autoConnect) {
+                unawaited(_recoverDirect(immediately: true));
+              }
+            }
+            break;
           case 'state':
             if (data['enabled'] != true) {
               // Android invalidates any pending native connect() when the
@@ -432,7 +467,9 @@ class VybeLink extends ChangeNotifier {
             }
             directStatus = data['enabled'] == true
                 ? 'Wi-Fi Direct available' : 'Wi-Fi Direct disabled';
-            if (data['enabled'] == true && _directPreferred && enabled && autoConnect) {
+            if (data['enabled'] == true && _directPreferred && enabled &&
+                autoConnect &&
+                (role == 'receiver' || _hasConfirmedDirectReceiver)) {
               unawaited(_recoverDirect(immediately: true));
             }
             break;
@@ -1249,8 +1286,12 @@ class VybeLink extends ChangeNotifier {
       _retry?.cancel();
       _retry = null;
       _connectPending = false;
-      _manualPairDeadlineMs = 0;
-      if (_connecting && _socket == null) {
+      if (!enabled ||
+          DateTime.now().millisecondsSinceEpoch >= _manualPairDeadlineMs) {
+        _manualPairDeadlineMs = 0;
+      }
+      if (_connecting && _socket == null &&
+          DateTime.now().millisecondsSinceEpoch >= _manualPairDeadlineMs) {
         // Invalidate any pending saved-IP/UDP attempt. It must not finish
         // after the user explicitly selected manual-only operation.
         _generation++;
@@ -1544,8 +1585,9 @@ class VybeLink extends ChangeNotifier {
       }
     }
 
-    // USB not ready or the receiver isn't reachable yet? Preserve the
-    // previously working Wi-Fi Direct, hotspot and LAN fallback paths.
+    // USB not ready or the receiver isn't reachable yet? If Wi-Fi Direct
+    // is preferred we must only dial its live group-owner IP; shared-Wi-Fi
+    // fallback could connect to an unrelated/stale endpoint mid-pairing.
     if (socket == null) {
       address = _directGroupConnected && _directGroupOwnerIp.isNotEmpty
           ? _directGroupOwnerIp : receiverAddress;
@@ -1570,7 +1612,7 @@ class VybeLink extends ChangeNotifier {
       if (generation != _generation) { socket?.destroy(); return; }
     }
 
-    if (socket == null) {
+    if (socket == null && !(_directPreferred && _directGroupConnected)) {
       status = autoConnect
           ? 'Discovering VYBE head unit automatically...'
           : 'Checking selected VYBE head unit...';
@@ -1601,7 +1643,8 @@ class VybeLink extends ChangeNotifier {
           ? 'Waiting for head unit; automatic discovery and reconnection active'
           : 'Selected head unit is not reachable; use Reconnect to try again';
       notifyListeners();
-      if (autoConnect && _directPreferred) unawaited(_recoverDirect());
+      if (autoConnect && _directPreferred && !_directGroupConnected)
+        unawaited(_recoverDirect());
       _scheduleRetry(generation);
       return;
     }
