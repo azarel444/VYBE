@@ -1145,7 +1145,7 @@ class VybeLink extends ChangeNotifier {
     deviceType = p.getString('vybe_device_type') ??
         (savedRole == 'receiver' ? 'head_unit' : 'phone');
     role = deviceType == 'head_unit' ? 'receiver' : 'sender';
-    _autoPreferenceExplicit = p.containsKey('link_auto');
+    _autoPreferenceExplicit = p.getBool('link_auto') != null;
     autoConnect = p.getBool('link_auto') ?? false;
     bluetoothSourcePackage = p.getString('link_bluetooth_source') ?? '';
     bluetoothAutoResume = p.getBool('link_bluetooth_auto_resume') ?? false;
