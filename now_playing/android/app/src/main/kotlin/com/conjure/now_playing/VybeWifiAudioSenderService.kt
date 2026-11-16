@@ -66,6 +66,7 @@ class VybeWifiAudioSenderService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun status(state: String, detail: String) {
+        val now = android.os.SystemClock.elapsedRealtime()
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("state", state)
             .putString("detail", detail)
@@ -80,12 +81,9 @@ class VybeWifiAudioSenderService : Service() {
             .putLong("framesEncoded", framesEncoded)
             .putInt("sendQueueMs", txQueueMs)
             .putLong("sendFramesDropped", txFramesDropped)
-            // Persist event timestamps rather than frozen "idle" values.
-            // The settings screen will calculate elapsed time on each poll,
-            // even when capture or encoding is completely stalled.
-            .putLong("captureAtMs", lastCaptureAtMs)
-            .putLong("encoderAtMs", lastEncodedAtMs)
-            .putLong("networkAtMs", lastSentAtMs)
+            .putLong("captureIdleMs", if (lastCaptureAtMs == 0L) 0L else now - lastCaptureAtMs)
+            .putLong("encoderIdleMs", if (lastEncodedAtMs == 0L) 0L else now - lastEncodedAtMs)
+            .putLong("networkIdleMs", if (lastSentAtMs == 0L) 0L else now - lastSentAtMs)
             .apply()
     }
 
