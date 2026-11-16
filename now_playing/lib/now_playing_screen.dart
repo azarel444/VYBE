@@ -392,8 +392,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fxGovernor.enabled = settings.fxPerformanceMode == 0;
     if (!_fxGovernor.enabled) _fxTier = 2;
     model.setArtLookup(settings.artLookup);
-    if (model.lyricsEnabled != settings.lyrics) {
-      model.setLyricsEnabled(settings.lyrics);
+    // The lyric-led Typo theme must request synced lyrics even when the
+    // global lyrics toggle is off. The other themes retain the toggle.
+    final wantsLyrics = settings.lyrics || settings.theme == AppSettings.tTypo;
+    if (model.lyricsEnabled != wantsLyrics) {
+      model.setLyricsEnabled(wantsLyrics);
     }
     model.setLaunchSettings(
       boot: settings.bootStart,
@@ -4288,9 +4291,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final cross = center ? CrossAxisAlignment.center : CrossAxisAlignment.start;
     if (!_hasLyrics) {
       return Text(
-        settings.lyrics
-            ? '♪'
-            : 'Lyrics are off.\\nTurn them on in Settings.',
+        '♪',
         textAlign: ta,
         style: TextStyle(
           fontSize: center ? h * 0.026 : h * 0.036,
@@ -4494,7 +4495,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   bool get _lyricTheme => settings.theme == AppSettings.tTypo;
 
   bool get _hasLyrics =>
-      _lyricTheme && settings.lyrics && (model.lyrics?.isNotEmpty ?? false);
+      _lyricTheme && (model.lyrics?.isNotEmpty ?? false);
 
   String _lyricAt(int delta) {
     final l = model.lyrics;
