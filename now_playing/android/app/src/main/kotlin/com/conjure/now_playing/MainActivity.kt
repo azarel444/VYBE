@@ -919,6 +919,8 @@ open class MainActivity : FlutterActivity() {
             "senderPeak" to sender.getInt("peakSample", 0),
             "senderCodec" to (sender.getString("codec", "Not started") ?: "Not started"),
             "senderFramesEncoded" to sender.getLong("framesEncoded", 0L),
+            "senderUdpDatagrams" to sender.getLong("udpDatagrams", 0L),
+            "senderTransport" to (sender.getString("transport", "RTP-style UDP") ?: ""),
             "senderSendQueueMs" to sender.getInt("sendQueueMs", 0),
             "senderDroppedFrames" to sender.getLong("sendFramesDropped", 0L),
             "senderCaptureIdleMs" to sender.getLong("captureIdleMs", 0L),
@@ -941,6 +943,11 @@ open class MainActivity : FlutterActivity() {
             "receiverUnderruns" to receiver.getInt("bufferUnderruns", 0),
             "receiverAudioTrackUnderruns" to receiver.getInt("androidUnderruns", 0),
             "receiverDroppedPackets" to receiver.getInt("droppedPackets", 0),
+            "receiverRtpMissing" to receiver.getInt("rtpMissingPackets", 0),
+            "receiverRtpLate" to receiver.getInt("rtpLatePackets", 0),
+            "receiverRtpReordered" to receiver.getInt("rtpReorderedPackets", 0),
+            "receiverRtpRestarts" to receiver.getInt("rtpStreamRestarts", 0),
+            "receiverTransport" to (receiver.getString("transport", "RTP-style UDP") ?: ""),
             "receiverLastPacketAgeMs" to receiver.getLong(
                 "lastAacPacketAtMs", 0L).let { when {
                     it <= 0L -> 0L
