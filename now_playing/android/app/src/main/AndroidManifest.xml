@@ -1,8 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -77,23 +75,6 @@
             android:name=".VybeLinkKeepAliveService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
-
-        <!-- Opt-in Wi-Fi PCM prototype. Audio is streamed only while explicitly
-             enabled; the receiver uses the connected VYBE peer address. -->
-        <service
-            android:name=".VybeWifiAudioSenderService"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
-        <service
-            android:name=".VybeWifiAudioReceiverService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
-
-        <!-- Opt-in, short-lived music capture test. Does not store or transmit audio. -->
-        <service
-            android:name=".AudioCaptureProbeService"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
 
         <service
             android:name=".MediaListenerService"
