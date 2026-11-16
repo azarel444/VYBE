@@ -231,6 +231,8 @@ class VybeWifiAudioSenderService : Service() {
                         throw IllegalStateException(
                             "AAC encoder required for UDP test: ${error.message}", error)
                     }
+                    val codec = encoder ?: throw IllegalStateException(
+                        "AAC encoder unavailable")
                     activeAudioCodec = "AAC-LC 128 kbps stereo / UDP"
                     val outgoing = ArrayBlockingQueue<ByteArray>(48)
                     val writeFailure = AtomicReference<String?>(null)
@@ -272,7 +274,7 @@ class VybeWifiAudioSenderService : Service() {
                                 val amplitude = kotlin.math.abs(sample.toShort().toInt())
                                 if (amplitude > peakSample) peakSample = amplitude
                             }
-                            encoder.encode(chunk, read) { frame ->
+                            codec.encode(chunk, read) { frame ->
                                 val payload = VybeRtpAudio.encode(
                                     frame, sequence, audioTime, streamId)
                                 sequence = (sequence + 1) and 0xffff
