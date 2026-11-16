@@ -65,6 +65,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private var connectAttemptGeneration = 0
     private var connectPreflightPassed = false
     private var resettingStaleGroup = false
+    private var resetGroupGeneration = 0
 
     private fun createP2pChannel(): WifiP2pManager.Channel? {
         val service = manager ?: return null
@@ -845,6 +846,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 connectingAddress = null
                 connectPreflightPassed = false
                 connectAttemptGeneration++
+                try { service.cancelConnect(ch, null) } catch (_: Exception) {}
                 event(mapOf("type" to "pairing_timeout",
                     "message" to "Wi-Fi Direct group not formed; refresh VYBE discovery"))
             }
@@ -908,7 +910,18 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             return false
         }
         resettingStaleGroup = true
+        val resetGeneration = ++resetGroupGeneration
+        mainHandler.postDelayed({
+            if (resetGeneration == resetGroupGeneration &&
+                resettingStaleGroup) {
+                resettingStaleGroup = false
+                event(mapOf("type" to "error",
+                    "message" to "Android failed to acknowledge P2P group reset; retry available"))
+            }
+        }, 10000L)
         service.requestGroupInfo(ch) { group ->
+            if (resetGeneration != resetGroupGeneration ||
+                !resettingStaleGroup) return@requestGroupInfo
             if (group == null) {
                 resettingStaleGroup = false
                 verifiedReceivers.clear()
@@ -921,6 +934,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 "message" to "Repairing unverified Wi-Fi Direct group"))
             service.removeGroup(ch, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
+                    if (resetGeneration != resetGroupGeneration ||
+                        !resettingStaleGroup) return
                     resettingStaleGroup = false
                     verifiedReceivers.clear()
                     verifiedReceiverSeen.clear()
@@ -928,6 +943,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     event(mapOf("type" to "disconnected"))
                 }
                 override fun onFailure(reason: Int) {
+                    if (resetGeneration != resetGroupGeneration ||
+                        !resettingStaleGroup) return
                     resettingStaleGroup = false
                     event(mapOf("type" to "error",
                         "message" to "Failed to release stale P2P group ($reason)"))
