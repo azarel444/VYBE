@@ -179,6 +179,7 @@ class VybeLink extends ChangeNotifier {
   bool directBandSelectable = false;
   bool directBandVerified = false;
   bool directBandGroupFormed = false;
+  int _bandRefreshRetries = 0;
   List<Map<String, String>> directPeers = [];
   bool _directRegistered = false;
   // Remember that Wi-Fi Direct was actually chosen, not just that TCP auto
@@ -371,6 +372,7 @@ class VybeLink extends ChangeNotifier {
             }
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
+            _bandRefreshRetries = 0;
             _directGroupConnected = true;
             directPairingDiagnostic = '';
             _directTcpFailureCount = 0;
@@ -402,6 +404,7 @@ class VybeLink extends ChangeNotifier {
             }
             break;
           case 'disconnected':
+            _bandRefreshRetries = 0;
             directBandGroupFormed = false;
             directBandVerified = false;
             directFrequencyMHz = 0;
@@ -509,6 +512,18 @@ class VybeLink extends ChangeNotifier {
                 directStatus = 'Band test: expected $expected, '
                     'but actual P2P band is $directActualBand. '
                     'The Android 9 head unit selects its own band.';
+                // Wi-Fi Direct broadcasts can precede the GroupInfo
+                // frequency measurement on a slow head unit. Retry only
+                // this read, not group formation, a couple of times.
+                if (!directBandVerified && _bandRefreshRetries < 3) {
+                  _bandRefreshRetries++;
+                  Future<void>.delayed(const Duration(milliseconds: 700), () {
+                    if (enabled && _directGroupConnected &&
+                        directBandMode != 'auto' && _socket == null) {
+                      unawaited(refreshDirectBandInfo());
+                    }
+                  });
+                }
               } else if (autoConnect ||
                   DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs) {
                 unawaited(connect());
@@ -613,6 +628,7 @@ class VybeLink extends ChangeNotifier {
     if (!<String>['auto', '2ghz', '5ghz'].contains(mode)) return;
     if (mode != 'auto' && (!directBandSelectable || role != 'sender')) return;
     directBandMode = mode;
+    _bandRefreshRetries = 0;
     if (_directGroupConnected) {
       // Existing P2P groups do not change channel merely because the
       // preference changed. Never silently disconnect a working group.
