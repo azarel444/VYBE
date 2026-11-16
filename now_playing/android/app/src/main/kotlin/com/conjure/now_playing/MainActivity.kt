@@ -719,6 +719,7 @@ open class MainActivity : FlutterActivity() {
                     call.argument<Boolean>("force") ?: false))
                 "connect" -> result.success(direct.connect(call.argument<String>("address") ?: ""))
                 "cancelAuto" -> result.success(direct.cancelAutomaticPairing())
+                "resetGroup" -> result.success(direct.resetStaleGroup())
                 "stop" -> { direct.stop(); result.success(true) }
                 else -> result.notImplemented()
             }
