@@ -5571,51 +5571,76 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
       );
 
-  /// Artwork reflected across its lower edge. Apply the opacity mask to
-  /// the FINAL, already-flipped and clipped reflection, never to the artwork
-  /// before mirroring: the edge touching the cover is most visible, then the
-  /// reflection fades continuously toward transparent at its lower edge.
+  /// A vertically flipped copy of the cover, clipped to its top 28%.
+  /// The reflection's alpha fades from the ART CONTACT at y=0 to
+  /// transparent at the bottom. Keep the independent contact shadow below
+  /// unchanged: it is part of the original artwork design, not the fade.
   Widget _reflection(double s) {
     final h = s * 0.28;
     return SizedBox(
       width: s,
       height: h,
-      child: ShaderMask(
-        blendMode: BlendMode.dstIn,
-        shaderCallback: (_) => LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: const [0.0, 0.18, 1.0],
-          colors: const [
-            Color(0xB3FFFFFF),
-            Color(0x80FFFFFF),
-            Color(0x00FFFFFF),
-          ],
-        ).createShader(Rect.fromLTWH(0, 0, s, h)),
-        child: ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.topCenter,
-            minWidth: s,
-            maxWidth: s,
-            minHeight: s,
-            maxHeight: s,
-            child: Transform(
-              key: ValueKey<Object>(model.art ?? 'placeholder'),
-              alignment: Alignment.center,
-              transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
-              child: Container(
-                width: s,
-                height: s,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(s * 0.018),
-                  border: Border.all(
-                    color: _palette.a.withOpacity(0.85), width: 1.5),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            // Clip the output window FIRST. A full-size flipped image must
+            // not influence the reflection's visible fade coordinates.
+            child: ClipRect(
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (rect) => const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x66FFFFFF), Color(0x00FFFFFF)],
+                ).createShader(rect),
+                child: OverflowBox(
+                  alignment: Alignment.topCenter,
+                  minWidth: s,
+                  maxWidth: s,
+                  minHeight: s,
+                  maxHeight: s,
+                  // The outgoing art crossfade in an overflowing square can
+                  // draw outside the intended reflected slice. Flip only
+                  // the current artwork; the main cover still transitions.
+                  child: Transform(
+                    key: ValueKey<Object>(model.art ?? 'placeholder'),
+                    alignment: Alignment.center,
+                    transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
+                    child: Container(
+                      width: s,
+                      height: s,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(s * 0.018),
+                        border: Border.all(
+                            color: _palette.a.withOpacity(0.85), width: 1.5),
+                      ),
+                      child: _artContent(s),
+                    ),
+                  ),
                 ),
-                child: _artContent(s),
               ),
             ),
           ),
-        ),
+          // ORIGINAL CONTACT SHADOW: preserve its black fade, position,
+          // strength and rounded lower corners exactly as before.
+          Positioned(
+            top: 0,
+            left: s * 0.018,
+            right: s * 0.018,
+            height: s * 0.018,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.vertical(bottom: Radius.circular(s * 0.018)),
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xA6000000), Color(0x00000000)],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
