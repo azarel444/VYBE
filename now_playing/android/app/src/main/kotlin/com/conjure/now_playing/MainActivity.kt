@@ -12,10 +12,6 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.media.AudioManager
-import android.media.AudioTrack
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.projection.MediaProjectionManager
 import android.view.KeyEvent
 import android.net.Uri
 import android.os.Bundle
@@ -44,67 +40,9 @@ open class MainActivity : FlutterActivity() {
     private var cacheFolderResult: MethodChannel.Result? = null
     private val artworkRequestCode = 8943
     private val cacheRequestCode = 8944
-    private val captureConsentRequestCode = 8945
-    private var pendingCaptureProbe: MethodChannel.Result? = null
-    private val wifiStreamConsentRequestCode = 8946
-    private var pendingWifiStream: MethodChannel.Result? = null
-    private var pendingWifiStreamHost: String? = null
-
     @Deprecated("Legacy activity result used for Android 9 compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == wifiStreamConsentRequestCode) {
-            val pending = pendingWifiStream
-            val host = pendingWifiStreamHost
-            pendingWifiStream = null
-            pendingWifiStreamHost = null
-            if (pending == null) return
-            if (resultCode != android.app.Activity.RESULT_OK || data == null || host.isNullOrEmpty()) {
-                pending.success(mapOf("state" to "cancelled",
-                    "detail" to "Wi-Fi audio capture authorization was not granted"))
-                return
-            }
-            try {
-                val service = Intent(this, VybeWifiAudioSenderService::class.java).apply {
-                    putExtra("host", host)
-                    putExtra("projectionResultCode", resultCode)
-                    putExtra("projectionToken", data)
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service)
-                else startService(service)
-                pending.success(mapOf("state" to "starting",
-                    "detail" to "Starting Wi-Fi audio to the connected VYBE head unit"))
-            } catch (error: Exception) {
-                pending.success(mapOf("state" to "error",
-                    "detail" to "Cannot start Wi-Fi capture: ${error.message}"))
-            }
-            return
-        }
-        if (requestCode == captureConsentRequestCode) {
-            val pending = pendingCaptureProbe
-            pendingCaptureProbe = null
-            if (pending == null) return
-            if (resultCode != android.app.Activity.RESULT_OK || data == null) {
-                pending.success(mapOf("state" to "cancelled",
-                    "details" to "Android playback-capture permission was declined."))
-                return
-            }
-            try {
-                val service = Intent(this, AudioCaptureProbeService::class.java).apply {
-                    putExtra("projectionResultCode", resultCode)
-                    putExtra("projectionToken", data)
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    startForegroundService(service)
-                else startService(service)
-                pending.success(mapOf("state" to "starting",
-                    "details" to "Capture test started. Play audio in the selected music app for 25 seconds, then return to see results."))
-            } catch (error: Exception) {
-                pending.success(mapOf("state" to "error",
-                    "details" to "Android blocked capture startup: ${error.message}"))
-            }
-            return
-        }
         if (requestCode != artworkRequestCode && requestCode != cacheRequestCode) return
         val cachePicker = requestCode == cacheRequestCode
         val pending = if (cachePicker) cacheFolderResult else artworkFolderResult
@@ -556,40 +494,6 @@ open class MainActivity : FlutterActivity() {
         // packages, hidden Bluetooth A2DP Sink APIs, root or special grants.
         // A public MediaController may be able to request playback, but
         // activating a proprietary Bluetooth audio route is not guaranteed.
-        // Explicit, phone-side capture compatibility test. The probe runs
-        // briefly in a projection foreground service and stores statistics
-        // only; no audio samples are saved or sent over VYBE Connect.
-        MethodChannel(messenger, "vybe/audio_probe").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "start" -> startPlaybackCaptureProbe(result)
-                "status" -> result.success(playbackCaptureProbeStatus())
-                else -> result.notImplemented()
-            }
-        }
-        // Opt-in experimental Wi-Fi audio. Separate TCP port from artwork
-        // metadata, receiver address always derived from an active Connect
-        // socket by Flutter. No system Bluetooth APIs or OEM-specific code.
-        MethodChannel(messenger, "vybe/wifi_audio").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "startSender" -> startWifiAudioSender(
-                    call.argument<String>("host") ?: "", result)
-                "startReceiver" -> result.success(startWifiAudioReceiver(
-                    call.argument<String>("allowedIp") ?: ""))
-                "stopSender" -> {
-                    stopWifiAudioService(VybeWifiAudioSenderService::class.java,
-                        VybeWifiAudioSenderService.ACTION_STOP)
-                    result.success(wifiAudioState())
-                }
-                "stopReceiver" -> {
-                    stopWifiAudioService(VybeWifiAudioReceiverService::class.java,
-                        VybeWifiAudioReceiverService.ACTION_STOP)
-                    result.success(wifiAudioState())
-                }
-                "status" -> result.success(wifiAudioState())
-                "testOutputTone" -> result.success(testWifiAudioOutputTone())
-                else -> result.notImplemented()
-            }
-        }
         MethodChannel(messenger, "vybe/bluetooth_audio").setMethodCallHandler { call, result ->
             when (call.method) {
                 "scan" -> result.success(bluetoothAudioSnapshot())
@@ -941,244 +845,6 @@ open class MainActivity : FlutterActivity() {
         }
     }
 
-
-    // Read-only inspection of the Android media-session contract. A published
-    // queue is NOT proof of playlist browsing or arbitrary track playback.
-    private fun wifiAudioState(): Map<String, Any?> {
-        val sender = getSharedPreferences(VybeWifiAudioSenderService.PREFS, Context.MODE_PRIVATE)
-        val receiver = getSharedPreferences(VybeWifiAudioReceiverService.PREFS, Context.MODE_PRIVATE)
-        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        return mapOf(
-            "sender" to (sender.getString("state", "off") ?: "off"),
-            "senderDetail" to (sender.getString("detail", "Not started") ?: ""),
-            "senderTargetIp" to (sender.getString("targetIp", "") ?: ""),
-            "senderBytes" to sender.getLong("bytesSent", 0L),
-            "senderPeak" to sender.getInt("peakSample", 0),
-            "senderCodec" to (sender.getString("codec", "Not started") ?: "Not started"),
-            "senderFramesEncoded" to sender.getLong("framesEncoded", 0L),
-            "senderUdpDatagrams" to sender.getLong("udpDatagrams", 0L),
-            "senderTransport" to (sender.getString("transport", "RTP-style UDP") ?: ""),
-            "senderSendQueueMs" to sender.getInt("sendQueueMs", 0),
-            "senderDroppedFrames" to sender.getLong("sendFramesDropped", 0L),
-            "senderCaptureIdleMs" to sender.getLong("captureIdleMs", 0L),
-            "senderEncoderIdleMs" to sender.getLong("encoderIdleMs", 0L),
-            "senderNetworkIdleMs" to sender.getLong("networkIdleMs", 0L),
-            "senderReconnects" to sender.getInt("reconnectAttempts", 0),
-            "senderLastFailure" to (sender.getString("lastFailure", "") ?: ""),
-            "receiver" to (receiver.getString("state", "off") ?: "off"),
-            "receiverDetail" to (receiver.getString("detail", "Not started") ?: ""),
-            "receiverExpectedIp" to (receiver.getString("expectedIp", "") ?: ""),
-            "receiverPeerIp" to (receiver.getString("observedIp", "") ?: ""),
-            "receiverBytes" to receiver.getLong("bytesReceived", 0L),
-            "receiverPlayedBytes" to receiver.getLong("bytesPlayed", 0L),
-            "receiverPeak" to receiver.getInt("peakSample", 0),
-            "receiverCodec" to (receiver.getString("codec", "Not connected") ?: "Not connected"),
-            "receiverConnections" to receiver.getInt("connections", 0),
-            "receiverRejected" to receiver.getInt("rejected", 0),
-            "receiverRoute" to (receiver.getString("route", "Unknown") ?: "Unknown"),
-            "receiverBufferedMs" to receiver.getInt("bufferedMs", 0),
-            "receiverUnderruns" to receiver.getInt("bufferUnderruns", 0),
-            "receiverAudioTrackUnderruns" to receiver.getInt("androidUnderruns", 0),
-            "receiverDroppedPackets" to receiver.getInt("droppedPackets", 0),
-            "receiverRtpMissing" to receiver.getInt("rtpMissingPackets", 0),
-            "receiverRtpLate" to receiver.getInt("rtpLatePackets", 0),
-            "receiverRtpReordered" to receiver.getInt("rtpReorderedPackets", 0),
-            "receiverRtpRestarts" to receiver.getInt("rtpStreamRestarts", 0),
-            "receiverTransport" to (receiver.getString("transport", "RTP-style UDP") ?: ""),
-            "receiverLastPacketAgeMs" to receiver.getLong(
-                "lastAacPacketAtMs", 0L).let { when {
-                    it <= 0L -> 0L
-                    android.os.SystemClock.elapsedRealtime() < it -> 0L
-                    else -> android.os.SystemClock.elapsedRealtime() - it
-                } },
-            "receiverLastFailure" to (receiver.getString("lastFailure", "") ?: ""),
-            "outputVolume" to audio.getStreamVolume(AudioManager.STREAM_MUSIC),
-            "outputMaxVolume" to audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
-            "outputMusicActive" to audio.isMusicActive,
-            "toneState" to (receiver.getString("toneState", "Not tested") ?: "Not tested")
-        )
-    }
-
-    /** Independently verifies Android media output on the head unit. It is
-     * manually triggered, low-level and brief; no phone or network required.
-     * A successful AudioTrack write is not proof the speakers were audible.
-     */
-    private fun testWifiAudioOutputTone(): Map<String, Any?> {
-        val prefs = getSharedPreferences(VybeWifiAudioReceiverService.PREFS, Context.MODE_PRIVATE)
-        prefs.edit().putString("toneState", "Playing a short test tone...").apply()
-        Thread {
-            var track: AudioTrack? = null
-            try {
-                val rate = 44100
-                val frames = rate / 2
-                val pcm = ByteArray(frames * 2)
-                for (index in 0 until frames) {
-                    val amplitude = (kotlin.math.sin(
-                        2.0 * Math.PI * 523.25 * index.toDouble() / rate) * 2800.0).toInt()
-                    val offset = index * 2
-                    pcm[offset] = (amplitude and 255).toByte()
-                    pcm[offset + 1] = ((amplitude shr 8) and 255).toByte()
-                }
-                val audio = AudioTrack.Builder()
-                    .setAudioAttributes(AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                    .setAudioFormat(AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(rate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                    .setBufferSizeInBytes(maxOf(8192, AudioTrack.getMinBufferSize(
-                        rate, AudioFormat.CHANNEL_OUT_MONO,
-                        AudioFormat.ENCODING_PCM_16BIT)))
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
-                track = audio
-                if (audio.state != AudioTrack.STATE_INITIALIZED) {
-                    throw IllegalStateException("Audio output cannot initialize")
-                }
-                audio.play()
-                var offset = 0
-                while (offset < pcm.size) {
-                    val count = audio.write(pcm, offset, pcm.size - offset)
-                    if (count <= 0) throw IllegalStateException("Audio output write error $count")
-                    offset += count
-                }
-                Thread.sleep(650)
-                val route = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                    audio.routedDevice?.productName?.toString() ?: "default Android route"
-                else "default Android route"
-                prefs.edit().putString("toneState",
-                    "Test tone sent to $route. Did you hear it?").apply()
-            } catch (error: Exception) {
-                prefs.edit().putString("toneState",
-                    "Android audio test failed: ${error.message}").apply()
-            } finally {
-                try { track?.stop() } catch (_: Exception) {}
-                try { track?.release() } catch (_: Exception) {}
-            }
-        }.start()
-        return mapOf("started" to true,
-            "message" to "Playing a short, low-volume tone on the head unit")
-    }
-
-    private fun stopWifiAudioService(serviceClass: Class<out android.app.Service>, action: String) {
-        try {
-            val intent = Intent(this, serviceClass).apply { this.action = action }
-            // Service is already running when this call is used; a stop action
-            // explicitly closes its socket and releases Android audio resources.
-            startService(intent)
-        } catch (_: Exception) {
-            stopService(Intent(this, serviceClass))
-        }
-    }
-
-    private fun startWifiAudioReceiver(ip: String): Map<String, Any?> {
-        if (ip.isBlank()) return mapOf(
-            "state" to "error", "detail" to "Connect VYBE to your phone first")
-        return try {
-            val service = Intent(this, VybeWifiAudioReceiverService::class.java)
-                .putExtra("allowedIp", ip)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                startForegroundService(service)
-            else startService(service)
-            mapOf("state" to "starting",
-                "detail" to "Opening Wi-Fi audio output for paired phone $ip")
-        } catch (error: Exception) {
-            mapOf("state" to "error",
-                "detail" to "Could not activate receiver: ${error.message}")
-        }
-    }
-
-    private fun startWifiAudioSender(host: String, result: MethodChannel.Result) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            result.success(mapOf("state" to "unsupported",
-                "detail" to "Wi-Fi audio capture requires Android 10+"))
-            return
-        }
-        if (host.isBlank()) {
-            result.success(mapOf("state" to "error",
-                "detail" to "Connect your phone to the VYBE head unit first"))
-            return
-        }
-        if (pendingWifiStream != null) {
-            result.success(mapOf("state" to "busy",
-                "detail" to "Wi-Fi audio capture approval is already open"))
-            return
-        }
-        pendingWifiStream = result
-        pendingWifiStreamHost = host
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_WIFI_AUDIO)
-        } else requestWifiAudioConsent()
-    }
-
-    private fun requestWifiAudioConsent() {
-        val pending = pendingWifiStream ?: return
-        try {
-            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
-                as MediaProjectionManager
-            startActivityForResult(
-                manager.createScreenCaptureIntent(), wifiStreamConsentRequestCode)
-        } catch (error: Exception) {
-            pendingWifiStream = null
-            pendingWifiStreamHost = null
-            pending.success(mapOf("state" to "error",
-                "detail" to "Android could not request capture permission: ${error.message}"))
-        }
-    }
-
-    private fun playbackCaptureProbeStatus(): Map<String, Any?> {
-        val p = getSharedPreferences("vybe_audio_capture_probe", Context.MODE_PRIVATE)
-        return mapOf(
-            "state" to (p.getString("state", "not-tested") ?: "not-tested"),
-            "details" to (p.getString("details", "No compatibility test run yet.") ?: ""),
-            "peak" to p.getInt("peak", 0),
-            "rms" to p.getFloat("rms", 0f).toDouble(),
-            "signalFraction" to p.getFloat("signalFraction", 0f).toDouble(),
-            "samples" to p.getLong("samples", 0L),
-            "updatedAt" to p.getLong("updatedAt", 0L)
-        )
-    }
-
-    private fun startPlaybackCaptureProbe(result: MethodChannel.Result) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            result.success(mapOf("state" to "unavailable",
-                "details" to "Android 10 or later is required for music playback capture."))
-            return
-        }
-        if (pendingCaptureProbe != null) {
-            result.success(mapOf("state" to "busy",
-                "details" to "A capture permission request is already in progress."))
-            return
-        }
-        val existing = playbackCaptureProbeStatus()
-        if (existing["state"] == "capturing" &&
-            System.currentTimeMillis() - (existing["updatedAt"] as Long) < 40000L) {
-            result.success(mapOf("state" to "busy",
-                "details" to "A 25-second capture test is already running."))
-            return
-        }
-        pendingCaptureProbe = result
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_AUDIO_PROBE)
-        } else requestPlaybackCaptureConsent()
-    }
-
-    private fun requestPlaybackCaptureConsent() {
-        val pending = pendingCaptureProbe ?: return
-        try {
-            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
-                as MediaProjectionManager
-            startActivityForResult(
-                projectionManager.createScreenCaptureIntent(), captureConsentRequestCode)
-        } catch (error: Exception) {
-            pendingCaptureProbe = null
-            pending.success(mapOf("state" to "error",
-                "details" to "Cannot request Android playback capture: ${error.message}"))
-        }
-    }
 
     /** Enumerate public Android media sessions without assuming an OEM
      * Bluetooth receiver package or a particular head-unit architecture.
@@ -1749,27 +1415,6 @@ open class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_WIFI_AUDIO) {
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                requestWifiAudioConsent()
-            } else {
-                pendingWifiStream?.success(mapOf("state" to "permission-denied",
-                    "detail" to "Audio capture permission denied"))
-                pendingWifiStream = null
-                pendingWifiStreamHost = null
-            }
-            return
-        }
-        if (requestCode == REQ_AUDIO_PROBE) {
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                requestPlaybackCaptureConsent()
-            } else {
-                pendingCaptureProbe?.success(mapOf("state" to "permission-denied",
-                    "details" to "Audio capture needs Android's record-audio permission."))
-                pendingCaptureProbe = null
-            }
-            return
-        }
         if (requestCode == REQ_AUDIO_ONBOARD) {
             pendingAudioResult?.success(
                 grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
@@ -1814,8 +1459,6 @@ open class MainActivity : FlutterActivity() {
         private const val BANDS = 96
         private const val REQ_AUDIO = 4711
         private const val REQ_AUDIO_ONBOARD = 4712
-        private const val REQ_AUDIO_PROBE = 4713
-        private const val REQ_WIFI_AUDIO = 4714
     }
 
     override fun onDestroy() {
