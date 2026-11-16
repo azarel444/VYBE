@@ -225,8 +225,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
      * every Android with the app installed; phones should not appear as
      * selectable head units.
      */
-    private fun forgetReceiverAdvertisement() {
-        advertisingGeneration++
+    private fun forgetReceiverAdvertisement(afterRemoval: (() -> Unit)? = null) {
+        val generation = ++advertisingGeneration
         val previous = localService
         localService = null
         advertised = false
@@ -236,10 +236,26 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             val service = manager
             val ch = p2pChannel
             if (service != null && ch != null) {
-                try { service.removeLocalService(ch, previous, null) }
-                catch (_: Exception) {}
+                // removeLocalService is ASYNCHRONOUS. Adding the same service
+                // before this callback finishes produced a radio ERROR/BUSY
+                // and head units that appeared but refused first tap.
+                try {
+                    service.removeLocalService(ch, previous,
+                        object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                if (generation == advertisingGeneration)
+                                    afterRemoval?.invoke()
+                            }
+                            override fun onFailure(reason: Int) {
+                                if (generation == advertisingGeneration)
+                                    afterRemoval?.invoke()
+                            }
+                        })
+                    return
+                } catch (_: Exception) {}
             }
         }
+        if (generation == advertisingGeneration) afterRemoval?.invoke()
     }
 
     private fun advertiseReceiver(receiverId: String) {
@@ -255,9 +271,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         // If the ID changes (e.g. reinstall), retire only OUR advertisement.
         val previous = localService
         if (previous != null && localServiceId != receiverId) {
-            service.removeLocalService(ch, previous, null)
-            localService = null
-            advertised = false
+            forgetReceiverAdvertisement { advertiseReceiver(receiverId) }
+            return
         }
 
         localServiceId = receiverId
@@ -583,7 +598,26 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         // A deliberate setup tap must recover even if the Android framework
         // silently forgot a DNS-SD service while keeping the same P2P group.
         // Automatic recovery leaves a healthy advertisement untouched.
-        if (refreshAdvertisement) forgetReceiverAdvertisement()
+        if (refreshAdvertisement && advertisingPending) {
+            // Let the in-flight add resolve before replacing it. Cancelling
+            // its generation without an accepted localService handle loses
+            // the ability to remove it cleanly from the framework.
+            mainHandler.postDelayed({
+                if (pendingHostReceiverId == receiverId)
+                    host(receiverId, refreshAdvertisement = true)
+            }, 750L)
+            return true
+        }
+        if (refreshAdvertisement && localService != null) {
+            forgetReceiverAdvertisement {
+                if (pendingHostReceiverId == receiverId && !hostPending) {
+                    hostPending = true
+                    hostReadyChecks = 0
+                    beginHost(true)
+                }
+            }
+            return true
+        }
         // Don't broadcast VYBE's identity before Android finishes creating
         // the group. Advertising too early lets the phone tap a receiver
         // that cannot yet accept a connect() invitation (often ERROR 0).
