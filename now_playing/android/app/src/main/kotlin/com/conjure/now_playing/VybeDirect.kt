@@ -113,19 +113,44 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     val ch = p2pChannel ?: return
                     service.requestConnectionInfo(ch) { info ->
                         if (info.groupFormed && info.groupOwnerAddress != null) {
-                            hostPending = false
-                            hostReadyChecks = 0
-                            // Advertise the head unit only once its actual
-                            // group is ready for the phone to join.
-                            if (info.isGroupOwner && pendingHostReceiverId.isNotEmpty()) {
-                                advertiseReceiver(pendingHostReceiverId)
+                            val requestedAddress = connectingAddress
+                            if (requestedAddress != null) {
+                                // Android may report an OLD, unrelated group
+                                // while we're replacing it. Verify its owner
+                                // is the selected VYBE device before accepting
+                                // this broadcast as a completed pairing.
+                                service.requestGroupInfo(ch) { group ->
+                                    if (connectingAddress != requestedAddress)
+                                        return@requestGroupInfo
+                                    val actualOwner = group?.owner?.deviceAddress
+                                    if (group?.isGroupOwner == false &&
+                                        actualOwner?.equals(requestedAddress,
+                                            ignoreCase = true) == true) {
+                                        connectingAddress = null
+                                        connectAttemptGeneration++
+                                        event(mapOf(
+                                            "type" to "connected",
+                                            "host" to info.groupOwnerAddress.hostAddress,
+                                            "owner" to false))
+                                    } else {
+                                        event(mapOf("type" to "pairing",
+                                            "message" to "Waiting for selected head unit; existing P2P group is not its group"))
+                                    }
+                                }
+                            } else {
+                                hostPending = false
+                                hostReadyChecks = 0
+                                if (info.isGroupOwner &&
+                                    pendingHostReceiverId.isNotEmpty()) {
+                                    advertiseReceiver(pendingHostReceiverId)
+                                }
+                                // The Flutter side verifies the receiver's
+                                // hello before reporting an app connection.
+                                event(mapOf(
+                                    "type" to "connected",
+                                    "host" to info.groupOwnerAddress.hostAddress,
+                                    "owner" to info.isGroupOwner))
                             }
-                            connectingAddress = null
-                            connectAttemptGeneration++
-                            event(mapOf(
-                                "type" to "connected",
-                                "host" to info.groupOwnerAddress.hostAddress,
-                                "owner" to info.isGroupOwner))
                         } else if (connectingAddress != null) {
                             // Android can broadcast a disconnected state
                             // DURING initial group negotiation. This is not
@@ -762,7 +787,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             if (existing == null) {
                 attemptConnect(1)
             } else if (!existing.isGroupOwner &&
-                ownerAddress.equals(address, ignoreCase = true)) {
+                ownerAddress?.equals(address, ignoreCase = true) == true) {
                 service.requestConnectionInfo(ch) { info ->
                     if (generation != connectAttemptGeneration) return@requestConnectionInfo
                     if (info.groupFormed && info.groupOwnerAddress != null) {
