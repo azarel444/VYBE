@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'vybe_link.dart';
 
 /// One clear Connect screen for either phone or Android head unit.
-/// USB tether controls were removed: Wi-Fi Direct, automatic reconnection
-/// and direct Wi-Fi audio are now the supported connection paths.
+/// Wi-Fi Direct carries artwork, track information and controls.
+/// Audio plays separately through the head unit's Bluetooth audio input.
 class VybeLinkSettings extends StatefulWidget {
   const VybeLinkSettings({super.key});
 
@@ -13,31 +13,6 @@ class VybeLinkSettings extends StatefulWidget {
 }
 
 class _VybeLinkSettingsState extends State<VybeLinkSettings> {
-  Timer? _audioPoll;
-
-  @override
-  void initState() {
-    super.initState();
-    // Poll native sender/receiver statistics only while the settings page
-    // exists. Device role and actual PCM output are visible on the head unit.
-    _audioPoll = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (mounted && VybeLink.instance.enabled) {
-        unawaited(VybeLink.instance.refreshWifiAudioStreamStatus());
-      }
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        unawaited(VybeLink.instance.refreshWifiAudioStreamStatus());
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _audioPoll?.cancel();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final link = VybeLink.instance;
@@ -50,8 +25,9 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
           children: [
             const Text('VYBE Connect', style: TextStyle(fontSize: 23)),
             const SizedBox(height: 6),
-            const Text('Connect the phone to the head unit over Wi-Fi Direct '
-                'or a shared Wi-Fi network. No Android Auto or USB required.'),
+            const Text('Wi-Fi Direct or shared Wi-Fi transfers artwork, '
+                'track information and controls. Play music through the '
+                'head unit Bluetooth audio input. Android Auto is not required.'),
             SwitchListTile(
               title: const Text('Enable VYBE Connect'),
               value: link.enabled,
@@ -233,109 +209,6 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               label: const Text('Reconnect'),
             ),
             const Divider(),
-            const SizedBox(height: 8),
-            const Text('Wi-Fi music audio',
-                style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-            const Text('Experimental direct audio over VYBE Connect. '
-                'Bluetooth Music and Android Auto are not needed for this '
-                'audio test. Both devices must have VYBE Connect active.'),
-            const SizedBox(height: 8),
-            if (headUnit) ...[
-              ElevatedButton.icon(
-                onPressed: link.wifiAudioPeerConnected
-                    ? () => link.startWifiAudioReceiver() : null,
-                icon: const Icon(Icons.speaker),
-                label: const Text('Start receiving Wi-Fi audio'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => link.stopWifiAudioReceiver(),
-                icon: const Icon(Icons.stop),
-                label: const Text('Stop receiving audio'),
-              ),
-              const SizedBox(height: 10),
-              Text('Receiver status: ${link.wifiStreamReceiverStatus}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text(link.wifiStreamReceiverDetail),
-              Text('Audio format: ${link.wifiStreamReceiverCodec}'),
-              Text('Audio transport: ${link.wifiStreamReceiverTransport}'),
-              Text('Network bytes received: ${link.wifiStreamReceivedBytes}'),
-              Text('Decoded PCM bytes written: ${link.wifiStreamPlayedBytes}'),
-              Text('Signal peak: ${link.wifiStreamReceiverPeak} / 32767'),
-              Text('Jitter buffer: ${link.wifiStreamReceiverBufferedMs} ms'),
-              Text('Time since last AAC packet: ${link.wifiStreamReceiverLastPacketAgeMs} ms'),
-              Text('Buffer underruns: ${link.wifiStreamReceiverUnderruns}'),
-              Text('Android audio underruns: ${link.wifiStreamTrackUnderruns}'),
-              Text('Receiver queue packets dropped: ${link.wifiStreamDroppedPackets}'),
-              Text('RTP packets missing: ${link.wifiStreamRtpMissing}'),
-              Text('RTP packets arrived too late: ${link.wifiStreamRtpLate}'),
-              Text('RTP packets reordered: ${link.wifiStreamRtpReordered}'),
-              Text('RTP sender session restarts: ${link.wifiStreamRtpRestarts}'),
-              if (link.wifiStreamReceiverLastFailure.isNotEmpty)
-                Text('Last audio interruption: ${link.wifiStreamReceiverLastFailure}'),
-              Text('Output: ${link.wifiStreamOutputRoute}'),
-              Text('Media volume: ${link.wifiStreamMusicVolume} / '
-                  '${link.wifiStreamMusicMaxVolume}'),
-              Text('Expected phone IP: ${link.wifiStreamExpectedPhoneIp.isEmpty ? "Not connected" : link.wifiStreamExpectedPhoneIp}'),
-              Text('Actual audio connection: ${link.wifiStreamObservedPhoneIp.isEmpty ? "None yet" : link.wifiStreamObservedPhoneIp}'),
-              if (link.wifiStreamRejected > 0)
-                Text('Rejected audio connections: ${link.wifiStreamRejected}'),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => link.testHeadUnitAudioOutput(),
-                icon: const Icon(Icons.volume_up),
-                label: const Text('Test head-unit speaker output'),
-              ),
-              Text('Speaker test: ${link.wifiStreamToneStatus}'),
-              const Text('Start the receiver here, then start Wi-Fi audio '
-                  'on the phone. The receiver counters above show whether '
-                  'audio actually arrives and reaches Android audio output.',
-                  style: TextStyle(color: Colors.white70)),
-            ] else ...[
-              ElevatedButton.icon(
-                onPressed: link.wifiAudioPeerConnected
-                    ? () => link.startWifiAudioStream() : null,
-                icon: const Icon(Icons.wifi_tethering),
-                label: const Text('Start streaming audio to head unit'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => link.stopWifiAudioStream(),
-                icon: const Icon(Icons.stop),
-                label: const Text('Stop streaming audio'),
-              ),
-              const SizedBox(height: 8),
-              Text('Sender status: ${link.wifiStreamSenderStatus}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text(link.wifiStreamSenderDetail),
-              Text('Audio format: ${link.wifiStreamSenderCodec}'),
-              Text('Audio transport: ${link.wifiStreamSenderTransport}'),
-              Text('UDP datagrams sent: ${link.wifiStreamSenderUdpDatagrams}'),
-              Text('Network bytes sent: ${link.wifiStreamSentBytes}'),
-              Text('AAC frames encoded: ${link.wifiStreamFramesEncoded}'),
-              Text('Network send queue: ${link.wifiStreamSendQueueMs} ms'),
-              Text('Stale audio frames dropped: ${link.wifiStreamSendFramesDropped}'),
-              Text('Capture idle: ${link.wifiStreamCaptureIdleMs} ms'),
-              Text('Encoder idle: ${link.wifiStreamEncoderIdleMs} ms'),
-              Text('Network output idle: ${link.wifiStreamNetworkIdleMs} ms'),
-              Text('Captured signal peak: ${link.wifiStreamSenderPeak} / 32767'),
-              Text('UDP sender restarts: ${link.wifiStreamSenderReconnects}'),
-              if (link.wifiStreamSenderLastFailure.isNotEmpty)
-                Text('Last UDP send failure: ${link.wifiStreamSenderLastFailure}'),
-              Text('Head unit IP: ${link.wifiStreamSenderIp.isEmpty ? "Not connected" : link.wifiStreamSenderIp}'),
-              const Text('Start Wi-Fi audio reception on the head unit first. '
-                  'Android will then ask permission to capture the playing '
-                  'music. Phone speaker playback may continue during testing.',
-                  style: TextStyle(color: Colors.white70)),
-            ],
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => link.refreshWifiAudioStreamStatus(),
-              icon: const Icon(Icons.analytics_outlined),
-              label: const Text('Refresh audio diagnostics'),
-            ),
-            const Text('Experimental RTP-style UDP AAC audio (no PCM fallback). '
-                'Unencrypted: use trusted Wi-Fi Direct or a private network.',
-                style: TextStyle(color: Colors.white60)),
-            const Divider(),
             ExpansionTile(
               title: const Text('Advanced diagnostics'),
               children: [
@@ -345,23 +218,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                 Text('Network / artwork errors: ${link.artworkErrors}'),
                 Text('Last track: ${link.lastReceivedTrack}'),
                 Text('Artwork: ${link.artworkStatus}'),
-                if (!headUnit) ...[
-                  const SizedBox(height: 12),
-                  const Text('Phone playback-capture compatibility test'),
-                  ElevatedButton(
-                    onPressed: () => link.startWifiAudioCaptureTest(),
-                    child: const Text('Run 25-second capture test'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => link.refreshWifiAudioCaptureTest(),
-                    child: const Text('Read capture results'),
-                  ),
-                  Text('Capture: ${link.wifiAudioProbeStatus}'),
-                  Text(link.wifiAudioProbeDetails),
-                  if (link.wifiAudioProbeSamples > 0)
-                    Text('Peak: ${link.wifiAudioProbePeak}; samples: '
-                        '${link.wifiAudioProbeSamples}'),
-                ] else ...[
+                if (headUnit) ...[
                   const SizedBox(height: 12),
                   const Text('Android Bluetooth source control'),
                   ElevatedButton(
