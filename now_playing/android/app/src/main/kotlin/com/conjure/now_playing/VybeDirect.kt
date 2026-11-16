@@ -62,6 +62,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private val mainHandler = Handler(Looper.getMainLooper())
     private var connectingAddress: String? = null
     private var connectAttemptGeneration = 0
+    private var resettingStaleGroup = false
 
     private fun createP2pChannel(): WifiP2pManager.Channel? {
         val service = manager ?: return null
@@ -69,6 +70,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             object : WifiP2pManager.ChannelListener {
                 override fun onChannelDisconnected() {
                     p2pChannel = null
+                    resettingStaleGroup = false
                     connectingAddress = null
                     connectAttemptGeneration++
                     hostPending = false
@@ -112,6 +114,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     val service = manager ?: return
                     val ch = p2pChannel ?: return
                     service.requestConnectionInfo(ch) { info ->
+                        if (info.groupFormed && resettingStaleGroup)
+                            return@requestConnectionInfo
                         if (info.groupFormed && info.groupOwnerAddress != null) {
                             val requestedAddress = connectingAddress
                             if (requestedAddress != null) {
@@ -226,7 +230,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         val ch = p2pChannel ?: return false
         manager?.requestConnectionInfo(ch) { info ->
             if (info.groupFormed && info.groupOwnerAddress != null &&
-                connectingAddress == null) {
+                connectingAddress == null && !resettingStaleGroup) {
                 event(mapOf("type" to "connected",
                     "host" to info.groupOwnerAddress.hostAddress,
                     "owner" to info.isGroupOwner))
@@ -821,7 +825,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
      * a wrong receiver hello. It does not remove healthy connected groups.
      */
     fun resetStaleGroup(): Boolean {
-        if (!start()) return false
+        if (!start() || resettingStaleGroup) return false
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
         if (connectingAddress != null) {
@@ -829,8 +833,10 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 "message" to "Cannot reset Direct during an active invitation"))
             return false
         }
+        resettingStaleGroup = true
         service.requestGroupInfo(ch) { group ->
             if (group == null) {
+                resettingStaleGroup = false
                 verifiedReceivers.clear()
                 verifiedReceiverSeen.clear()
                 publishVerifiedReceivers()
@@ -841,12 +847,14 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 "message" to "Repairing unverified Wi-Fi Direct group"))
             service.removeGroup(ch, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
+                    resettingStaleGroup = false
                     verifiedReceivers.clear()
                     verifiedReceiverSeen.clear()
                     publishVerifiedReceivers()
                     event(mapOf("type" to "disconnected"))
                 }
                 override fun onFailure(reason: Int) {
+                    resettingStaleGroup = false
                     event(mapOf("type" to "error",
                         "message" to "Failed to release stale P2P group ($reason)"))
                 }
@@ -905,6 +913,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         hostPending = false
         hostReadyChecks = 0
         pendingHostReceiverId = ""
+        resettingStaleGroup = false
         listenersInstalled = false
         verifiedReceivers.clear()
         connectingAddress = null
