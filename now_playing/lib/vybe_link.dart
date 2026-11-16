@@ -171,6 +171,14 @@ class VybeLink extends ChangeNotifier {
   bool directActive = false;
   String directStatus = 'Not started';
   String directPairingDiagnostic = '';
+  // Android 9 group owners cannot be forced into 5 GHz via the public API.
+  String directBandMode = 'auto';
+  String directActualBand = 'Not measured';
+  int directFrequencyMHz = 0;
+  int directAndroidSdk = 0;
+  bool directBandSelectable = false;
+  bool directBandVerified = false;
+  bool directBandGroupFormed = false;
   List<Map<String, String>> directPeers = [];
   bool _directRegistered = false;
   // Remember that Wi-Fi Direct was actually chosen, not just that TCP auto
@@ -212,6 +220,7 @@ class VybeLink extends ChangeNotifier {
       (_savedDirectReceiverId.isEmpty ||
        _savedDirectReceiverId == pairedReceiverId);
   bool get _mayAutoPairDirect => enabled && autoConnect &&
+      directBandMode == 'auto' &&
       _directPreferred && role == 'sender' && _hasConfirmedDirectReceiver;
   Timer? _directRecoveryTimer;
 
@@ -240,7 +249,10 @@ class VybeLink extends ChangeNotifier {
   /// a working socket, hotspot or manually established LAN connection.
   Future<void> _recoverDirect({bool immediately = false}) async {
     if (!enabled || !autoConnect || !_directPreferred || !directAvailable ||
-        (role == 'sender' && !_hasConfirmedDirectReceiver) ||
+        // A strict-band trial is manual to avoid repeated failures while
+        // Android 9's group owner hosts on an incompatible band.
+        (role == 'sender' && (directBandMode != 'auto' ||
+                              !_hasConfirmedDirectReceiver)) ||
         _directRecoveryBusy ||
         (activeTransport == 'USB tethering' && _socket != null) ||
         (role == 'sender' &&
@@ -301,7 +313,8 @@ class VybeLink extends ChangeNotifier {
   }
 
   void _trySavedDirectPeer() {
-    final manuallyRetrying = _pendingDirectReceiverId.isNotEmpty &&
+    final manuallyRetrying = directBandMode == 'auto' &&
+        _pendingDirectReceiverId.isNotEmpty &&
         DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs &&
         _manualDirectRecoveryAttempts < 2;
     if (!enabled || !_directPreferred ||
@@ -376,11 +389,20 @@ class VybeLink extends ChangeNotifier {
               receiverAddress = host;
               if (autoConnect || DateTime.now().millisecondsSinceEpoch <
                   _manualPairDeadlineMs) {
-                unawaited(connect());
+                if (directBandMode == 'auto') {
+                  unawaited(connect());
+                } else {
+                  // Verify phone-measured actual P2P frequency first.
+                  unawaited(refreshDirectBandInfo());
+                }
               }
             }
             break;
           case 'disconnected':
+            directBandGroupFormed = false;
+            directBandVerified = false;
+            directFrequencyMHz = 0;
+            directActualBand = 'No Wi-Fi Direct group';
             _directGroupConnected = false;
             _directGroupOwnerIp = '';
             _directTcpFailureCount = 0;
@@ -449,7 +471,8 @@ class VybeLink extends ChangeNotifier {
             _directPairingStartedMs = 0;
             directStatus = data['message']?.toString() ??
                 'Wi-Fi Direct pairing did not finish';
-            final manualRecovery = _pendingDirectReceiverId.isNotEmpty &&
+            final manualRecovery = directBandMode == 'auto' &&
+                _pendingDirectReceiverId.isNotEmpty &&
                 DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs &&
                 _manualDirectRecoveryAttempts < 2;
             if (_directPreferred && enabled &&
@@ -468,6 +491,26 @@ class VybeLink extends ChangeNotifier {
             break;
           case 'diagnostic':
             directPairingDiagnostic = data['message']?.toString() ?? '';
+            break;
+          case 'band_info':
+            directAndroidSdk = (data['sdk'] as num?)?.toInt() ?? directAndroidSdk;
+            directBandGroupFormed = data['groupFormed'] == true;
+            directBandVerified = data['verified'] == true;
+            directFrequencyMHz =
+                (data['frequencyMHz'] as num?)?.toInt() ?? 0;
+            directActualBand = data['band']?.toString() ?? 'Unknown';
+            if (role == 'sender' && directBandMode != 'auto' &&
+                _directGroupConnected && _socket == null) {
+              final expected = directBandMode == '5ghz' ? '5 GHz' : '2.4 GHz';
+              if (!directBandVerified || directActualBand != expected) {
+                directStatus = 'Band test: expected $expected, '
+                    'but actual P2P band is $directActualBand. '
+                    'The Android 9 head unit selects its own band.';
+              } else if (autoConnect ||
+                  DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs) {
+                unawaited(connect());
+              }
+            }
             break;
           case 'error':
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct error';
@@ -533,9 +576,54 @@ class VybeLink extends ChangeNotifier {
         notifyListeners();
       });
     }
-    try { directAvailable = await _direct.invokeMethod<bool>('available') ?? false; }
-    catch (e) { directStatus = 'Wi-Fi Direct unavailable: $e'; }
+    try {
+      directAvailable = await _direct.invokeMethod<bool>('available') ?? false;
+      final capability = await _direct.invokeMapMethod<String, dynamic>(
+          'bandCapabilities');
+      directAndroidSdk = (capability?['sdk'] as num?)?.toInt() ?? 0;
+      directBandSelectable = capability?['canSelectBand'] == true;
+      if (!directBandSelectable && directBandMode != 'auto') {
+        directBandMode = 'auto';
+      }
+    } catch (e) {
+      directStatus = 'Wi-Fi Direct unavailable: $e';
+    }
     notifyListeners();
+  }
+
+  Future<void> refreshDirectBandInfo() async {
+    try {
+      final requested = await _direct.invokeMethod<bool>('refreshBandInfo');
+      if (requested != true) {
+        directActualBand = 'Wi-Fi Direct permission/service unavailable';
+        directBandVerified = false;
+        notifyListeners();
+      }
+    } catch (error) {
+      directActualBand = 'Could not read P2P frequency: $error';
+      directBandVerified = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> setDirectBandMode(String mode) async {
+    if (!<String>['auto', '2ghz', '5ghz'].contains(mode)) return;
+    if (mode != 'auto' && (!directBandSelectable || role != 'sender')) return;
+    directBandMode = mode;
+    if (_directGroupConnected) {
+      // Existing P2P groups do not change channel merely because the
+      // preference changed. Never silently disconnect a working group.
+      directStatus = 'Band setting saved; current P2P group unchanged. '
+          'Make a new connection to test the selected band.';
+    }
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('link_direct_band_mode', mode);
+    } catch (error) {
+      directStatus = 'Could not save Wi-Fi band selection: $error';
+      notifyListeners();
+    }
   }
 
   Future<void> directStart({required bool receiver}) async {
@@ -609,8 +697,14 @@ class VybeLink extends ChangeNotifier {
       _directPairingInProgress = true;
       directPairingDiagnostic = '';
       _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
+      if (directBandMode != 'auto' && !directBandSelectable) {
+        _directPairingInProgress = false;
+        directStatus = 'Band selection requires Android 10+ on this device';
+        notifyListeners();
+        return;
+      }
       final ok = await _direct.invokeMethod<bool>(
-          'connect', {'address': address}) ?? false;
+          'connect', {'address': address, 'bandMode': directBandMode}) ?? false;
       if (!ok) {
         _directPairingInProgress = false;
         _directPairingStartedMs = 0;
@@ -1158,6 +1252,9 @@ class VybeLink extends ChangeNotifier {
     _savedDirectPeerName = p.getString('link_direct_peer_name') ?? '';
     _savedDirectReceiverId = p.getString('link_direct_receiver_id') ?? '';
     _directPreferred = p.getBool('link_direct_preferred') ?? false;
+    final savedBandMode = p.getString('link_direct_band_mode') ?? 'auto';
+    directBandMode = <String>['auto', '2ghz', '5ghz'].contains(savedBandMode)
+        ? savedBandMode : 'auto';
     localDeviceId = p.getString('link_device_id') ?? '';
     if (localDeviceId.isEmpty) {
       final random = Random.secure();
