@@ -33,7 +33,9 @@ class VybeLink extends ChangeNotifier {
   bool enabled = false;
   String role = 'sender';
   String deviceType = 'phone';
-  bool autoConnect = true;
+  // No background pairing before a real receiver handshake has succeeded.
+  bool autoConnect = false;
+  bool _autoPreferenceExplicit = false;
   String receiverAddress = '';
   String status = 'Disabled';
   String localAddresses = '';
@@ -194,6 +196,17 @@ class VybeLink extends ChangeNotifier {
   int _manualPairDeadlineMs = 0;
   bool _directPairingInProgress = false;
   int _directPairingStartedMs = 0;
+  String _pendingDirectReceiverId = '';
+  String _pendingDirectPeerAddress = '';
+  String _pendingDirectPeerName = '';
+  bool _pendingDirectRemember = false;
+  int _manualDirectRecoveryAttempts = 0;
+  bool get _hasConfirmedDirectReceiver =>
+      pairedReceiverId.length >= 16 &&
+      (_savedDirectReceiverId.isEmpty ||
+       _savedDirectReceiverId == pairedReceiverId);
+  bool get _mayAutoPairDirect => enabled && autoConnect &&
+      _directPreferred && role == 'sender' && _hasConfirmedDirectReceiver;
   Timer? _directRecoveryTimer;
 
   /// Restore the head-unit's Direct group or discover the previously paired
@@ -201,6 +214,7 @@ class VybeLink extends ChangeNotifier {
   /// a working socket, hotspot or manually established LAN connection.
   Future<void> _recoverDirect({bool immediately = false}) async {
     if (!enabled || !autoConnect || !_directPreferred || !directAvailable ||
+        (role == 'sender' && !_hasConfirmedDirectReceiver) ||
         _directRecoveryBusy ||
         (activeTransport == 'USB tethering' && _socket != null) ||
         (role == 'sender' &&
@@ -256,9 +270,13 @@ class VybeLink extends ChangeNotifier {
   }
 
   void _trySavedDirectPeer() {
-    if (!enabled || !autoConnect || !_directPreferred ||
+    final manuallyRetrying = _pendingDirectReceiverId.isNotEmpty &&
+        DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs &&
+        _manualDirectRecoveryAttempts < 2;
+    if (!enabled || !_directPreferred ||
         role != 'sender' || _socket != null || _directGroupConnected ||
-        _directPairingInProgress) return;
+        _directPairingInProgress ||
+        (!manuallyRetrying && !_mayAutoPairDirect)) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastDirectPeerAttemptMs < 12000) return;
 
@@ -266,21 +284,20 @@ class VybeLink extends ChangeNotifier {
     // returning user, choose ONLY the previously paired receiver by stable
     // VYBE ID. For FIRST-TIME setup, automatically choose only when exactly
     // one VYBE head unit is advertised. Never guess between two receivers.
-    final receiverId = _savedDirectReceiverId.isNotEmpty
-        ? _savedDirectReceiverId : pairedReceiverId;
+    // A native connect() request being accepted never establishes trust.
+    // On startup auto-connect only to a receiver whose TCP hello we verified.
+    final receiverId = manuallyRetrying
+        ? _pendingDirectReceiverId : pairedReceiverId;
     final matches = directPeers.where((item) {
       final id = item['id'] ?? '';
       if (id.length != 32) return false;
-      if (receiverId.isNotEmpty) return id == receiverId;
-      if (_savedDirectPeerAddress.isNotEmpty) {
-        return item['address'] == _savedDirectPeerAddress;
-      }
-      return directPeers.length == 1;
+      return id == receiverId;
     }).toList();
     if (matches.length != 1) return;
     final address = matches.single['address'];
     if (address == null || address.isEmpty) return;
     _lastDirectPeerAttemptMs = now;
+    if (manuallyRetrying) _manualDirectRecoveryAttempts++;
     unawaited(directConnectPeer(address, remember: true));
   }
 
@@ -1044,7 +1061,8 @@ class VybeLink extends ChangeNotifier {
     deviceType = p.getString('vybe_device_type') ??
         (savedRole == 'receiver' ? 'head_unit' : 'phone');
     role = deviceType == 'head_unit' ? 'receiver' : 'sender';
-    autoConnect = p.getBool('link_auto') ?? true;
+    _autoPreferenceExplicit = p.containsKey('link_auto');
+    autoConnect = p.getBool('link_auto') ?? false;
     bluetoothSourcePackage = p.getString('link_bluetooth_source') ?? '';
     bluetoothAutoResume = p.getBool('link_bluetooth_auto_resume') ?? false;
     // Earlier builds experimented with USB tethering, now disabled.
@@ -1066,14 +1084,17 @@ class VybeLink extends ChangeNotifier {
     model.addListener(_onModel);
     await directInitialize();
     await _updateAddresses();
-    if (enabled && (autoConnect || role == 'receiver')) {
-      // The head unit must listen for an explicitly paired phone even when
-      // auto-reconnect is OFF. Sender discovery remains manual in that mode.
-      // A P2P group may already exist when VYBE launches.
-      if (autoConnect && _directPreferred && directAvailable) {
-        try { await _direct.invokeMethod<bool>('start'); } catch (_) {}
-      }
+    if (enabled && role == 'receiver') {
+      // Head unit must be listening before a phone can finish its handshake.
       unawaited(connect());
+    } else if (enabled && role == 'sender' && autoConnect &&
+        !_directPreferred) {
+      // Shared Wi-Fi uses its own discovery. Direct must form a P2P group
+      // before we ever try connecting to the saved group-owner IP.
+      unawaited(connect());
+    }
+    if (enabled && autoConnect && _directPreferred && directAvailable) {
+      try { await _direct.invokeMethod<bool>('start'); } catch (_) {}
     }
     // Network auto-reconnect is not enough if Wi-Fi Direct itself vanished.
     // When the user has already chosen Direct, restore its group/peer without
@@ -1111,14 +1132,14 @@ class VybeLink extends ChangeNotifier {
       }
       if (_connecting || _retry?.isActive == true) return;
       if (role == 'sender' && _socket == null) {
-        if (_directPreferred && !_directGroupConnected &&
-            directPeers.isNotEmpty) {
-          // We can see a verified VYBE receiver. Do not repeatedly dial a
-          // stale TCP IP while Android is forming its Wi-Fi Direct group.
-          // Pair the matching receiver once and wait for the group event.
+        if (_directPreferred && !_directGroupConnected) {
+          // No IP address is reachable until Android actually forms Direct.
+          // Never race saved-IP TCP with P2P negotiation.
           _trySavedDirectPeer();
+          if (_mayAutoPairDirect) unawaited(_recoverDirect());
           return;
         }
+        if (_directPreferred && !_hasConfirmedDirectReceiver) return;
         connect();
       }
       if (role == 'receiver' && _server == null) connect();
@@ -1177,7 +1198,8 @@ class VybeLink extends ChangeNotifier {
     if (!autoConnect) return;
     if (_directPreferred) unawaited(_recoverDirect(immediately: true));
     if (_connecting) return;
-    if (role == 'sender' && _socket == null) connect();
+    if (role == 'sender' && _socket == null &&
+        (!_directPreferred || _directGroupConnected)) connect();
   }
 
   /// One recovery action covers BOTH the underlying Wi-Fi Direct network and
@@ -1197,8 +1219,7 @@ class VybeLink extends ChangeNotifier {
     _manualPairDeadlineMs =
         DateTime.now().millisecondsSinceEpoch + 40000;
     if (_directPreferred && !_directGroupConnected) {
-      // Refresh the VYBE-only list; selecting the receiver is manual when
-      // autoConnect is off, automatic when its saved ID matches and ON.
+      // A one-shot manual Reconnect can scan even if background auto is off.
       await directStart(receiver: false);
       return;
     }
@@ -1227,7 +1248,10 @@ class VybeLink extends ChangeNotifier {
     final disabledAuto = automatic == false && autoConnect;
     if (isEnabled != null) enabled = isEnabled;
     if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
-    if (automatic != null) autoConnect = automatic;
+    if (automatic != null) {
+      autoConnect = automatic;
+      _autoPreferenceExplicit = true;
+    }
     if (!enabled || disabledAuto) {
       _retry?.cancel();
       _retry = null;
@@ -1272,6 +1296,7 @@ class VybeLink extends ChangeNotifier {
     final shouldConnect = !enabled ||
         (role == 'receiver' && !hasEndpoint) ||
         (enabled && role == 'sender' && (autoConnect || manualWindow) &&
+            (!_directPreferred || _directGroupConnected) &&
             (endpointChanged || !hasEndpoint));
     final connection = shouldConnect
         ? connect(manual: !autoConnect && manualWindow)
@@ -1334,6 +1359,11 @@ class VybeLink extends ChangeNotifier {
   /// required. Receiver identity is learned asynchronously without blocking
   /// the first metadata packet.
   Future<void> connect({bool manual = false}) async {
+    if (enabled && role == 'sender' && _directPreferred &&
+        !_directGroupConnected) {
+      // Wi-Fi Direct must complete group negotiation before TCP.
+      return;
+    }
     if (enabled && role == 'sender' && !autoConnect && !manual &&
         DateTime.now().millisecondsSinceEpoch >= _manualPairDeadlineMs) {
       return; // User explicitly chose manual-only mode.
