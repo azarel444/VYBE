@@ -46,6 +46,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private var localServiceId = ""
     private var advertisingGeneration = 0
     private var advertisingFailures = 0
+    private var advertisementTimeoutRetries = 0
     private var serviceRequest: WifiP2pServiceRequest? = null
     private var discoveryPending = false
     private var discoveryGeneration = 0
@@ -283,18 +284,31 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     service.removeLocalService(ch, previous,
                         object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
-                                if (generation == advertisingGeneration) {
+                                if (generation == advertisingGeneration &&
+                                    advertisementRemovalPending) {
                                     advertisementRemovalPending = false
                                     afterRemoval?.invoke()
                                 }
                             }
                             override fun onFailure(reason: Int) {
-                                if (generation == advertisingGeneration) {
+                                if (generation == advertisingGeneration &&
+                                    advertisementRemovalPending) {
                                     advertisementRemovalPending = false
                                     afterRemoval?.invoke()
                                 }
                             }
                         })
+                    mainHandler.postDelayed({
+                        if (generation == advertisingGeneration &&
+                            advertisementRemovalPending) {
+                            // A missing Android callback must not permanently
+                            // block receiver discovery until app restart.
+                            advertisementRemovalPending = false
+                            event(mapOf("type" to "status",
+                                "message" to "Local service removal callback timed out; recovering advertisement"))
+                            afterRemoval?.invoke()
+                        }
+                    }, 6000L)
                     return
                 } catch (_: Exception) {}
             }
@@ -339,6 +353,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 advertisingPending = false
                 advertised = true
                 advertisingFailures = 0
+                advertisementTimeoutRetries = 0
                 localService = info
                 event(mapOf("type" to "status",
                     "message" to "VYBE Head Unit visible to VYBE devices"))
@@ -372,6 +387,33 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 }
             }
         })
+        // Some low-end Wi-Fi P2P stacks lose addLocalService callbacks.
+        // Invalidate and remove this exact service before ONE fresh add,
+        // rather than leaving advertisingPending latched indefinitely.
+        mainHandler.postDelayed({
+            if (generation != advertisingGeneration || !advertisingPending)
+                return@postDelayed
+            advertisingPending = false
+            advertised = false
+            advertisingGeneration++
+            event(mapOf("type" to "status",
+                "message" to "Android advertisement did not acknowledge; repairing service registration"))
+            service.removeLocalService(ch, info,
+                object : WifiP2pManager.ActionListener {
+                    private fun proceed() {
+                        if (pendingHostReceiverId != receiverId) return
+                        if (advertisementTimeoutRetries < 1) {
+                            advertisementTimeoutRetries++
+                            advertiseReceiver(receiverId)
+                        } else {
+                            event(mapOf("type" to "error",
+                                "message" to "Android Wi-Fi Direct local service is unresponsive; radio needs recovery"))
+                        }
+                    }
+                    override fun onSuccess() { proceed() }
+                    override fun onFailure(reason: Int) { proceed() }
+                })
+        }, 8500L)
     }
 
     private fun publishVerifiedReceivers() {
