@@ -194,6 +194,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               Text(link.wifiStreamReceiverDetail),
               Text('Audio format: ${link.wifiStreamReceiverCodec}'),
+              Text('Audio transport: ${link.wifiStreamReceiverTransport}'),
               Text('Network bytes received: ${link.wifiStreamReceivedBytes}'),
               Text('Decoded PCM bytes written: ${link.wifiStreamPlayedBytes}'),
               Text('Signal peak: ${link.wifiStreamReceiverPeak} / 32767'),
@@ -201,7 +202,11 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text('Time since last AAC packet: ${link.wifiStreamReceiverLastPacketAgeMs} ms'),
               Text('Buffer underruns: ${link.wifiStreamReceiverUnderruns}'),
               Text('Android audio underruns: ${link.wifiStreamTrackUnderruns}'),
-              Text('Late packets dropped: ${link.wifiStreamDroppedPackets}'),
+              Text('Receiver queue packets dropped: ${link.wifiStreamDroppedPackets}'),
+              Text('RTP packets missing: ${link.wifiStreamRtpMissing}'),
+              Text('RTP packets arrived too late: ${link.wifiStreamRtpLate}'),
+              Text('RTP packets reordered: ${link.wifiStreamRtpReordered}'),
+              Text('RTP sender session restarts: ${link.wifiStreamRtpRestarts}'),
               if (link.wifiStreamReceiverLastFailure.isNotEmpty)
                 Text('Last audio interruption: ${link.wifiStreamReceiverLastFailure}'),
               Text('Output: ${link.wifiStreamOutputRoute}'),
@@ -239,6 +244,8 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               Text(link.wifiStreamSenderDetail),
               Text('Audio format: ${link.wifiStreamSenderCodec}'),
+              Text('Audio transport: ${link.wifiStreamSenderTransport}'),
+              Text('UDP datagrams sent: ${link.wifiStreamSenderUdpDatagrams}'),
               Text('Network bytes sent: ${link.wifiStreamSentBytes}'),
               Text('AAC frames encoded: ${link.wifiStreamFramesEncoded}'),
               Text('Network send queue: ${link.wifiStreamSendQueueMs} ms'),
@@ -247,9 +254,9 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text('Encoder idle: ${link.wifiStreamEncoderIdleMs} ms'),
               Text('Network output idle: ${link.wifiStreamNetworkIdleMs} ms'),
               Text('Captured signal peak: ${link.wifiStreamSenderPeak} / 32767'),
-              Text('Reconnect attempts: ${link.wifiStreamSenderReconnects}'),
+              Text('UDP sender restarts: ${link.wifiStreamSenderReconnects}'),
               if (link.wifiStreamSenderLastFailure.isNotEmpty)
-                Text('Last audio socket failure: ${link.wifiStreamSenderLastFailure}'),
+                Text('Last UDP send failure: ${link.wifiStreamSenderLastFailure}'),
               Text('Head unit IP: ${link.wifiStreamSenderIp.isEmpty ? "Not connected" : link.wifiStreamSenderIp}'),
               const Text('Start Wi-Fi audio reception on the head unit first. '
                   'Android will then ask permission to capture the playing '
@@ -262,8 +269,8 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               icon: const Icon(Icons.analytics_outlined),
               label: const Text('Refresh audio diagnostics'),
             ),
-            const Text('For this beta, audio uses unencrypted AAC '
-                '(or PCM fallback). Use a trusted Wi-Fi Direct or private network.',
+            const Text('Experimental RTP-style UDP AAC audio (no PCM fallback). '
+                'Unencrypted: use trusted Wi-Fi Direct or a private network.',
                 style: TextStyle(color: Colors.white60)),
             const Divider(),
             ExpansionTile(
