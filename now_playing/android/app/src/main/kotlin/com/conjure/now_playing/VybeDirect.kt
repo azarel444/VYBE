@@ -41,6 +41,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private var registered = false
     private var advertised = false
     private var advertisingPending = false
+    private var advertisementRemovalPending = false
     private var localService: WifiP2pDnsSdServiceInfo? = null
     private var localServiceId = ""
     private var advertisingGeneration = 0
@@ -80,6 +81,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     localService = null
                     advertised = false
                     advertisingPending = false
+                    advertisementRemovalPending = false
                     advertisingGeneration++
                     verifiedReceivers.clear()
                     verifiedReceiverSeen.clear()
@@ -232,6 +234,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         advertised = false
         advertisingPending = false
         advertisingFailures = 0
+        advertisementRemovalPending = previous != null
         if (previous != null) {
             val service = manager
             val ch = p2pChannel
@@ -243,19 +246,26 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     service.removeLocalService(ch, previous,
                         object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
-                                if (generation == advertisingGeneration)
+                                if (generation == advertisingGeneration) {
+                                    advertisementRemovalPending = false
                                     afterRemoval?.invoke()
+                                }
                             }
                             override fun onFailure(reason: Int) {
-                                if (generation == advertisingGeneration)
+                                if (generation == advertisingGeneration) {
+                                    advertisementRemovalPending = false
                                     afterRemoval?.invoke()
+                                }
                             }
                         })
                     return
                 } catch (_: Exception) {}
             }
         }
-        if (generation == advertisingGeneration) afterRemoval?.invoke()
+        if (generation == advertisingGeneration) {
+            advertisementRemovalPending = false
+            afterRemoval?.invoke()
+        }
     }
 
     private fun advertiseReceiver(receiverId: String) {
@@ -266,6 +276,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 "message" to "VYBE receiver identity unavailable; reopen Connect"))
             return
         }
+        if (advertisementRemovalPending) return
         if ((advertised || advertisingPending) && receiverId == localServiceId) return
 
         // If the ID changes (e.g. reinstall), retire only OUR advertisement.
@@ -635,7 +646,12 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         // Never connect to a generic nearby Android device. The caller
         // may only select a peer verified by VYBE's DNS-SD TXT record in
         // the current discovery session (old results are cleared on scan).
-        val known = verifiedReceivers.values.any { it["address"] == address }
+        val now = SystemClock.elapsedRealtime()
+        val knownId = verifiedReceivers.entries.firstOrNull {
+            it.value["address"] == address
+        }?.key
+        val known = knownId != null &&
+            now - (verifiedReceiverSeen[knownId] ?: 0L) < 60000L
         if (!known) {
             event(mapOf("type" to "error",
                 "message" to "Receiver address is no longer verified; scan for VYBE head units again"))
@@ -669,16 +685,12 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             if (generation != connectAttemptGeneration) return
             connectingAddress = null
             connectAttemptGeneration++
-            // The old address may remain in an Android DNS-SD cache even
-            // after the peer rotates its P2P MAC or rebuilds its group.
-            // Re-verify it before permitting another manual or auto pair.
-            verifiedReceivers.keys.filter {
-                verifiedReceivers[it]?.get("address") == address
-            }.toList().forEach { verifiedReceivers.remove(it) }
-            publishVerifiedReceivers()
+            // ERROR=0 is generic. It does NOT prove an expired MAC and must
+            // not erase a fresh verified TXT record. The caller can refresh
+            // its discovery on a failed attempt, without losing identity.
             val message = when (reason) {
                 WifiP2pManager.ERROR ->
-                    "Android rejected Wi-Fi Direct pairing (ERROR 0). Tap Find VYBE head units to refresh its address"
+                    "Android rejected Wi-Fi Direct connect request (ERROR 0); rechecking group/peer state"
                 WifiP2pManager.BUSY ->
                     "Android Wi-Fi Direct is busy (2); wait for group setup, then scan again"
                 else -> "Wi-Fi Direct pairing request failed (Android code $reason)"
@@ -738,7 +750,42 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     "message" to "Wi-Fi Direct group not formed; refresh VYBE discovery"))
             }
         }, 25000L)
-        attemptConnect(1)
+
+        // A saved Android P2P group may belong to a completely different
+        // device (or the phone may still be group owner from an old session).
+        // In that state WifiP2pManager.connect() returns ERROR 0 repeatedly.
+        // Check and release the wrong group BEFORE the first connect() call.
+        service.requestGroupInfo(ch) { existing ->
+            if (generation != connectAttemptGeneration ||
+                connectingAddress != address) return@requestGroupInfo
+            val ownerAddress = existing?.owner?.deviceAddress
+            if (existing == null) {
+                attemptConnect(1)
+            } else if (!existing.isGroupOwner &&
+                ownerAddress.equals(address, ignoreCase = true)) {
+                service.requestConnectionInfo(ch) { info ->
+                    if (generation != connectAttemptGeneration) return@requestConnectionInfo
+                    if (info.groupFormed && info.groupOwnerAddress != null) {
+                        formedGroup(info.groupOwnerAddress.hostAddress, info.isGroupOwner)
+                    } else {
+                        attemptConnect(1)
+                    }
+                }
+            } else {
+                event(mapOf("type" to "pairing",
+                    "message" to "Releasing old Wi-Fi Direct group before pairing selected head unit"))
+                service.removeGroup(ch, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        if (generation == connectAttemptGeneration)
+                            mainHandler.postDelayed({ attemptConnect(1) }, 650L)
+                    }
+                    override fun onFailure(reason: Int) {
+                        if (generation == connectAttemptGeneration)
+                            rejected(reason)
+                    }
+                })
+            }
+        }
         return true
     }
 
@@ -784,6 +831,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         localService = null
         advertised = false
         advertisingPending = false
+        advertisementRemovalPending = false
         advertisingGeneration++
         discoveryPending = false
         discoveryGeneration++
