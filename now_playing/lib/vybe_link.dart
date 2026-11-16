@@ -189,6 +189,8 @@ class VybeLink extends ChangeNotifier {
   String _directGroupOwnerIp = '';
   bool _tcpConnectedViaDirect = false;
   bool _senderReceiverIdentityVerified = false;
+  bool _staleDirectGroupResetBusy = false;
+  int _directTcpFailureCount = 0;
   bool _directRecoveryBusy = false;
   int _lastDirectRecoveryMs = 0;
   int _lastDirectPeerAttemptMs = 0;
@@ -209,6 +211,26 @@ class VybeLink extends ChangeNotifier {
   bool get _mayAutoPairDirect => enabled && autoConnect &&
       _directPreferred && role == 'sender' && _hasConfirmedDirectReceiver;
   Timer? _directRecoveryTimer;
+
+  Future<void> _resetUnverifiedDirectGroup(String reason) async {
+    if (_staleDirectGroupResetBusy || !enabled || !_directPreferred ||
+        !_directGroupConnected || role != 'sender') return;
+    _staleDirectGroupResetBusy = true;
+    directStatus = 'Repairing Wi-Fi Direct group: $reason';
+    notifyListeners();
+    try {
+      final ok = await _direct.invokeMethod<bool>('resetGroup') ?? false;
+      if (!ok) {
+        directStatus = 'Android could not release the unverified P2P group';
+        notifyListeners();
+      }
+    } catch (error) {
+      directStatus = 'Wi-Fi Direct group reset failed: $error';
+      notifyListeners();
+    } finally {
+      _staleDirectGroupResetBusy = false;
+    }
+  }
 
   /// Restore the head-unit's Direct group or discover the previously paired
   /// Wi-Fi Direct MAC. Only called when TCP is disconnected; never tears down
@@ -322,6 +344,7 @@ class VybeLink extends ChangeNotifier {
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             _directGroupConnected = true;
+            _directTcpFailureCount = 0;
             _directGroupOwnerIp = host;
             directActive = true;
             directStatus = owner && role == 'receiver'
@@ -343,6 +366,8 @@ class VybeLink extends ChangeNotifier {
             break;
           case 'disconnected':
             _directGroupConnected = false;
+            _directGroupOwnerIp = '';
+            _directTcpFailureCount = 0;
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             _lastDirectPeerAttemptMs = 0;
@@ -362,9 +387,16 @@ class VybeLink extends ChangeNotifier {
             }
             // A TCP retry cannot recreate a lost P2P group. Recover the
             // underlying network separately, with a short settling delay.
-            if (_directPreferred && enabled && autoConnect) {
+            final manuallyRetrying = _pendingDirectReceiverId.isNotEmpty &&
+                DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs;
+            if (_directPreferred && enabled &&
+                (manuallyRetrying || autoConnect)) {
               Future<void>.delayed(const Duration(seconds: 2), () {
-                if (enabled && autoConnect && !_directGroupConnected) {
+                if (!enabled || _directGroupConnected) return;
+                if (manuallyRetrying) {
+                  unawaited(_direct.invokeMethod<bool>(
+                      'discover', {'force': true}));
+                } else if (autoConnect) {
                   unawaited(_recoverDirect(immediately: true));
                 }
               });
@@ -426,6 +458,7 @@ class VybeLink extends ChangeNotifier {
             break;
           case 'channel_reset':
             _directGroupConnected = false;
+            _directTcpFailureCount = 0;
             _directGroupOwnerIp = '';
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
@@ -1639,6 +1672,14 @@ class VybeLink extends ChangeNotifier {
     }
     if (generation != _generation) { socket?.destroy(); return; }
     if (socket == null) {
+      if (_directPreferred && _directGroupConnected) {
+        _directTcpFailureCount++;
+        if (_directTcpFailureCount >= 3) {
+          _directTcpFailureCount = 0;
+          unawaited(_resetUnverifiedDirectGroup(
+              'the head unit did not accept the TCP connection'));
+        }
+      }
       status = autoConnect
           ? 'Waiting for head unit; automatic discovery and reconnection active'
           : 'Selected head unit is not reachable; use Reconnect to try again';
@@ -1687,6 +1728,9 @@ class VybeLink extends ChangeNotifier {
     _helloTimer = Timer(const Duration(seconds: 7), () {
       if (identical(_socket, peer) && !_senderReceiverIdentityVerified) {
         status = 'Receiver did not confirm its VYBE identity';
+        if (_tcpConnectedViaDirect) {
+          unawaited(_resetUnverifiedDirectGroup('receiver hello timed out'));
+        }
         peer.destroy();
         _senderDisconnected(peer);
       }
@@ -1731,6 +1775,9 @@ class VybeLink extends ChangeNotifier {
           }).catchError((Object error) {
             debugPrint('VYBE Link could not clear stale IP: $error');
           }));
+          if (_tcpConnectedViaDirect) {
+            unawaited(_resetUnverifiedDirectGroup('receiver identity mismatch'));
+          }
           peer.destroy();
           _senderDisconnected(peer);
           return;
@@ -1738,6 +1785,7 @@ class VybeLink extends ChangeNotifier {
         _helloTimer?.cancel();
         _helloTimer = null;
         pairedReceiverId = id;
+        _directTcpFailureCount = 0;
         _senderReceiverIdentityVerified = true;
         status = 'Connected via $activeTransport to $address';
         if (_tcpConnectedViaDirect && _pendingDirectRemember &&
