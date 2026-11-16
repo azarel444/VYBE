@@ -9,6 +9,7 @@ import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceInfo
 import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest
 import android.net.wifi.p2p.nsd.WifiP2pServiceRequest
 import android.net.wifi.WpsInfo
+import android.net.MacAddress
 import android.os.Build
 import android.os.Looper
 import android.os.Handler
@@ -219,6 +220,49 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
 
     fun permission(): String = if (Build.VERSION.SDK_INT >= 33)
         Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
+
+    /** This API was introduced in Android 10 (API 29). The Android 9
+     * ATOTO is a group owner and cannot be told to use 5 GHz through the
+     * public Wi-Fi Direct API. On a newer phone, band selection constrains
+     * which group band can be JOINED; it cannot retune the Android 9 owner.
+     */
+    fun bandCapabilities(): Map<String, Any> = mapOf(
+        "sdk" to Build.VERSION.SDK_INT,
+        "canSelectBand" to (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q),
+        "canReadFrequency" to (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+    )
+
+    /** Returns a fresh reading from the Wi-Fi Direct group, NOT the ordinary
+     * Wi-Fi STA frequency (which may be unrelated to the P2P link).
+     */
+    fun refreshBandInfo(): Boolean {
+        val service = manager ?: return false
+        val ch = p2pChannel ?: return false
+        if (!permitted()) return false
+        service.requestGroupInfo(ch) { group ->
+            val mhz = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                group?.frequency ?: 0 else 0
+            val actual = when {
+                group == null -> "No Wi-Fi Direct group"
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ->
+                    "Unknown (Android 9 cannot report P2P frequency)"
+                mhz in 2400..2500 -> "2.4 GHz"
+                mhz in 4900..5899 -> "5 GHz"
+                mhz in 5900..7125 -> "6 GHz"
+                else -> "Unknown (driver did not report frequency)"
+            }
+            event(mapOf(
+                "type" to "band_info",
+                "sdk" to Build.VERSION.SDK_INT,
+                "groupFormed" to (group != null),
+                "isOwner" to (group?.isGroupOwner ?: false),
+                "frequencyMHz" to mhz,
+                "band" to actual,
+                "verified" to (mhz > 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            ))
+        }
+        return true
+    }
 
     fun available(): Boolean =
         manager != null && p2pChannel != null &&
@@ -719,7 +763,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         return true
     }
 
-    fun connect(address: String): Boolean {
+    fun connect(address: String, requestedBand: String = "auto"): Boolean {
         if (!start()) return false
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
@@ -743,10 +787,38 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             return true
         }
 
-        val config = WifiP2pConfig().apply {
-            deviceAddress = address
-            wps.setup = WpsInfo.PBC
-            groupOwnerIntent = 0
+        // Strict bands are available to modern ANDROID PHONES only. This is
+        // an opt-in experiment, not a promise to change the ATOTO's band.
+        // The default path retains the already-tested legacy configuration.
+        val strictBand = requestedBand == "5ghz" || requestedBand == "2ghz"
+        if (strictBand && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            event(mapOf("type" to "pairing_failed",
+                "message" to "Band selection needs Android 10+. This device is Android ${Build.VERSION.RELEASE}; use Automatic."))
+            return false
+        }
+        val config: WifiP2pConfig = try {
+            if (strictBand && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val band = if (requestedBand == "5ghz")
+                    WifiP2pConfig.GROUP_OWNER_BAND_5GHZ
+                    else WifiP2pConfig.GROUP_OWNER_BAND_2GHZ
+                WifiP2pConfig.Builder()
+                    .setDeviceAddress(MacAddress.fromString(address))
+                    .setGroupOperatingBand(band)
+                    .build().apply {
+                        wps.setup = WpsInfo.PBC
+                        groupOwnerIntent = 0 // ATOTO remains group owner
+                    }
+            } else {
+                WifiP2pConfig().apply {
+                    deviceAddress = address
+                    wps.setup = WpsInfo.PBC
+                    groupOwnerIntent = 0
+                }
+            }
+        } catch (error: Exception) {
+            event(mapOf("type" to "pairing_failed",
+                "message" to "Cannot prepare ${requestedBand} Wi-Fi Direct connection: ${error.message}"))
+            return false
         }
         connectingAddress = address
         connectPreflightPassed = false
@@ -773,7 +845,9 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             // its discovery on a failed attempt, without losing identity.
             val message = when (reason) {
                 WifiP2pManager.ERROR ->
-                    "Android rejected Wi-Fi Direct connect request (ERROR 0); rechecking group/peer state"
+                    if (strictBand)
+                        "Android rejected the ${if (requestedBand == "5ghz") "5 GHz" else "2.4 GHz"}-only attempt. The Android 9 head unit may be hosting on another band; switch to Automatic to reconnect."
+                    else "Android rejected Wi-Fi Direct connect request (ERROR 0); rechecking group/peer state"
                 WifiP2pManager.BUSY ->
                     "Android Wi-Fi Direct is busy (2); wait for group setup, then scan again"
                 else -> "Wi-Fi Direct pairing request failed (Android code $reason)"
@@ -864,6 +938,17 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         service.requestGroupInfo(ch) { existing ->
             if (generation != connectAttemptGeneration ||
                 connectingAddress != address) return@requestGroupInfo
+            if (strictBand && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                existing != null && !existing.isGroupOwner &&
+                existing.frequency > 0 &&
+                (if (requestedBand == "5ghz") existing.frequency !in 4900..5899
+                 else existing.frequency !in 2400..2500)) {
+                // An existing P2P group isn't retuned by a new connect()
+                // request. Don't falsely call a 2.4-GHz link a 5-GHz test.
+                rejected(WifiP2pManager.ERROR)
+                refreshBandInfo()
+                return@requestGroupInfo
+            }
             if (existing == null) {
                 connectPreflightPassed = true
                 attemptConnect(1)
