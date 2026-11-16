@@ -62,8 +62,10 @@ class VybeLinkKeepAliveService : Service() {
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
                 PendingIntent.FLAG_IMMUTABLE else 0)
         val pending = PendingIntent.getActivity(this, 0, openIntent, flags)
-        return Notification.Builder(this,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) CHANNEL_ID else "")
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            Notification.Builder(this, CHANNEL_ID)
+        else Notification.Builder(this)
+        return builder
             .setContentTitle("VYBE Connect active")
             .setContentText("Keeping music display connected while other apps are open")
             .setSmallIcon(R.mipmap.ic_launcher)
