@@ -852,19 +852,22 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             }
         }, 25000L)
 
-        // A saved Android P2P group may belong to a completely different
-        // device (or the phone may still be group owner from an old session).
-        // In that state WifiP2pManager.connect() returns ERROR 0 repeatedly.
-        // Check and release the wrong group BEFORE the first connect() call.
+        // A P2P group can survive app restarts. If the phone is already a
+        // CLIENT, first try its live group-owner IP and verify the head unit
+        // using its stable VYBE TCP hello. The group owner's randomized MAC
+        // is not a trustworthy identity test; removing a healthy group here
+        // caused needless disconnect/rejoin cycles. If hello fails, Flutter
+        // explicitly asks us to remove that unverified group.
+        //
+        // If this phone is the group OWNER of an old group, it cannot join
+        // the head unit until that incompatible group is released.
         service.requestGroupInfo(ch) { existing ->
             if (generation != connectAttemptGeneration ||
                 connectingAddress != address) return@requestGroupInfo
-            val ownerAddress = existing?.owner?.deviceAddress
             if (existing == null) {
                 connectPreflightPassed = true
                 attemptConnect(1)
-            } else if (!existing.isGroupOwner &&
-                ownerAddress?.equals(address, ignoreCase = true) == true) {
+            } else if (!existing.isGroupOwner) {
                 service.requestConnectionInfo(ch) { info ->
                     if (generation != connectAttemptGeneration) return@requestConnectionInfo
                     if (info.groupFormed && info.groupOwnerAddress != null) {
