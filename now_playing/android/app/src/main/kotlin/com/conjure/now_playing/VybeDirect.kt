@@ -725,6 +725,22 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 else -> "Wi-Fi Direct pairing request failed (Android code $reason)"
             }
             event(mapOf("type" to "pairing_failed", "message" to message))
+            // ERROR=0 alone cannot identify a root cause. Record whether
+            // Android still sees the selected peer and whether another P2P
+            // group is already active. This survives in visible diagnostics.
+            val failedGeneration = connectAttemptGeneration
+            service.requestPeers(ch) { peers ->
+                if (failedGeneration != connectAttemptGeneration) return@requestPeers
+                val matchingPeer = peers.deviceList.firstOrNull {
+                    it.deviceAddress.equals(address, ignoreCase = true)
+                }
+                service.requestGroupInfo(ch) { group ->
+                    if (failedGeneration != connectAttemptGeneration)
+                        return@requestGroupInfo
+                    event(mapOf("type" to "diagnostic",
+                        "message" to "Pairing error=$reason; peerSeen=${matchingPeer != null}; peerStatus=${matchingPeer?.status ?: -1}; existingGroup=${group != null}; groupOwner=${group?.owner?.deviceAddress ?: "none"}; localOwner=${group?.isGroupOwner ?: false}"))
+                }
+            }
         }
 
         fun attemptConnect(retriesLeft: Int) {
