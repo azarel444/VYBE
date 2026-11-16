@@ -134,6 +134,7 @@ class VybeLink extends ChangeNotifier {
   Timer? _connectionWatchdog;
   Timer? _heartbeat;
   int _lastPeerResponse = 0;
+  int _lastWatchdogTick = 0;
   String _localCoverTrack = '';
   bool _localCoverAvailable = false;
   bool _connecting = false;
@@ -165,6 +166,20 @@ class VybeLink extends ChangeNotifier {
   String _encodingClearLogoArtist = '';
   int _encodingClearLogoHash = 0;
   Timer? _clearLogoAckTimer;
+
+  static const MethodChannel _linkBackground =
+      MethodChannel('vybe/link_background');
+
+  Future<void> _setLinkBackgroundEnabled(bool value) async {
+    try {
+      await _linkBackground.invokeMethod<bool>(
+          'setEnabled', {'enabled': value});
+    } catch (error) {
+      // The metadata link still works in the foreground. Report the
+      // background-specific problem without disconnecting a live socket.
+      debugPrint('VYBE Connect background protection unavailable: $error');
+    }
+  }
 
   static const MethodChannel _direct = MethodChannel('vybe/direct');
   bool directAvailable = false;
@@ -1255,6 +1270,10 @@ class VybeLink extends ChangeNotifier {
     _model = model;
     final p = await SharedPreferences.getInstance();
     enabled = p.getBool('link_enabled') ?? false;
+    // Restore user-enabled background protection before starting discovery.
+    // This service does not connect or capture audio; it only keeps the
+    // existing Flutter networking process and Wi-Fi radio prioritized.
+    if (enabled) unawaited(_setLinkBackgroundEnabled(true));
     // New installs choose this during onboarding. For existing users,
     // preserve their previously configured sender/receiver role.
     final savedRole = p.getString('link_role') ?? 'sender';
@@ -1317,11 +1336,21 @@ class VybeLink extends ChangeNotifier {
     // Android/network transitions may not generate a socket close event.
     // Periodically recover a missing connection without user interaction.
     _connectionWatchdog?.cancel();
+    _lastWatchdogTick = DateTime.now().millisecondsSinceEpoch;
     _connectionWatchdog = Timer.periodic(const Duration(seconds: 3), (_) {
+      // A long scheduler pause after switching apps is not evidence the
+      // network socket failed. Give the remote a fresh ping window before
+      // declaring the link dead. Only run the normal timeout after a regular
+      // watchdog interval; never force-reconnect because Android paused Dart.
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastWatchdogTick > 6500 && _socket != null) {
+        _lastPeerResponse = now;
+      }
+      _lastWatchdogTick = now;
       // No USB tethering polling while this mode is disabled.
       final peer = _socket;
       if (peer != null) {
-        if (DateTime.now().millisecondsSinceEpoch - _lastPeerResponse > 11000) {
+        if (now - _lastPeerResponse > 11000) {
           if (role == 'sender') _senderDisconnected(peer);
           else _receiverDisconnected(peer);
           peer.destroy();
@@ -1394,6 +1423,16 @@ class VybeLink extends ChangeNotifier {
   /// best-effort: Android can suspend this Flutter process.
   void onResumed() {
     if (!enabled) return;
+    unawaited(_setLinkBackgroundEnabled(true));
+    // Give the existing socket a fresh heartbeat window after Android
+    // suspended the UI. A slow resume must not be classified as link loss.
+    if (_socket != null) {
+      _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
+      try { _socket?.writeln(jsonEncode({'v': 2, 'kind': 'ping'})); }
+      catch (error) {
+        debugPrint('VYBE Link resume ping failed: $error');
+      }
+    }
     // Manual mode disables proactive pairing, not the receiver's listener.
     // An explicitly chosen phone cannot connect if the listener disappeared
     // when Android backgrounded or relaunched the head unit.
@@ -1457,6 +1496,11 @@ class VybeLink extends ChangeNotifier {
         (deviceRole != null && deviceRole != role) ||
         (address != null && address.trim() != receiverAddress);
     final disabledAuto = automatic == false && autoConnect;
+    if (isEnabled != null && isEnabled != enabled) {
+      // Foreground service life follows the user's Connect toggle, not the
+      // automatic-reconnect toggle. Do not stop it when switching apps.
+      unawaited(_setLinkBackgroundEnabled(isEnabled));
+    }
     if (isEnabled != null) enabled = isEnabled;
     if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
     if (automatic != null) {
