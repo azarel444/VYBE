@@ -670,7 +670,9 @@ class NowPlayingModel extends ChangeNotifier {
     if (title.isEmpty || _linkReceiverActive) return;
     if (artLookupEnabled && art == null) _lookupLocalFirst();
     if (artLookupEnabled && _missingAlbumTag) _resolveMissingAlbum(_trackKey);
-    if (lyricsEnabled) _fetchLyrics();
+    // The sender must resolve lyrics for the receiver even if this phone
+    // uses a non-lyric theme or has its own lyric display turned off.
+    if (_needsLyrics) _fetchLyrics();
   }
 
   Future<void> _verifySessionArtwork() async {
