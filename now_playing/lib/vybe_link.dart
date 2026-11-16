@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'native_preferences.dart';
 import 'now_playing_model.dart';
+import 'lyrics.dart';
 import 'vybe_link_discovery.dart';
 import 'local_artwork.dart';
 import 'vybe_link_artist_art_cache.dart';
@@ -87,6 +88,12 @@ class VybeLink extends ChangeNotifier {
   NowPlayingModel? _model;
   String _lastPayload = '';
   String _lastTrack = '';
+  // Sync full timed lyrics once per track (or when lookup finishes), never
+  // on every 2-second metadata heartbeat. Reset on reconnect.
+  String _lastSentLyricsTrack = '';
+  List<LyricLine>? _lastSentLyrics;
+  int lyricsReceived = 0;
+  String lyricsTransferStatus = 'Not transferred';
   int _lastArtHash = 0;
   int _artGeneration = 0;
   int _rxGeneration = 0;
@@ -973,6 +980,7 @@ class VybeLink extends ChangeNotifier {
         _model?.removeListener(_onModel);
         _model = model;
         model.addListener(_onModel);
+        model.setLinkLyricsSourceEnabled(enabled && role == 'sender');
       }
       onResumed();
       return;
@@ -991,6 +999,7 @@ class VybeLink extends ChangeNotifier {
     deviceType = p.getString('vybe_device_type') ??
         (savedRole == 'receiver' ? 'head_unit' : 'phone');
     role = deviceType == 'head_unit' ? 'receiver' : 'sender';
+    model.setLinkLyricsSourceEnabled(enabled && role == 'sender');
     _autoPreferenceExplicit = p.getBool('link_auto') != null;
     autoConnect = p.getBool('link_auto') ?? false;
     bluetoothSourcePackage = p.getString('link_bluetooth_source') ?? '';
@@ -1214,6 +1223,7 @@ class VybeLink extends ChangeNotifier {
     }
     if (isEnabled != null) enabled = isEnabled;
     if (deviceRole != null && (deviceRole == 'sender' || deviceRole == 'receiver')) role = deviceRole;
+    _model?.setLinkLyricsSourceEnabled(enabled && role == 'sender');
     if (automatic != null) {
       autoConnect = automatic;
       _autoPreferenceExplicit = true;
@@ -1388,6 +1398,8 @@ class VybeLink extends ChangeNotifier {
     _socket?.destroy(); _socket = null;
     await _server?.close(); _server = null;
     _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0;
+    _lastSentLyricsTrack = '';
+    _lastSentLyrics = null;
     _senderReceiverIdentityVerified = false;
     _artGeneration++; _rxGeneration++;
     _sentFanartArtist = ''; _currentSenderArtist = '';
@@ -1741,9 +1753,6 @@ class VybeLink extends ChangeNotifier {
   void _senderDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
     _socket = null;
-    // Keep the separately authorized Android audio-capture service alive.
-    // It has its own socket reconnect loop and should not be torn down when
-    // the VYBE metadata connection briefly drops.
     _tcpConnectedViaDirect = false;
     _tcpConnectedViaWired = false;
     _senderReceiverIdentityVerified = false;
@@ -1783,7 +1792,13 @@ class VybeLink extends ChangeNotifier {
         !_senderReceiverIdentityVerified) return;
     final track = '${model.title}|${model.artist}|${model.album}';
     final changed = track != _lastTrack;
-    if (changed) { _lastTrack = track; _lastArtHash = 0; _artGeneration++; }
+    if (changed) {
+      _lastTrack = track;
+      _lastArtHash = 0;
+      _artGeneration++;
+      _lastSentLyricsTrack = '';
+      _lastSentLyrics = null;
+    }
     // Limit timestamp-only changes to one send every 2 seconds. Flutter
     // visualizer/album updates can notify many times per second and used to
     // generate a new JSON packet on every notification.
@@ -1804,6 +1819,34 @@ class VybeLink extends ChangeNotifier {
           _lastMetadataSentAt = now;
           _lastMetadataState = state;
         } catch (_) { _senderDisconnected(socket); return; }
+      }
+    }
+    // Send the *whole* timed lyric sheet in a compact JSON message after
+    // metadata, whenever the async lookup resolves. The receiver uses the
+    // existing, interpolated playback position for line highlighting.
+    final timedLyrics = model.lyrics;
+    if (model.active && timedLyrics != null && timedLyrics.isNotEmpty &&
+        timedLyrics.length <= 2500 &&
+        (track != _lastSentLyricsTrack ||
+            !identical(timedLyrics, _lastSentLyrics))) {
+      try {
+        final payload = jsonEncode({
+          'v': 2,
+          'kind': 'lyrics',
+          'track': track,
+          'lines': [
+            for (final lyric in timedLyrics)
+              {'ms': lyric.ms, 'text': lyric.text},
+          ],
+        });
+        // Avoid giant or malformed lyric payloads interfering with artwork.
+        if (payload.length <= 384 * 1024) {
+          socket.write('$payload\n');
+          _lastSentLyricsTrack = track;
+          _lastSentLyrics = timedLyrics;
+        }
+      } catch (error) {
+        debugPrint('VYBE Connect synced lyrics transfer error: $error');
       }
     }
     final art = model.art?.bytes;
@@ -2077,6 +2120,26 @@ class VybeLink extends ChangeNotifier {
           position: (data['position'] as num?)?.toInt() ?? 0,
         );
         if (changed) notifyListeners();
+      } else if (data['kind'] == 'lyrics' && track == lastReceivedTrack &&
+          data['lines'] is List) {
+        // Reject stale or oversized sheets; metadata must arrive first.
+        // Packet timestamps are relative to this song, not wall-clock time.
+        final raw = data['lines'] as List;
+        if (raw.isEmpty || raw.length > 2500 || line.length > 384 * 1024) return;
+        final parsed = <LyricLine>[];
+        for (final item in raw) {
+          if (item is! Map || item['ms'] is! num ||
+              item['text'] is! String) return;
+          final ms = (item['ms'] as num).toInt();
+          final phrase = item['text'] as String;
+          if (ms < 0 || ms > 86400000 || phrase.length > 2000) return;
+          parsed.add(LyricLine(ms, phrase));
+        }
+        parsed.sort((a, b) => a.ms.compareTo(b.ms));
+        _model?.applyLinkLyrics(track, parsed);
+        lyricsReceived++;
+        lyricsTransferStatus = 'Received ${parsed.length} synchronized lines';
+        notifyListeners();
       } else if (data['kind'] == 'fanart' && data['art'] is String &&
           data['artist'] == receivedFanartArtist) {
         try {
