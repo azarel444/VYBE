@@ -27,8 +27,13 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
   Color get _controlAccent =>
       Color.lerp(widget.accent, Colors.white, .52)!;
 
+  // Coverflow uses the cinematic fanart/album background renderer too.
+  // Otherwise Customize edits bgContrast while the renderer reads
+  // cinematicContrast, and its contrast/blur sliders appear broken.
   bool get _fanartTheme =>
-      s.theme == AppSettings.tCinematic || s.theme == AppSettings.tEditorial;
+      s.theme == AppSettings.tCinematic ||
+      s.theme == AppSettings.tEditorial ||
+      s.theme == AppSettings.tCoverflow;
 
   int get _backgroundChoice {
     if (_fanartTheme) {
