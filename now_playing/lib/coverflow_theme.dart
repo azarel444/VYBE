@@ -430,10 +430,12 @@ class _CoverflowAtmosphere extends CustomPainter {
 
     // Narrow light spill hugs the foot of each sleeve. No large, blurry
     // colored cloud obscuring the floor or the artist background behind it.
-    for (final spill in <(double, double, double)>[
-      (.50, .39, .38), (.31, .21, .23), (.69, .21, .23)
+    for (final spill in const <List<double>>[
+      [0.50, 0.39, 0.38],
+      [0.31, 0.21, 0.23],
+      [0.69, 0.21, 0.23],
     ]) {
-      final x = spill.$1, width = spill.$2, strength = spill.$3;
+      final x = spill[0], width = spill[1], strength = spill[2];
       final light = Rect.fromCenter(
         center: Offset(w * x, y + h * .017),
         width: w * width, height: h * .092);
