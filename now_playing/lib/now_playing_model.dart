@@ -44,6 +44,7 @@ class NowPlayingModel extends ChangeNotifier {
   List<CoverflowCover> coverflowCovers = <CoverflowCover>[];
   int coverflowRevision = 0;
   final Map<String, Uint8List> _coverflowThumbCache = {};
+  final Set<String> _coverflowSharpLookupAttempts = <String>{};
   final List<CoverflowCover> _coverflowHistory = <CoverflowCover>[];
   String _coverflowQueueSignature = '';
   int _coverflowToken = 0;
@@ -171,6 +172,63 @@ class NowPlayingModel extends ChangeNotifier {
       ..[index] = entry.withThumbnail(bytes);
     coverflowRevision++;
     notifyListeners();
+
+    // The nearest sleeves are almost the selected cover's size. A player's
+    // 128/256px MediaSession icon remains pixelated even if Flutter requests
+    // 768px cacheWidth. Only when genuinely low-resolution, try a verified
+    // artist+recording artwork lookup and replace the tiny icon on success.
+    // Keep showing the player's art throughout; a miss leaves it intact.
+    if (entry.slot.abs() == 1 && artLookupEnabled &&
+        entry.title.trim().isNotEmpty && entry.artist.trim().isNotEmpty &&
+        _coverflowSharpLookupAttempts.add(cacheKey)) {
+      if (_coverflowSharpLookupAttempts.length > 80) {
+        _coverflowSharpLookupAttempts.clear();
+        _coverflowSharpLookupAttempts.add(cacheKey);
+      }
+      unawaited(_upgradeCoverflowSideArt(entry, cacheKey, bytes, token));
+    }
+  }
+
+  Future<void> _upgradeCoverflowSideArt(
+      CoverflowCover entry, String cacheKey,
+      Uint8List original, int token) async {
+    ui.Codec? codec;
+    try {
+      codec = await ui.instantiateImageCodec(original);
+      final frame = await codec.getNextFrame();
+      final width = frame.image.width;
+      final height = frame.image.height;
+      frame.image.dispose();
+      if (width >= 550 && height >= 550) return;
+      if (_disposed || token != _coverflowToken) return;
+      // Avoid competing with the current song's primary album-art request.
+      if (albumArtPriorityPending) {
+        await Future<void>.delayed(const Duration(milliseconds: 550));
+      }
+      if (_disposed || token != _coverflowToken) return;
+      final result = await fetchArtworkWithMatch(
+        entry.title, entry.artist, allowOriginalFallback: false,
+      );
+      if (result == null || token != _coverflowToken || _disposed) return;
+      final candidate = await _queueArt.invokeMethod<Uint8List>('encode', {
+        'bytes': result.bytes, 'targetSide': 768,
+      });
+      if (candidate == null || candidate.isEmpty ||
+          candidate.length > 280 * 1024 ||
+          token != _coverflowToken || _disposed) return;
+      final newIndex = coverflowCovers.indexWhere((e) =>
+          e.id == entry.id && e.slot == entry.slot);
+      if (newIndex < 0) return;
+      _coverflowThumbCache[cacheKey] = candidate;
+      coverflowCovers = List<CoverflowCover>.of(coverflowCovers)
+        ..[newIndex] = coverflowCovers[newIndex].withThumbnail(candidate);
+      coverflowRevision++;
+      notifyListeners();
+    } catch (error) {
+      debugPrint('VYBE high-resolution side cover unavailable: $error');
+    } finally {
+      codec?.dispose();
+    }
   }
 
   void applyLinkCoverflow(String track, List<CoverflowCover> incoming) {
