@@ -1678,9 +1678,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The visual treatment is fixed; EVERY illuminated accent follows the
   /// current album's extracted palette or the user-selected VYBE override.
   Widget _coverflowLayout(double w, double h) {
+    // Coverflow's reference has a large, near-full-width artist logo.
+    // _scaledClearLogo reserves a smaller fraction of its box for ordinary
+    // themes, which made this logo roughly HALF the intended size.
+    // Respect the existing clearlogo size control without shrinking it down.
     final logo = settings.useArtistClearLogo &&
             _clearLogoBytes != null && model.active
-        ? _scaledClearLogo(alignment: Alignment.center)
+        ? Transform.scale(
+            scale: (0.77 + 0.23 * settings.artistLogoScale)
+                .clamp(.72, 1.17).toDouble(),
+            child: Image.memory(
+              _clearLogoBytes!,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.medium,
+              gaplessPlayback: true,
+            ))
         : _metadataText(_VybeTextRole.artist, Alignment.center);
     final trackKey = '${model.artist}|${model.album}|${model.title}';
     return CoverflowScene(
