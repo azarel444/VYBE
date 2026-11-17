@@ -48,6 +48,87 @@ class NowPlayingModel extends ChangeNotifier {
   final List<CoverflowCover> _coverflowHistory = <CoverflowCover>[];
   String _coverflowQueueSignature = '';
   int _coverflowToken = 0;
+  int _coverflowRepeatCheckSerial = 0;
+
+  // Side sleeves can legitimately be different tracks from the SAME album,
+  // or a player's queue can repeat the current art in a previous slot.
+  // Suppress visually identical cover images, not adjacent tracks by title.
+  // A tiny decoded color sample catches identical JPEGs encoded at different
+  // sizes/qualities, unlike a raw-byte or queue-ID comparison.
+  Future<Uint8List?> _coverflowImageSample(Uint8List bytes) async {
+    ui.Codec? codec;
+    try {
+      codec = await ui.instantiateImageCodec(bytes,
+          targetWidth: 16, targetHeight: 16);
+      final frame = await codec.getNextFrame();
+      try {
+        final pixels = await frame.image.toByteData(
+            format: ui.ImageByteFormat.rawRgba);
+        return pixels?.buffer.asUint8List(
+            pixels.offsetInBytes, pixels.lengthInBytes);
+      } finally {
+        frame.image.dispose();
+      }
+    } catch (error) {
+      debugPrint('VYBE Coverflow duplicate-art sampling: $error');
+      return null;
+    } finally {
+      codec?.dispose();
+    }
+  }
+
+  bool _coverflowSameArtwork(Uint8List a, Uint8List b) {
+    if (a.length != b.length || a.length < 64 || a.length % 4 != 0) {
+      return false;
+    }
+    var difference = 0;
+    // Compare the small decoded RGB grids. JPEG compression can change
+    // individual bytes but not the visual layout of the artwork.
+    for (var i = 0; i < a.length; i += 4) {
+      difference += (a[i] - b[i]).abs();
+      difference += (a[i + 1] - b[i + 1]).abs();
+      difference += (a[i + 2] - b[i + 2]).abs();
+    }
+    return difference / (a.length / 4 * 3) < 13.0;
+  }
+
+  void _checkCoverflowRepeatedArtwork() {
+    final current = art?.bytes;
+    if (_disposed || current == null || current.isEmpty ||
+        coverflowCovers.isEmpty || _albumArtPriorityPending) return;
+    final serial = ++_coverflowRepeatCheckSerial;
+    final track = _trackKey;
+    final token = _coverflowToken;
+    unawaited(_pruneCoverflowRepeatedArtwork(current, serial, track, token));
+  }
+
+  Future<void> _pruneCoverflowRepeatedArtwork(Uint8List activeArt,
+      int serial, String track, int token) async {
+    final centerSample = await _coverflowImageSample(activeArt);
+    if (centerSample == null || serial != _coverflowRepeatCheckSerial ||
+        token != _coverflowToken || track != _trackKey || _disposed) return;
+    final redundant = <String>{};
+    for (final entry in coverflowCovers) {
+      final thumb = entry.thumb;
+      if (thumb == null || thumb.isEmpty) continue;
+      bool duplicate;
+      if (identical(thumb, activeArt) || listEquals(thumb, activeArt)) {
+        duplicate = true;
+      } else {
+        final sample = await _coverflowImageSample(thumb);
+        duplicate = sample != null &&
+            _coverflowSameArtwork(centerSample, sample);
+      }
+      if (serial != _coverflowRepeatCheckSerial ||
+          token != _coverflowToken || track != _trackKey || _disposed) return;
+      if (duplicate) redundant.add('${entry.id}|${entry.slot}');
+    }
+    if (redundant.isEmpty) return;
+    coverflowCovers = coverflowCovers.where((entry) =>
+        !redundant.contains('${entry.id}|${entry.slot}')).toList();
+    coverflowRevision++;
+    notifyListeners();
+  }
 
   void _rememberCoverflowPrevious(String oldTitle, String oldArtist,
       Uint8List? oldArt) {
@@ -104,6 +185,7 @@ class NowPlayingModel extends ChangeNotifier {
     coverflowCovers = entries;
     coverflowRevision++;
     notifyListeners();
+    _checkCoverflowRepeatedArtwork();
     // Prioritize the active cover and clearlogo before fetching *side*
     // thumbnails. Run the network/decode work one at a time so six artwork
     // downloads do not spike Wi-Fi Direct/Bluetooth coexistence on the A5L.
@@ -172,6 +254,7 @@ class NowPlayingModel extends ChangeNotifier {
       ..[index] = entry.withThumbnail(bytes);
     coverflowRevision++;
     notifyListeners();
+    _checkCoverflowRepeatedArtwork();
 
     // The nearest sleeves are almost the selected cover's size. A player's
     // 128/256px MediaSession icon remains pixelated even if Flutter requests
@@ -224,6 +307,7 @@ class NowPlayingModel extends ChangeNotifier {
         ..[newIndex] = coverflowCovers[newIndex].withThumbnail(candidate);
       coverflowRevision++;
       notifyListeners();
+      _checkCoverflowRepeatedArtwork();
     } catch (error) {
       debugPrint('VYBE high-resolution side cover unavailable: $error');
     } finally {
@@ -240,6 +324,7 @@ class NowPlayingModel extends ChangeNotifier {
         e.thumb != null && e.thumb!.isNotEmpty).toList();
     coverflowRevision++;
     notifyListeners();
+    _checkCoverflowRepeatedArtwork();
   }
 
   // Preserve the media session's raw album value for cover searches. An
@@ -1254,6 +1339,7 @@ class NowPlayingModel extends ChangeNotifier {
     _needsArt = false;
     _artClearTimer?.cancel();
     notifyListeners();
+    _checkCoverflowRepeatedArtwork();
   }
 
   Future<void> playPause() => _call('playPause');
