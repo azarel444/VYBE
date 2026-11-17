@@ -478,7 +478,7 @@ class _CoverflowAtmosphere extends CustomPainter {
 class _CoverflowGapShadow extends CustomPainter {
   final List<Offset> front;
   final List<Offset> rear;
-  final int side; // -1: cast left; +1: cast right
+  final int side;
   final double unit;
   const _CoverflowGapShadow({
     required this.front, required this.rear,
@@ -494,41 +494,33 @@ class _CoverflowGapShadow extends CustomPainter {
       ..lineTo(rear[3].dx, rear[3].dy)
       ..close();
 
-    final topY = math.min(rear[0].dy, rear[1].dy);
-    final bottomY = math.max(rear[2].dy, rear[3].dy);
-    canvas.save();
-    // Clipping to the rear sleeve makes it physically impossible for
-    // a shadow to rise above the artwork or bleed onto surrounding fanart.
-    canvas.clipRect(Rect.fromLTRB(0, topY,
-        size.width, bottomY + 2));
-    canvas.clipPath(rearPath);
-
-    // Follow the true perspective edge of the nearer sleeve. The black
-    // stripe occupies the gap and fades smoothly into the exposed rear art.
+    // Use a fully FEATHERED cast light occlusion, not a four-sided band:
+    // that band's top and outer edges created the visible hard cutoff.
+    // The rear album's projected silhouette is the *only* clip boundary.
     final edgeTop = side < 0 ? front[0] : front[1];
     final edgeBottom = side < 0 ? front[3] : front[2];
-    final dx = (side < 0 ? -1.0 : 1.0) * unit * .24;
-    final farTop = edgeTop.translate(dx, 0);
-    final farBottom = edgeBottom.translate(dx, 0);
-    final band = Path()
-      ..moveTo(edgeTop.dx, edgeTop.dy)
-      ..lineTo(edgeBottom.dx, edgeBottom.dy)
-      ..lineTo(farBottom.dx, farBottom.dy)
-      ..lineTo(farTop.dx, farTop.dy)
-      ..close();
-    final minX = math.min(math.min(edgeTop.dx, edgeBottom.dx),
-        math.min(farTop.dx, farBottom.dx));
-    final maxX = math.max(math.max(edgeTop.dx, edgeBottom.dx),
-        math.max(farTop.dx, farBottom.dx));
-    final gradient = LinearGradient(
-      colors: side < 0
-          ? [Colors.transparent, const Color(0xD8000000)]
-          : [const Color(0xD8000000), Colors.transparent],
-      stops: const [0, 1],
+    final midX = (edgeTop.dx + edgeBottom.dx) * .5;
+    final topY = math.min(rear[0].dy, rear[1].dy);
+    final bottomY = math.max(rear[2].dy, rear[3].dy);
+    final midY = (topY + bottomY) * .5;
+    final falloff = Rect.fromCenter(
+      center: Offset(midX + (side < 0 ? -.07 : .07) * unit, midY),
+      width: unit * .72,
+      height: math.max(1.0, (bottomY - topY) * 1.62),
     );
-    canvas.drawPath(band, Paint()
-      ..shader = gradient.createShader(Rect.fromLTRB(
-        minX, topY, math.max(minX + 1.0, maxX), bottomY)));
+
+    canvas.save();
+    canvas.clipPath(rearPath);
+    canvas.drawOval(falloff, Paint()
+      ..shader = const RadialGradient(
+        stops: [0, .27, .63, 1],
+        colors: [
+          Color(0xBB000000),
+          Color(0xA4000000),
+          Color(0x51000000),
+          Color(0x00000000),
+        ],
+      ).createShader(falloff));
     canvas.restore();
   }
 
