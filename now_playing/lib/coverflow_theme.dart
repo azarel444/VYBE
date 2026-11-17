@@ -85,44 +85,33 @@ class CoverflowScene extends StatelessWidget {
             // Back to front. Every near sleeve occludes its actual rear
             // neighbor; selected art is always the final and frontmost cover.
             for (final entry in side) ...[
-              Positioned.fill(child: IgnorePointer(
-                child: CustomPaint(painter: _CoverflowSilhouette(
-                  quad: _coverQuad(w, floorY, centerSize,
-                    slot: entry.slot, portrait: portrait),
-                  strength: entry.slot.abs() == 1 ? 1.0 : .81,
-                )),
-              )),
-              if (entry.slot.abs() == 1)
-                Positioned.fill(child: IgnorePointer(
-                  child: CustomPaint(painter: _CoverflowCoverGlow(
-                    quad: _coverQuad(w, floorY, centerSize,
-                      slot: entry.slot, portrait: portrait),
-                    accent: palette.a, performanceMode: performanceMode,
-                    strength: .79)),
-                )),
               _sceneCover(entry.thumb, centerSize,
                 _coverQuad(w, floorY, centerSize,
                   slot: entry.slot, portrait: portrait),
                 distance: entry.slot.abs(), left: entry.slot < 0),
+              if (entry.slot.abs() == 1)
+                Positioned.fill(child: IgnorePointer(
+                  // Draw after the sleeve so the specular lines are VISIBLE.
+                  child: CustomPaint(painter: _CoverflowCoverGlow(
+                    quad: _coverQuad(w, floorY, centerSize,
+                      slot: entry.slot, portrait: portrait),
+                    accent: palette.a, performanceMode: performanceMode,
+                    strength: .79, selected: false)),
+                )),
             ],
-            Positioned.fill(child: IgnorePointer(
-              child: CustomPaint(painter: _CoverflowSilhouette(
-                quad: _coverQuad(w, floorY, centerSize,
-                  slot: 0, portrait: portrait),
-                strength: 1.0,
-              )),
-            )),
+            _sceneCover(activeCover, centerSize,
+              _coverQuad(w, floorY, centerSize,
+                slot: 0, portrait: portrait),
+              distance: 0, left: false),
+            // The selected sleeve gets a continuous palette-colored stroke
+            // ABOVE the image, with a tight glow and corner pin lights.
             Positioned.fill(child: IgnorePointer(
               child: CustomPaint(painter: _CoverflowCoverGlow(
                 quad: _coverQuad(w, floorY, centerSize,
                   slot: 0, portrait: portrait),
                 accent: palette.a, performanceMode: performanceMode,
-                strength: 1.0)),
+                strength: 1.0, selected: true)),
             )),
-            _sceneCover(activeCover, centerSize,
-              _coverQuad(w, floorY, centerSize,
-                slot: 0, portrait: portrait),
-              distance: 0, left: false),
 
             Positioned(
               top: portrait ? h * .045 : h * .002,
@@ -258,7 +247,8 @@ class CoverflowScene extends StatelessWidget {
     final accent = Color.lerp(palette.a, palette.b,
         active ? 0 : distance == 1 ? .13 : .23)!;
     final borderRadius = BorderRadius.circular(active ? 9 : 5);
-    final reflectionHeight = size * (active ? .225 : .17);
+    final reflectionHeight = size * (active ? .33
+        : distance == 1 ? .30 : .22);
     Widget coverFace() => ClipRRect(
       borderRadius: borderRadius,
       child: bytes != null
@@ -276,14 +266,15 @@ class CoverflowScene extends StatelessWidget {
       Positioned(left: 1, top: size + 3,
         width: size - 2, height: reflectionHeight,
         child: Opacity(
-          opacity: active ? .47 : distance == 1 ? .30 : .12,
+          opacity: active ? .88 : distance == 1 ? .69
+              : distance == 2 ? .39 : .25,
           child: ShaderMask(
             blendMode: BlendMode.dstIn,
             shaderCallback: (rect) => const LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xB6FFFFFF), Color(0x4AFFFFFF),
+                Color(0xF2FFFFFF), Color(0xAAFFFFFF),
                 Color(0x00FFFFFF),
               ],
               stops: [0, .24, 1],
@@ -309,9 +300,22 @@ class CoverflowScene extends StatelessWidget {
             border: Border.all(
               color: accent.withOpacity(active ? .90 : distance == 1 ? .63 : .22),
               width: active ? 1.6 : 1.0),
-            // No uniform glowing box shadow: just a black silhouette on
-            // the fanart behind this sleeve and corner-focused light glares.
-            boxShadow: const [],
+            // A compact BLACK lift shadow attached to THIS cover only.
+            // No full-screen silhouette rectangles behind the album stack.
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(active ? .83 : .76),
+                offset: const Offset(0, 8),
+                blurRadius: active ? 20 : 14,
+                spreadRadius: 0,
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(.65),
+                offset: const Offset(0, 2),
+                blurRadius: 5,
+                spreadRadius: 0,
+              ),
+            ],
           ),
           child: Stack(fit: StackFit.expand, children: [
             Padding(padding: EdgeInsets.all(active ? 2 : 1),
@@ -398,107 +402,74 @@ class CoverflowScene extends StatelessWidget {
   }
 }
 
-/// Stage-darkening is translucent at its strongest point and deliberately
-/// FADES OUT downwards, revealing the artist fanart all the way to the bottom.
-/// No random horizontal scratches and no flat opaque rectangle.
+/// The reflective stage overlays fanart without a hard rectangular horizon.
+/// A feathered gradient begins slightly ABOVE the covers' shared baseline,
+/// peaks near their feet, then disappears by the bottom of the screen.
 class _CoverflowAtmosphere extends CustomPainter {
   final ArtPalette p;
-  final double horizon;
-  const _CoverflowAtmosphere(this.p, this.horizon);
+  final double contactFraction;
+  const _CoverflowAtmosphere(this.p, this.contactFraction);
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    final y = h * horizon;
-    final stage = Rect.fromLTWH(0, y, w, math.max(1, h - y));
-
+    final contactY = h * contactFraction;
+    // Start the transition above the active sleeve's lower edge.
+    final transitionTop = math.max(0.0, contactY - h * .065);
+    final stage = Rect.fromLTWH(
+        0, transitionTop, w, math.max(1.0, h - transitionTop));
     canvas.drawRect(stage, Paint()
       ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        stops: [0, .13, .48, .78, 1],
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        stops: [0, .11, .22, .37, .67, 1],
         colors: [
-          Color(0x95000000), // Dark contact zone but NOT opaque
-          Color(0x79000000),
-          Color(0x47000000),
-          Color(0x1E000000),
-          Color(0x00000000), // Fade the black to transparent at the bottom
+          Color(0x00000000), // no visible straight horizon at the start
+          Color(0x37000000),
+          Color(0x94000000), // soft, translucent contact darkness
+          Color(0x77000000),
+          Color(0x24000000),
+          Color(0x00000000), // underlying fanart fully returns at bottom
         ],
       ).createShader(stage));
 
-    // Narrow light spill hugs the foot of each sleeve. No large, blurry
-    // colored cloud obscuring the floor or the artist background behind it.
+    // Tight pools of reflected light; no colored fog across the fanart.
     for (final spill in const <List<double>>[
-      [0.50, 0.39, 0.38],
-      [0.31, 0.21, 0.23],
-      [0.69, 0.21, 0.23],
+      [.50, .39, .33],
+      [.31, .21, .20],
+      [.69, .21, .20],
     ]) {
-      final x = spill[0], width = spill[1], strength = spill[2];
-      final light = Rect.fromCenter(
-        center: Offset(w * x, y + h * .017),
-        width: w * width, height: h * .092);
-      canvas.drawOval(light, Paint()
+      final rect = Rect.fromCenter(
+        center: Offset(w * spill[0], contactY + h * .015),
+        width: w * spill[1], height: h * .08);
+      canvas.drawOval(rect, Paint()
         ..shader = RadialGradient(
           colors: [
-            p.a.withOpacity(strength),
-            p.b.withOpacity(strength * .16),
+            p.a.withOpacity(spill[2]),
+            p.b.withOpacity(spill[2] * .15),
             Colors.transparent,
           ],
           stops: const [0, .25, 1],
-        ).createShader(light));
+        ).createShader(rect));
     }
 
-    // An almost imperceptible polished-stone micrograin; not horizontal
-    // streaks. The subtle specks remain visible THROUGH translucent cover
-    // reflections and appear across the WHOLE floor, not just bright pools.
+    // Sparse, tiny polish grain across the floor only; no horizontal bars.
     final grain = Paint();
-    for (var i = 0; i < 1000; i++) {
+    for (var i = 0; i < 850; i++) {
       final seed = (i * 1664525 + 1013904223) & 0x7fffffff;
       final u = (seed % 10003) / 10003.0;
       final v = ((seed ~/ 67) % 10007) / 10007.0;
-      final px = w * u, py = y + (h - y) * v;
+      final px = w * u;
+      final py = transitionTop + (h - transitionTop) * v;
       grain.color = (i % 3 == 0 ? Colors.white : Colors.black)
-          .withOpacity(i % 3 == 0 ? .034 : .064);
-      canvas.drawCircle(Offset(px, py), i % 5 == 0 ? .68 : .38, grain);
+          .withOpacity(i % 3 == 0 ? .034 : .054);
+      canvas.drawCircle(Offset(px, py), .42, grain);
     }
   }
 
   @override
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
-      old.horizon != horizon || old.p.a != p.a ||
-      old.p.b != p.b || old.p.c != p.c;
-}
-
-/// Distinct matte-black silhouette behind each album against the fanart.
-/// The shape is rasterized only on track changes and stays BELOW the cover.
-class _CoverflowSilhouette extends CustomPainter {
-  final List<Offset> quad;
-  final double strength;
-  const _CoverflowSilhouette({required this.quad, required this.strength});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(quad[0].dx, quad[0].dy)
-      ..lineTo(quad[1].dx, quad[1].dy)
-      ..lineTo(quad[2].dx, quad[2].dy)
-      ..lineTo(quad[3].dx, quad[3].dy)
-      ..close();
-    canvas.drawShadow(path, Colors.black.withOpacity(strength), 25, false);
-    canvas.drawShadow(path, Colors.black.withOpacity(strength), 12, false);
-    // A dark narrow silhouette pushes each face away from the fanart.
-    final edge = Paint()
-      ..color = Colors.black.withOpacity(.94 * strength)
-      ..strokeWidth = 5.0
-      ..style = PaintingStyle.stroke;
-    canvas.drawPath(path, edge);
-  }
-
-  @override
-  bool shouldRepaint(covariant _CoverflowSilhouette old) =>
-      old.strength != strength ||
-      old.quad[0] != quad[0] || old.quad[1] != quad[1] ||
-      old.quad[2] != quad[2] || old.quad[3] != quad[3];
+      old.contactFraction != contactFraction ||
+      old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
 }
 
 /// Bright pin-point corner glints with tiny specular edges.
@@ -508,47 +479,77 @@ class _CoverflowCoverGlow extends CustomPainter {
   final Color accent;
   final double strength;
   final bool performanceMode;
+  final bool selected;
+
   const _CoverflowCoverGlow({
     required this.quad, required this.accent, required this.strength,
-    required this.performanceMode,
+    required this.performanceMode, required this.selected,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final edge = Paint()
-      ..color = accent.withOpacity(.44 * strength)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1;
-    canvas.drawLine(quad[0], quad[1], edge);
-    canvas.drawLine(quad[3], quad[2], edge);
+    final path = Path()
+      ..moveTo(quad[0].dx, quad[0].dy)
+      ..lineTo(quad[1].dx, quad[1].dy)
+      ..lineTo(quad[2].dx, quad[2].dy)
+      ..lineTo(quad[3].dx, quad[3].dy)
+      ..close();
 
-    void glare(Offset p, double radius, double alpha) {
-      final r = Rect.fromCircle(center: p, radius: radius);
-      canvas.drawCircle(p, radius, Paint()
+    if (selected) {
+      // Tight halo that tracks the current album-art / VYBE palette.
+      // This is just a few pixels wide, not an entire-cover light cloud.
+      canvas.drawPath(path, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = performanceMode ? 3.4 : 5.0
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal,
+            performanceMode ? 2.0 : 3.2)
+        ..color = accent.withOpacity(.87 * strength));
+      canvas.drawPath(path, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = accent.withOpacity(.97 * strength));
+      canvas.drawPath(path, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = .85
+        ..color = Color.lerp(accent, Colors.white, .46)!
+            .withOpacity(.92 * strength));
+    } else {
+      // Side sleeves get restrained narrow highlights, not a perimeter glow.
+      final edge = Paint()
+        ..color = accent.withOpacity(.65 * strength)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+      canvas.drawLine(quad[0], quad[3], edge);
+      canvas.drawLine(quad[2], quad[3], edge);
+    }
+
+    void glare(Offset point, double radius, double alpha) {
+      final rect = Rect.fromCircle(center: point, radius: radius);
+      canvas.drawCircle(point, radius, Paint()
         ..shader = RadialGradient(
           stops: const [0, .075, .25, .55, 1],
           colors: [
-            Colors.white.withOpacity(.94 * alpha * strength),
+            Colors.white.withOpacity(.97 * alpha * strength),
             Color.lerp(accent, Colors.white, .65)!
-                .withOpacity(.86 * alpha * strength),
-            accent.withOpacity(.53 * alpha * strength),
+                .withOpacity(.88 * alpha * strength),
+            accent.withOpacity(.56 * alpha * strength),
             accent.withOpacity(.10 * alpha * strength),
             Colors.transparent,
           ],
-        ).createShader(r));
+        ).createShader(rect));
     }
 
-    final radius = performanceMode ? 10.0 : 20.0;
+    final radius = performanceMode ? 10.0 : 17.0;
     glare(quad[3], radius, 1);
     glare(quad[2], radius, .91);
-    glare(quad[0], radius * .63, .55);
-    glare(quad[1], radius * .55, .40);
+    glare(quad[0], radius * .59, .42);
+    glare(quad[1], radius * .53, .35);
   }
 
   @override
   bool shouldRepaint(covariant _CoverflowCoverGlow old) =>
       old.accent != accent || old.strength != strength ||
-      old.performanceMode != performanceMode ||
+      old.performanceMode != performanceMode || old.selected != selected ||
       old.quad[0] != quad[0] || old.quad[1] != quad[1] ||
       old.quad[2] != quad[2] || old.quad[3] != quad[3];
 }
