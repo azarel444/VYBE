@@ -18,7 +18,6 @@ class CoverflowScene extends StatelessWidget {
   final Widget artistHeader;
   final Widget trackTitle;
   final Widget albumPlaque;
-  final Widget progress;
   final Widget? leftVisualizer;
   final Widget? rightVisualizer;
   final bool performanceMode;
@@ -32,7 +31,6 @@ class CoverflowScene extends StatelessWidget {
     required this.artistHeader,
     required this.trackTitle,
     required this.albumPlaque,
-    required this.progress,
     this.leftVisualizer,
     this.rightVisualizer,
     this.performanceMode = false,
@@ -81,19 +79,16 @@ class CoverflowScene extends StatelessWidget {
         ),
         Positioned(
           left: w * .12, right: w * .12,
-          top: portrait ? h * .763 : h * .721,
-          height: portrait ? h * .092 : h * .098,
+          top: portrait ? h * .778 : h * .788,
+          height: portrait ? h * .085 : h * .075,
           child: Center(child: trackTitle),
         ),
         Positioned(
           left: w * .15, right: w * .15,
-          top: portrait ? h * .86 : h * .842,
-          height: portrait ? h * .07 : h * .07,
+          top: portrait ? h * .872 : h * .886,
+          height: portrait ? h * .073 : h * .075,
           child: Center(child: albumPlaque),
         ),
-        Positioned(left: w * .26, right: w * .26,
-          bottom: h * .06, height: 3.5,
-          child: progress),
       ];
       return ClipRect(child: TweenAnimationBuilder<double>(
         // Transition occurs only on track change. No continuously animated
