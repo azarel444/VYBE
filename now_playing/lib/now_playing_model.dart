@@ -103,10 +103,24 @@ class NowPlayingModel extends ChangeNotifier {
     coverflowCovers = entries;
     coverflowRevision++;
     notifyListeners();
-    for (final entry in entries.where((e) =>
-        e.thumb == null && !e.id.startsWith('played:'))) {
-      unawaited(_fetchCoverflowThumbnail(entry, token));
-    }
+    // Prioritize the active cover and clearlogo before fetching *side*
+    // thumbnails. Run the network/decode work one at a time so six artwork
+    // downloads do not spike Wi-Fi Direct/Bluetooth coexistence on the A5L.
+    final pending = entries.where((e) =>
+        e.thumb == null && !e.id.startsWith('played:')).toList()
+      ..sort((a, b) => a.slot.abs().compareTo(b.slot.abs()));
+    unawaited(() async {
+      for (final entry in pending) {
+        if (token != _coverflowToken || _disposed) return;
+        // The main cover always wins the song-change load race.
+        if (albumArtPriorityPending || art == null) {
+          await Future<void>.delayed(const Duration(milliseconds: 450));
+        }
+        if (token != _coverflowToken || _disposed) return;
+        await _fetchCoverflowThumbnail(entry, token);
+        await Future<void>.delayed(const Duration(milliseconds: 95));
+      }
+    }());
   }
 
   Future<void> _fetchCoverflowThumbnail(CoverflowCover entry, int token) async {
