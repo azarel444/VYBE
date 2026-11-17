@@ -85,6 +85,13 @@ class CoverflowScene extends StatelessWidget {
             // Back to front. Every near sleeve occludes its actual rear
             // neighbor; selected art is always the final and frontmost cover.
             for (final entry in side) ...[
+              Positioned.fill(child: IgnorePointer(
+                child: CustomPaint(painter: _CoverflowSilhouette(
+                  quad: _coverQuad(w, floorY, centerSize,
+                    slot: entry.slot, portrait: portrait),
+                  strength: entry.slot.abs() == 1 ? 1.0 : .81,
+                )),
+              )),
               if (entry.slot.abs() == 1)
                 Positioned.fill(child: IgnorePointer(
                   child: CustomPaint(painter: _CoverflowCoverGlow(
@@ -98,6 +105,13 @@ class CoverflowScene extends StatelessWidget {
                   slot: entry.slot, portrait: portrait),
                 distance: entry.slot.abs(), left: entry.slot < 0),
             ],
+            Positioned.fill(child: IgnorePointer(
+              child: CustomPaint(painter: _CoverflowSilhouette(
+                quad: _coverQuad(w, floorY, centerSize,
+                  slot: 0, portrait: portrait),
+                strength: 1.0,
+              )),
+            )),
             Positioned.fill(child: IgnorePointer(
               child: CustomPaint(painter: _CoverflowCoverGlow(
                 quad: _coverQuad(w, floorY, centerSize,
@@ -161,11 +175,13 @@ class CoverflowScene extends StatelessWidget {
     // Exterior top corners move BACK and UP in depth. Bottom corners
     // remain on an almost level stage line. Do not turn the bottom edges
     // upward into the incorrect "wings" shown in previous APK screenshots.
+    // Distant sleeves are nested tightly: only a slim 15-23% strip
+    // remains visible beyond the nearer sleeve on either side.
     final v = d == 1
         ? [-1.09, -.46, -1.225, -.45, -.82, -.69, -.008, -.008]
         : d == 2
-            ? [-1.45, -.90, -1.56, -.94, -.655, -.555, -.025, -.025]
-            : [-1.69, -1.31, -1.78, -1.34, -.51, -.435, -.050, -.050];
+            ? [-1.225, -.90, -1.355, -.935, -.66, -.56, -.025, -.025]
+            : [-1.345, -1.12, -1.475, -1.16, -.51, -.44, -.043, -.043];
     final xScale = portrait ? .56 : 1.0;
     Offset p(double x, double y) =>
         Offset(cx + size * x * xScale, floor + size * y);
@@ -291,28 +307,11 @@ class CoverflowScene extends StatelessWidget {
             color: const Color(0xFF080809),
             borderRadius: borderRadius,
             border: Border.all(
-              color: accent.withOpacity(active ? .96 : .87),
-              width: active ? 2.1 : 1.35),
-            boxShadow: [
-              // Only a small neutral contact shadow below the sleeve.
-              // Cast darkness is painted INSIDE the underlying rear face,
-              // never as a floating black rectangle off the front rim.
-              BoxShadow(
-                color: Colors.black.withOpacity(.45),
-                offset: const Offset(0, 3),
-                blurRadius: 6,
-                spreadRadius: 0),
-              BoxShadow(
-                color: accent.withOpacity(active
-                    ? .82 : distance == 1 ? .54 : distance == 2 ? .31 : .16),
-                blurRadius: performanceMode
-                    ? (active ? 17 : 10)
-                    : (active ? 42 : distance == 1 ? 35 : 21),
-                spreadRadius: active ? (performanceMode ? 2 : 5) : 3),
-              if (active && !performanceMode)
-                BoxShadow(color: palette.b.withOpacity(.38),
-                  blurRadius: 50, spreadRadius: 1),
-            ],
+              color: accent.withOpacity(active ? .90 : distance == 1 ? .63 : .22),
+              width: active ? 1.6 : 1.0),
+            // No uniform glowing box shadow: just a black silhouette on
+            // the fanart behind this sleeve and corner-focused light glares.
+            boxShadow: const [],
           ),
           child: Stack(fit: StackFit.expand, children: [
             Padding(padding: EdgeInsets.all(active ? 2 : 1),
@@ -320,14 +319,18 @@ class CoverflowScene extends StatelessWidget {
             // Distant covers remain SOLID instead of going translucent.
             // The farthest sleeve is subdued by black shading across the
             // actual image surface, never by reducing overall alpha.
-            if (distance >= 2)
+            // Actual black pigment: never reduce artwork opacity or use
+            // a desaturating gray filter. Near cover stays recognizable,
+            // second is strongly blackened, farthest is almost in darkness.
+            if (!active)
               Positioned.fill(child: Padding(
                 padding: const EdgeInsets.all(1),
                 child: ClipRRect(
                   borderRadius: borderRadius,
                   child: IgnorePointer(child: ColoredBox(
                     color: Colors.black.withOpacity(
-                        distance == 2 ? .30 : .53),
+                      distance == 1 ? .10 : distance == 2 ? .77 : .92,
+                    ),
                   )),
                 ),
               )),
@@ -343,13 +346,15 @@ class CoverflowScene extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: left ? Alignment.centerRight : Alignment.centerLeft,
                       end: left ? Alignment.centerLeft : Alignment.centerRight,
+                      // Strong BLACK cast shade inside this rear artwork.
+                      // The inner edge is near-black with a short falloff.
                       colors: [
-                        Colors.black.withOpacity(.995),
-                        Colors.black.withOpacity(distance == 1 ? .95 : .985),
-                        Colors.black.withOpacity(distance == 1 ? .35 : .52),
+                        const Color(0xFF000000),
+                        Colors.black.withOpacity(distance == 1 ? .985 : 1.0),
+                        Colors.black.withOpacity(distance == 1 ? .56 : .92),
                         Colors.transparent,
                       ],
-                      stops: const [0, .11, .34, .61],
+                      stops: const [0, .15, .42, .68],
                     ),
                   ),
                 )),
@@ -457,8 +462,40 @@ class _CoverflowAtmosphere extends CustomPainter {
       old.p.b != p.b || old.p.c != p.c;
 }
 
-/// A bright tight rim plus soft colored bloom, drawn immediately BEHIND
-/// each visible cover. Colors always follow the selected album/VYBE palette.
+/// Distinct matte-black silhouette behind each album against the fanart.
+/// The shape is rasterized only on track changes and stays BELOW the cover.
+class _CoverflowSilhouette extends CustomPainter {
+  final List<Offset> quad;
+  final double strength;
+  const _CoverflowSilhouette({required this.quad, required this.strength});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(quad[0].dx, quad[0].dy)
+      ..lineTo(quad[1].dx, quad[1].dy)
+      ..lineTo(quad[2].dx, quad[2].dy)
+      ..lineTo(quad[3].dx, quad[3].dy)
+      ..close();
+    canvas.drawShadow(path, Colors.black.withOpacity(strength), 25, false);
+    canvas.drawShadow(path, Colors.black.withOpacity(strength), 12, false);
+    // A dark narrow silhouette pushes each face away from the fanart.
+    final edge = Paint()
+      ..color = Colors.black.withOpacity(.94 * strength)
+      ..strokeWidth = 5.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawPath(path, edge);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CoverflowSilhouette old) =>
+      old.strength != strength ||
+      old.quad[0] != quad[0] || old.quad[1] != quad[1] ||
+      old.quad[2] != quad[2] || old.quad[3] != quad[3];
+}
+
+/// Bright pin-point corner glints with tiny specular edges.
+/// Unlike the previous implementation, there is NO blurred full-outline halo.
 class _CoverflowCoverGlow extends CustomPainter {
   final List<Offset> quad;
   final Color accent;
@@ -471,45 +508,40 @@ class _CoverflowCoverGlow extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(quad[0].dx, quad[0].dy)
-      ..lineTo(quad[1].dx, quad[1].dy)
-      ..lineTo(quad[2].dx, quad[2].dy)
-      ..lineTo(quad[3].dx, quad[3].dy)
-      ..close();
-    canvas.drawPath(path, Paint()
+    final edge = Paint()
+      ..color = accent.withOpacity(.44 * strength)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = performanceMode ? 6 : 11
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal,
-        performanceMode ? 6 : 14)
-      ..color = accent.withOpacity(.88 * strength));
-    canvas.drawPath(path, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = performanceMode ? 3.2 : 4.5
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal,
-        performanceMode ? 1.5 : 3.0)
-      ..color = accent.withOpacity(.88 * strength));
-    // The tight warm/white specular pinline of the approved rendering.
-    canvas.drawPath(path, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3
-      ..color = Color.lerp(accent, Colors.white, .29)!
-          .withOpacity(.90 * strength));
-    // Small focused flares at the floor contact points, not a huge floor fog.
-    for (final point in [quad[2], quad[3]]) {
-      final bounds = Rect.fromCircle(center: point, radius: performanceMode ? 8 : 14);
-      canvas.drawCircle(point, performanceMode ? 8 : 14,
-        Paint()..shader = RadialGradient(colors: [
-          Colors.white.withOpacity(.72 * strength),
-          accent.withOpacity(.48 * strength),
-          Colors.transparent,
-        ]).createShader(bounds));
+      ..strokeWidth = 1.1;
+    canvas.drawLine(quad[0], quad[1], edge);
+    canvas.drawLine(quad[3], quad[2], edge);
+
+    void glare(Offset p, double radius, double alpha) {
+      final r = Rect.fromCircle(center: p, radius: radius);
+      canvas.drawCircle(p, radius, Paint()
+        ..shader = RadialGradient(
+          stops: const [0, .075, .25, .55, 1],
+          colors: [
+            Colors.white.withOpacity(.94 * alpha * strength),
+            Color.lerp(accent, Colors.white, .65)!
+                .withOpacity(.86 * alpha * strength),
+            accent.withOpacity(.53 * alpha * strength),
+            accent.withOpacity(.10 * alpha * strength),
+            Colors.transparent,
+          ],
+        ).createShader(r));
     }
+
+    final radius = performanceMode ? 10.0 : 20.0;
+    glare(quad[3], radius, 1);
+    glare(quad[2], radius, .91);
+    glare(quad[0], radius * .63, .55);
+    glare(quad[1], radius * .55, .40);
   }
 
   @override
   bool shouldRepaint(covariant _CoverflowCoverGlow old) =>
       old.accent != accent || old.strength != strength ||
-      old.performanceMode != performanceMode || old.quad[0] != quad[0] ||
-      old.quad[1] != quad[1] || old.quad[2] != quad[2];
+      old.performanceMode != performanceMode ||
+      old.quad[0] != quad[0] || old.quad[1] != quad[1] ||
+      old.quad[2] != quad[2] || old.quad[3] != quad[3];
 }
