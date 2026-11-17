@@ -452,6 +452,7 @@ class RaysPainter extends CustomPainter {
   final FxClock clock;
   final GlobalKey artKey;
   final GlobalKey? layerKey;
+  final Offset? pinnedOrigin;
   final ArtPalette palette;
   final double k;
 
@@ -463,6 +464,7 @@ class RaysPainter extends CustomPainter {
     required this.clock,
     required this.artKey,
     this.layerKey,
+    this.pinnedOrigin,
     required this.palette,
     required this.k,
     this.topOrigin = false,
@@ -471,7 +473,13 @@ class RaysPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final c = topOrigin ? Offset(size.width / 2, 0) : _artCenter(artKey, size, layerKey: layerKey);
+    // Coverflow supplies its projected center explicitly. The regular
+    // GlobalKey lookup remains for all other themes.
+    final c = topOrigin ? Offset(size.width / 2, 0)
+        : pinnedOrigin != null
+            ? Offset(size.width * pinnedOrigin!.dx,
+                size.height * pinnedOrigin!.dy)
+            : _artCenter(artKey, size, layerKey: layerKey);
     final reach = math.sqrt(size.width * size.width + size.height * size.height);
     final intensity = _a((0.46 + 0.36 * clock.bass) * k);
     final cols = palette.colors;
@@ -557,6 +565,7 @@ class RipplesPainter extends CustomPainter {
   final FxClock clock;
   final GlobalKey artKey;
   final GlobalKey? layerKey;
+  final Offset? pinnedOrigin;
   final ArtPalette palette;
   final double k;
 
@@ -565,6 +574,7 @@ class RipplesPainter extends CustomPainter {
     required this.clock,
     required this.artKey,
     this.layerKey,
+    this.pinnedOrigin,
     required this.palette,
     required this.k,
     required Listenable repaint,
@@ -573,9 +583,13 @@ class RipplesPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (state.starts.isEmpty) return;
-    final c = _artCenter(artKey, size, layerKey: layerKey);
+    final c = pinnedOrigin != null
+        ? Offset(size.width * pinnedOrigin!.dx,
+            size.height * pinnedOrigin!.dy)
+        : _artCenter(artKey, size, layerKey: layerKey);
     final box = _artBox(artKey);
-    final baseR = box != null ? box.size.shortestSide / 2 : size.shortestSide * 0.2;
+    final baseR = box != null ? box.size.shortestSide / 2
+        : size.shortestSide * .26;
     final maxR = math.sqrt(size.width * size.width + size.height * size.height) * 0.55;
     final p = Paint()..style = PaintingStyle.stroke;
     for (final s in state.starts) {
@@ -802,9 +816,11 @@ class ExpandedFxPainter extends CustomPainter {
   final double k;
   final GlobalKey? artKey;
   final GlobalKey? layerKey;
+  final Offset? pinnedOrigin;
   final RippleState? bassOnsets;
   ExpandedFxPainter({required this.mode, required this.clock,
-    required this.palette, required this.k, this.artKey, this.layerKey, this.bassOnsets, required Listenable repaint})
+    required this.palette, required this.k, this.artKey, this.layerKey,
+    this.pinnedOrigin, this.bassOnsets, required Listenable repaint})
     : super(repaint: repaint);
 
   @override
@@ -838,7 +854,10 @@ class ExpandedFxPainter extends CustomPainter {
         }
         break;
       case 1: // Bass shockwave: energy-responsive expanding rings
-        final shockCenter = artKey == null ? center : _artCenter(artKey!, size, layerKey: layerKey);
+        final shockCenter = pinnedOrigin != null
+            ? Offset(w * pinnedOrigin!.dx, h * pinnedOrigin!.dy)
+            : artKey == null ? center
+                : _artCenter(artKey!, size, layerKey: layerKey);
         for (final onset in (bassOnsets?.starts ?? const <double>[])) {
           final f = (t - onset) / 0.85;
           if (f < 0 || f > 1) continue;
