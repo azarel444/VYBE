@@ -321,28 +321,12 @@ class CoverflowScene extends StatelessWidget {
           ),
           child: Stack(fit: StackFit.expand, children: [
             coverFace(),
-            // Distant covers remain SOLID instead of going translucent.
-            // The farthest sleeve is subdued by black shading across the
-            // actual image surface, never by reducing overall alpha.
-            // Actual black pigment: never reduce artwork opacity or use
-            // a desaturating gray filter. Near cover stays recognizable,
-            // second is strongly blackened, farthest is almost in darkness.
-            if (!active)
-              Positioned.fill(child: Padding(
-                padding: const EdgeInsets.all(1),
-                child: ClipRRect(
-                  borderRadius: borderRadius,
-                  child: IgnorePointer(child: ColoredBox(
-                    color: Colors.black.withOpacity(
-                      distance == 1 ? .03 : distance == 2 ? .19 : .34,
-                    ),
-                  )),
-                ),
-              )),
-            // True BLACK occlusion is limited to pixels of the REAR
-            // album face. Each inner edge faces its nearer neighbor.
-            // Clipping the shade here prevents cast shadows from hanging
-            // outside the rear cover or across the fanart/background.
+            // One progressive BLACK lighting layer per sleeve. The older
+            // two stacked black overlays compounded to almost full black,
+            // hiding the actual artwork. This single clipped gradient always
+            // leaves the artwork and its colors visible at every distance.
+            // Black cast shadow is strongest along the INNER edge behind
+            // the nearer cover, fading to a gentle overall depth shade.
             if (!active)
               Positioned.fill(child: ClipRRect(
                 borderRadius: borderRadius,
@@ -351,20 +335,27 @@ class CoverflowScene extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: left ? Alignment.centerRight : Alignment.centerLeft,
                       end: left ? Alignment.centerLeft : Alignment.centerRight,
-                      // Strong BLACK cast shade inside this rear artwork.
-                      // The inner edge is near-black with a short falloff.
-                      // Inner shadow lives INSIDE the rear cover only.
-                      // Preserve enough colors even in distant slivers to
-                      // avoid featureless black cards.
-                      colors: [
-                        Colors.black.withOpacity(distance == 1 ? .83 : .85),
-                        Colors.black.withOpacity(distance == 1 ? .64 : .72),
-                        Colors.black.withOpacity(distance == 1 ? .24 : .28),
-                        Colors.transparent,
-                      ],
-                      stops: distance == 1
-                          ? const [0, .11, .28, .54]
-                          : const [0, .27, .48, .70],
+                      stops: const [0, .13, .43, 1],
+                      colors: distance == 1
+                          ? const [
+                              Color(0x89000000), // 54% max at overlap
+                              Color(0x67000000),
+                              Color(0x21000000),
+                              Color(0x0A000000), // 4% on exposed edge
+                            ]
+                          : distance == 2
+                              ? const [
+                                  Color(0x9E000000), // 62% inner shadow
+                                  Color(0x85000000),
+                                  Color(0x4A000000),
+                                  Color(0x2E000000), // 18% exposed
+                                ]
+                              : const [
+                                  Color(0xAE000000), // 68% inner shadow
+                                  Color(0x99000000),
+                                  Color(0x69000000),
+                                  Color(0x4D000000), // 30% exposed
+                                ],
                     ),
                   ),
                 )),
