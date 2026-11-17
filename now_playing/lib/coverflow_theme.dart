@@ -480,14 +480,20 @@ class _CoverflowAtmosphere extends CustomPainter {
       ..shader = const LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        stops: [0, .13, .32, .55, .82, 1],
+        // This is a REAL independent black floor over fanart, not a
+        // semi-transparent gray vignette whose value changes wildly
+        // when the underlying background is white or overexposed.
+        // It still feathers into the artist background above the
+        // sleeves' contact line so no flat hard horizon is visible.
+        stops: [0, .10, .22, .33, .48, .78, 1],
         colors: [
           Color(0x00000000),
-          Color(0x19000000),
-          Color(0x65000000),
-          Color(0x92000000),
-          Color(0x76000000),
-          Color(0x38000000),
+          Color(0x10000000),
+          Color(0x62000000),
+          Color(0xD9000000),
+          Color(0xF3000000),
+          Color(0xF0000000),
+          Color(0xD3000000),
         ],
       ).createShader(surface));
 
@@ -509,12 +515,15 @@ class _CoverflowAtmosphere extends CustomPainter {
       canvas.save();
       canvas.clipRect(surface);
       canvas.saveLayer(surface, Paint()..blendMode = BlendMode.overlay);
-      canvas.save();
-      canvas.transform(m.storage);
-      canvas.drawImageRect(source, src, src, Paint()
-        ..colorFilter = restoredAlpha
-        ..filterQuality = FilterQuality.medium);
-      canvas.restore();
+      // Use the brighter mineral relief on the right side of the
+      // supplied grunge as the left floor too. Its original dark left
+      // half had almost no detail, so the floor looked one-sided.
+      _CoverflowFloorGeometry.paintAcrossFloor(
+        canvas, size, source, m, surface,
+        Paint()
+          ..colorFilter = restoredAlpha
+          ..filterQuality = FilterQuality.medium,
+      );
       canvas.drawRect(surface, Paint()
         ..blendMode = BlendMode.dstIn
         ..shader = const LinearGradient(
@@ -625,12 +634,12 @@ class _CoverflowFloorFinish extends CustomPainter {
       canvas.save();
       canvas.clipRect(floor);
       canvas.saveLayer(floor, Paint()..blendMode = blend);
-      canvas.save();
-      canvas.transform(projection.storage);
-      canvas.drawImageRect(source, src, src, Paint()
-        ..colorFilter = filter
-        ..filterQuality = FilterQuality.medium);
-      canvas.restore();
+      _CoverflowFloorGeometry.paintAcrossFloor(
+        canvas, size, source, projection, floor,
+        Paint()
+          ..colorFilter = filter
+          ..filterQuality = FilterQuality.medium,
+      );
       // Apply the feather while the blended image is still isolated.
       canvas.drawRect(floor, Paint()
         ..blendMode = BlendMode.dstIn
@@ -654,6 +663,34 @@ class _CoverflowFloorFinish extends CustomPainter {
 /// Perspective warp shared by the textured upper floor and its finish.
 /// The projected far edge is narrower than the near edge.
 class _CoverflowFloorGeometry {
+  // The reference photograph has deep dark material on its left and
+  // illuminated mineral texture on its right. Mirror the right source
+  // across the floor's center so BOTH reflection pools visibly pick up
+  // real grunge. The two halves meet at the same source centerline, so
+  // there is no vertical seam or sharp boundary.
+  static void paintAcrossFloor(
+      Canvas canvas, Size size, ui.Image source,
+      Matrix4 perspective, Rect bounds, Paint paint) {
+    final half = size.width * .5;
+    final src = Rect.fromLTWH(
+        0, 0, source.width.toDouble(), source.height.toDouble());
+
+    canvas.save();
+    canvas.clipRect(Rect.fromLTRB(0, bounds.top, half, bounds.bottom));
+    canvas.translate(size.width, 0);
+    canvas.scale(-1, 1);
+    canvas.transform(perspective.storage);
+    canvas.drawImageRect(source, src, src, paint);
+    canvas.restore();
+
+    canvas.save();
+    canvas.clipRect(Rect.fromLTRB(
+        half, bounds.top, size.width, bounds.bottom));
+    canvas.transform(perspective.storage);
+    canvas.drawImageRect(source, src, src, paint);
+    canvas.restore();
+  }
+
   static Matrix4 transform(Size size, Size src, double topY) {
     final w = size.width, h = size.height;
     final q = <Offset>[
