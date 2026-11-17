@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'native_preferences.dart';
 import 'now_playing_model.dart';
 import 'lyrics.dart';
+import 'coverflow_queue.dart';
 import 'vybe_link_discovery.dart';
 import 'local_artwork.dart';
 import 'vybe_link_artist_art_cache.dart';
@@ -92,6 +93,8 @@ class VybeLink extends ChangeNotifier {
   // on every 2-second metadata heartbeat. Reset on reconnect.
   String _lastSentLyricsTrack = '';
   List<LyricLine>? _lastSentLyrics;
+  int _lastSentCoverflowRevision = -1;
+  String coverflowTransferStatus = 'Not transferred';
   int lyricsReceived = 0;
   String lyricsTransferStatus = 'Not transferred';
   int _lastArtHash = 0;
@@ -1400,6 +1403,7 @@ class VybeLink extends ChangeNotifier {
     _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0;
     _lastSentLyricsTrack = '';
     _lastSentLyrics = null;
+    _lastSentCoverflowRevision = -1;
     _senderReceiverIdentityVerified = false;
     _artGeneration++; _rxGeneration++;
     _sentFanartArtist = ''; _currentSenderArtist = '';
@@ -1798,6 +1802,7 @@ class VybeLink extends ChangeNotifier {
       _artGeneration++;
       _lastSentLyricsTrack = '';
       _lastSentLyrics = null;
+      _lastSentCoverflowRevision = -1;
     }
     // Limit timestamp-only changes to one send every 2 seconds. Flutter
     // visualizer/album updates can notify many times per second and used to
@@ -1850,13 +1855,61 @@ class VybeLink extends ChangeNotifier {
       }
     }
     final art = model.art?.bytes;
-    if (art == null || art.isEmpty) return;
+    if (art == null || art.isEmpty) {
+      _sendCoverflowQueue(socket, track, model);
+      return;
+    }
     final hash = Object.hash(art.length, art.length > 16 ? art[8] : 0,
         art.length > 64 ? art[64] : 0, art.last);
-    if (hash == _lastArtHash) return;
+    if (hash == _lastArtHash) {
+      _sendCoverflowQueue(socket, track, model);
+      return;
+    }
     _lastArtHash = hash;
     final token = ++_artGeneration;
-    _sendArtwork(socket, track, art, token);
+    // Give the current high-resolution cover transfer priority. The side
+    // queue goes next, after the active artwork packet has been written.
+    unawaited(_sendArtwork(socket, track, art, token).then((_) {
+      if (identical(socket, _socket) && track == _lastTrack) {
+        _sendCoverflowQueue(socket, track, model);
+      }
+    }));
+  }
+
+  void _sendCoverflowQueue(Socket socket, String track, NowPlayingModel model) {
+    if (!identical(socket, _socket) || track != _lastTrack ||
+        model.coverflowRevision == _lastSentCoverflowRevision) return;
+    final covers = model.coverflowCovers.where((e) =>
+        e.slot != 0 && e.slot.abs() <= 3 && e.thumb != null &&
+        e.thumb!.isNotEmpty && e.thumb!.length < 280 * 1024).toList();
+    // Do not send a synthetic queue when the player has not supplied one.
+    // A receiver remembers its own previously played covers as fallback.
+    if (covers.isEmpty) {
+      _lastSentCoverflowRevision = model.coverflowRevision;
+      return;
+    }
+    try {
+      final payload = jsonEncode({
+        'v': 2, 'kind': 'queue', 'track': track,
+        'covers': [
+          for (final cover in covers)
+            {
+              'id': cover.id, 'slot': cover.slot,
+              'title': cover.title, 'artist': cover.artist,
+              'art': base64Encode(cover.thumb!),
+            },
+        ],
+      });
+      if (payload.length > 1900 * 1024) {
+        coverflowTransferStatus = 'Side covers exceed safe link transfer size';
+        return;
+      }
+      socket.write('$payload\n');
+      _lastSentCoverflowRevision = model.coverflowRevision;
+      coverflowTransferStatus = 'Sent ${covers.length} real queue covers';
+    } catch (error) {
+      debugPrint('VYBE Coverflow queue transfer failed: $error');
+    }
   }
 
   Future<void> _sendArtwork(Socket socket, String track, Uint8List bytes, int token) async {
@@ -2120,6 +2173,28 @@ class VybeLink extends ChangeNotifier {
           position: (data['position'] as num?)?.toInt() ?? 0,
         );
         if (changed) notifyListeners();
+      } else if (data['kind'] == 'queue' && track == lastReceivedTrack &&
+          data['covers'] is List) {
+        final raw = data['covers'] as List;
+        if (raw.length > 6 || line.length > 1900 * 1024) return;
+        final covers = <CoverflowCover>[];
+        for (final item in raw) {
+          if (item is! Map || item['art'] is! String) return;
+          final slot = (item['slot'] as num?)?.toInt();
+          if (slot == null || slot == 0 || slot.abs() > 3) return;
+          final bytes = base64Decode(item['art'] as String);
+          if (bytes.isEmpty || bytes.length > 280 * 1024) return;
+          covers.add(CoverflowCover(
+            id: item['id']?.toString() ?? '',
+            slot: slot,
+            title: item['title']?.toString() ?? '',
+            artist: item['artist']?.toString() ?? '',
+            thumb: bytes,
+          ));
+        }
+        _model?.applyLinkCoverflow(track, covers);
+        coverflowTransferStatus = 'Received ${covers.length} real queue covers';
+        notifyListeners();
       } else if (data['kind'] == 'lyrics' && track == lastReceivedTrack &&
           data['lines'] is List) {
         // Reject stale or oversized sheets; metadata must arrive first.
