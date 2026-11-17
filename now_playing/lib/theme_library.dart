@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'now_playing_model.dart';
+import 'coverflow_theme.dart';
 import 'palette.dart';
 import 'settings.dart';
 
@@ -45,6 +46,48 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
 
   String _imagePath(int id, bool portrait) =>
       'assets/theme_previews/${AppSettings.themePreviewAssets[id]}_${portrait ? 'portrait' : 'landscape'}.jpg';
+
+  /// Coverflow is rendered live in the gallery because it is a dynamic
+  /// queue/fanart theme; a fake screenshot would promise imaginary upcoming
+  /// tracks on players that publish no queue.
+  Widget _themeVisual(int id, bool portrait) {
+    if (id != AppSettings.tCoverflow) {
+      return Image.asset(
+        _imagePath(id, portrait),
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        width: double.infinity, height: double.infinity,
+      );
+    }
+    final model = widget.model;
+    final accent = widget.palette;
+    return CoverflowScene(
+      trackKey: '${model.title}|${model.artist}|${model.album}',
+      activeCover: model.art?.bytes,
+      queue: model.coverflowCovers,
+      palette: accent,
+      artistHeader: Text(model.artist.isEmpty ? 'VYBE' : model.artist,
+        textAlign: TextAlign.center, maxLines: 2,
+        style: const TextStyle(color: Colors.white, fontSize: 21,
+          fontWeight: FontWeight.w800)),
+      trackTitle: Text(model.title.isEmpty ? 'COVERFLOW' : model.title,
+        maxLines: 1, textAlign: TextAlign.center,
+        style: const TextStyle(color: Colors.white, fontSize: 15)),
+      albumPlaque: Container(
+        decoration: BoxDecoration(color: const Color(0xA0000000),
+          border: Border.all(color: accent.a.withOpacity(.82))),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Text(model.displayAlbumTitle.isEmpty
+                ? 'VYBE' : model.displayAlbumTitle.toUpperCase(),
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white, fontSize: 9,
+            letterSpacing: 1.5)),
+      ),
+      progress: DecoratedBox(decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [accent.a, accent.b]))),
+      performanceMode: true,
+    );
+  }
 
   void _openPreview(int id) {
     final size = MediaQuery.sizeOf(context);
@@ -180,13 +223,7 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                     borderRadius: BorderRadius.circular(11),
                     child: ColoredBox(
                       color: const Color(0xFF0C0B12),
-                      child: Image.asset(
-                        _imagePath(id, portrait),
-                        fit: BoxFit.contain,
-                        filterQuality: FilterQuality.medium,
-                        width: double.infinity,
-                        height: double.infinity,
-                      ),
+                      child: _themeVisual(id, portrait),
                     ),
                   ),
                 ),
@@ -289,7 +326,9 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     final id = _preview!;
     final screenshotPortrait = _previewPortrait ?? portrait;
     final active = widget.settings.theme == id;
-    final screenshot = _imagePath(id, screenshotPortrait);
+    final screenshot = id == AppSettings.tCoverflow
+        ? 'coverflow:${widget.model.title}:$screenshotPortrait'
+        : _imagePath(id, screenshotPortrait);
 
     return Column(
       key: ValueKey('vybe-preview-$id'),
@@ -398,12 +437,9 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
                   borderRadius: BorderRadius.circular(10),
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
-                    child: Image.asset(
-                      screenshot,
+                    child: KeyedSubtree(
                       key: ValueKey(screenshot),
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                      width: double.infinity, height: double.infinity,
+                      child: _themeVisual(id, screenshotPortrait),
                     ),
                   ),
                 ),
