@@ -29,6 +29,16 @@ Target the supplied landscape reference composition as closely as current track 
 - When a player publishes no queue (e.g. Spotify under previously tested conditions), remember previously played artwork. Show only confirmed covers. Leave unavailable future positions dark/empty; never pretend upcoming tracks are known.
 - If fewer than five covers are available, adapt smoothly without creating fictitious album covers.
 
+### Visual correction after comparing the actual #685 screenshot with the approved render
+- The initial in-app version failed the visual contract. No future changes should consider it the reference.
+- The approved landscape hero cover sits around one-half of viewport height, not 44%. Place its top around 26% height, leaving the large logo above and title below.
+- Immediate side covers **overlap** the center/each other. Receding tiers progressively narrow with a yaw angle plus a visible in-plane lean (approximately 6–7°), with no large empty horizontal gaps.
+- Paint nearest cover(s) on top. Their outward-facing **directional black shadows** must cross onto the visible front edge of the farther covers. Do not apply alpha to an entire side cover just to dim it; dim its actual image face instead.
+- The colored card shadows/halos must extend *outside* the album bounds. Neither the cover's Stack nor any opacity/savelayer wrapper may crop them. Keep the strong bright double edge and diffused color glow around the center and near side covers.
+- Reflections must be visible, correctly flipped and fade toward the bottom, with texture and colored stage lights showing through. The reflective floor needs a visible luminous contact line and more contrast than the dark strip in #685.
+- The angular album plaque is broad and visually weighted like the reference. The original extra progress line is **removed completely**.
+- All luminous hues remain dynamic via the existing album palette and `useVybePalette`; **no hard-coded amber**.
+
 ### Motion and hardware budget
 - Run a short (approximately 400 ms) eased slide/depth transition on genuine track change, not a constant 60fps loop.
 - Static covers are repaint boundaries. Side art is decoded at roughly 160–384 px; limit visible cover count and glow blur on the ATOTO A5L / performance mode.
