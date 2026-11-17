@@ -18,6 +18,7 @@ class CoverflowScene extends StatelessWidget {
   final Widget artistHeader;
   final Widget trackTitle;
   final Widget albumPlaque;
+  final GlobalKey? artAnchorKey;
   final Widget? leftVisualizer;
   final Widget? rightVisualizer;
   final bool performanceMode;
@@ -31,6 +32,7 @@ class CoverflowScene extends StatelessWidget {
     required this.artistHeader,
     required this.trackTitle,
     required this.albumPlaque,
+    this.artAnchorKey,
     this.leftVisualizer,
     this.rightVisualizer,
     this.performanceMode = false,
@@ -51,6 +53,8 @@ class CoverflowScene extends StatelessWidget {
           ? math.min(w * .72, h * .37)
           : math.min(h * .54, w * .345);
       final floorY = h * (portrait ? .695 : .766);
+      final selectedQuad = _coverQuad(w, floorY, centerSize,
+          slot: 0, portrait: portrait);
       final side = queue.where((e) =>
           e.slot != 0 && e.slot.abs() <= (portrait ? 2 : 3) &&
           e.thumb != null && e.thumb!.isNotEmpty).toList()
@@ -135,6 +139,18 @@ class CoverflowScene extends StatelessWidget {
               _coverQuad(w, floorY, centerSize,
                 slot: 0, portrait: portrait),
               distance: 0, left: false),
+            // Explicit artwork geometry anchor for global FX layers.
+            // Without this, Rays/Ripples/Shockwave fall back to .25 screen
+            // width and appear to launch at unrelated places.
+            if (artAnchorKey != null)
+              Positioned(
+                left: selectedQuad[3].dx,
+                top: math.min(selectedQuad[0].dy, selectedQuad[1].dy),
+                width: selectedQuad[2].dx - selectedQuad[3].dx,
+                height: floorY -
+                    math.min(selectedQuad[0].dy, selectedQuad[1].dy),
+                child: IgnorePointer(child: SizedBox(key: artAnchorKey)),
+              ),
             // The selected sleeve gets a continuous palette-colored stroke
             // ABOVE the image, with a tight glow and corner pin lights.
             Positioned.fill(child: IgnorePointer(
