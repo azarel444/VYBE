@@ -336,53 +336,87 @@ class _CoverflowAtmosphere extends CustomPainter {
     canvas.drawRect(stage, Paint()
       ..shader = LinearGradient(
         begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        stops: const [0, .14, .46, 1],
+        stops: const [0, .12, .45, 1],
         colors: [
-          const Color(0xA0000000),
-          Color.lerp(const Color(0xF0000000), p.a, .075)!,
-          const Color(0xEE08070A), const Color(0xED020204),
+          const Color(0xBA000000),
+          Color.lerp(const Color(0xD9080809), p.a, .13)!,
+          const Color(0xE80A080E),
+          const Color(0xF0030305),
         ],
       ).createShader(stage));
-    // The floor glows at the foot of the front artwork and spreads
-    // horizontally into the side-cover reflection positions.
-    final pool = Rect.fromCenter(
-        center: Offset(w * .5, y + h * .075),
-        width: w * .74, height: h * .27);
-    canvas.drawOval(pool, Paint()
-      ..shader = RadialGradient(colors: [
-        p.a.withOpacity(.23), p.b.withOpacity(.09),
-        Colors.transparent],
-      ).createShader(pool));
-    // Very fine film-grain streaks and tiny reflected highlights. Because
-    // the mirrored covers are translucent, this remains visible through them.
-    final grain = Paint()..strokeWidth = .60;
-    for (var i = 0; i < 150; i++) {
+
+    // A lit glossy floor, NOT a solid-black strip. Three distinct soft
+    // light pools track the center, immediate-left and immediate-right
+    // sleeves. These are tinted by the current album/VYBE palette.
+    void lightPool(double cx, Color tint, double strength, double width) {
+      final rect = Rect.fromCenter(
+          center: Offset(w * cx, y + h * .083),
+          width: w * width, height: h * .28);
+      canvas.drawOval(rect, Paint()
+        ..shader = RadialGradient(
+          stops: const [0, .32, 1],
+          colors: [
+            tint.withOpacity(strength),
+            tint.withOpacity(strength * .42),
+            Colors.transparent,
+          ],
+        ).createShader(rect));
+    }
+    lightPool(.50, p.a, .43, .52);
+    lightPool(.30, p.b, .24, .28);
+    lightPool(.70, p.c, .24, .28);
+
+    // A diffuse colored line on the floor where the upright albums meet
+    // their reflections. Two broad, faint passes surround a bright core.
+    final horizonShader = LinearGradient(colors: [
+      Colors.transparent, p.b.withOpacity(.36),
+      p.a.withOpacity(.97), p.c.withOpacity(.44),
+      Colors.transparent,
+    ]).createShader(Rect.fromLTWH(w * .08, y, w * .84, 3));
+    canvas.drawLine(Offset(w * .08, y), Offset(w * .92, y),
+      Paint()
+        ..strokeWidth = 10
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
+        ..shader = horizonShader);
+    canvas.drawLine(Offset(w * .08, y), Offset(w * .92, y),
+      Paint()..strokeWidth = 2.0..shader = horizonShader);
+
+    // Scratched/streaked metallic floor texture. It must be legible in the
+    // *negative space* between reflections and visible through the mirrored
+    // album pixels without looking like an opaque photo pasted on top.
+    final grain = Paint()..strokeWidth = .65;
+    for (var i = 0; i < 280; i++) {
       final seed = (i * 1664525 + 1013904223) & 0x7fffffff;
       final u = (seed % 10003) / 10003.0;
       final v = ((seed ~/ 59) % 10007) / 10007.0;
       final yy = y + (h - y) * v;
       final xx = w * u;
-      final length = (4 + (1 - v) * 26) * (i % 5 == 0 ? 2.7 : 1);
+      final length = (5 + (1 - v) * 35) * (i % 5 == 0 ? 2.4 : 1);
       final tint = i % 4 == 0 ? p.a : (i % 4 == 1 ? p.b : Colors.white);
-      grain.color = tint.withOpacity((.018 + (1 - v) * .038)
-          .clamp(0.0, .07));
+      grain.color = tint.withOpacity((.042 + (1 - v) * .066)
+          .clamp(0.0, .12));
       canvas.drawLine(Offset(xx, yy), Offset(xx + length, yy), grain);
     }
-    final rim = Paint()
-      ..strokeWidth = 1.2
+    // Perspective streaks spread toward the viewer from the vanishing
+    // line. The floor remains static, including on 2GB head units.
+    final perspective = Paint()
+      ..strokeWidth = .72;
+    for (var i = -7; i <= 7; i++) {
+      final fromX = w * (.50 + i * .037);
+      final endX = w * (.50 + i * .093);
+      perspective.color = (i.isEven ? p.b : p.c)
+          .withOpacity(i.abs() <= 2 ? .042 : .024);
+      canvas.drawLine(
+        Offset(fromX, y + h * .015),
+        Offset(endX, h), perspective);
+    }
+    final specular = Paint()..strokeWidth = 3.0
       ..shader = LinearGradient(colors: [
-          Colors.transparent, p.b.withOpacity(.45),
-          p.a.withOpacity(.65), p.b.withOpacity(.40),
+          Colors.transparent, p.b.withOpacity(.58),
+          p.a.withOpacity(.97), p.c.withOpacity(.48),
           Colors.transparent])
-          .createShader(Rect.fromLTWH(w * .10, y, w * .80, 2));
-    canvas.drawLine(Offset(w * .10, y), Offset(w * .90, y), rim);
-    final specular = Paint()..strokeWidth = 2.2
-      ..shader = LinearGradient(colors: [
-          Colors.transparent, p.b.withOpacity(.42),
-          p.a.withOpacity(.83), p.c.withOpacity(.34),
-          Colors.transparent])
-        .createShader(Rect.fromLTWH(w * .32, y, w * .36, 2));
-    canvas.drawLine(Offset(w * .32, y + 1), Offset(w * .68, y + 1),
+        .createShader(Rect.fromLTWH(w * .27, y, w * .46, 3));
+    canvas.drawLine(Offset(w * .27, y + 1.5), Offset(w * .73, y + 1.5),
         specular);
   }
 
