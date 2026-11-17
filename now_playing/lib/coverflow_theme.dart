@@ -197,13 +197,11 @@ class CoverflowScene extends StatelessWidget {
         alignment: Alignment.topLeft,
         transform: transform,
         transformHitTests: false,
+        // Keep every distant sleeve fully opaque. Depth is achieved by
+        // progressively BLACKENING the art, not fading it into fanart.
         child: RepaintBoundary(
-          child: Opacity(
-            opacity: distance == 0 ? 1.0 : distance == 1 ? 1.0
-                : distance == 2 ? .97 : .84,
-            child: _coverAndReflection(bytes, size,
-              distance: distance, left: left),
-          ),
+          child: _coverAndReflection(bytes, size,
+            distance: distance, left: left),
         ),
       ),
     );
@@ -319,6 +317,20 @@ class CoverflowScene extends StatelessWidget {
           child: Stack(fit: StackFit.expand, children: [
             Padding(padding: EdgeInsets.all(active ? 2 : 1),
               child: coverFace()),
+            // Distant covers remain SOLID instead of going translucent.
+            // The farthest sleeve is subdued by black shading across the
+            // actual image surface, never by reducing overall alpha.
+            if (distance >= 2)
+              Positioned.fill(child: Padding(
+                padding: const EdgeInsets.all(1),
+                child: ClipRRect(
+                  borderRadius: borderRadius,
+                  child: IgnorePointer(child: ColoredBox(
+                    color: Colors.black.withOpacity(
+                        distance == 2 ? .30 : .53),
+                  )),
+                ),
+              )),
             // True BLACK occlusion is limited to pixels of the REAR
             // album face. Each inner edge faces its nearer neighbor.
             // Clipping the shade here prevents cast shadows from hanging
