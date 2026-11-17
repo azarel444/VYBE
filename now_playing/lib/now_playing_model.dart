@@ -131,25 +131,28 @@ class NowPlayingModel extends ChangeNotifier {
     final targetSide = entry.slot.abs() == 1 ? 768
         : entry.slot.abs() == 2 ? 640 : 512;
     try {
-      final numericId = int.tryParse(entry.id);
-      if (numericId != null) {
-        bytes = await _queueArt.invokeMethod<Uint8List>('thumbnail', {
-          'queueId': numericId, 'targetSide': targetSide,
-        });
-      }
-      if ((bytes == null || bytes.isEmpty) && entry.artUri.isNotEmpty) {
-        final uri = Uri.tryParse(entry.artUri);
-        if (uri != null && uri.scheme == 'https') {
+      final uri = Uri.tryParse(entry.artUri);
+      // A player's tiny 128/256px iconBitmap may coexist with a full-size
+      // HTTPS album-art URI. Prefer the actual image over the tiny icon.
+      if (uri != null && uri.scheme == 'https') {
+        try {
           final downloaded = await httpGetBytes(uri);
           if (downloaded != null && downloaded.isNotEmpty &&
               downloaded.length <= 8 * 1024 * 1024) {
-            // High-res JPEG encoding on the Kotlin worker thread preserves
-            // details while respecting the receiver's transport limits.
-            // Do not downsample to a 256px PNG before displaying the image.
             bytes = await _queueArt.invokeMethod<Uint8List>('encode', {
               'bytes': downloaded, 'targetSide': targetSide,
             });
           }
+        } catch (error) {
+          debugPrint('VYBE full-size queue art unavailable: $error');
+        }
+      }
+      if (bytes == null || bytes.isEmpty) {
+        final numericId = int.tryParse(entry.id);
+        if (numericId != null) {
+          bytes = await _queueArt.invokeMethod<Uint8List>('thumbnail', {
+            'queueId': numericId, 'targetSide': targetSide,
+          });
         }
       }
     } catch (error) {
