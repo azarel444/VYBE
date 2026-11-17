@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +13,7 @@ import 'local_artwork.dart';
 import 'palette.dart';
 import 'stream_track_metadata.dart';
 import 'musicolet_placeholder.dart';
+import 'coverflow_queue.dart';
 
 /// Talks to the Kotlin side (MainActivity) which listens to the active
 /// Android media session, whichever player app owns it.
@@ -19,6 +21,7 @@ class NowPlayingModel extends ChangeNotifier {
   static const _events = EventChannel('nowplaying/stream');
   static const _control = MethodChannel('nowplaying/control');
   static const _fftEvents = EventChannel('nowplaying/fft');
+  static const _queueArt = MethodChannel('nowplaying/queue_art');
 
   bool accessGranted = true; // assume yes until Android says otherwise
   bool visualizerEnabled = true;
@@ -35,6 +38,137 @@ class NowPlayingModel extends ChangeNotifier {
   String title = '';
   String artist = '';
   String album = '';
+
+  /// Real MediaSession queue entries. Side covers are requested as small
+  /// thumbnails; the main cover stays in [art] at original quality.
+  List<CoverflowCover> coverflowCovers = <CoverflowCover>[];
+  int coverflowRevision = 0;
+  final Map<String, Uint8List> _coverflowThumbCache = {};
+  final List<CoverflowCover> _coverflowHistory = <CoverflowCover>[];
+  String _coverflowQueueSignature = '';
+  int _coverflowToken = 0;
+
+  void _rememberCoverflowPrevious(String oldTitle, String oldArtist,
+      Uint8List? oldArt) {
+    if (oldTitle.trim().isEmpty || oldArt == null || oldArt.isEmpty) return;
+    // History is actual played artwork only; never guess the future.
+    _coverflowHistory.removeWhere((e) =>
+        e.title == oldTitle && e.artist == oldArtist);
+    _coverflowHistory.insert(0, CoverflowCover(
+        id: 'played:${DateTime.now().microsecondsSinceEpoch}',
+        slot: -1, title: oldTitle, artist: oldArtist, thumb: oldArt));
+    if (_coverflowHistory.length > 3) _coverflowHistory.removeRange(3, _coverflowHistory.length);
+  }
+
+  void _showCoverflowHistory() {
+    coverflowCovers = [
+      for (var i = 0; i < _coverflowHistory.length; i++)
+        _coverflowHistory[i].atSlot(-(i + 1)),
+    ];
+    coverflowRevision++;
+    notifyListeners();
+  }
+
+  /// Called only for actual published queue entries. Never fabricate a next
+  /// cover for players that expose no queue. Image loading is asynchronous,
+  /// cached, and guarded against track changes.
+  void _applyNativeCoverflowQueue(dynamic raw) {
+    if (_linkReceiverActive || raw is! List) return;
+    final entries = <CoverflowCover>[];
+    for (final value in raw.take(7)) {
+      if (value is! Map) continue;
+      final id = value['id']?.toString() ?? '';
+      final slot = (value['slot'] as num?)?.toInt();
+      final name = value['title']?.toString().trim() ?? '';
+      if (id.isEmpty || slot == null || slot.abs() > 3 ||
+          name.isEmpty || slot == 0) continue;
+      final uri = value['artUri']?.toString() ?? '';
+      final cacheKey = '$id|$uri';
+      entries.add(CoverflowCover(
+          id: id, slot: slot, title: name,
+          artist: value['artist']?.toString() ?? '',
+          artUri: uri, thumb: _coverflowThumbCache[cacheKey]));
+    }
+    final signature = entries.map((x) => '${x.id}:${x.slot}:${x.artUri}').join('|');
+    if (signature == _coverflowQueueSignature) return;
+    _coverflowQueueSignature = signature;
+    final token = ++_coverflowToken;
+    // Fill any missing previous slots only from covers we actually played.
+    final used = entries.map((e) => e.slot).toSet();
+    for (var i = 0; i < _coverflowHistory.length && i < 3; i++) {
+      final slot = -(i + 1);
+      if (!used.contains(slot)) entries.add(_coverflowHistory[i].atSlot(slot));
+    }
+    entries.sort((a, b) => a.slot.compareTo(b.slot));
+    coverflowCovers = entries;
+    coverflowRevision++;
+    notifyListeners();
+    for (final entry in entries.where((e) =>
+        e.thumb == null && !e.id.startsWith('played:'))) {
+      unawaited(_fetchCoverflowThumbnail(entry, token));
+    }
+  }
+
+  Future<void> _fetchCoverflowThumbnail(CoverflowCover entry, int token) async {
+    Uint8List? bytes;
+    final cacheKey = '${entry.id}|${entry.artUri}';
+    try {
+      final numericId = int.tryParse(entry.id);
+      if (numericId != null) {
+        bytes = await _queueArt.invokeMethod<Uint8List>(
+            'thumbnail', {'queueId': numericId});
+      }
+      if ((bytes == null || bytes.isEmpty) && entry.artUri.isNotEmpty) {
+        final uri = Uri.tryParse(entry.artUri);
+        if (uri != null && uri.scheme == 'https') {
+          final downloaded = await httpGetBytes(uri);
+          if (downloaded != null && downloaded.isNotEmpty) {
+            // Keep side thumbnails small and transferable over Wi-Fi Direct.
+            final codec = await ui.instantiateImageCodec(
+                downloaded, targetWidth: 256);
+            try {
+              final frame = await codec.getNextFrame();
+              try {
+                final data = await frame.image.toByteData(
+                    format: ui.ImageByteFormat.png);
+                bytes = data?.buffer.asUint8List();
+              } finally {
+                frame.image.dispose();
+              }
+            } finally {
+              codec.dispose();
+            }
+          }
+        }
+      }
+    } catch (error) {
+      debugPrint('VYBE Coverflow queue thumbnail unavailable: $error');
+    }
+    if (bytes == null || bytes.isEmpty || bytes.length > 320 * 1024 ||
+        token != _coverflowToken || _disposed) return;
+    _coverflowThumbCache[cacheKey] = bytes;
+    if (_coverflowThumbCache.length > 30) {
+      _coverflowThumbCache.remove(_coverflowThumbCache.keys.first);
+    }
+    final index = coverflowCovers.indexWhere((e) =>
+        e.id == entry.id && e.slot == entry.slot);
+    if (index == -1) return;
+    coverflowCovers = List<CoverflowCover>.of(coverflowCovers)
+      ..[index] = entry.withThumbnail(bytes);
+    coverflowRevision++;
+    notifyListeners();
+  }
+
+  void applyLinkCoverflow(String track, List<CoverflowCover> incoming) {
+    if (!_linkReceiverActive || track != _trackKey) return;
+    // The receiving head unit never fetches player queue art from the
+    // internet. It displays only the exact thumbnails sent by the phone.
+    coverflowCovers = incoming.where((e) =>
+        e.slot != 0 && e.slot.abs() <= 3 &&
+        e.thumb != null && e.thumb!.isNotEmpty).toList();
+    coverflowRevision++;
+    notifyListeners();
+  }
 
   // Preserve the media session's raw album value for cover searches. An
   // independently verified catalog release may enrich the *label* only.
@@ -352,6 +486,10 @@ class NowPlayingModel extends ChangeNotifier {
     final key = '$titleValue|$artistValue|$albumValue';
     final changed = key != _trackKey;
     if (changed) {
+      _rememberCoverflowPrevious(title, artist, art?.bytes);
+      _coverflowToken++;
+      _coverflowQueueSignature = '';
+      _showCoverflowHistory();
       _catalogReleaseTitle = '';
       _releaseLookupTrack = '';
       _artToken++; _artRetryTimer?.cancel(); _artClearTimer?.cancel();
@@ -429,6 +567,9 @@ class NowPlayingModel extends ChangeNotifier {
     // Resolve before computing the track key and initiating artwork, lyric,
     // album and VYBE Connect updates so every subsystem shares the same
     // corrected artist/title when an upload-style session is detected.
+    final oldTitleForCoverflow = title;
+    final oldArtistForCoverflow = artist;
+    final oldArtForCoverflow = art?.bytes;
     title = sessionMetadata.title;
     artist = sessionMetadata.artist;
     album = sessionMetadata.album;
@@ -446,6 +587,11 @@ class NowPlayingModel extends ChangeNotifier {
     final albumChanged = albumKey != _albumKey;
 
     if (changed) {
+      _rememberCoverflowPrevious(
+          oldTitleForCoverflow, oldArtistForCoverflow, oldArtForCoverflow);
+      _coverflowToken++;
+      _coverflowQueueSignature = '';
+      _showCoverflowHistory();
       _catalogReleaseTitle = '';
       _releaseLookupTrack = '';
       _artToken++; // Invalidate lookups and decoding from the previous song.
@@ -567,6 +713,9 @@ class NowPlayingModel extends ChangeNotifier {
       sessionArtworkStatus = 'Missing (no bytes in media session)';
     }
     _trackKey = key;
+    if (m.containsKey('queueItems')) {
+      _applyNativeCoverflowQueue(m['queueItems']);
+    }
     _albumKey = albumKey;
     if (changed && artLookupEnabled && title.isNotEmpty &&
         (art == null || _needsArt) &&
@@ -632,6 +781,10 @@ class NowPlayingModel extends ChangeNotifier {
     _resetLyricsLookup();
     lyrics = null;
     _lyricsToken++;
+    _coverflowToken++;
+    _coverflowQueueSignature = '';
+    coverflowCovers = <CoverflowCover>[];
+    coverflowRevision++;
   }
 
   Future<void> _findSongCoverUpgrade(String expectedTrack) async {
