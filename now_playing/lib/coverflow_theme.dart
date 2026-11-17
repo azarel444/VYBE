@@ -142,10 +142,10 @@ class CoverflowScene extends StatelessWidget {
     // these exact corners. Close cards tuck visibly UNDER the active art,
     // and each outward sleeve is largely hidden by the preceding sleeve.
     final v = d == 1
-        ? [-1.04, -.41, -1.20, -.425, -.86, -.95, -.05, 0.0]
+        ? [-1.09, -.45, -1.20, -.425, -.80, -.91, -.05, 0.0]
         : d == 2
             ? [-1.43, -.91, -1.57, -.92, -.66, -.79, -.08, -.025]
-            : [-1.70, -1.34, -1.84, -1.36, -.51, -.65, -.10, -.05];
+            : [-1.59, -1.25, -1.69, -1.28, -.51, -.65, -.10, -.05];
     final xScale = portrait ? .56 : 1.0;
     Offset p(double x, double y) =>
         Offset(cx + size * x * xScale, floor + size * y);
