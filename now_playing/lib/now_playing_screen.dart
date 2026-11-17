@@ -1701,6 +1701,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       queue: model.coverflowCovers,
       palette: _palette,
       artistHeader: logo,
+      artAnchorKey: _artKey,
       trackTitle: _metadataText(_VybeTextRole.title, Alignment.center),
       albumPlaque: _metadataText(_VybeTextRole.album, Alignment.center),
       leftVisualizer: settings.visualizer
