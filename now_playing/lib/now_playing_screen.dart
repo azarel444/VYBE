@@ -2698,7 +2698,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 child: ClipRect(
                   child: hasLogo
                       ? _scaledClearLogo()
-                      : _drivePortraitArtist(w * .86),
+                      : _drivePortraitArtist(w * .86, brandingHeight),
                 )),
               SizedBox(height: brandArtGap),
               _driveArtwork(artSide),
@@ -2784,25 +2784,75 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
-  // Portrait Drive has a finite artist band above the record. Other
-  // themes may wrap Riot artist names, but Drive must never send a third
-  // glyph line behind album art or the navigation window. Preserve the
-  // global unshrunk Riot font size; scroll the entire name horizontally
-  // with soft edge fades when it does not fit its allocated width.
-  Widget _drivePortraitArtist(double availableWidth) {
-    final lettering = _artistStr.toUpperCase().trim();
-    if (lettering.isEmpty) return const SizedBox.shrink();
-    final fontSize = _artistFontSize(0);
-    final render = (String text) => _artistText(
-        fontSize, letteringOverride: text);
-    final content = _artistRunWidth(lettering, fontSize);
-    if (content > availableWidth * .985) {
-      return Center(
-        child: _overflowRiotWord(
-            lettering, fontSize, availableWidth, render),
-      );
+  // Portrait Drive: show the FULL artist name, never scroll it and never
+  // let lettering paint behind the record. Keep one line when it fits;
+  // otherwise choose the best TWO-line word-boundary split and reduce
+  // Riot's actual glyph size until both lines fit the reserved width/height.
+  // This is deliberately Drive-only; all other themes keep their typography.
+  Widget _drivePortraitArtist(double availableWidth, double availableHeight) {
+    final name = _artistStr.toUpperCase().trim();
+    if (name.isEmpty) return const SizedBox.shrink();
+
+    final baseSize = _artistFontSize(0);
+    final safeWidth = math.max(1.0, availableWidth * .92);
+    // Riot glyph sizes include its 1.45x scale and enlarged word initials.
+    // The pitch leaves a visible separation between the two brush rows.
+    final lineBoxFactor = 1.45 * _riotWordInitialScale * 1.07;
+    const linePitchRatio = .82;
+
+    double fittingSize(List<String> lines) {
+      final widthAtBase = lines.map((line) =>
+          _artistRunWidth(line, baseSize)).reduce(math.max);
+      final heightMultiplier =
+          lines.length == 1 ? 1.0 : 1.0 + linePitchRatio;
+      final heightSize = availableHeight /
+          (lineBoxFactor * heightMultiplier);
+      final widthSize = safeWidth * baseSize /
+          math.max(1.0, widthAtBase);
+      return math.max(1.0,
+          math.min(baseSize, math.min(heightSize, widthSize)));
     }
-    return Center(child: render(lettering));
+
+    final words = name.split(RegExp(r'\\s+'));
+    var chosenLines = <String>[name];
+    var chosenSize = fittingSize(chosenLines);
+    if (words.length > 1) {
+      for (var split = 1; split < words.length; split++) {
+        final lines = <String>[
+          words.take(split).join(' '),
+          words.skip(split).join(' '),
+        ];
+        final candidate = fittingSize(lines);
+        // Prefer one complete line if it already fits at its normal size.
+        // Otherwise use whichever two-line split is the most legible.
+        if (candidate > chosenSize + .01) {
+          chosenLines = lines;
+          chosenSize = candidate;
+        }
+      }
+    }
+
+    final boxHeight = chosenSize * lineBoxFactor;
+    final pitch = boxHeight * linePitchRatio;
+    final totalHeight = boxHeight +
+        (chosenLines.length - 1) * pitch;
+    final startY = (availableHeight - totalHeight) / 2;
+    return SizedBox(
+      width: availableWidth, height: availableHeight,
+      child: ClipRect(
+        child: Stack(clipBehavior: Clip.hardEdge, children: [
+          for (var i = 0; i < chosenLines.length; i++)
+            Positioned(
+              top: startY + i * pitch,
+              left: 0, right: 0,
+              child: Center(
+                child: _artistText(chosenSize,
+                    letteringOverride: chosenLines[i]),
+              ),
+            ),
+        ]),
+      ),
+    );
   }
 
   /// Drive art selection is shared by portrait and landscape.
