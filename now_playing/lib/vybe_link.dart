@@ -1881,7 +1881,8 @@ class VybeLink extends ChangeNotifier {
         model.coverflowRevision == _lastSentCoverflowRevision) return;
     final covers = model.coverflowCovers.where((e) =>
         e.slot != 0 && e.slot.abs() <= 3 && e.thumb != null &&
-        e.thumb!.isNotEmpty && e.thumb!.length < 280 * 1024).toList();
+        e.thumb!.isNotEmpty && e.thumb!.length <= 280 * 1024).toList()
+      ..sort((a, b) => a.slot.abs().compareTo(b.slot.abs()));
     // Do not send a synthetic queue when the player has not supplied one.
     // A receiver remembers its own previously played covers as fallback.
     if (covers.isEmpty) {
@@ -1889,24 +1890,32 @@ class VybeLink extends ChangeNotifier {
       return;
     }
     try {
-      final payload = jsonEncode({
-        'v': 2, 'kind': 'queue', 'track': track,
-        'covers': [
-          for (final cover in covers)
-            {
-              'id': cover.id, 'slot': cover.slot,
-              'title': cover.title, 'artist': cover.artist,
-              'art': base64Encode(cover.thumb!),
-            },
-        ],
-      });
-      if (payload.length > 1900 * 1024) {
-        coverflowTransferStatus = 'Side covers exceed safe link transfer size';
-        return;
+      // Always prioritize sharp nearest covers. With higher-resolution
+      // JPEGs, a six-cover base64 packet may exceed the receiver limit.
+      // Drop only farthest sleeves as needed rather than failing the
+      // entire transfer (which used to show no side artwork).
+      final selected = List<CoverflowCover>.of(covers);
+      while (selected.isNotEmpty) {
+        final payload = jsonEncode({
+          'v': 2, 'kind': 'queue', 'track': track,
+          'covers': [
+            for (final cover in selected)
+              {
+                'id': cover.id, 'slot': cover.slot,
+                'title': cover.title, 'artist': cover.artist,
+                'art': base64Encode(cover.thumb!),
+              },
+          ],
+        });
+        if (payload.length <= 1900 * 1024) {
+          socket.write('$payload\n');
+          _lastSentCoverflowRevision = model.coverflowRevision;
+          coverflowTransferStatus = 'Sent ${selected.length} sharp queue covers';
+          return;
+        }
+        selected.removeLast();
       }
-      socket.write('$payload\n');
-      _lastSentCoverflowRevision = model.coverflowRevision;
-      coverflowTransferStatus = 'Sent ${covers.length} real queue covers';
+      coverflowTransferStatus = 'Side covers exceed safe link transfer size';
     } catch (error) {
       debugPrint('VYBE Coverflow queue transfer failed: $error');
     }
