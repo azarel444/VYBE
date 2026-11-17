@@ -459,122 +459,63 @@ class CoverflowScene extends StatelessWidget {
 class _CoverflowAtmosphere extends CustomPainter {
   final ArtPalette p;
   final double contactFraction;
-  final ui.Image? grain;
-  const _CoverflowAtmosphere(this.p, this.contactFraction, {this.grain});
-
-  // Four-point floor plane: the distant part contracts toward the rear
-  // horizon while the foreground spreads toward and beyond the viewer.
-  // Both side edges stay off-screen, so no rectangular texture seams show.
-  Matrix4 _floorProjection(Size size, Size src, double topY) {
-    final w = size.width, h = size.height;
-    final q = <Offset>[
-      Offset(-w * .08, topY),
-      Offset(w * 1.08, topY),
-      Offset(w * 1.40, h * 1.16),
-      Offset(-w * .40, h * 1.16),
-    ];
-    final tl = q[0], tr = q[1], br = q[2], bl = q[3];
-    final dx1 = tr.dx - br.dx, dx2 = bl.dx - br.dx;
-    final dx3 = tl.dx - tr.dx + br.dx - bl.dx;
-    final dy1 = tr.dy - br.dy, dy2 = bl.dy - br.dy;
-    final dy3 = tl.dy - tr.dy + br.dy - bl.dy;
-    final det = dx1 * dy2 - dx2 * dy1;
-    final g = det.abs() < 0.000001 ? 0.0
-        : (dx3 * dy2 - dx2 * dy3) / det;
-    final j = det.abs() < 0.000001 ? 0.0
-        : (dx1 * dy3 - dx3 * dy1) / det;
-    return Matrix4.identity()
-      ..setEntry(0, 0, (tr.dx - tl.dx + g * tr.dx) / src.width)
-      ..setEntry(0, 1, (bl.dx - tl.dx + j * bl.dx) / src.height)
-      ..setEntry(0, 3, tl.dx)
-      ..setEntry(1, 0, (tr.dy - tl.dy + g * tr.dy) / src.width)
-      ..setEntry(1, 1, (bl.dy - tl.dy + j * bl.dy) / src.height)
-      ..setEntry(1, 3, tl.dy)
-      ..setEntry(3, 0, g / src.width)
-      ..setEntry(3, 1, j / src.height);
-  }
+  const _CoverflowAtmosphere(this.p, this.contactFraction);
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
     final contactY = h * contactFraction;
 
-    // Move the visual floor horizon ABOVE the center album's lower edge
-    // without moving the projected covers or their reflective feet.
-    // The transition is broad and continuous, not a drawn horizontal line.
-    final transitionTop = math.max(0.0, contactY - h * .14);
-    final stage = Rect.fromLTWH(0, transitionTop, w, h - transitionTop);
-    canvas.drawRect(stage, Paint()
+    // Soft stage surface starts ABOVE the sleeve feet: no bar-like
+    // transition at the bottom edge of the covers.
+    final topY = math.max(0.0, contactY - h * .155);
+    final surface = Rect.fromLTWH(0, topY, w, h - topY);
+    canvas.drawRect(surface, Paint()
       ..shader = const LinearGradient(
-        begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        stops: [0, .10, .23, .36, .65, 1],
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        stops: [0, .13, .32, .55, .82, 1],
         colors: [
           Color(0x00000000),
-          Color(0x1A000000),
+          Color(0x19000000),
           Color(0x65000000),
-          Color(0x8A000000),
-          Color(0x74000000),
-          Color(0x18000000),
+          Color(0x92000000),
+          Color(0x76000000),
+          Color(0x38000000),
         ],
-      ).createShader(stage));
+      ).createShader(surface));
 
-    // Album-color reflections illuminate the surface at the contact line.
-    // The supplied photographic grunge is multiplied over these light pools:
-    // bright grain transmits reflected light, dark grain darkens the floor.
-    for (final spill in const <List<double>>[
-      [.50, .39, .31],
-      [.31, .21, .20],
-      [.69, .21, .20],
+    // Diffuse album-colored light is pooled near contact points. This
+    // illuminates the grain but does not create a hard straight horizon.
+    for (final pool in const <List<double>>[
+      [.50, .38, .27],
+      [.32, .23, .19],
+      [.68, .23, .19],
     ]) {
       final rect = Rect.fromCenter(
-        center: Offset(w * spill[0], contactY + h * .010),
-        width: w * spill[1], height: h * .075);
+        center: Offset(w * pool[0], contactY + h * .018),
+        width: w * pool[1], height: h * .105);
       canvas.drawOval(rect, Paint()
         ..shader = RadialGradient(
           colors: [
-            p.a.withOpacity(spill[2]),
-            p.b.withOpacity(spill[2] * .12),
+            p.a.withOpacity(pool[2]),
+            p.b.withOpacity(pool[2] * .22),
             Colors.transparent,
           ],
-          stops: const [0, .24, 1],
+          stops: const [0, .32, 1],
         ).createShader(rect));
-    }
-
-    if (grain != null) {
-      // The photographic source is compressed into a rearward-projecting
-      // floor plane. Its alpha has been feathered toward the horizon and
-      // bottom; multiply makes black regions shade illuminated reflections,
-      // never an opaque square panel across fanart.
-      final img = grain!;
-      canvas.save();
-      canvas.clipRect(stage);
-      final m = _floorProjection(
-        size, Size(img.width.toDouble(), img.height.toDouble()),
-        transitionTop);
-      canvas.transform(m.storage);
-      canvas.drawImageRect(
-        img,
-        Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
-        Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
-        Paint()
-          ..blendMode = BlendMode.multiply
-          ..filterQuality = FilterQuality.medium,
-      );
-      canvas.restore();
     }
   }
 
   @override
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
-      old.contactFraction != contactFraction || old.grain != grain ||
+      old.contactFraction != contactFraction ||
       old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
 }
 
-/// Visible photographic polish ABOVE the reflections, but BELOW metadata.
-/// The previous painter multiplied the (mostly transparent) texture into
-/// the scene BEFORE mirrored sleeves were drawn, so the reflection layer
-/// covered the entire texture. This finish composes both dark and lit grain
-/// over the real reflection using two bounded, low-overdraw passes.
+/// Blend grunge INTO the actual reflected floor, not onto album faces.
+/// The previous version clipped everything at the feet and produced a
+/// horizontal cut, while the low-alpha source was multiplied invisibly.
 class _CoverflowFloorFinish extends CustomPainter {
   final ArtPalette p;
   final double contactFraction;
@@ -586,63 +527,73 @@ class _CoverflowFloorFinish extends CustomPainter {
     final source = grain;
     if (source == null) return;
     final w = size.width, h = size.height;
-    // The 2-pixel pad prevents textural grain from covering the lower rim.
-    final footY = h * contactFraction + 2;
-    final floor = Rect.fromLTRB(0, footY, w, h);
+    final baseline = h * contactFraction;
+
+    // Begin the texture *behind* the cover feet with zero alpha,
+    // then ease it into the reflection. The visual floor has no
+    // sharp horizontal y-clip and no rectangle above/below the art.
+    final topY = math.max(0.0, baseline - h * .125);
+    final floor = Rect.fromLTRB(0, topY, w, h);
+    final textureMask = const LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      stops: [0, .15, .28, .39, .57, .77, 1],
+      colors: [
+        Color(0x00FFFFFF),
+        Color(0x05FFFFFF),
+        Color(0x24FFFFFF),
+        Color(0xA9FFFFFF),
+        Color(0xF1FFFFFF),
+        Color(0xA6FFFFFF),
+        Color(0x00FFFFFF),
+      ],
+    ).createShader(floor);
+
     final src = Rect.fromLTWH(
         0, 0, source.width.toDouble(), source.height.toDouble());
-    final perspective = _CoverflowFloorGeometry.transform(
-        size, src.size, footY - h * .12);
+    final projection = _CoverflowFloorGeometry.transform(
+        size, src.size, topY);
 
-    // Pass 1: black parts of the source DARKEN the real reflections.
-    // A full-canvas gray or opaque wash must never be used.
-    canvas.save();
-    canvas.clipRect(floor);
-    canvas.saveLayer(floor, Paint()..blendMode = BlendMode.multiply);
-    canvas.transform(perspective.storage);
-    canvas.drawImageRect(source, src, src, Paint()
-      ..color = const Color(0xCCFFFFFF)
-      ..filterQuality = FilterQuality.medium);
-    canvas.restore();
-    canvas.restore();
+    // Old texture was pre-feathered to only ~55% max alpha and could
+    // disappear entirely after repeated opacity masks. The color matrix
+    // restores a uniform usable alpha and contrast in the actual photo.
+    // The *screen-space mask above* is the only feather.
+    const darkGrain = ColorFilter.matrix([
+      1.27, 0, 0, 0, -26,
+      0, 1.27, 0, 0, -26,
+      0, 0, 1.27, 0, -26,
+      0, 0, 0, 0, 142,
+    ]);
+    // White mineral marks catch light; black portions never create fog.
+    const highlightGrain = ColorFilter.matrix([
+      2.1, 0, 0, 0, -210,
+      0, 2.1, 0, 0, -210,
+      0, 0, 2.1, 0, -210,
+      0, 0, 0, 0, 72,
+    ]);
 
-    // Pass 2: textured bright portions catch the reflected album light.
-    // It is deliberately visible nearest the contact points and fades
-    // toward the foreground. This also makes the photographic relief
-    // legible over a dark floor, where multiply alone cannot lighten.
-    canvas.save();
-    canvas.clipRect(floor);
-    canvas.saveLayer(floor, Paint()..blendMode = BlendMode.screen);
-    canvas.save();
-    canvas.transform(perspective.storage);
-    canvas.drawImageRect(source, src, src, Paint()
-      ..color = const Color(0xE6FFFFFF)
-      ..filterQuality = FilterQuality.medium
-      ..colorFilter = ColorFilter.mode(
-        Color.lerp(p.a, Colors.white, .25)!, BlendMode.modulate));
-    canvas.restore();
-    // A radial mask here was only ~one floor-height in diameter:
-    // it hid the texture almost everywhere except a tiny center spot.
-    // Use a feathered VERTICAL floor fade across all three album
-    // reflection pools, so the photographic grain becomes genuinely
-    // visible wherever the sleeve reflections illuminate the stage.
-    canvas.drawRect(floor, Paint()
-      ..blendMode = BlendMode.dstIn
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        stops: [0, .10, .30, .57, .84, 1],
-        colors: [
-          Color(0x00FFFFFF),
-          Color(0xA8FFFFFF),
-          Color(0xF0FFFFFF),
-          Color(0xD5FFFFFF),
-          Color(0x66FFFFFF),
-          Color(0x00FFFFFF),
-        ],
-      ).createShader(floor));
-    canvas.restore();
-    canvas.restore();
+    void blendPass(BlendMode blend, ColorFilter filter) {
+      canvas.save();
+      canvas.clipRect(floor);
+      canvas.saveLayer(floor, Paint()..blendMode = blend);
+      canvas.save();
+      canvas.transform(projection.storage);
+      canvas.drawImageRect(source, src, src, Paint()
+        ..colorFilter = filter
+        ..filterQuality = FilterQuality.medium);
+      canvas.restore();
+      // Apply the feather while the blended image is still isolated.
+      canvas.drawRect(floor, Paint()
+        ..blendMode = BlendMode.dstIn
+        ..shader = textureMask);
+      canvas.restore(); // composite with actual reflected artwork
+      canvas.restore();
+    }
+
+    // Irregular charcoal pits darken reflections; paler scuffs lift only
+    // illuminated areas. Both reuse the real user-supplied grunge image.
+    blendPass(BlendMode.multiply, darkGrain);
+    blendPass(BlendMode.screen, highlightGrain);
   }
 
   @override
