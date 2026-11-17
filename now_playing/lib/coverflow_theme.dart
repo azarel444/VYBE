@@ -1,25 +1,11 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'coverflow_floor_grain.dart';
 
 import 'package:flutter/material.dart';
 
 import 'coverflow_queue.dart';
 import 'palette.dart';
-
-// Decode the supplied floor photograph exactly once, instead of decoding
-// a texture on every playback frame. All art and color glows remain dynamic.
-final Future<ui.Image> _coverflowGrainImage = () async {
-  final codec = await ui.instantiateImageCodec(coverflowFloorGrainBytes);
-  try {
-    final frame = await codec.getNextFrame();
-    return frame.image;
-  } finally {
-    codec.dispose();
-  }
-}();
 
 /// Landscape-first VYBE Coverflow. Geometry, layered occlusion, ambient light,
 /// floor-grain texture, full mirrored side-cover reflections and the selected
@@ -81,7 +67,29 @@ class CoverflowScene extends StatelessWidget {
           e.thumb != null && e.thumb!.isNotEmpty).toList()
         ..sort((a, b) => b.slot.abs().compareTo(a.slot.abs()));
 
-      return ClipRect(child: TweenAnimationBuilder<double>(
+      // The ATOTO A5L can't reliably render the former multi-pass projected
+      // texture on each frame. The floor grain is now ONE static image,
+      // outside the animated sleeves/FX tree. No perspective shader,
+      // saveLayer, custom blend mode, or color matrix is applied to it.
+      return ClipRect(child: Stack(fit: StackFit.expand, children: [
+        Positioned.fill(child: IgnorePointer(child: RepaintBoundary(
+          child: CustomPaint(
+            painter: _CoverflowAtmosphere(palette, floorY / h),
+          ),
+        ))),
+        Positioned(
+          left: 0, right: 0,
+          top: math.max(0.0, floorY - h * .155), bottom: 0,
+          child: IgnorePointer(child: RepaintBoundary(
+            child: Image.memory(
+              coverflowFloorGrainBytes,
+              fit: BoxFit.fill,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.low,
+            ),
+          )),
+        ),
+        TweenAnimationBuilder<double>(
         key: ValueKey<String>('coverflow-transition-$trackKey'),
         tween: Tween<double>(begin: 0, end: 1),
         duration: const Duration(milliseconds: 430),
@@ -95,22 +103,6 @@ class CoverflowScene extends StatelessWidget {
         ),
         child: Stack(fit: StackFit.expand, clipBehavior: Clip.hardEdge,
           children: [
-            // A stable raster cache boundary keeps the textured stage
-            // independent of Coverflow's 30-fps FX and overlay updates.
-            // On 2 GB Android head units this avoids re-compositing the
-            // static grain for every tick.
-            Positioned.fill(child: IgnorePointer(
-              child: RepaintBoundary(
-                child: FutureBuilder<ui.Image>(
-                  future: _coverflowGrainImage,
-                  builder: (context, frame) => CustomPaint(
-                    painter: _CoverflowAtmosphere(
-                      palette, floorY / h, grain: frame.data,
-                    ),
-                  ),
-                ),
-              ),
-            )),
             if (leftVisualizer != null)
               Positioned(left: 0, top: 0, bottom: 0, width: w * .08,
                 child: IgnorePointer(child: leftVisualizer!)),
@@ -206,21 +198,6 @@ class CoverflowScene extends StatelessWidget {
                 accent: palette.a, performanceMode: performanceMode,
                 strength: 1.0, selected: true, side: 0)),
             )),
-            // The texture must be composited OVER the mirrored sleeves,
-            // not buried under them. Clip it to the FLOOR only so it
-            // cannot fog or darken artwork above the point of contact.
-            Positioned.fill(child: IgnorePointer(
-              child: RepaintBoundary(
-                child: FutureBuilder<ui.Image>(
-                  future: _coverflowGrainImage,
-                  builder: (context, frame) => CustomPaint(
-                    painter: _CoverflowFloorFinish(
-                      palette, floorY / h, frame.data),
-                  ),
-                ),
-              ),
-            )),
-
             Positioned(
               top: portrait ? h * .045 : h * .002,
               left: w * .095, width: w * .81,
@@ -241,7 +218,8 @@ class CoverflowScene extends StatelessWidget {
             ),
           ],
         ),
-      ));
+      ),
+    ]));
     });
   }
 
@@ -483,8 +461,7 @@ class CoverflowScene extends StatelessWidget {
 class _CoverflowAtmosphere extends CustomPainter {
   final ArtPalette p;
   final double contactFraction;
-  final ui.Image? grain;
-  const _CoverflowAtmosphere(this.p, this.contactFraction, {this.grain});
+  const _CoverflowAtmosphere(this.p, this.contactFraction);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -516,38 +493,6 @@ class _CoverflowAtmosphere extends CustomPainter {
         ],
       ).createShader(surface));
 
-    // The horizon and rear surface need the SAME photograph behind the
-    // albums as the reflection finish uses below them. A projected,
-    // low-opacity copy is composited here BEFORE any album is painted,
-    // so the floor visibly recedes behind the standing sleeves.
-    if (grain != null) {
-      final source = grain!;
-      final src = Rect.fromLTWH(
-        0, 0, source.width.toDouble(), source.height.toDouble());
-      final m = _CoverflowFloorGeometry.transform(size, src.size, topY);
-      // The supplied floor image already contains its soft alpha feather.
-      // Draw its projected relief directly into the canvas instead of using
-      // a full-screen saveLayer + dstIn mask. Those offscreen layers can
-      // intermittently disappear on low-memory Android head unit GPUs.
-      // Screen-space floor geometry and reflections remain unchanged.
-      const relief = ColorFilter.matrix([
-        1.22, 0, 0, 0, -18,
-        0, 1.22, 0, 0, -18,
-        0, 0, 1.22, 0, -18,
-        0, 0, 0, .49, 0,
-      ]);
-      canvas.save();
-      canvas.clipRect(surface);
-      _CoverflowFloorGeometry.paintAcrossFloor(
-        canvas, size, source, m, surface,
-        Paint()
-          ..blendMode = BlendMode.overlay
-          ..colorFilter = relief
-          ..filterQuality = FilterQuality.medium,
-      );
-      canvas.restore();
-    }
-
     // Diffuse album-colored light is pooled near contact points. This
     // illuminates the grain but does not create a hard straight horizon.
     for (final pool in const <List<double>>[
@@ -572,140 +517,8 @@ class _CoverflowAtmosphere extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
-      old.grain != grain || old.contactFraction != contactFraction ||
+      old.contactFraction != contactFraction ||
       old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
-}
-
-/// Blend grunge INTO the actual reflected floor, not onto album faces.
-/// The previous version clipped everything at the feet and produced a
-/// horizontal cut, while the low-alpha source was multiplied invisibly.
-class _CoverflowFloorFinish extends CustomPainter {
-  final ArtPalette p;
-  final double contactFraction;
-  final ui.Image? grain;
-  const _CoverflowFloorFinish(this.p, this.contactFraction, this.grain);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final source = grain;
-    if (source == null) return;
-    final w = size.width, h = size.height;
-    final baseline = h * contactFraction;
-
-    // Begin the texture *behind* the cover feet with zero alpha,
-    // then ease it into the reflection. The visual floor has no
-    // sharp horizontal y-clip and no rectangle above/below the art.
-    final topY = math.max(0.0, baseline - h * .125);
-    final floor = Rect.fromLTRB(0, topY, w, h);
-    final src = Rect.fromLTWH(
-        0, 0, source.width.toDouble(), source.height.toDouble());
-    final projection = _CoverflowFloorGeometry.transform(
-        size, src.size, topY);
-
-    // The grunge asset was generated with feathered alpha already.
-    // Retain its charcoal pits and bright mineral relief, but composite
-    // each pass directly instead of allocating two large saveLayer
-    // surfaces every frame. The old saveLayer+dstIn pipeline flickered on
-    // the ATOTO A5L while it stayed stable on more capable phones.
-    // Scaling SOURCE alpha (rather than replacing it with a constant)
-    // keeps the photographic floor softly feathered at its boundaries.
-    const darkGrain = ColorFilter.matrix([
-      1.27, 0, 0, 0, -26,
-      0, 1.27, 0, 0, -26,
-      0, 0, 1.27, 0, -26,
-      0, 0, 0, .53, 0,
-    ]);
-    const highlightGrain = ColorFilter.matrix([
-      2.1, 0, 0, 0, -210,
-      0, 2.1, 0, 0, -210,
-      0, 0, 2.1, 0, -210,
-      0, 0, 0, .36, 0,
-    ]);
-
-    canvas.save();
-    canvas.clipRect(floor);
-    _CoverflowFloorGeometry.paintAcrossFloor(
-      canvas, size, source, projection, floor,
-      Paint()
-        ..blendMode = BlendMode.multiply
-        ..colorFilter = darkGrain
-        ..filterQuality = FilterQuality.medium,
-    );
-    _CoverflowFloorGeometry.paintAcrossFloor(
-      canvas, size, source, projection, floor,
-      Paint()
-        ..blendMode = BlendMode.screen
-        ..colorFilter = highlightGrain
-        ..filterQuality = FilterQuality.medium,
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _CoverflowFloorFinish old) =>
-      old.grain != grain || old.contactFraction != contactFraction ||
-      old.p.a != p.a || old.p.b != p.b;
-}
-
-/// Perspective warp shared by the textured upper floor and its finish.
-/// The projected far edge is narrower than the near edge.
-class _CoverflowFloorGeometry {
-  // The reference photograph has deep dark material on its left and
-  // illuminated mineral texture on its right. Mirror the right source
-  // across the floor's center so BOTH reflection pools visibly pick up
-  // real grunge. The two halves meet at the same source centerline, so
-  // there is no vertical seam or sharp boundary.
-  static void paintAcrossFloor(
-      Canvas canvas, Size size, ui.Image source,
-      Matrix4 perspective, Rect bounds, Paint paint) {
-    final half = size.width * .5;
-    final src = Rect.fromLTWH(
-        0, 0, source.width.toDouble(), source.height.toDouble());
-
-    canvas.save();
-    canvas.clipRect(Rect.fromLTRB(0, bounds.top, half, bounds.bottom));
-    canvas.translate(size.width, 0);
-    canvas.scale(-1, 1);
-    canvas.transform(perspective.storage);
-    canvas.drawImageRect(source, src, src, paint);
-    canvas.restore();
-
-    canvas.save();
-    canvas.clipRect(Rect.fromLTRB(
-        half, bounds.top, size.width, bounds.bottom));
-    canvas.transform(perspective.storage);
-    canvas.drawImageRect(source, src, src, paint);
-    canvas.restore();
-  }
-
-  static Matrix4 transform(Size size, Size src, double topY) {
-    final w = size.width, h = size.height;
-    final q = <Offset>[
-      Offset(-w * .08, topY),
-      Offset(w * 1.08, topY),
-      Offset(w * 1.40, h * 1.16),
-      Offset(-w * .40, h * 1.16),
-    ];
-    final tl = q[0], tr = q[1], br = q[2], bl = q[3];
-    final dx1 = tr.dx - br.dx, dx2 = bl.dx - br.dx;
-    final dx3 = tl.dx - tr.dx + br.dx - bl.dx;
-    final dy1 = tr.dy - br.dy, dy2 = bl.dy - br.dy;
-    final dy3 = tl.dy - tr.dy + br.dy - bl.dy;
-    final det = dx1 * dy2 - dx2 * dy1;
-    final g = det.abs() < .000001 ? 0.0
-        : (dx3 * dy2 - dx2 * dy3) / det;
-    final j = det.abs() < .000001 ? 0.0
-        : (dx1 * dy3 - dx3 * dy1) / det;
-    return Matrix4.identity()
-      ..setEntry(0, 0, (tr.dx - tl.dx + g * tr.dx) / src.width)
-      ..setEntry(0, 1, (bl.dx - tl.dx + j * bl.dx) / src.height)
-      ..setEntry(0, 3, tl.dx)
-      ..setEntry(1, 0, (tr.dy - tl.dy + g * tr.dy) / src.width)
-      ..setEntry(1, 1, (bl.dy - tl.dy + j * bl.dy) / src.height)
-      ..setEntry(1, 3, tl.dy)
-      ..setEntry(3, 0, g / src.width)
-      ..setEntry(3, 1, j / src.height);
-  }
 }
 
 /// Screen-space black cast shadow from a front sleeve into the album
