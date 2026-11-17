@@ -1269,7 +1269,7 @@ open class MainActivity : FlutterActivity() {
     }
 
     private fun encodeQueueArtBytes(input: ByteArray, requestedSide: Int): ByteArray? {
-        if (input.isEmpty || input.size > 8 * 1024 * 1024) return null
+        if (input.isEmpty() || input.size > 8 * 1024 * 1024) return null
         return try {
             val bounds = BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
