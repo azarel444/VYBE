@@ -127,7 +127,7 @@ class CoverflowScene extends StatelessWidget {
             Positioned(
               top: portrait ? h * .045 : h * .002,
               left: w * .095, width: w * .81,
-              height: portrait ? h * .18 : h * .22,
+              height: portrait ? h * .18 : h * .255,
               child: Center(child: artistHeader),
             ),
             Positioned(
