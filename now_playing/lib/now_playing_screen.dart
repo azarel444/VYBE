@@ -1696,32 +1696,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       rightVisualizer: settings.visualizer
           ? _edgeBars(w * .08, leftEdge: false) : null,
       performanceMode: _fxTier <= 1,
-      progress: AnimatedBuilder(
-        animation: _slow,
-        builder: (context, _) {
-          final fraction = model.durationMs > 0
-              ? (model.positionMs / model.durationMs).clamp(0.0, 1.0).toDouble()
-              : 0.0;
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: Stack(fit: StackFit.expand, children: [
-              ColoredBox(color: _palette.b.withOpacity(.25)),
-              FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: fraction,
-                child: DecoratedBox(decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [_palette.b, _palette.a, _palette.c]),
-                  boxShadow: [
-                    BoxShadow(color: _palette.a.withOpacity(.45),
-                      blurRadius: 5),
-                  ],
-                )),
-              ),
-            ]),
-          );
-        },
-      ),
     );
   }
 
