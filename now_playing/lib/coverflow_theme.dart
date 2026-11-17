@@ -1,10 +1,25 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'coverflow_floor_grain.dart';
 
 import 'package:flutter/material.dart';
 
 import 'coverflow_queue.dart';
 import 'palette.dart';
+
+// Decode the supplied floor photograph exactly once, instead of decoding
+// a texture on every playback frame. All art and color glows remain dynamic.
+final Future<ui.Image> _coverflowGrainImage = () async {
+  final codec = await ui.instantiateImageCodec(coverflowFloorGrainBytes);
+  try {
+    final frame = await codec.getNextFrame();
+    return frame.image;
+  } finally {
+    codec.dispose();
+  }
+}();
 
 /// Landscape-first VYBE Coverflow. Geometry, layered occlusion, ambient light,
 /// floor-grain texture, full mirrored side-cover reflections and the selected
@@ -19,6 +34,7 @@ class CoverflowScene extends StatelessWidget {
   final Widget trackTitle;
   final Widget albumPlaque;
   final GlobalKey? artAnchorKey;
+  final VoidCallback? onTapCover;
   final Widget? leftVisualizer;
   final Widget? rightVisualizer;
   final bool performanceMode;
@@ -33,6 +49,7 @@ class CoverflowScene extends StatelessWidget {
     required this.trackTitle,
     required this.albumPlaque,
     this.artAnchorKey,
+    this.onTapCover,
     this.leftVisualizer,
     this.rightVisualizer,
     this.performanceMode = false,
@@ -75,8 +92,13 @@ class CoverflowScene extends StatelessWidget {
         child: Stack(fit: StackFit.expand, clipBehavior: Clip.hardEdge,
           children: [
             Positioned.fill(child: IgnorePointer(
-              child: CustomPaint(
-                painter: _CoverflowAtmosphere(palette, floorY / h),
+              child: FutureBuilder<ui.Image>(
+                future: _coverflowGrainImage,
+                builder: (context, snapshot) => CustomPaint(
+                  painter: _CoverflowAtmosphere(
+                    palette, floorY / h, grain: snapshot.data,
+                  ),
+                ),
               ),
             )),
             if (leftVisualizer != null)
@@ -142,14 +164,21 @@ class CoverflowScene extends StatelessWidget {
             // Explicit artwork geometry anchor for global FX layers.
             // Without this, Rays/Ripples/Shockwave fall back to .25 screen
             // width and appear to launch at unrelated places.
-            if (artAnchorKey != null)
+            if (artAnchorKey != null || onTapCover != null)
               Positioned(
                 left: selectedQuad[3].dx,
                 top: math.min(selectedQuad[0].dy, selectedQuad[1].dy),
                 width: selectedQuad[2].dx - selectedQuad[3].dx,
                 height: floorY -
                     math.min(selectedQuad[0].dy, selectedQuad[1].dy),
-                child: IgnorePointer(child: SizedBox(key: artAnchorKey)),
+                // An actual hit-test surface is needed: the projective
+                // sleeve uses transformHitTests:false, and previously had
+                // no onTap at all. A center-cover tap opens the source app.
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onTapCover,
+                  child: SizedBox.expand(key: artAnchorKey),
+                ),
               ),
             // The selected sleeve gets a continuous palette-colored stroke
             // ABOVE the image, with a tight glow and corner pin lights.
@@ -423,67 +452,114 @@ class CoverflowScene extends StatelessWidget {
 class _CoverflowAtmosphere extends CustomPainter {
   final ArtPalette p;
   final double contactFraction;
-  const _CoverflowAtmosphere(this.p, this.contactFraction);
+  final ui.Image? grain;
+  const _CoverflowAtmosphere(this.p, this.contactFraction, {this.grain});
+
+  // Four-point floor plane: the distant part contracts toward the rear
+  // horizon while the foreground spreads toward and beyond the viewer.
+  // Both side edges stay off-screen, so no rectangular texture seams show.
+  Matrix4 _floorProjection(Size size, Size src, double topY) {
+    final w = size.width, h = size.height;
+    final q = <Offset>[
+      Offset(-w * .08, topY),
+      Offset(w * 1.08, topY),
+      Offset(w * 1.40, h * 1.16),
+      Offset(-w * .40, h * 1.16),
+    ];
+    final tl = q[0], tr = q[1], br = q[2], bl = q[3];
+    final dx1 = tr.dx - br.dx, dx2 = bl.dx - br.dx;
+    final dx3 = tl.dx - tr.dx + br.dx - bl.dx;
+    final dy1 = tr.dy - br.dy, dy2 = bl.dy - br.dy;
+    final dy3 = tl.dy - tr.dy + br.dy - bl.dy;
+    final det = dx1 * dy2 - dx2 * dy1;
+    final g = det.abs() < 0.000001 ? 0.0
+        : (dx3 * dy2 - dx2 * dy3) / det;
+    final j = det.abs() < 0.000001 ? 0.0
+        : (dx1 * dy3 - dx3 * dy1) / det;
+    return Matrix4.identity()
+      ..setEntry(0, 0, (tr.dx - tl.dx + g * tr.dx) / src.width)
+      ..setEntry(0, 1, (bl.dx - tl.dx + j * bl.dx) / src.height)
+      ..setEntry(0, 3, tl.dx)
+      ..setEntry(1, 0, (tr.dy - tl.dy + g * tr.dy) / src.width)
+      ..setEntry(1, 1, (bl.dy - tl.dy + j * bl.dy) / src.height)
+      ..setEntry(1, 3, tl.dy)
+      ..setEntry(3, 0, g / src.width)
+      ..setEntry(3, 1, j / src.height);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
     final contactY = h * contactFraction;
-    // Start the transition above the active sleeve's lower edge.
-    final transitionTop = math.max(0.0, contactY - h * .065);
-    final stage = Rect.fromLTWH(
-        0, transitionTop, w, math.max(1.0, h - transitionTop));
+
+    // Move the visual floor horizon ABOVE the center album's lower edge
+    // without moving the projected covers or their reflective feet.
+    // The transition is broad and continuous, not a drawn horizontal line.
+    final transitionTop = math.max(0.0, contactY - h * .14);
+    final stage = Rect.fromLTWH(0, transitionTop, w, h - transitionTop);
     canvas.drawRect(stage, Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        stops: [0, .11, .22, .37, .67, 1],
+        stops: [0, .10, .23, .36, .65, 1],
         colors: [
-          Color(0x00000000), // no visible straight horizon at the start
-          Color(0x37000000),
-          Color(0x94000000), // soft, translucent contact darkness
-          Color(0x77000000),
-          Color(0x24000000),
-          Color(0x00000000), // underlying fanart fully returns at bottom
+          Color(0x00000000),
+          Color(0x1A000000),
+          Color(0x65000000),
+          Color(0x8A000000),
+          Color(0x74000000),
+          Color(0x18000000),
         ],
       ).createShader(stage));
 
-    // Tight pools of reflected light; no colored fog across the fanart.
+    // Album-color reflections illuminate the surface at the contact line.
+    // The supplied photographic grunge is multiplied over these light pools:
+    // bright grain transmits reflected light, dark grain darkens the floor.
     for (final spill in const <List<double>>[
-      [.50, .39, .33],
+      [.50, .39, .31],
       [.31, .21, .20],
       [.69, .21, .20],
     ]) {
       final rect = Rect.fromCenter(
-        center: Offset(w * spill[0], contactY + h * .015),
-        width: w * spill[1], height: h * .08);
+        center: Offset(w * spill[0], contactY + h * .010),
+        width: w * spill[1], height: h * .075);
       canvas.drawOval(rect, Paint()
         ..shader = RadialGradient(
           colors: [
             p.a.withOpacity(spill[2]),
-            p.b.withOpacity(spill[2] * .15),
+            p.b.withOpacity(spill[2] * .12),
             Colors.transparent,
           ],
-          stops: const [0, .25, 1],
+          stops: const [0, .24, 1],
         ).createShader(rect));
     }
 
-    // Sparse, tiny polish grain across the floor only; no horizontal bars.
-    final grain = Paint();
-    for (var i = 0; i < 850; i++) {
-      final seed = (i * 1664525 + 1013904223) & 0x7fffffff;
-      final u = (seed % 10003) / 10003.0;
-      final v = ((seed ~/ 67) % 10007) / 10007.0;
-      final px = w * u;
-      final py = transitionTop + (h - transitionTop) * v;
-      grain.color = (i % 3 == 0 ? Colors.white : Colors.black)
-          .withOpacity(i % 3 == 0 ? .034 : .054);
-      canvas.drawCircle(Offset(px, py), .42, grain);
+    if (grain != null) {
+      // The photographic source is compressed into a rearward-projecting
+      // floor plane. Its alpha has been feathered toward the horizon and
+      // bottom; multiply makes black regions shade illuminated reflections,
+      // never an opaque square panel across fanart.
+      final img = grain!;
+      canvas.save();
+      canvas.clipRect(stage);
+      final m = _floorProjection(
+        size, Size(img.width.toDouble(), img.height.toDouble()),
+        transitionTop);
+      canvas.transform(m.storage);
+      canvas.drawImageRect(
+        img,
+        Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+        Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+        Paint()
+          ..blendMode = BlendMode.multiply
+          ..filterQuality = FilterQuality.medium,
+      );
+      canvas.restore();
     }
   }
 
   @override
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
-      old.contactFraction != contactFraction ||
+      old.contactFraction != contactFraction || old.grain != grain ||
       old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
 }
 
