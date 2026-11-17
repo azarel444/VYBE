@@ -28,6 +28,8 @@ class _VideoEmbedDiagnosticPageState extends State<VideoEmbedDiagnosticPage> {
   bool _ready = false;
   bool _playOnReady = false;
   bool _busy = false;
+  bool _pausingSource = false;
+  bool _sourcePauseConfirmed = false;
   bool _showYoutubeControls = false;
   String _state = 'Initializing embedded YouTube player';
   String _sourcePause = 'YouTube Music has not been paused by this test';
@@ -107,6 +109,12 @@ class _VideoEmbedDiagnosticPageState extends State<VideoEmbedDiagnosticPage> {
             _state = '$name $detail';
         }
       });
+      // A tap directly on the YouTube iframe bypasses VYBE's pink Play
+      // button. Observe the iframe state so BOTH control paths pause the
+      // original source and only one audio track continues.
+      if (name == 'state' && detail == 'Playing') {
+        unawaited(_pauseMusicSource('Embedded video entered Playing'));
+      }
       if (name == 'ready' && _playOnReady) {
         _playOnReady = false;
         unawaited(_send('window.vybePlay && window.vybePlay();'));
@@ -189,6 +197,7 @@ document.head.appendChild(tag);
   Future<void> _load() async {
     if (!mounted) return;
     _playOnReady = false;
+    _sourcePauseConfirmed = false;
     setState(() {
       _ready = false;
       _state = 'Loading YouTube iframe…';
@@ -212,22 +221,42 @@ document.head.appendChild(tag);
     }
   }
 
-  Future<void> _play() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _state = 'Pausing YouTube Music before video starts…';
-      _lastError = '';
-    });
+  /// Coordinate audio even when YouTube's own on-video Play button is used.
+  /// Do not interrupt the embedded player; pause only the music app's
+  /// Android MediaSession. The native call is idempotent.
+  Future<void> _pauseMusicSource(String trigger) async {
+    if (!mounted || _pausingSource || _sourcePauseConfirmed) return;
+    _pausingSource = true;
+    _record('Source pause requested: $trigger');
     try {
       final result = await _control.invokeMapMethod<String, dynamic>(
           'pauseYoutubeMusicForVideoTest');
       if (!mounted) return;
-      _sourcePause = result?['reason']?.toString() ?? 'Pause state unknown';
-      _record(_sourcePause);
-    } catch (e) {
-      _sourcePause = 'Source pause failed: $e. Pause the music app manually.';
-      _record(_sourcePause);
+      final reason = result?['reason']?.toString() ?? 'Pause status unknown';
+      _sourcePauseConfirmed =
+          result?['paused'] == true || result?['alreadyPaused'] == true;
+      setState(() => _sourcePause = reason);
+      _record('Source handoff: $reason');
+    } catch (error) {
+      if (!mounted) return;
+      final reason = 'Could not pause YouTube Music: $error. '
+          'Pause the source app manually.';
+      setState(() => _sourcePause = reason);
+      _record(reason);
+    } finally {
+      _pausingSource = false;
+    }
+  }
+
+  Future<void> _play() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _state = 'Preparing playback and pausing YouTube Music…';
+      _lastError = '';
+    });
+    try {
+      await _pauseMusicSource('VYBE Play button');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -261,6 +290,7 @@ document.head.appendChild(tag);
       'playerReady': _ready,
       'currentState': _state,
       'sourcePause': _sourcePause,
+      'sourcePauseConfirmed': _sourcePauseConfirmed,
       'lastError': _lastError,
       'events': _events,
       'note': 'Successful identification does not guarantee that a video '
@@ -350,9 +380,10 @@ document.head.appendChild(tag);
                 },
               ),
               const Text('This is an isolated test, not a new VYBE theme. '
-                  'Press Play to pause YouTube Music and test the embedded '
-                  'video with its own audio. Close this page to stop the '
-                  'test video. Resume the music app manually afterward. '
+                  'Press Play in VYBE or tap the video itself. The test '
+                  'will pause YouTube Music when playback starts to avoid '
+                  'two audio sources. Close this page to stop the video. '
+                  'Resume the music app manually afterward. '
                   'YouTube can reject embeds, restrict autoplay, or display '
                   'its required attribution. It does not expose video bytes '
                   'to VYBE.',
