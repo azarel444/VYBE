@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Rect
 import android.media.MediaMetadata
+import android.media.session.MediaSession
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
@@ -556,6 +557,27 @@ open class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // Album thumbnails for the real player-published Coverflow queue.
+        // Retrieve only on demand, off the UI thread. Never decode a queue
+        // bitmap on every 2-second now-playing metadata heartbeat.
+        MethodChannel(messenger, "nowplaying/queue_art")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "thumbnail" -> {
+                        val id = call.argument<Number>("queueId")?.toLong()
+                        if (id == null) {
+                            result.success(null)
+                        } else {
+                            Thread {
+                                val bytes = queueArtThumbnail(id)
+                                mainHandler.post { result.success(bytes) }
+                            }.start()
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         EventChannel(messenger, "nowplaying/stream").setStreamHandler(
             object : EventChannel.StreamHandler {
@@ -1145,11 +1167,87 @@ open class MainActivity : FlutterActivity() {
         )
 
         val key = "$title|$artist|$album|$duration"
+        if (withMeta || key != lastTrackKey) {
+            map["queueItems"] = currentCoverflowQueue(c, st, title, artist)
+        }
         if (md != null && (withMeta || key != lastTrackKey)) {
             extractArt(md)?.let { map["art"] = it }
         }
         lastTrackKey = key
         s.success(map)
+    }
+
+    /** Return only *actual* entries from the active Android media queue.
+     * An empty queue never implies a fictional next song. The active item ID
+     * is authoritative; title matching is used only when unambiguous.
+     */
+    private fun currentCoverflowQueue(
+        c: MediaController, st: PlaybackState?, title: String, artist: String
+    ): List<Map<String, Any?>> {
+        val queue = try { c.queue } catch (_: Exception) { null }
+        if (queue.isNullOrEmpty()) return emptyList()
+        var activeIndex = queue.indexOfFirst { it.queueId == st?.activeQueueItemId }
+        if (activeIndex < 0) {
+            val match = queue.withIndex().filter { (_, item) ->
+                item.description.title?.toString()?.trim()?.equals(
+                    title.trim(), ignoreCase = true) == true &&
+                    (artist.isBlank() ||
+                        item.description.subtitle?.toString()?.trim()?.equals(
+                            artist.trim(), ignoreCase = true) == true)
+            }
+            if (match.size != 1) return emptyList()
+            activeIndex = match.first().index
+        }
+        val from = maxOf(0, activeIndex - 3)
+        val to = minOf(queue.size - 1, activeIndex + 3)
+        return (from..to).mapNotNull { index ->
+            val entry = queue[index]
+            val description = entry.description
+            val name = description.title?.toString()?.trim() ?: ""
+            if (name.isBlank()) null else mapOf(
+                "id" to entry.queueId,
+                "slot" to (index - activeIndex),
+                "title" to name,
+                "artist" to (description.subtitle?.toString() ?: ""),
+                "artUri" to (description.iconUri?.toString() ?: ""),
+                "hasBitmap" to (description.iconBitmap != null)
+            )
+        }
+    }
+
+    /** The queue icon is a real media-session bitmap or a local content URI.
+     * The phone may fetch an https image URI through its existing HTTP helper.
+     * Keep side images small for the ATOTO and for Wi-Fi Direct transfers.
+     */
+    private fun queueArtThumbnail(queueId: Long): ByteArray? {
+        val item = try { controller?.queue?.firstOrNull {
+            it.queueId == queueId } } catch (_: Exception) { null } ?: return null
+        val description = item.description
+        var image = description.iconBitmap
+        if (image == null) {
+            val uri = description.iconUri ?: return null
+            if (uri.scheme != "content" && uri.scheme != "file" &&
+                uri.scheme != "android.resource") return null
+            image = try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            } catch (_: Exception) { null }
+        }
+        val bitmap = image ?: return null
+        return try {
+            val side = maxOf(bitmap.width, bitmap.height)
+            val scaled = if (side > 320) {
+                val factor = 320.0 / side
+                Bitmap.createScaledBitmap(bitmap,
+                    maxOf(1, (bitmap.width * factor).toInt()),
+                    maxOf(1, (bitmap.height * factor).toInt()), true)
+            } else bitmap
+            val output = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 80, output)
+            if (scaled !== bitmap) scaled.recycle()
+            output.toByteArray().takeIf { it.size < 256 * 1024 }
+        } catch (_: Exception) { null }
     }
 
     // ----------------------------------------------------------------- art
