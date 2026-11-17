@@ -1030,6 +1030,17 @@ open class MainActivity : FlutterActivity() {
                     "extrasKeys" to (item.description.extras?.keySet()?.toList() ?: emptyList<String>())
                 )
             } ?: emptyList()
+            // Snapshot media-description and possible video-mode hints as exposed
+            // by the Android MediaSession. This does NOT access or extract video.
+            val description = md?.description
+            val possibleVideoKeys = md?.keySet()?.filter { key ->
+                val lower = key.lowercase()
+                lower.contains("video") || lower.contains("mime") ||
+                    lower.contains("content_type") || lower.contains("stream_type")
+            }?.sorted() ?: emptyList<String>()
+            val possibleVideoValues = possibleVideoKeys.associateWith { key ->
+                try { md?.getString(key)?.take(300) } catch (_: Exception) { null }
+            }
             val flags = c.flags
             mapOf(
                 "service" to service, "package" to target, "access" to true,
@@ -1055,6 +1066,21 @@ open class MainActivity : FlutterActivity() {
                     "keys" to (md?.keySet()?.toList() ?: emptyList<String>())
                 ),
                 "queueTitle" to c.queueTitle?.toString(),
+                // A mediaId or mediaUri is only an identifier/reference, not
+                // evidence of a directly readable audiovisual stream.
+                "videoProbe" to mapOf(
+                    "activeMediaId" to description?.mediaId,
+                    "activeMediaUri" to description?.mediaUri?.toString(),
+                    "descriptionTitle" to description?.title?.toString(),
+                    "descriptionSubtitle" to description?.subtitle?.toString(),
+                    "descriptionExtrasKeys" to (description?.extras?.keySet()?.sorted() ?: emptyList<String>()),
+                    "possibleVideoMetadataKeys" to possibleVideoKeys,
+                    "possibleVideoMetadataValues" to possibleVideoValues,
+                    "playbackExtrasKeys" to (st?.extras?.keySet()?.sorted() ?: emptyList<String>()),
+                    "sessionExtrasKeys" to (c.extras?.keySet()?.sorted() ?: emptyList<String>()),
+                    "directVideoStreamVerified" to false,
+                    "assessment" to "Read-only MediaSession metadata inspection only; playable video stream access is not established."
+                ),
                 "queueIds" to (queue?.map { it.queueId } ?: emptyList<Long>()),
                 "queueArtworkUrlCount" to (queue?.count { it.description.iconUri != null } ?: 0),
                 "queueMediaIdCount" to (queue?.count { it.description.mediaId != null } ?: 0),
