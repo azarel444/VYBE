@@ -83,8 +83,6 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
           style: const TextStyle(color: Colors.white, fontSize: 9,
             letterSpacing: 1.5)),
       ),
-      progress: DecoratedBox(decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [accent.a, accent.b]))),
       performanceMode: true,
     );
   }
