@@ -89,15 +89,17 @@ class CoverflowScene extends StatelessWidget {
                 _coverQuad(w, floorY, centerSize,
                   slot: entry.slot, portrait: portrait),
                 distance: entry.slot.abs(), left: entry.slot < 0),
-              if (entry.slot.abs() == 1)
-                Positioned.fill(child: IgnorePointer(
-                  // Draw after the sleeve so the specular lines are VISIBLE.
-                  child: CustomPaint(painter: _CoverflowCoverGlow(
-                    quad: _coverQuad(w, floorY, centerSize,
-                      slot: entry.slot, portrait: portrait),
-                    accent: palette.a, performanceMode: performanceMode,
-                    strength: .79, selected: false)),
-                )),
+              Positioned.fill(child: IgnorePointer(
+                // Each side album touches the polished floor at its outward
+                // bottom corner. Light there, NOT around the full quad.
+                child: CustomPaint(painter: _CoverflowCoverGlow(
+                  quad: _coverQuad(w, floorY, centerSize,
+                    slot: entry.slot, portrait: portrait),
+                  accent: palette.a, performanceMode: performanceMode,
+                  strength: entry.slot.abs() == 1 ? .95
+                      : entry.slot.abs() == 2 ? .45 : .22,
+                  selected: false, side: entry.slot < 0 ? -1 : 1)),
+              )),
             ],
             _sceneCover(activeCover, centerSize,
               _coverQuad(w, floorY, centerSize,
@@ -110,7 +112,7 @@ class CoverflowScene extends StatelessWidget {
                 quad: _coverQuad(w, floorY, centerSize,
                   slot: 0, portrait: portrait),
                 accent: palette.a, performanceMode: performanceMode,
-                strength: 1.0, selected: true)),
+                strength: 1.0, selected: true, side: 0)),
             )),
 
             Positioned(
@@ -297,9 +299,9 @@ class CoverflowScene extends StatelessWidget {
           decoration: BoxDecoration(
             color: const Color(0xFF080809),
             borderRadius: borderRadius,
-            border: Border.all(
-              color: accent.withOpacity(active ? .90 : distance == 1 ? .63 : .22),
-              width: active ? 1.6 : 1.0),
+            // No rectangular BoxDecoration border whatsoever. The selected
+            // album's projected stroke belongs to the scene painter instead.
+            // Side albums get only tiny contact glares and select segments.
             // A compact BLACK lift shadow attached to THIS cover only.
             // No full-screen silhouette rectangles behind the album stack.
             boxShadow: [
@@ -318,8 +320,7 @@ class CoverflowScene extends StatelessWidget {
             ],
           ),
           child: Stack(fit: StackFit.expand, children: [
-            Padding(padding: EdgeInsets.all(active ? 2 : 1),
-              child: coverFace()),
+            coverFace(),
             // Distant covers remain SOLID instead of going translucent.
             // The farthest sleeve is subdued by black shading across the
             // actual image surface, never by reducing overall alpha.
@@ -370,16 +371,8 @@ class CoverflowScene extends StatelessWidget {
                   ),
                 )),
               )),
-            // Luminous top-edge specular reflection follows palette, not
-            // the fixed amber coloring of the reference mockup.
-            Positioned(left: size * .06, right: size * .06, top: 0,
-              height: active ? 3 : 1.5,
-              child: DecoratedBox(decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [
-                  Colors.transparent, accent.withOpacity(active ? 1 : .65),
-                  Colors.transparent],
-                ),
-              ))),
+            // Light is painted at projected contact corners instead; do
+            // not add a horizontal rectangle across the sleeve's top.
           ]),
         ),
       ),
@@ -480,76 +473,99 @@ class _CoverflowCoverGlow extends CustomPainter {
   final double strength;
   final bool performanceMode;
   final bool selected;
+  final int side; // -1 = left sleeve, +1 = right sleeve, 0 = selected
 
   const _CoverflowCoverGlow({
     required this.quad, required this.accent, required this.strength,
     required this.performanceMode, required this.selected,
+    required this.side,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(quad[0].dx, quad[0].dy)
-      ..lineTo(quad[1].dx, quad[1].dy)
-      ..lineTo(quad[2].dx, quad[2].dy)
-      ..lineTo(quad[3].dx, quad[3].dy)
-      ..close();
+    Offset along(Offset a, Offset b, double t) =>
+        Offset.lerp(a, b, t)!;
 
-    if (selected) {
-      // Tight halo that tracks the current album-art / VYBE palette.
-      // This is just a few pixels wide, not an entire-cover light cloud.
-      canvas.drawPath(path, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = performanceMode ? 3.4 : 5.0
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal,
-            performanceMode ? 2.0 : 3.2)
-        ..color = accent.withOpacity(.87 * strength));
-      canvas.drawPath(path, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..color = accent.withOpacity(.97 * strength));
-      canvas.drawPath(path, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = .85
-        ..color = Color.lerp(accent, Colors.white, .46)!
-            .withOpacity(.92 * strength));
-    } else {
-      // Side sleeves get restrained narrow highlights, not a perimeter glow.
-      final edge = Paint()
-        ..color = accent.withOpacity(.65 * strength)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0;
-      canvas.drawLine(quad[0], quad[3], edge);
-      canvas.drawLine(quad[2], quad[3], edge);
-    }
-
-    void glare(Offset point, double radius, double alpha) {
-      final rect = Rect.fromCircle(center: point, radius: radius);
-      canvas.drawCircle(point, radius, Paint()
+    void contactGlint(Offset at, double radius, double power) {
+      final rect = Rect.fromCircle(center: at, radius: radius);
+      canvas.drawCircle(at, radius, Paint()
         ..shader = RadialGradient(
-          stops: const [0, .075, .25, .55, 1],
+          stops: const [0, .055, .17, .48, 1],
           colors: [
-            Colors.white.withOpacity(.97 * alpha * strength),
-            Color.lerp(accent, Colors.white, .65)!
-                .withOpacity(.88 * alpha * strength),
-            accent.withOpacity(.56 * alpha * strength),
-            accent.withOpacity(.10 * alpha * strength),
+            Colors.white.withOpacity(.94 * power * strength),
+            Color.lerp(accent, Colors.white, .62)!
+                .withOpacity(.92 * power * strength),
+            accent.withOpacity(.57 * power * strength),
+            accent.withOpacity(.16 * power * strength),
             Colors.transparent,
           ],
         ).createShader(rect));
     }
 
-    final radius = performanceMode ? 10.0 : 17.0;
-    glare(quad[3], radius, 1);
-    glare(quad[2], radius, .91);
-    glare(quad[0], radius * .59, .42);
-    glare(quad[1], radius * .53, .35);
+    if (selected) {
+      final outline = Path()
+        ..moveTo(quad[0].dx, quad[0].dy)
+        ..lineTo(quad[1].dx, quad[1].dy)
+        ..lineTo(quad[2].dx, quad[2].dy)
+        ..lineTo(quad[3].dx, quad[3].dy)
+        ..close();
+      // Only the CENTER album has a full, thin album-colored stroke.
+      // The accompanying blur is tight, never a giant squared-off halo.
+      canvas.drawPath(outline, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = performanceMode ? 2.7 : 3.7
+        ..maskFilter = MaskFilter.blur(
+          BlurStyle.normal, performanceMode ? 1.6 : 2.3)
+        ..color = accent.withOpacity(.83 * strength));
+      canvas.drawPath(outline, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.55
+        ..color = accent.withOpacity(.96 * strength));
+      // Two modest feet-of-sleeve glints anchoring the selected art.
+      contactGlint(quad[3], performanceMode ? 9 : 13, .72);
+      contactGlint(quad[2], performanceMode ? 9 : 13, .72);
+    } else {
+      // The angled sleeves are illuminated ONLY where they touch the floor:
+      // lower outside corner and very short adjacent edge segments.
+      // This is NOT a glow around the card's rectangular perimeter.
+      final outerBottom = side < 0 ? quad[3] : quad[2];
+      final outerTop = side < 0 ? quad[0] : quad[1];
+      final innerBottom = side < 0 ? quad[2] : quad[3];
+      final up = along(outerBottom, outerTop, .23);
+      final across = along(outerBottom, innerBottom, .23);
+
+      final segmentGlow = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = performanceMode ? 3.0 : 4.0
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = MaskFilter.blur(
+            BlurStyle.normal, performanceMode ? 1.7 : 2.7)
+        ..color = accent.withOpacity(.72 * strength);
+      canvas.drawLine(up, outerBottom, segmentGlow);
+      canvas.drawLine(outerBottom, across, segmentGlow);
+
+      final pinline = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.15
+        ..strokeCap = StrokeCap.round
+        ..color = Color.lerp(accent, Colors.white, .27)!
+            .withOpacity(.83 * strength);
+      canvas.drawLine(up, outerBottom, pinline);
+      canvas.drawLine(outerBottom, across, pinline);
+
+      // This spot is the dominant specular reflection: the contact between
+      // the album's nearest outside corner and the polished floor.
+      contactGlint(outerBottom, performanceMode ? 11 : 18, 1.0);
+      // A much smaller second reflection at the inside bottom contact.
+      contactGlint(innerBottom, performanceMode ? 6 : 9, .27);
+    }
   }
 
   @override
   bool shouldRepaint(covariant _CoverflowCoverGlow old) =>
       old.accent != accent || old.strength != strength ||
       old.performanceMode != performanceMode || old.selected != selected ||
+      old.side != side ||
       old.quad[0] != quad[0] || old.quad[1] != quad[1] ||
       old.quad[2] != quad[2] || old.quad[3] != quad[3];
 }
