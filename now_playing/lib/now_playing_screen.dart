@@ -2813,7 +2813,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           math.min(baseSize, math.min(heightSize, widthSize)));
     }
 
-    final words = name.split(RegExp(r'\\s+'));
+    final words = name.split(RegExp(r'\s+'));
     var chosenLines = <String>[name];
     var chosenSize = fittingSize(chosenLines);
     if (words.length > 1) {
