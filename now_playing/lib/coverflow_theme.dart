@@ -85,6 +85,23 @@ class CoverflowScene extends StatelessWidget {
             // Back to front. Every near sleeve occludes its actual rear
             // neighbor; selected art is always the final and frontmost cover.
             for (final entry in side) ...[
+              // The foreground sleeve shades ONLY the actual rear sleeve.
+              // Draw after the rear sleeve and before the nearer one.
+              if (entry.slot.abs() <= 2 &&
+                  side.any((e) => e.slot ==
+                    (entry.slot < 0 ? -1 : 1) *
+                        (entry.slot.abs() + 1)))
+                Positioned.fill(child: IgnorePointer(
+                  child: CustomPaint(painter: _CoverflowGapShadow(
+                    front: _coverQuad(w, floorY, centerSize,
+                      slot: entry.slot, portrait: portrait),
+                    rear: _coverQuad(w, floorY, centerSize,
+                      slot: (entry.slot < 0 ? -1 : 1) *
+                          (entry.slot.abs() + 1), portrait: portrait),
+                    side: entry.slot < 0 ? -1 : 1,
+                    unit: centerSize,
+                  )),
+                )),
               _sceneCover(entry.thumb, centerSize,
                 _coverQuad(w, floorY, centerSize,
                   slot: entry.slot, portrait: portrait),
@@ -101,6 +118,19 @@ class CoverflowScene extends StatelessWidget {
                   selected: false, side: entry.slot < 0 ? -1 : 1)),
               )),
             ],
+            // Central cover shadows touch the two nearest side covers,
+            // but must never cast above those sleeves' top edges.
+            for (final sign in const [-1, 1])
+              if (side.any((e) => e.slot == sign))
+                Positioned.fill(child: IgnorePointer(
+                  child: CustomPaint(painter: _CoverflowGapShadow(
+                    front: _coverQuad(w, floorY, centerSize,
+                      slot: 0, portrait: portrait),
+                    rear: _coverQuad(w, floorY, centerSize,
+                      slot: sign, portrait: portrait),
+                    side: sign, unit: centerSize,
+                  )),
+                )),
             _sceneCover(activeCover, centerSize,
               _coverQuad(w, floorY, centerSize,
                 slot: 0, portrait: portrait),
@@ -302,22 +332,9 @@ class CoverflowScene extends StatelessWidget {
             // No rectangular BoxDecoration border whatsoever. The selected
             // album's projected stroke belongs to the scene painter instead.
             // Side albums get only tiny contact glares and select segments.
-            // A compact BLACK lift shadow attached to THIS cover only.
-            // No full-screen silhouette rectangles behind the album stack.
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(active ? .83 : .76),
-                offset: const Offset(0, 8),
-                blurRadius: active ? 20 : 14,
-                spreadRadius: 0,
-              ),
-              BoxShadow(
-                color: Colors.black.withOpacity(.65),
-                offset: const Offset(0, 2),
-                blurRadius: 5,
-                spreadRadius: 0,
-              ),
-            ],
+            // Never cast a rectangular BoxShadow above the sleeve tops.
+            // Gap shading is clipped to the projected rear-cover faces.
+            boxShadow: const [],
           ),
           child: Stack(fit: StackFit.expand, children: [
             coverFace(),
@@ -452,6 +469,76 @@ class _CoverflowAtmosphere extends CustomPainter {
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
       old.contactFraction != contactFraction ||
       old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
+}
+
+/// Screen-space black cast shadow from a front sleeve into the album
+/// immediately behind it. The shadow is clipped to the rear cover's
+/// four-corner plane and never continues above its top edge. No floating
+/// rectangular shadows, no halo above the album stack.
+class _CoverflowGapShadow extends CustomPainter {
+  final List<Offset> front;
+  final List<Offset> rear;
+  final int side; // -1: cast left; +1: cast right
+  final double unit;
+  const _CoverflowGapShadow({
+    required this.front, required this.rear,
+    required this.side, required this.unit,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rearPath = Path()
+      ..moveTo(rear[0].dx, rear[0].dy)
+      ..lineTo(rear[1].dx, rear[1].dy)
+      ..lineTo(rear[2].dx, rear[2].dy)
+      ..lineTo(rear[3].dx, rear[3].dy)
+      ..close();
+
+    final topY = math.min(rear[0].dy, rear[1].dy);
+    final bottomY = math.max(rear[2].dy, rear[3].dy);
+    canvas.save();
+    // Clipping to the rear sleeve makes it physically impossible for
+    // a shadow to rise above the artwork or bleed onto surrounding fanart.
+    canvas.clipRect(Rect.fromLTRB(0, topY,
+        size.width, bottomY + 2));
+    canvas.clipPath(rearPath);
+
+    // Follow the true perspective edge of the nearer sleeve. The black
+    // stripe occupies the gap and fades smoothly into the exposed rear art.
+    final edgeTop = side < 0 ? front[0] : front[1];
+    final edgeBottom = side < 0 ? front[3] : front[2];
+    final dx = (side < 0 ? -1.0 : 1.0) * unit * .24;
+    final farTop = edgeTop.translate(dx, 0);
+    final farBottom = edgeBottom.translate(dx, 0);
+    final band = Path()
+      ..moveTo(edgeTop.dx, edgeTop.dy)
+      ..lineTo(edgeBottom.dx, edgeBottom.dy)
+      ..lineTo(farBottom.dx, farBottom.dy)
+      ..lineTo(farTop.dx, farTop.dy)
+      ..close();
+    final minX = math.min(math.min(edgeTop.dx, edgeBottom.dx),
+        math.min(farTop.dx, farBottom.dx));
+    final maxX = math.max(math.max(edgeTop.dx, edgeBottom.dx),
+        math.max(farTop.dx, farBottom.dx));
+    final gradient = LinearGradient(
+      colors: side < 0
+          ? [Colors.transparent, const Color(0xD8000000)]
+          : [const Color(0xD8000000), Colors.transparent],
+      stops: const [0, 1],
+    );
+    canvas.drawPath(band, Paint()
+      ..shader = gradient.createShader(Rect.fromLTRB(
+        minX, topY, math.max(minX + 1.0, maxX), bottomY)));
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _CoverflowGapShadow old) =>
+      old.unit != unit || old.side != side ||
+      old.front[0] != front[0] || old.front[1] != front[1] ||
+      old.front[2] != front[2] || old.front[3] != front[3] ||
+      old.rear[0] != rear[0] || old.rear[1] != rear[1] ||
+      old.rear[2] != rear[2] || old.rear[3] != rear[3];
 }
 
 /// Bright pin-point corner glints with tiny specular edges.
