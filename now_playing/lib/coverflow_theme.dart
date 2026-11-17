@@ -43,11 +43,16 @@ class CoverflowScene extends StatelessWidget {
       final h = box.maxHeight;
       if (w <= 0 || h <= 0) return const SizedBox.shrink();
       final portrait = h > w * 1.08;
+      // Reference composition: the active sleeve fills the center, not the
+      // small disconnected square used in the first build. Landscape starts
+      // around 26% of screen height and ends just above the track headline.
       final centerSize = portrait
-          ? math.min(w * .57, h * .36)
-          : math.min(h * .44, w * .31);
-      final coverTop = portrait ? h * .295 : h * .238;
-      final floorY = coverTop + centerSize * .97;
+          ? math.min(w * .61, h * .39)
+          : math.min(h * .51, w * .345);
+      final coverTop = portrait ? h * .283 : h * .260;
+      // Floor perspective starts under the side covers, slightly behind the
+      // central sleeve's front foot, as in the approved image.
+      final floorY = coverTop + centerSize * .946;
       final side = queue.where((e) =>
           e.slot != 0 && e.slot.abs() <= (portrait ? 2 : 3) &&
           e.thumb != null && e.thumb!.isNotEmpty).toList();
@@ -112,18 +117,26 @@ class CoverflowScene extends StatelessWidget {
     final distance = entry.slot.abs();
     final near = distance == 1;
     final shrink = portrait
-        ? (near ? .77 : .56)
-        : (distance == 1 ? .84 : distance == 2 ? .65 : .48);
+        ? (near ? .82 : .60)
+        : (distance == 1 ? .87 : distance == 2 ? .72 : .55);
     final size = centerSize * shrink;
+    // Card edges must overlap, showing progressively narrower visible
+    // slivers behind the foreground sleeves instead of gaps between albums.
     final xFraction = portrait
-        ? (near ? .21 : .095)
-        : distance == 1 ? .292 : distance == 2 ? .195 : .124;
+        ? (near ? .195 : .100)
+        : distance == 1 ? .303 : distance == 2 ? .213 : .157;
     final centerX = entry.slot < 0 ? w * xFraction : w * (1 - xFraction);
-    // The near cards touch the center's rim but do not obliterate it.
-    final top = coverTop + centerSize - size +
-        (distance > 1 ? centerSize * .019 * (distance - 1) : 0);
-    final intensity = near ? .91 : distance == 2 ? .68 : .46;
-    final turn = (entry.slot < 0 ? 1 : -1) * (.34 + .07 * distance);
+    // The receding card bases rise subtly into the background perspective.
+    final top = coverTop + centerSize - size -
+        centerSize * (.032 + .012 * (distance - 1));
+    final intensity = near ? .98 : distance == 2 ? .70 : .44;
+    final turn = (entry.slot < 0 ? 1 : -1) *
+        (distance == 1 ? .50 : distance == 2 ? .57 : .64);
+    // The render also angles the COVER IN SCREEN SPACE (right edge lower
+    // on the left-hand cards, left edge lower on the right-hand cards).
+    // Yaw alone produced the near-vertical panels of build #685.
+    final lean = (entry.slot < 0 ? 1 : -1) *
+        (distance == 1 ? .125 : distance == 2 ? .113 : .10);
     return Positioned(
       left: centerX - size / 2,
       top: top,
@@ -134,7 +147,8 @@ class CoverflowScene extends StatelessWidget {
           child: Transform(
             alignment: Alignment.center,
             transform: Matrix4.identity()
-              ..setEntry(3, 2, .0017)
+              ..setEntry(3, 2, .0014)
+              ..rotateZ(lean)
               ..rotateY(turn),
             child: _coverAndReflection(
               entry.thumb, size, distance: distance,
@@ -160,7 +174,9 @@ class CoverflowScene extends StatelessWidget {
     final accent = active ? palette.a
         : distance == 1 ? palette.b : palette.c;
     final borderRadius = BorderRadius.circular(active ? 9 : 5);
-    final reflectionHeight = size * (active ? .24 : .26);
+    // Longer reflections expose the softly grained floor *through* the
+    // mirrored artwork instead of nearly disappearing underneath the text.
+    final reflectionHeight = size * (active ? .30 : .32);
     Widget coverFace() => ClipRRect(
       borderRadius: borderRadius,
       child: bytes != null
@@ -174,21 +190,25 @@ class CoverflowScene extends StatelessWidget {
               width: size, height: size, fit: BoxFit.cover),
     );
 
-    return Stack(clipBehavior: Clip.hardEdge, children: [
+    // DO NOT CLIP THIS STACK. The original implementation's Clip.hardEdge
+    // cut every colored BoxShadow off at the exact album frame rectangle,
+    // leaving the visible cards flat and eliminating their cast shadows.
+    // The scene itself still clips safely at the device's screen boundary.
+    return Stack(clipBehavior: Clip.none, children: [
       Positioned(left: 1, top: size + 3,
         width: size - 2, height: reflectionHeight,
         child: Opacity(
-          opacity: active ? .7 : distance == 1 ? .42 : .23,
+          opacity: active ? .78 : distance == 1 ? .59 : distance == 2 ? .38 : .23,
           child: ShaderMask(
             blendMode: BlendMode.dstIn,
             shaderCallback: (rect) => const LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xD9FFFFFF), Color(0x90FFFFFF),
+                Color(0xE6FFFFFF), Color(0xA6FFFFFF),
                 Color(0x00FFFFFF),
               ],
-              stops: [0, .20, 1],
+              stops: [0, .16, 1],
             ).createShader(rect),
             child: ClipRect(child: OverflowBox(
               alignment: Alignment.topCenter,
@@ -209,18 +229,31 @@ class CoverflowScene extends StatelessWidget {
             color: const Color(0xFF080809),
             borderRadius: borderRadius,
             border: Border.all(
-              color: accent.withOpacity(active ? .93 : .67),
-              width: active ? 2.1 : 1.35),
+              color: Color.lerp(accent, Colors.white,
+                  active ? .55 : .36)!.withOpacity(active ? .99 : .82),
+              width: active ? 2.8 : distance == 1 ? 2.2 : 1.45),
             boxShadow: [
-              const BoxShadow(color: Color(0xD9000000),
-                offset: Offset(8, 11), blurRadius: 14),
+              // The nearby sleeve casts a *directional shadow* onto the next
+              // sleeve behind it. Because far cards are drawn first, this
+              // shadow lands visibly on them instead of being clipped.
               BoxShadow(
-                color: accent.withOpacity(active ? .56 : distance == 1 ? .33 : .11),
-                blurRadius: active ? 21 : distance == 1 ? 11 : 3,
-                spreadRadius: active ? .9 : 0),
-              if (active && !performanceMode)
-                BoxShadow(color: palette.b.withOpacity(.23),
-                  blurRadius: 29, spreadRadius: 1),
+                color: Colors.black.withOpacity(active ? .91 : .97),
+                offset: Offset(active ? 5 :
+                    (left ? -size * .12 : size * .12), size * .025),
+                blurRadius: active ? 20 : (distance == 1 ? 30 : 23),
+                spreadRadius: active ? 2 : (distance == 1 ? 12 : 7)),
+              // Luminous edge halo: color always comes from the selected
+              // ART palette, or from VYBE colors when the user switches it.
+              BoxShadow(
+                color: accent.withOpacity(active ? .91 :
+                    distance == 1 ? .72 : distance == 2 ? .40 : .24),
+                blurRadius: active ? 29 : distance == 1 ? 23 : 15,
+                spreadRadius: active ? 2.8 : 1.5),
+              BoxShadow(
+                color: (active ? palette.b : palette.a).withOpacity(
+                    active ? .44 : distance == 1 ? .29 : .13),
+                blurRadius: active ? 48 : distance == 1 ? 34 : 18,
+                spreadRadius: active ? 5 : 2),
             ],
           ),
           child: Stack(fit: StackFit.expand, children: [
@@ -235,19 +268,34 @@ class CoverflowScene extends StatelessWidget {
                     begin: left ? Alignment.centerRight : Alignment.centerLeft,
                     end: left ? Alignment.centerLeft : Alignment.centerRight,
                     colors: [
-                      Colors.black.withOpacity(distance == 1 ? .36 : .55),
-                      Colors.black.withOpacity(.07),
+                      Colors.black.withOpacity(
+                          distance == 1 ? .28 : distance == 2 ? .69 : .82),
+                      Colors.black.withOpacity(
+                          distance == 1 ? .04 : .18),
                     ],
                   ),
                 ),
               )),
             // Luminous top-edge specular reflection follows palette, not
             // the fixed amber coloring of the reference mockup.
-            Positioned(left: size * .06, right: size * .06, top: 0,
-              height: active ? 3 : 1.5,
+            Positioned(left: size * .035, right: size * .035, top: 0,
+              height: active ? 4 : 2.5,
               child: DecoratedBox(decoration: BoxDecoration(
                 gradient: LinearGradient(colors: [
-                  Colors.transparent, accent.withOpacity(active ? 1 : .65),
+                  Colors.transparent,
+                  Color.lerp(accent, Colors.white, .65)!
+                      .withOpacity(active ? .98 : .76),
+                  Colors.transparent],
+                ),
+              ))),
+            // Double-edge illumination along the lower front rim throws
+            // a strong glint where the album physically meets the floor.
+            Positioned(left: size * .025, right: size * .025,
+              bottom: 0, height: active ? 3.5 : 2.0,
+              child: DecoratedBox(decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [
+                  Colors.transparent,
+                  accent.withOpacity(active ? .98 : .71),
                   Colors.transparent],
                 ),
               ))),
