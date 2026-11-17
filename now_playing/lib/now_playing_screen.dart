@@ -692,7 +692,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 } else if (settings.theme == AppSettings.tEditorial) {
                   layout = _editorialLayout(w, h);
                 } else if (settings.theme == AppSettings.tCoverflow) {
-                  layout = _coverflowLayout(w, h);
+                  layout = _coverflowLayout(w, h, heavy: heavy);
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tFan) {
@@ -1679,7 +1679,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// luminous edges, layered shadows and a textured mirrored floor.
   /// The visual treatment is fixed; EVERY illuminated accent follows the
   /// current album's extracted palette or the user-selected VYBE override.
-  Widget _coverflowLayout(double w, double h) {
+  Widget _coverflowLayout(double w, double h, {required bool heavy}) {
     // Coverflow's reference has a large, near-full-width artist logo.
     // _scaledClearLogo reserves a smaller fraction of its box for ordinary
     // themes, which made this logo roughly HALF the intended size.
@@ -1711,6 +1711,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ? _edgeBars(w * .08, leftEdge: true) : null,
       rightVisualizer: settings.visualizer
           ? _edgeBars(w * .08, leftEdge: false) : null,
+      // Exactly one FX instance: the global stack excludes Coverflow's
+      // album-emitted FX, and this mid-depth stage owns them instead.
+      depthFx: heavy ? _extraFx(coverflowDepthOnly: true) : const <Widget>[],
       performanceMode: _fxTier <= 1,
 
     );
@@ -2076,8 +2079,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   /// The optional effects, each switched on or off in settings.
-  List<Widget> _extraFx() {
+  List<Widget> _extraFx({bool coverflowDepthOnly = false}) {
     final p = _palette;
+    final coverflow = settings.theme == AppSettings.tCoverflow;
+    // Coverflow is a three-plane composite: background and ambient FX,
+    // then receding sleeves, then album-emitted FX, then central sleeve.
+    // Split without duplicating a GlobalKey or a painter.
+    final albumFx = coverflow && coverflowDepthOnly;
+    final ambientFx = !coverflowDepthOnly;
     // The Coverflow sleeve's perspective center is at ~52% screen height.
     // Pin artwork-emitted effects there even on the initial frame before
     // its GlobalKey is laid out, rather than spawning at the left fallback.
@@ -2112,6 +2121,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final layers = <Widget>[
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
         if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
+            (albumFx ? i == 1 : (!coverflow || i != 1)) &&
             // Distortion-only FX are rendered by the GPU backdrop shader.
             // Never draw their old decorative strokes or polygon outlines.
             !(ui.ImageFilter.isShaderFilterSupported &&
@@ -2123,24 +2133,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: i == 1 ? _shockLayerKey : null),
-      if (settings.fxNebula)
+      if (ambientFx && settings.fxNebula)
         layer('Nebula Haze', AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),
-      if (settings.fxGrid)
+      if (ambientFx && settings.fxGrid)
         layer('Perspective Grid', AtmospherePainter(mode: 1, clock: fxClock, palette: p,
             k: settings.kGrid, repaint: _tick)),
-      if (settings.fxStars)
+      if (ambientFx && settings.fxStars)
         layer('Twinkling Stars', AtmospherePainter(mode: 2, clock: fxClock, palette: p,
             k: settings.kStars, repaint: _tick)),
-      if (settings.fxGlow)
+      if (ambientFx && settings.fxGlow)
         layer('Moving Bokeh', GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow,
             effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0, repaint: _tick)),
-      if (settings.fxSweep)
+      if (ambientFx && settings.fxSweep)
         layer('Aurora Sweep', SweepPainter(
             clock: fxClock, palette: p, k: settings.kSweep,
             effectSize: settings.fxSize['Aurora Sweep'] ?? 1.0, repaint: _tick)),
-      if (settings.fxRays)
+      if ((albumFx || !coverflow) && settings.fxRays)
         layer('Light Rays', RaysPainter(
             clock: fxClock,
             artKey: _artKey,
@@ -2150,7 +2160,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             k: settings.kRays,
             topOrigin: settings.theme == AppSettings.tTypo,
             repaint: _tick), layerKey: _raysLayerKey),
-      if (settings.fxRipples)
+      if ((albumFx || !coverflow) && settings.fxRipples)
         layer('Beat Ripples', RipplesPainter(
             state: ripples,
             clock: fxClock,
@@ -2160,7 +2170,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             palette: p,
             k: settings.kRipples,
             repaint: _tick), layerKey: _ripplesLayerKey),
-      if (settings.fxWater)
+      if (ambientFx && settings.fxWater)
         layer('Water Shimmer', WaterPainter(
             clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),
     ];
