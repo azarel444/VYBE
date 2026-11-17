@@ -1597,10 +1597,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // Shared fanart darkness, independent of the intentional bottom fade.
       ColoredBox(color: Colors.black.withOpacity(
         settings.cinematicDarkness.clamp(0.0, 1.0))),
-      // Cinematic's deliberate bottom-to-transparent readability fade is
-      // independent of the user-controlled full-screen darkness overlay.
-      // Limit it to the lower portion so the rest of the fanart stays clear.
-      IgnorePointer(child: Align(
+      // Coverflow's own floor shader handles its reflection horizon.
+      // The cinematic bottom mask made its textured floor almost black.
+      if (settings.theme != AppSettings.tCoverflow)
+        IgnorePointer(child: Align(
         alignment: Alignment.bottomCenter,
         child: FractionallySizedBox(
           widthFactor: 1.0,
