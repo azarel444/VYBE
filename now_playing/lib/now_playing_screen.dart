@@ -2676,12 +2676,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final bottomInset = h * .008;
       final hasLogo = settings.useArtistClearLogo &&
           _clearLogoBytes != null && model.active;
-      // Riot uses a 1.45x glyph scale and a 1.27x word initial.
-      // The old 10.5%-high artist slot was shorter than a SINGLE rendered
-      // letter line; multiword names painted directly through the record.
-      // Drive keeps one full-sized, edge-faded scrolling line instead of
-      // letting the normal multi-line artist overflow this reserved area.
-      final brandingHeight = math.min(h * .145, w * .38).toDouble();
+      // Drive reserves a fixed artist band above the record. Its Riot
+      // lettering fits within this band in at most two stationary lines;
+      // the text is scaled, not scrolled, and never grows into artwork.
+      // Preserve the original artwork allocation in Drive portrait.
+      // Only the artist glyphs scale to fit 1 or 2 lines in this band.
+      final brandingHeight = math.min(h * .105, w * .24).toDouble();
       final songFontSize = h * .031;
       final songHeight = h * .053;
       final albumHeight = _showAlbumLabel ? h * .055 : 0.0;
