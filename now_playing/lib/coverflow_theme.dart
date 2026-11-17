@@ -597,21 +597,6 @@ class _CoverflowFloorFinish extends CustomPainter {
     // sharp horizontal y-clip and no rectangle above/below the art.
     final topY = math.max(0.0, baseline - h * .125);
     final floor = Rect.fromLTRB(0, topY, w, h);
-    final textureMask = const LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      stops: [0, .15, .28, .39, .57, .77, 1],
-      colors: [
-        Color(0x00FFFFFF),
-        Color(0x05FFFFFF),
-        Color(0x24FFFFFF),
-        Color(0x98FFFFFF),
-        Color(0xDDFFFFFF),
-        Color(0x94FFFFFF),
-        Color(0x00FFFFFF),
-      ],
-    ).createShader(floor);
-
     final src = Rect.fromLTWH(
         0, 0, source.width.toDouble(), source.height.toDouble());
     final projection = _CoverflowFloorGeometry.transform(
