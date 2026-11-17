@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -385,7 +386,7 @@ class _CoverflowAtmosphere extends CustomPainter {
     canvas.drawLine(Offset(w * .08, y), Offset(w * .92, y),
       Paint()
         ..strokeWidth = 10
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 6)
         ..shader = horizonShader);
     canvas.drawLine(Offset(w * .08, y), Offset(w * .92, y),
       Paint()..strokeWidth = 2.0..shader = horizonShader);
