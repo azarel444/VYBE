@@ -95,12 +95,18 @@ class CoverflowScene extends StatelessWidget {
         ),
         child: Stack(fit: StackFit.expand, clipBehavior: Clip.hardEdge,
           children: [
+            // A stable raster cache boundary keeps the textured stage
+            // independent of Coverflow's 30-fps FX and overlay updates.
+            // On 2 GB Android head units this avoids re-compositing the
+            // static grain for every tick.
             Positioned.fill(child: IgnorePointer(
-              child: FutureBuilder<ui.Image>(
-                future: _coverflowGrainImage,
-                builder: (context, frame) => CustomPaint(
-                  painter: _CoverflowAtmosphere(
-                    palette, floorY / h, grain: frame.data,
+              child: RepaintBoundary(
+                child: FutureBuilder<ui.Image>(
+                  future: _coverflowGrainImage,
+                  builder: (context, frame) => CustomPaint(
+                    painter: _CoverflowAtmosphere(
+                      palette, floorY / h, grain: frame.data,
+                    ),
                   ),
                 ),
               ),
@@ -204,11 +210,13 @@ class CoverflowScene extends StatelessWidget {
             // not buried under them. Clip it to the FLOOR only so it
             // cannot fog or darken artwork above the point of contact.
             Positioned.fill(child: IgnorePointer(
-              child: FutureBuilder<ui.Image>(
-                future: _coverflowGrainImage,
-                builder: (context, frame) => CustomPaint(
-                  painter: _CoverflowFloorFinish(
-                    palette, floorY / h, frame.data),
+              child: RepaintBoundary(
+                child: FutureBuilder<ui.Image>(
+                  future: _coverflowGrainImage,
+                  builder: (context, frame) => CustomPaint(
+                    painter: _CoverflowFloorFinish(
+                      palette, floorY / h, frame.data),
+                  ),
                 ),
               ),
             )),
@@ -517,40 +525,26 @@ class _CoverflowAtmosphere extends CustomPainter {
       final src = Rect.fromLTWH(
         0, 0, source.width.toDouble(), source.height.toDouble());
       final m = _CoverflowFloorGeometry.transform(size, src.size, topY);
-      const restoredAlpha = ColorFilter.matrix([
+      // The supplied floor image already contains its soft alpha feather.
+      // Draw its projected relief directly into the canvas instead of using
+      // a full-screen saveLayer + dstIn mask. Those offscreen layers can
+      // intermittently disappear on low-memory Android head unit GPUs.
+      // Screen-space floor geometry and reflections remain unchanged.
+      const relief = ColorFilter.matrix([
         1.22, 0, 0, 0, -18,
         0, 1.22, 0, 0, -18,
         0, 0, 1.22, 0, -18,
-        0, 0, 0, 0, 83,
+        0, 0, 0, .49, 0,
       ]);
       canvas.save();
       canvas.clipRect(surface);
-      canvas.saveLayer(surface, Paint()..blendMode = BlendMode.overlay);
-      // Use the brighter mineral relief on the right side of the
-      // supplied grunge as the left floor too. Its original dark left
-      // half had almost no detail, so the floor looked one-sided.
       _CoverflowFloorGeometry.paintAcrossFloor(
         canvas, size, source, m, surface,
         Paint()
-          ..colorFilter = restoredAlpha
+          ..blendMode = BlendMode.overlay
+          ..colorFilter = relief
           ..filterQuality = FilterQuality.medium,
       );
-      canvas.drawRect(surface, Paint()
-        ..blendMode = BlendMode.dstIn
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: [0, .14, .34, .53, .80, 1],
-          colors: [
-            Color(0x00FFFFFF),
-            Color(0x4AFFFFFF),
-            Color(0xADFFFFFF),
-            Color(0xB8FFFFFF),
-            Color(0x92FFFFFF),
-            Color(0x00FFFFFF),
-          ],
-        ).createShader(surface));
-      canvas.restore();
       canvas.restore();
     }
 
@@ -623,46 +617,43 @@ class _CoverflowFloorFinish extends CustomPainter {
     final projection = _CoverflowFloorGeometry.transform(
         size, src.size, topY);
 
-    // Old texture was pre-feathered to only ~55% max alpha and could
-    // disappear entirely after repeated opacity masks. The color matrix
-    // restores a uniform usable alpha and contrast in the actual photo.
-    // The *screen-space mask above* is the only feather.
+    // The grunge asset was generated with feathered alpha already.
+    // Retain its charcoal pits and bright mineral relief, but composite
+    // each pass directly instead of allocating two large saveLayer
+    // surfaces every frame. The old saveLayer+dstIn pipeline flickered on
+    // the ATOTO A5L while it stayed stable on more capable phones.
+    // Scaling SOURCE alpha (rather than replacing it with a constant)
+    // keeps the photographic floor softly feathered at its boundaries.
     const darkGrain = ColorFilter.matrix([
       1.27, 0, 0, 0, -26,
       0, 1.27, 0, 0, -26,
       0, 0, 1.27, 0, -26,
-      0, 0, 0, 0, 152,
+      0, 0, 0, .53, 0,
     ]);
-    // White mineral marks catch light; black portions never create fog.
     const highlightGrain = ColorFilter.matrix([
       2.1, 0, 0, 0, -210,
       0, 2.1, 0, 0, -210,
       0, 0, 2.1, 0, -210,
-      0, 0, 0, 0, 54,
+      0, 0, 0, .36, 0,
     ]);
 
-    void blendPass(BlendMode blend, ColorFilter filter) {
-      canvas.save();
-      canvas.clipRect(floor);
-      canvas.saveLayer(floor, Paint()..blendMode = blend);
-      _CoverflowFloorGeometry.paintAcrossFloor(
-        canvas, size, source, projection, floor,
-        Paint()
-          ..colorFilter = filter
-          ..filterQuality = FilterQuality.medium,
-      );
-      // Apply the feather while the blended image is still isolated.
-      canvas.drawRect(floor, Paint()
-        ..blendMode = BlendMode.dstIn
-        ..shader = textureMask);
-      canvas.restore(); // composite with actual reflected artwork
-      canvas.restore();
-    }
-
-    // Irregular charcoal pits darken reflections; paler scuffs lift only
-    // illuminated areas. Both reuse the real user-supplied grunge image.
-    blendPass(BlendMode.multiply, darkGrain);
-    blendPass(BlendMode.screen, highlightGrain);
+    canvas.save();
+    canvas.clipRect(floor);
+    _CoverflowFloorGeometry.paintAcrossFloor(
+      canvas, size, source, projection, floor,
+      Paint()
+        ..blendMode = BlendMode.multiply
+        ..colorFilter = darkGrain
+        ..filterQuality = FilterQuality.medium,
+    );
+    _CoverflowFloorGeometry.paintAcrossFloor(
+      canvas, size, source, projection, floor,
+      Paint()
+        ..blendMode = BlendMode.screen
+        ..colorFilter = highlightGrain
+        ..filterQuality = FilterQuality.medium,
+    );
+    canvas.restore();
   }
 
   @override
