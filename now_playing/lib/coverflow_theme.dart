@@ -37,6 +37,9 @@ class CoverflowScene extends StatelessWidget {
   final VoidCallback? onTapCover;
   final Widget? leftVisualizer;
   final Widget? rightVisualizer;
+  // FX that visually emit from BEHIND the selected sleeve: paint these
+  // over every side sleeve, then occlude them with the main album.
+  final List<Widget> depthFx;
   final bool performanceMode;
 
   const CoverflowScene({
@@ -52,6 +55,7 @@ class CoverflowScene extends StatelessWidget {
     this.onTapCover,
     this.leftVisualizer,
     this.rightVisualizer,
+    this.depthFx = const <Widget>[],
     this.performanceMode = false,
   });
 
@@ -144,6 +148,13 @@ class CoverflowScene extends StatelessWidget {
                   selected: false, side: entry.slot < 0 ? -1 : 1)),
               )),
             ],
+            // Rays, beat pulses and shockwaves travel OUT from behind the
+            // main record and IN FRONT of the receding side album sleeves.
+            // Keep this layer after all side artwork, before the selected
+            // record. Do not draw a duplicate copy in the global FX stack.
+            for (final effect in depthFx)
+              Positioned.fill(child: IgnorePointer(child: effect)),
+
             // Central cover shadows touch the two nearest side covers,
             // but must never cast above those sleeves' top edges.
             for (final sign in const [-1, 1])
