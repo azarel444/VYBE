@@ -1568,7 +1568,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ),
       // A blurred copy of the artwork, masked to the outer edges.
       // The middle stays sharp and the blur fades inward smoothly.
-      if (hasImage)
+      // Coverflow must never add the artificial side-edge blur.
+      // Preserve this cinematic vignette only for its original themes.
+      if (hasImage && settings.theme != AppSettings.tCoverflow)
         Positioned.fill(
           top: fanartTop,
           child: ClipRect(child: IgnorePointer(child: ShaderMask(
