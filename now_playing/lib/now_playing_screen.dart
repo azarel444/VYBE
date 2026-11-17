@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'artist_fanart.dart';
 import 'artist_artwork_match.dart';
+import 'coverflow_queue.dart';
 import 'local_artwork.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -55,6 +56,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final settings = AppSettings();
   final sim = SpectrumSim();
   final _fanart = ArtistFanartCache();
+  // Prepare only the next two actually published queue entries.
+  final Map<String, Uint8List> _smartPrefetchFanart = {};
+  final Map<String, Uint8List> _smartPrefetchLogos = {};
+  Timer? _smartPrefetchTimer;
+  String _smartPrefetchSignature = '';
+  int _smartPrefetchGeneration = 0;
+  static String _smartArtistKey(String artist) => artist.toLowerCase().trim();
+
   Uint8List? _fanartBytes;
   Uint8List? _clearLogoBytes;
   bool _clearLogoIsLocal = false;
@@ -253,6 +262,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _brightnessChannel.invokeMethod<void>('setNight', false).catchError((Object _) {});
     _clockTimer?.cancel();
     _fanartCycleTimer?.cancel();
+    _smartPrefetchTimer?.cancel();
+    _smartPrefetchGeneration++;
     _fanartRetryTimer?.cancel();
     _clearLogoRetryTimer?.cancel();
     _dirTimer?.cancel();
@@ -380,9 +391,117 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void _onModel() {
     if (!mounted) return;
     _checkTrack();
+    _scheduleSmartPrefetch();
     _loadArtistArtAfterCover();
     if (widget.driveHost) unawaited(_syncDriveConnectArt());
     setState(() {});
+  }
+
+  /// Smart Prefetch uses real Android Up Next entries, never inferred
+  /// playlist songs. A changed generation cancels further stale work.
+  void _scheduleSmartPrefetch() {
+    if (widget.driveHost || !model.active || !model.playing ||
+        !settings.artLookup || model.isSpotifyAdvertisement) {
+      _smartPrefetchTimer?.cancel();
+      if (_smartPrefetchSignature.isNotEmpty) ++_smartPrefetchGeneration;
+      _smartPrefetchSignature = '';
+      return;
+    }
+    final next = model.smartPrefetchQueue;
+    if (next.isEmpty) {
+      _smartPrefetchTimer?.cancel();
+      if (_smartPrefetchSignature.isNotEmpty) ++_smartPrefetchGeneration;
+      _smartPrefetchSignature = '';
+      return;
+    }
+    final signature = '${model.artist}|${model.title}|' +
+        next.map((e) => '${e.id}:${e.slot}:${e.artist}:${e.title}').join('|');
+    if (signature == _smartPrefetchSignature) return;
+    _smartPrefetchSignature = signature;
+    final generation = ++_smartPrefetchGeneration;
+    _smartPrefetchTimer?.cancel();
+    _smartPrefetchTimer = Timer(const Duration(milliseconds: 1500), () {
+      unawaited(_runSmartPrefetch(next, generation));
+    });
+  }
+
+  bool _smartPrefetchAllowed(int generation) =>
+      mounted && !widget.driveHost && model.active && model.playing &&
+      settings.artLookup && !model.isSpotifyAdvertisement &&
+      generation == _smartPrefetchGeneration;
+
+  void _retainPreparedArtist(
+      Map<String, Uint8List> cache, String key, Uint8List bytes) {
+    if (bytes.isEmpty) return;
+    cache.remove(key);
+    cache[key] = bytes;
+    while (cache.length > 3) cache.remove(cache.keys.first);
+  }
+
+  Future<void> _runSmartPrefetch(
+      List<CoverflowCover> upcoming, int generation) async {
+    try {
+      // The current song must finish its own cover load before background
+      // network work starts, especially on the 2 GB A5L.
+      for (var attempt = 0; attempt < 12; attempt++) {
+        if (!_smartPrefetchAllowed(generation)) return;
+        if (!model.albumArtPriorityPending && model.art != null) break;
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      if (!_smartPrefetchAllowed(generation) ||
+          model.albumArtPriorityPending || model.art == null) return;
+      for (final entry in upcoming.take(2)) {
+        if (!_smartPrefetchAllowed(generation)) return;
+        // Sequential requests avoid overwhelming the network and VYBE Link.
+        await model.prefetchQueueAlbum(entry);
+        if (!_smartPrefetchAllowed(generation)) return;
+        await _prefetchArtistAssets(entry.artist, generation);
+      }
+    } catch (error) {
+      debugPrint('VYBE Smart Prefetch unavailable: $error');
+    }
+  }
+
+  Future<void> _prefetchArtistAssets(String artist, int generation) async {
+    final key = _smartArtistKey(artist);
+    if (key.isEmpty || !_smartPrefetchAllowed(generation)) return;
+    final apiKey = settings.fanartProjectKey;
+    final personalKey = settings.fanartApiKey;
+    if (!_smartPrefetchFanart.containsKey(key)) {
+      Uint8List? bytes = await _fanart.getCachedFanart(artist);
+      if (!_smartPrefetchAllowed(generation)) return;
+      final local = await LocalArtwork.instance.fanartGallery(
+          artist, rescanOnMiss: false);
+      if (!_smartPrefetchAllowed(generation)) return;
+      if (local.isNotEmpty) bytes = local.first;
+      if (bytes == null && apiKey.isNotEmpty) {
+        bytes = await _fanart.get(artist, apiKey,
+            personalKey: personalKey, cacheChecked: true);
+      }
+      if (!_smartPrefetchAllowed(generation)) return;
+      if (bytes != null && bytes.isNotEmpty) {
+        _retainPreparedArtist(_smartPrefetchFanart, key, bytes);
+        debugPrint('VYBE Smart Prefetch: ready fanart for $artist');
+      }
+    }
+
+    if (!settings.useArtistClearLogo || !_smartPrefetchAllowed(generation) ||
+        _smartPrefetchLogos.containsKey(key)) return;
+    Uint8List? logo = await _fanart.getCachedClearLogo(artist);
+    if (!_smartPrefetchAllowed(generation)) return;
+    final localLogo = await LocalArtwork.instance.clearLogo(
+        artist, rescanOnMiss: false);
+    if (!_smartPrefetchAllowed(generation)) return;
+    if (localLogo != null && localLogo.isNotEmpty) logo = localLogo;
+    if (logo == null && apiKey.isNotEmpty) {
+      logo = await _fanart.getClearLogo(artist, apiKey,
+          personalKey: personalKey, cacheChecked: true);
+    }
+    if (!_smartPrefetchAllowed(generation)) return;
+    if (logo != null && logo.isNotEmpty) {
+      _retainPreparedArtist(_smartPrefetchLogos, key, logo);
+      debugPrint('VYBE Smart Prefetch: ready clearlogo for $artist');
+    }
   }
 
   void _onSettings() {
@@ -393,6 +512,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fxGovernor.enabled = settings.fxPerformanceMode == 0;
     if (!_fxGovernor.enabled) _fxTier = 2;
     model.setArtLookup(settings.artLookup);
+    _scheduleSmartPrefetch();
     // The lyric-led Typo theme must request synced lyrics even when the
     // global lyrics toggle is off. The other themes retain the toggle.
     final wantsLyrics = settings.lyrics || settings.theme == AppSettings.tTypo;
@@ -917,9 +1037,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _clearLogoRetryCount = 0;
       _clearLogoArtist = artist;
       _clearLogoIsLocal = false;
-      if (_clearLogoBytes != null && mounted) {
-        setState(() => _clearLogoBytes = null);
-      }
+      // Show prepared logo immediately, then allow a manual local replacement.
+      final preparedLogo = _smartPrefetchLogos[_smartArtistKey(artist)];
+      if (mounted) setState(() => _clearLogoBytes = preparedLogo);
     }
     _clearLogoLoadingArtist = artist;
     final request = ++_clearLogoRequest;
@@ -1170,7 +1290,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _fanartRetryCount = 0;
     }
     _fanartArtist = artist;
-    _fanartBytes = null;
+    // Prepared fanart is immediately available without asynchronous disk I/O.
+    _fanartBytes = _smartPrefetchFanart[_smartArtistKey(artist)];
     _fanartLoadingArtist = artist;
     final request = ++_fanartRequest;
     try {
