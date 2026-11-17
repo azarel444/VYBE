@@ -145,8 +145,8 @@ class CoverflowScene extends StatelessWidget {
       // its upper edge has receded in depth, with a slight diagonal pitch.
       // Its bottom edge is wider and closer to the camera, like the render.
       return [
-        Offset(cx - size * .475, floor - size * .965),
-        Offset(cx + size * .485, floor - size * .938),
+        Offset(cx - size * .475, floor - size * .936),
+        Offset(cx + size * .485, floor - size * .916),
         Offset(cx + size * .565, floor),
         Offset(cx - size * .565, floor),
       ];
