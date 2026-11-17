@@ -171,11 +171,13 @@ class CoverflowScene extends StatelessWidget {
     final transform = _planeMatrix(corners, size);
     return Positioned(
       left: 0, top: 0, width: size, height: size * 1.44,
-      child: RepaintBoundary(
-        child: Transform(
-          alignment: Alignment.topLeft,
-          transform: transform,
-          transformHitTests: false,
+      // Keep the raster boundary INSIDE the transform. A boundary at
+      // (0,0) around an off-center projected card can cull its pixels.
+      child: Transform(
+        alignment: Alignment.topLeft,
+        transform: transform,
+        transformHitTests: false,
+        child: RepaintBoundary(
           child: Opacity(
             opacity: distance == 0 ? 1 : distance == 1 ? 1
                 : distance == 2 ? .83 : .65,
