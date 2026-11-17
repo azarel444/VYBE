@@ -17,9 +17,9 @@ import 'artist_fanart.dart';
 import 'local_artwork.dart';
 
 const _cyan = Color(0xFFFF005E);
-// Keep troubleshooting tools visible throughout device/beta testing.
-// Hiding these controls prevented verifying the source of downloaded artwork.
-const bool _showDiagnostics = false;
+// Expose the temporary Song / Video MediaSession comparison while testing.
+// This is read-only and does not send playback controls.
+const bool _showDiagnostics = true;
 
 /// Full-screen settings page with large touch targets for head units.
 /// Split into tabs so each page stays short.
