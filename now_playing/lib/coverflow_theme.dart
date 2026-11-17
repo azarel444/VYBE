@@ -104,7 +104,7 @@ class CoverflowScene extends StatelessWidget {
         curve: Curves.easeOutCubic,
         builder: (context, t, child) => Transform.translate(
           offset: Offset((1 - t) * w * .037, 0),
-          child: Opacity(opacity: (.55 + .45 * t).clamp(0.0, 1.0),
+          child: Opacity(opacity: (.55 + .45 * t).clamp(0.0, 1.0).toDouble(),
             child: child)),
         child: Stack(fit: StackFit.expand,
           clipBehavior: Clip.hardEdge, children: all),
