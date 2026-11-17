@@ -354,7 +354,14 @@ class CoverflowScene extends StatelessWidget {
                         Colors.black.withOpacity(distance == 1 ? .56 : .92),
                         Colors.transparent,
                       ],
-                      stops: const [0, .15, .42, .68],
+                      // d2/d3 are mostly hidden behind d1/d2. Their
+                      // visible slivers occur near the OUTER edge of the
+                      // local cover plane, so extend the black cast band
+                      // to that contact line. A fixed d1-only falloff left
+                      // those exposed rear slivers inexplicably bright.
+                      stops: distance == 1
+                          ? const [0, .15, .42, .68]
+                          : const [0, .64, .86, 1.0],
                     ),
                   ),
                 )),
