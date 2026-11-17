@@ -510,7 +510,7 @@ class _CoverflowAtmosphere extends CustomPainter {
         1.22, 0, 0, 0, -18,
         0, 1.22, 0, 0, -18,
         0, 0, 1.22, 0, -18,
-        0, 0, 0, 0, 96,
+        0, 0, 0, 0, 83,
       ]);
       canvas.save();
       canvas.clipRect(surface);
@@ -533,9 +533,9 @@ class _CoverflowAtmosphere extends CustomPainter {
           colors: [
             Color(0x00FFFFFF),
             Color(0x4AFFFFFF),
-            Color(0xBEFFFFFF),
-            Color(0xC9FFFFFF),
-            Color(0xA6FFFFFF),
+            Color(0xADFFFFFF),
+            Color(0xB8FFFFFF),
+            Color(0x92FFFFFF),
             Color(0x00FFFFFF),
           ],
         ).createShader(surface));
@@ -600,9 +600,9 @@ class _CoverflowFloorFinish extends CustomPainter {
         Color(0x00FFFFFF),
         Color(0x05FFFFFF),
         Color(0x24FFFFFF),
-        Color(0xA9FFFFFF),
-        Color(0xF1FFFFFF),
-        Color(0xA6FFFFFF),
+        Color(0x98FFFFFF),
+        Color(0xDDFFFFFF),
+        Color(0x94FFFFFF),
         Color(0x00FFFFFF),
       ],
     ).createShader(floor);
@@ -620,14 +620,14 @@ class _CoverflowFloorFinish extends CustomPainter {
       1.27, 0, 0, 0, -26,
       0, 1.27, 0, 0, -26,
       0, 0, 1.27, 0, -26,
-      0, 0, 0, 0, 142,
+      0, 0, 0, 0, 152,
     ]);
     // White mineral marks catch light; black portions never create fog.
     const highlightGrain = ColorFilter.matrix([
       2.1, 0, 0, 0, -210,
       0, 2.1, 0, 0, -210,
       0, 0, 2.1, 0, -210,
-      0, 0, 0, 0, 72,
+      0, 0, 0, 0, 54,
     ]);
 
     void blendPass(BlendMode blend, ColorFilter filter) {
@@ -801,7 +801,51 @@ class _CoverflowCoverGlow extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // A localized radial reflection, never sharp light rays or hard lines.
+    // One rounded contour following the actual perspective-projected art,
+    // never a sharp-cornered rectangular BoxDecoration border.
+    final points = quad;
+    final contour = Path();
+    final corner = selected ? .026 : .017;
+    Offset entry(int i) =>
+        Offset.lerp(points[i], points[(i + 3) % 4], corner)!;
+    Offset leave(int i) =>
+        Offset.lerp(points[i], points[(i + 1) % 4], corner)!;
+    contour.moveTo(entry(0).dx, entry(0).dy);
+    for (var i = 0; i < 4; i++) {
+      contour.quadraticBezierTo(
+          points[i].dx, points[i].dy, leave(i).dx, leave(i).dy);
+      final next = (i + 1) % 4;
+      contour.lineTo(entry(next).dx, entry(next).dy);
+    }
+    contour.close();
+
+    // Every sleeve gets an album-palette stroke. The selected sleeve
+    // has a substantially thicker line and tight glow; rear sleeves have
+    // thin borders without heavy square halos or straight light rays.
+    final strokeWidth = selected ? 2.3 : 1.05;
+    final glowWidth = selected ? (performanceMode ? 3.7 : 5.2)
+        : (performanceMode ? 1.8 : 2.5);
+    final strokeOpacity = selected ? .97
+        : (.64 + .30 * strength).clamp(.0, 1.0).toDouble();
+    final glowOpacity = selected ? .68
+        : (.13 + .17 * strength).clamp(.0, 1.0).toDouble();
+    canvas.drawPath(contour, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = glowWidth
+      ..strokeJoin = StrokeJoin.round
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal,
+          selected ? (performanceMode ? 2.0 : 3.1)
+              : (performanceMode ? 1.1 : 1.5))
+      ..color = accent.withOpacity(glowOpacity));
+    canvas.drawPath(contour, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = Color.lerp(accent, Colors.white, selected ? .12 : .08)!
+          .withOpacity(strokeOpacity));
+
+    // Soft corner contact glints. No long hard-edged light segments.
     void contact(Offset point, double radius, double power) {
       final bounds = Rect.fromCircle(center: point, radius: radius);
       canvas.drawCircle(point, radius, Paint()
@@ -817,49 +861,15 @@ class _CoverflowCoverGlow extends CustomPainter {
           ],
         ).createShader(bounds));
     }
-
     if (selected) {
-      // Rounded projected QUAD: preserve the angled-back perspective, but
-      // replace the rectangular sharp-cornered path with curved transitions.
-      // Thin album-palette stroke and only a small glow surrounding that
-      // rounded contour, matching the sleeve's visible curved corners.
-      final points = quad;
-      final contour = Path();
-      const round = .026;
-      Offset entry(int i) =>
-          Offset.lerp(points[i], points[(i + 3) % 4], round)!;
-      Offset leave(int i) =>
-          Offset.lerp(points[i], points[(i + 1) % 4], round)!;
-      contour.moveTo(entry(0).dx, entry(0).dy);
-      for (var i = 0; i < 4; i++) {
-        contour.quadraticBezierTo(points[i].dx, points[i].dy,
-            leave(i).dx, leave(i).dy);
-        final next = (i + 1) % 4;
-        contour.lineTo(entry(next).dx, entry(next).dy);
-      }
-      contour.close();
-      canvas.drawPath(contour, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = performanceMode ? 2.4 : 3.2
-        ..maskFilter = MaskFilter.blur(
-            BlurStyle.normal, performanceMode ? 1.9 : 2.6)
-        ..color = accent.withOpacity(.55 * strength));
-      canvas.drawPath(contour, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..strokeJoin = StrokeJoin.round
-        ..color = accent.withOpacity(.83 * strength));
       contact(quad[3], performanceMode ? 9 : 14, .65);
       contact(quad[2], performanceMode ? 9 : 14, .65);
-      return;
+    } else {
+      final foot = side < 0 ? quad[3] : quad[2];
+      final insideFoot = side < 0 ? quad[2] : quad[3];
+      contact(foot, performanceMode ? 13 : 23, .97);
+      contact(insideFoot, performanceMode ? 7 : 11, .24);
     }
-
-    // The outer side sleeves have NO stroke of any kind. Their lower
-    // outside corner touches the stage: a soft, diffuse elliptical bloom.
-    final foot = side < 0 ? quad[3] : quad[2];
-    final insideFoot = side < 0 ? quad[2] : quad[3];
-    contact(foot, performanceMode ? 13 : 23, .97);
-    contact(insideFoot, performanceMode ? 7 : 11, .24);
   }
 
   @override
