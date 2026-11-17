@@ -1702,6 +1702,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       palette: _palette,
       artistHeader: logo,
       artAnchorKey: _artKey,
+      onTapCover: _openPlayer,
       trackTitle: _metadataText(_VybeTextRole.title, Alignment.center),
       albumPlaque: _metadataText(_VybeTextRole.album, Alignment.center),
       leftVisualizer: settings.visualizer
@@ -4585,7 +4586,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         : (a == Alignment.centerRight
             ? CrossAxisAlignment.end
             : CrossAxisAlignment.start);
-    return _shaded(SizedBox(
+    final block = _shaded(SizedBox(
       height: h * 0.12,
       child: AnimatedBuilder(
         animation: _slow,
@@ -4641,6 +4642,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         },
       ),
     ));
+    // Typo deliberately hides cover art: tapping its lyric panel is the
+    // source music-player shortcut, matching the artwork tap elsewhere.
+    return _lyricTheme
+        ? GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _openPlayer,
+            child: block,
+          )
+        : block;
   }
 
   Widget _bars(double height, {bool blocky = false, double baseFrac = 0.72}) {
