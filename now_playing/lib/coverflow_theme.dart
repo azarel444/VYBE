@@ -621,16 +621,23 @@ class _CoverflowFloorFinish extends CustomPainter {
       ..colorFilter = ColorFilter.mode(
         Color.lerp(p.a, Colors.white, .25)!, BlendMode.modulate));
     canvas.restore();
+    // A radial mask here was only ~one floor-height in diameter:
+    // it hid the texture almost everywhere except a tiny center spot.
+    // Use a feathered VERTICAL floor fade across all three album
+    // reflection pools, so the photographic grain becomes genuinely
+    // visible wherever the sleeve reflections illuminate the stage.
     canvas.drawRect(floor, Paint()
       ..blendMode = BlendMode.dstIn
-      ..shader = RadialGradient(
-        center: const Alignment(0, -.90),
-        radius: 1.20,
-        stops: const [0, .24, .60, 1],
-        colors: const [
-          Color(0xEEFFFFFF),
-          Color(0xC7FFFFFF),
-          Color(0x5AFFFFFF),
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        stops: [0, .10, .30, .57, .84, 1],
+        colors: [
+          Color(0x00FFFFFF),
+          Color(0xA8FFFFFF),
+          Color(0xF0FFFFFF),
+          Color(0xD5FFFFFF),
+          Color(0x66FFFFFF),
           Color(0x00FFFFFF),
         ],
       ).createShader(floor));
