@@ -55,6 +55,66 @@ class NowPlayingModel extends ChangeNotifier {
   List<CoverflowCover> _coverflowCandidates = <CoverflowCover>[];
   final Map<Uint8List, Uint8List> _coverflowSamples = {};
 
+  /// Up to two REAL upcoming queue entries, independent of the selected
+  /// visual theme. No inferred or historical tracks can enter prefetch.
+  List<CoverflowCover> get smartPrefetchQueue {
+    if (_linkReceiverActive || !active) return const <CoverflowCover>[];
+    final next = _coverflowCandidates.where((item) =>
+        item.slot > 0 && item.slot <= 2 &&
+        item.title.trim().isNotEmpty && item.artist.trim().isNotEmpty).toList()
+      ..sort((a, b) => a.slot.compareTo(b.slot));
+    return next.take(2).toList(growable: false);
+  }
+
+  // Hold a maximum of three already-decoded catalog covers. They can be
+  // displayed in the very first frame of a song transition if the source
+  // doesn't supply its own artwork. Normal media-session covers still win.
+  final Map<String, ArtAssets> _smartPrefetchedAlbums = {};
+  final Set<String> _smartPrefetchInFlight = {};
+  static String _smartPrefetchKey(String artistName, String titleName) =>
+      '${artistName.trim().toLowerCase()}|${titleName.trim().toLowerCase()}';
+
+  /// Low-priority album lookup for a *published* upcoming queue entry.
+  /// Does not mutate current-track fields or replace supplied player art.
+  Future<void> prefetchQueueAlbum(CoverflowCover entry) async {
+    if (_disposed || _linkReceiverActive || !active || !playing ||
+        !artLookupEnabled || albumArtPriorityPending || art == null) return;
+    final key = _smartPrefetchKey(entry.artist, entry.title);
+    if (entry.artist.trim().isEmpty || entry.title.trim().isEmpty ||
+        key == _smartPrefetchKey(artist, title) ||
+        _smartPrefetchedAlbums.containsKey(key) ||
+        !_smartPrefetchInFlight.add(key)) return;
+    try {
+      Uint8List? bytes = _artCache[key] ?? await MediaCache.getArt(key);
+      if (bytes == null) {
+        // Queue entries have no trustworthy album tag. Never use a guessed
+        // album or an original-remix fallback as an exact track cover.
+        final result = await fetchArtworkWithMatch(
+          entry.title, entry.artist, allowOriginalFallback: false,
+        );
+        bytes = result?.bytes;
+      }
+      if (_disposed || bytes == null || bytes.isEmpty ||
+          bytes.length > 6 * 1024 * 1024) return;
+      final asset = await ArtAssets.load(bytes);
+      if (_disposed || asset == null || asset.flat) return;
+      _artCache[key] = bytes;
+      if (_artCache.length > 12) _artCache.remove(_artCache.keys.first);
+      _smartPrefetchedAlbums.remove(key);
+      _smartPrefetchedAlbums[key] = asset;
+      while (_smartPrefetchedAlbums.length > 3) {
+        _smartPrefetchedAlbums.remove(_smartPrefetchedAlbums.keys.first);
+      }
+      // Persist in the SAME exact artist+song cache read by _lookupArt.
+      unawaited(MediaCache.putArt(key, bytes));
+      debugPrint('VYBE Smart Prefetch: ready album for ${entry.artist} — ${entry.title}');
+    } catch (error) {
+      debugPrint('VYBE Smart Prefetch album unavailable: $error');
+    } finally {
+      _smartPrefetchInFlight.remove(key);
+    }
+  }
+
   Future<Uint8List?> _coverflowImageSample(Uint8List bytes) async {
     final hit = _coverflowSamples[bytes];
     if (hit != null) return hit;
@@ -932,6 +992,27 @@ class NowPlayingModel extends ChangeNotifier {
       sessionArtworkStatus = 'Missing (no bytes in media session)';
     }
     _trackKey = key;
+    // A prepared, already decoded cover is ready immediately when the
+    // music app omits artwork. This never substitutes a catalog cover for
+    // real media-session art supplied by Spotify/YouTube Music/etc.
+    if (changed &&
+        ((artBytes is! Uint8List || artBytes.isEmpty) ||
+         rejectedSessionImage)) {
+      final prepared = _smartPrefetchedAlbums[_smartPrefetchKey(artist, title)];
+      if (prepared != null) {
+        _artToken++;
+        art = prepared;
+        _albumArtPriorityPending = false;
+        _needsArt = false;
+        _artClearTimer?.cancel();
+        _sessionArtRetryTimer?.cancel();
+        artworkSource = 'Smart Prefetch (exact artist and song)';
+        artworkStatus = 'Prepared album cover displayed immediately';
+        artworkLookupState = 'Ready before track started';
+        artworkFailure = 'None';
+        _checkCoverflowRepeatedArtwork();
+      }
+    }
     // If the new track's verified session art is the SAME image, _setArt()
     // is correctly skipped. That must still release the "artwork pending"
     // gate and rerun deduplication. Same-album playback with no fresh
