@@ -49,28 +49,36 @@ class NowPlayingModel extends ChangeNotifier {
   String _coverflowQueueSignature = '';
   int _coverflowToken = 0;
   int _coverflowRepeatCheckSerial = 0;
+  // Preserve ALL real queue/history candidates when identical artwork is
+  // skipped. Otherwise the removed first previous sleeve can never be
+  // replaced by an older, different album cover.
+  List<CoverflowCover> _coverflowCandidates = <CoverflowCover>[];
+  final Map<Uint8List, Uint8List> _coverflowSamples = {};
 
-  // Side sleeves can legitimately be different tracks from the SAME album,
-  // or a player's queue can repeat the current art in a previous slot.
-  // Suppress visually identical cover images, not adjacent tracks by title.
-  // A tiny decoded color sample catches identical JPEGs encoded at different
-  // sizes/qualities, unlike a raw-byte or queue-ID comparison.
   Future<Uint8List?> _coverflowImageSample(Uint8List bytes) async {
+    final hit = _coverflowSamples[bytes];
+    if (hit != null) return hit;
     ui.Codec? codec;
     try {
       codec = await ui.instantiateImageCodec(bytes,
-          targetWidth: 16, targetHeight: 16);
+          targetWidth: 24, targetHeight: 24);
       final frame = await codec.getNextFrame();
       try {
         final pixels = await frame.image.toByteData(
             format: ui.ImageByteFormat.rawRgba);
-        return pixels?.buffer.asUint8List(
-            pixels.offsetInBytes, pixels.lengthInBytes);
+        if (pixels == null) return null;
+        final data = Uint8List.fromList(pixels.buffer.asUint8List(
+            pixels.offsetInBytes, pixels.lengthInBytes));
+        if (_coverflowSamples.length >= 48) {
+          _coverflowSamples.remove(_coverflowSamples.keys.first);
+        }
+        _coverflowSamples[bytes] = data;
+        return data;
       } finally {
         frame.image.dispose();
       }
     } catch (error) {
-      debugPrint('VYBE Coverflow duplicate-art sampling: $error');
+      debugPrint('VYBE Coverflow image comparison unavailable: $error');
       return null;
     } finally {
       codec?.dispose();
@@ -82,52 +90,107 @@ class NowPlayingModel extends ChangeNotifier {
       return false;
     }
     var difference = 0;
-    // Compare the small decoded RGB grids. JPEG compression can change
-    // individual bytes but not the visual layout of the artwork.
     for (var i = 0; i < a.length; i += 4) {
       difference += (a[i] - b[i]).abs();
       difference += (a[i + 1] - b[i + 1]).abs();
       difference += (a[i + 2] - b[i + 2]).abs();
     }
-    return difference / (a.length / 4 * 3) < 13.0;
+    // Allow JPEG thumbnail recompression, not visually different covers.
+    return difference / (a.length / 4 * 3) < 12.0;
   }
 
-  void _checkCoverflowRepeatedArtwork() {
-    final current = art?.bytes;
-    if (_disposed || current == null || current.isEmpty ||
-        coverflowCovers.isEmpty || _albumArtPriorityPending) return;
-    final serial = ++_coverflowRepeatCheckSerial;
-    final track = _trackKey;
-    final token = _coverflowToken;
-    unawaited(_pruneCoverflowRepeatedArtwork(current, serial, track, token));
-  }
-
-  Future<void> _pruneCoverflowRepeatedArtwork(Uint8List activeArt,
-      int serial, String track, int token) async {
-    final centerSample = await _coverflowImageSample(activeArt);
-    if (centerSample == null || serial != _coverflowRepeatCheckSerial ||
-        token != _coverflowToken || track != _trackKey || _disposed) return;
-    final redundant = <String>{};
-    for (final entry in coverflowCovers) {
-      final thumb = entry.thumb;
-      if (thumb == null || thumb.isEmpty) continue;
-      bool duplicate;
-      if (identical(thumb, activeArt) || listEquals(thumb, activeArt)) {
-        duplicate = true;
-      } else {
-        final sample = await _coverflowImageSample(thumb);
-        duplicate = sample != null &&
-            _coverflowSameArtwork(centerSample, sample);
-      }
-      if (serial != _coverflowRepeatCheckSerial ||
-          token != _coverflowToken || track != _trackKey || _disposed) return;
-      if (duplicate) redundant.add('${entry.id}|${entry.slot}');
-    }
-    if (redundant.isEmpty) return;
-    coverflowCovers = coverflowCovers.where((entry) =>
-        !redundant.contains('${entry.id}|${entry.slot}')).toList();
+  void _publishCoverflowSelection(List<CoverflowCover> selected) {
+    if (_disposed) return;
+    final unchanged = coverflowCovers.length == selected.length &&
+        List.generate(selected.length, (i) =>
+            coverflowCovers[i].id == selected[i].id &&
+            coverflowCovers[i].slot == selected[i].slot &&
+            identical(coverflowCovers[i].thumb, selected[i].thumb))
+            .every((same) => same);
+    if (unchanged) return;
+    coverflowCovers = selected;
     coverflowRevision++;
     notifyListeners();
+  }
+
+  // Never collapse or delete the source queue. Compact actual distinct
+  // artwork into the three visible slots, searching deeper in real played
+  // history when several consecutive tracks share the same album sleeve.
+  void _checkCoverflowRepeatedArtwork() {
+    final serial = ++_coverflowRepeatCheckSerial;
+    final candidates = List<CoverflowCover>.of(_coverflowCandidates);
+    final token = _coverflowToken;
+    final expectedTrack = _trackKey;
+    final activeBytes = art?.bytes;
+    if (candidates.isEmpty) {
+      _publishCoverflowSelection(const <CoverflowCover>[]);
+      return;
+    }
+
+    // An outgoing album is deliberately kept during a track transition.
+    // Until new art is confirmed, avoid comparing older history against
+    // that provisional center image. Once confirmed, run the full test.
+    if (activeBytes == null || _albumArtPriorityPending) {
+      final picks = <CoverflowCover>[];
+      for (final side in const [-1, 1]) {
+        final ordered = candidates.where((c) =>
+            c.slot * side > 0 && c.thumb != null && c.thumb!.isNotEmpty).toList()
+          ..sort((a, b) => a.slot.abs().compareTo(b.slot.abs()));
+        var count = 0;
+        final seen = <Uint8List>[];
+        for (final entry in ordered) {
+          if (count == 3) break;
+          final bytes = entry.thumb!;
+          if (seen.any((previous) =>
+              identical(previous, bytes) || listEquals(previous, bytes))) {
+            continue;
+          }
+          seen.add(bytes);
+          picks.add(entry.atSlot(side * ++count));
+        }
+      }
+      _publishCoverflowSelection(picks);
+      return;
+    }
+    unawaited(_pruneCoverflowRepeatedArtwork(
+        activeBytes, candidates, serial, expectedTrack, token));
+  }
+
+  Future<void> _pruneCoverflowRepeatedArtwork(
+      Uint8List activeArt, List<CoverflowCover> candidates,
+      int serial, String track, int token) async {
+    bool stale() => _disposed || serial != _coverflowRepeatCheckSerial ||
+        token != _coverflowToken || track != _trackKey;
+    final centerSample = await _coverflowImageSample(activeArt);
+    if (stale()) return;
+
+    final usedBytes = <Uint8List>[activeArt];
+    final usedSamples = <Uint8List>[
+      if (centerSample != null) centerSample,
+    ];
+    final selected = <CoverflowCover>[];
+    for (final side in const [-1, 1]) {
+      final ordered = candidates.where((c) =>
+          c.slot * side > 0 && c.thumb != null && c.thumb!.isNotEmpty).toList()
+        ..sort((a, b) => a.slot.abs().compareTo(b.slot.abs()));
+      var count = 0;
+      for (final entry in ordered) {
+        if (count == 3) break;
+        final bytes = entry.thumb!;
+        if (usedBytes.any((old) =>
+            identical(old, bytes) || listEquals(old, bytes))) continue;
+        final sample = await _coverflowImageSample(bytes);
+        if (stale()) return;
+        if (sample != null &&
+            usedSamples.any((old) => _coverflowSameArtwork(old, sample))) {
+          continue;
+        }
+        selected.add(entry.atSlot(side * ++count));
+        usedBytes.add(bytes);
+        if (sample != null) usedSamples.add(sample);
+      }
+    }
+    if (!stale()) _publishCoverflowSelection(selected);
   }
 
   void _rememberCoverflowPrevious(String oldTitle, String oldArtist,
@@ -139,16 +202,15 @@ class NowPlayingModel extends ChangeNotifier {
     _coverflowHistory.insert(0, CoverflowCover(
         id: 'played:${DateTime.now().microsecondsSinceEpoch}',
         slot: -1, title: oldTitle, artist: oldArtist, thumb: oldArt));
-    if (_coverflowHistory.length > 3) _coverflowHistory.removeRange(3, _coverflowHistory.length);
+    if (_coverflowHistory.length > 24) _coverflowHistory.removeRange(24, _coverflowHistory.length);
   }
 
   void _showCoverflowHistory() {
-    coverflowCovers = [
+    _coverflowCandidates = [
       for (var i = 0; i < _coverflowHistory.length; i++)
         _coverflowHistory[i].atSlot(-(i + 1)),
     ];
-    coverflowRevision++;
-    notifyListeners();
+    _checkCoverflowRepeatedArtwork();
   }
 
   /// Called only for actual published queue entries. Never fabricate a next
@@ -175,16 +237,21 @@ class NowPlayingModel extends ChangeNotifier {
     if (signature == _coverflowQueueSignature) return;
     _coverflowQueueSignature = signature;
     final token = ++_coverflowToken;
-    // Fill any missing previous slots only from covers we actually played.
-    final used = entries.map((e) => e.slot).toSet();
-    for (var i = 0; i < _coverflowHistory.length && i < 3; i++) {
-      final slot = -(i + 1);
-      if (!used.contains(slot)) entries.add(_coverflowHistory[i].atSlot(slot));
+    // Queue positions remain authoritative. Backfill from actual playback
+    // history (not fabricated upcoming tracks), including older albums past
+    // the first three songs sharing an identical cover.
+    var nextPrevious = 0;
+    for (final e in entries) {
+      if (e.slot < 0 && e.slot.abs() > nextPrevious) {
+        nextPrevious = e.slot.abs();
+      }
     }
-    entries.sort((a, b) => a.slot.compareTo(b.slot));
-    coverflowCovers = entries;
-    coverflowRevision++;
-    notifyListeners();
+    for (final played in _coverflowHistory) {
+      if (entries.any((e) => e.slot < 0 &&
+          e.title == played.title && e.artist == played.artist)) continue;
+      entries.add(played.atSlot(-(++nextPrevious)));
+    }
+    _coverflowCandidates = entries;
     _checkCoverflowRepeatedArtwork();
     // Prioritize the active cover and clearlogo before fetching *side*
     // thumbnails. Run the network/decode work one at a time so six artwork
@@ -247,13 +314,11 @@ class NowPlayingModel extends ChangeNotifier {
     if (_coverflowThumbCache.length > 30) {
       _coverflowThumbCache.remove(_coverflowThumbCache.keys.first);
     }
-    final index = coverflowCovers.indexWhere((e) =>
+    final index = _coverflowCandidates.indexWhere((e) =>
         e.id == entry.id && e.slot == entry.slot);
     if (index == -1) return;
-    coverflowCovers = List<CoverflowCover>.of(coverflowCovers)
+    _coverflowCandidates = List<CoverflowCover>.of(_coverflowCandidates)
       ..[index] = entry.withThumbnail(bytes);
-    coverflowRevision++;
-    notifyListeners();
     _checkCoverflowRepeatedArtwork();
 
     // The nearest sleeves are almost the selected cover's size. A player's
@@ -299,14 +364,13 @@ class NowPlayingModel extends ChangeNotifier {
       if (candidate == null || candidate.isEmpty ||
           candidate.length > 280 * 1024 ||
           token != _coverflowToken || _disposed) return;
-      final newIndex = coverflowCovers.indexWhere((e) =>
+      final newIndex = _coverflowCandidates.indexWhere((e) =>
           e.id == entry.id && e.slot == entry.slot);
       if (newIndex < 0) return;
       _coverflowThumbCache[cacheKey] = candidate;
-      coverflowCovers = List<CoverflowCover>.of(coverflowCovers)
-        ..[newIndex] = coverflowCovers[newIndex].withThumbnail(candidate);
-      coverflowRevision++;
-      notifyListeners();
+      _coverflowCandidates = List<CoverflowCover>.of(_coverflowCandidates)
+        ..[newIndex] =
+            _coverflowCandidates[newIndex].withThumbnail(candidate);
       _checkCoverflowRepeatedArtwork();
     } catch (error) {
       debugPrint('VYBE high-resolution side cover unavailable: $error');
@@ -319,11 +383,9 @@ class NowPlayingModel extends ChangeNotifier {
     if (!_linkReceiverActive || track != _trackKey) return;
     // The receiving head unit never fetches player queue art from the
     // internet. It displays only the exact thumbnails sent by the phone.
-    coverflowCovers = incoming.where((e) =>
+    _coverflowCandidates = incoming.where((e) =>
         e.slot != 0 && e.slot.abs() <= 3 &&
         e.thumb != null && e.thumb!.isNotEmpty).toList();
-    coverflowRevision++;
-    notifyListeners();
     _checkCoverflowRepeatedArtwork();
   }
 
@@ -870,8 +932,22 @@ class NowPlayingModel extends ChangeNotifier {
       sessionArtworkStatus = 'Missing (no bytes in media session)';
     }
     _trackKey = key;
+    // If the new track's verified session art is the SAME image, _setArt()
+    // is correctly skipped. That must still release the "artwork pending"
+    // gate and rerun deduplication. Same-album playback with no fresh
+    // image also legitimately reuses the already displayed cover.
+    if (changed && art != null &&
+        ((artBytes is Uint8List && artBytes.isNotEmpty &&
+            !rejectedSessionImage && listEquals(art!.bytes, artBytes)) ||
+         (!albumChanged && oldArtistForCoverflow == artist &&
+             (artBytes is! Uint8List || artBytes.isEmpty)))) {
+      _albumArtPriorityPending = false;
+    }
     if (m.containsKey('queueItems')) {
       _applyNativeCoverflowQueue(m['queueItems']);
+    }
+    if (changed && !_albumArtPriorityPending) {
+      _checkCoverflowRepeatedArtwork();
     }
     _albumKey = albumKey;
     if (changed && artLookupEnabled && title.isNotEmpty &&
@@ -939,8 +1015,11 @@ class NowPlayingModel extends ChangeNotifier {
     lyrics = null;
     _lyricsToken++;
     _coverflowToken++;
+    _coverflowRepeatCheckSerial++;
     _coverflowQueueSignature = '';
+    _coverflowCandidates = <CoverflowCover>[];
     coverflowCovers = <CoverflowCover>[];
+    _coverflowSamples.clear();
     coverflowRevision++;
   }
 

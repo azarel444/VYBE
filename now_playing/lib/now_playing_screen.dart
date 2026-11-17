@@ -5037,6 +5037,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // The L's lower arm must remain visible underneath E's brush tip.
       return math.min(fontSize * .115, glyphWidth * .26);
     }
+    if (pair == 'JO') {
+      // JORIS VOORN: J's far-right brush does not reach O at the default
+      // spacing. Pull O closer while keeping its open center readable.
+      return math.min(fontSize * .30, glyphWidth * .72);
+    }
     if (character == 'O' && previous != 'W') {
       // Protect O's recognizable open center against diagonal intrusions.
       return math.min(fontSize * .105, glyphWidth * .28);
