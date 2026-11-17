@@ -179,7 +179,7 @@ class CoverflowScene extends StatelessWidget {
         transformHitTests: false,
         child: RepaintBoundary(
           child: Opacity(
-            opacity: distance == 0 ? 1 : distance == 1 ? 1
+            opacity: distance == 0 ? 1.0 : distance == 1 ? 1.0
                 : distance == 2 ? .83 : .65,
             child: _coverAndReflection(bytes, size,
               distance: distance, left: left),
