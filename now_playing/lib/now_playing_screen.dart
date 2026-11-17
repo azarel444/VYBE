@@ -2075,6 +2075,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The optional effects, each switched on or off in settings.
   List<Widget> _extraFx() {
     final p = _palette;
+    // The Coverflow sleeve's perspective center is at ~52% screen height.
+    // Pin artwork-emitted effects there even on the initial frame before
+    // its GlobalKey is laid out, rather than spawning at the left fallback.
+    final fxOrigin = settings.theme == AppSettings.tCoverflow
+        ? const Offset(.50, .52) : null;
     Widget layer(String name, CustomPainter painter, {GlobalKey? layerKey}) {
       final blend = settings.fxBlendMode[name] ?? 0;
       final opacity = settings.fxBlendOpacity[name] ?? 1.0;
@@ -2111,6 +2116,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             artKey: i == 1 ? _artKey : null,
             layerKey: i == 1 ? _shockLayerKey : null,
+            pinnedOrigin: i == 1 ? fxOrigin : null,
             bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: i == 1 ? _shockLayerKey : null),
@@ -2136,6 +2142,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             clock: fxClock,
             artKey: _artKey,
             layerKey: _raysLayerKey,
+            pinnedOrigin: fxOrigin,
             palette: p,
             k: settings.kRays,
             topOrigin: settings.theme == AppSettings.tTypo,
@@ -2146,6 +2153,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             clock: fxClock,
             artKey: _artKey,
             layerKey: _ripplesLayerKey,
+            pinnedOrigin: fxOrigin,
             palette: p,
             k: settings.kRipples,
             repaint: _tick), layerKey: _ripplesLayerKey),
