@@ -24,6 +24,10 @@ class _IntegrationDiagnosticsState extends State<IntegrationDiagnostics> {
     'metadata.keys',
     'videoProbe.activeMediaId',
     'videoProbe.activeMediaUri',
+    'videoProbe.activeQueueArtworkUri',
+    'videoProbe.activeQueueVideoId',
+    'videoProbe.queueVideoIdCount',
+    'videoProbe.queueVideoIds',
     'videoProbe.descriptionTitle',
     'videoProbe.descriptionSubtitle',
     'videoProbe.descriptionExtrasKeys',
@@ -124,6 +128,8 @@ class _IntegrationDiagnosticsState extends State<IntegrationDiagnostics> {
     final title = songInfo['title']?.toString() ?? 'No track reported';
     final artist = songInfo['artist']?.toString() ?? '';
     final mediaUri = probe['activeMediaUri'];
+    final candidateId = probe['activeQueueVideoId']?.toString();
+    final queueVideoIdCount = probe['queueVideoIdCount'] ?? 0;
     final assessment = report?['assessment']?.toString() ??
         report?['error']?.toString() ?? '';
     return Card(
@@ -169,6 +175,32 @@ class _IntegrationDiagnosticsState extends State<IntegrationDiagnostics> {
                     (report['queueLength'] ?? 0).toString(),
                     style: const TextStyle(
                         fontSize: 12, color: Colors.white70)),
+                const SizedBox(height: 8),
+                Text(
+                  candidateId == null
+                      ? 'Current track video ID: Not found in thumbnail'
+                      : 'Current track video ID: $candidateId',
+                  style: TextStyle(color: candidateId == null
+                      ? Colors.white70 : Colors.lightGreenAccent),
+                ),
+                Text('Queue video thumbnail IDs: $queueVideoIdCount',
+                    style: const TextStyle(
+                        fontSize: 12, color: Colors.white70)),
+                if (candidateId != null) ...[
+                  const SizedBox(height: 4),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text:
+                          'https://www.youtube.com/watch?v=$candidateId'));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content:
+                            Text('Candidate YouTube video URL copied')),
+                      );
+                    },
+                    icon: const Icon(Icons.copy),
+                    label: const Text('Copy candidate video link'),
+                  ),
+                ],
               ],
               if (assessment.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -272,9 +304,11 @@ class _IntegrationDiagnosticsState extends State<IntegrationDiagnostics> {
           ],
           const SizedBox(height: 18),
           const Text('This diagnostic is read-only. It checks metadata, '
-              'media identifiers, media descriptions, queue and mode hints '
-              'made available by Android. It cannot retrieve YouTube '
-              'Music video bytes or verify a playable audiovisual stream. '
+              'media identifiers, video IDs in official YouTube thumbnail '
+              'URLs, and queue changes made available by Android. '
+              'Thumbnail IDs are candidates, not verified playable embeds. '
+              'It cannot retrieve YouTube Music video bytes or verify '
+              'a playable audiovisual stream. '
               'Copied reports may contain track names and media IDs; '
               'review them before sharing.',
               style: TextStyle(color: Colors.white60, fontSize: 12)),
