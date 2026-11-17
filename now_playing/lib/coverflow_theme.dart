@@ -256,9 +256,9 @@ class CoverflowScene extends StatelessWidget {
       child: bytes != null
           ? Image.memory(bytes, width: size, height: size,
               fit: BoxFit.cover,
-              cacheWidth: active ? 1024 : distance == 1 ? 320 : distance == 2 ? 224 : 144,
-              filterQuality: active
-                  ? FilterQuality.medium : FilterQuality.low,
+              cacheWidth: active ? 1024 : distance == 1 ? 768
+                  : distance == 2 ? 640 : 512,
+              filterQuality: FilterQuality.medium,
               gaplessPlayback: true)
           : Image.asset('assets/vybe_album_placeholder.png',
               width: size, height: size, fit: BoxFit.cover),
@@ -334,7 +334,7 @@ class CoverflowScene extends StatelessWidget {
                   borderRadius: borderRadius,
                   child: IgnorePointer(child: ColoredBox(
                     color: Colors.black.withOpacity(
-                      distance == 1 ? .10 : distance == 2 ? .77 : .92,
+                      distance == 1 ? .03 : distance == 2 ? .19 : .34,
                     ),
                   )),
                 ),
@@ -353,20 +353,18 @@ class CoverflowScene extends StatelessWidget {
                       end: left ? Alignment.centerLeft : Alignment.centerRight,
                       // Strong BLACK cast shade inside this rear artwork.
                       // The inner edge is near-black with a short falloff.
+                      // Inner shadow lives INSIDE the rear cover only.
+                      // Preserve enough colors even in distant slivers to
+                      // avoid featureless black cards.
                       colors: [
-                        const Color(0xFF000000),
-                        Colors.black.withOpacity(distance == 1 ? .985 : 1.0),
-                        Colors.black.withOpacity(distance == 1 ? .56 : .92),
+                        Colors.black.withOpacity(distance == 1 ? .83 : .85),
+                        Colors.black.withOpacity(distance == 1 ? .64 : .72),
+                        Colors.black.withOpacity(distance == 1 ? .24 : .28),
                         Colors.transparent,
                       ],
-                      // d2/d3 are mostly hidden behind d1/d2. Their
-                      // visible slivers occur near the OUTER edge of the
-                      // local cover plane, so extend the black cast band
-                      // to that contact line. A fixed d1-only falloff left
-                      // those exposed rear slivers inexplicably bright.
                       stops: distance == 1
-                          ? const [0, .15, .42, .68]
-                          : const [0, .64, .86, 1.0],
+                          ? const [0, .11, .28, .54]
+                          : const [0, .27, .48, .70],
                     ),
                   ),
                 )),
@@ -473,7 +471,7 @@ class _CoverflowCoverGlow extends CustomPainter {
   final double strength;
   final bool performanceMode;
   final bool selected;
-  final int side; // -1 = left sleeve, +1 = right sleeve, 0 = selected
+  final int side;
 
   const _CoverflowCoverGlow({
     required this.quad, required this.accent, required this.strength,
@@ -483,82 +481,65 @@ class _CoverflowCoverGlow extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    Offset along(Offset a, Offset b, double t) =>
-        Offset.lerp(a, b, t)!;
-
-    void contactGlint(Offset at, double radius, double power) {
-      final rect = Rect.fromCircle(center: at, radius: radius);
-      canvas.drawCircle(at, radius, Paint()
+    // A localized radial reflection, never sharp light rays or hard lines.
+    void contact(Offset point, double radius, double power) {
+      final bounds = Rect.fromCircle(center: point, radius: radius);
+      canvas.drawCircle(point, radius, Paint()
         ..shader = RadialGradient(
-          stops: const [0, .055, .17, .48, 1],
+          stops: const [0, .13, .36, .75, 1],
           colors: [
-            Colors.white.withOpacity(.94 * power * strength),
-            Color.lerp(accent, Colors.white, .62)!
-                .withOpacity(.92 * power * strength),
-            accent.withOpacity(.57 * power * strength),
-            accent.withOpacity(.16 * power * strength),
+            Color.lerp(accent, Colors.white, .55)!
+                .withOpacity(.74 * power * strength),
+            accent.withOpacity(.43 * power * strength),
+            accent.withOpacity(.19 * power * strength),
+            accent.withOpacity(.035 * power * strength),
             Colors.transparent,
           ],
-        ).createShader(rect));
+        ).createShader(bounds));
     }
 
     if (selected) {
-      final outline = Path()
-        ..moveTo(quad[0].dx, quad[0].dy)
-        ..lineTo(quad[1].dx, quad[1].dy)
-        ..lineTo(quad[2].dx, quad[2].dy)
-        ..lineTo(quad[3].dx, quad[3].dy)
-        ..close();
-      // Only the CENTER album has a full, thin album-colored stroke.
-      // The accompanying blur is tight, never a giant squared-off halo.
-      canvas.drawPath(outline, Paint()
+      // Rounded projected QUAD: preserve the angled-back perspective, but
+      // replace the rectangular sharp-cornered path with curved transitions.
+      // Thin album-palette stroke and only a small glow surrounding that
+      // rounded contour, matching the sleeve's visible curved corners.
+      final points = quad;
+      final contour = Path();
+      const round = .026;
+      Offset entry(int i) =>
+          Offset.lerp(points[i], points[(i + 3) % 4], round)!;
+      Offset leave(int i) =>
+          Offset.lerp(points[i], points[(i + 1) % 4], round)!;
+      contour.moveTo(entry(0).dx, entry(0).dy);
+      for (var i = 0; i < 4; i++) {
+        contour.quadraticBezierTo(points[i].dx, points[i].dy,
+            leave(i).dx, leave(i).dy);
+        final next = (i + 1) % 4;
+        contour.lineTo(entry(next).dx, entry(next).dy);
+      }
+      contour.close();
+      canvas.drawPath(contour, Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = performanceMode ? 2.7 : 3.7
+        ..strokeWidth = performanceMode ? 2.4 : 3.2
         ..maskFilter = MaskFilter.blur(
-          BlurStyle.normal, performanceMode ? 1.6 : 2.3)
+            BlurStyle.normal, performanceMode ? 1.9 : 2.6)
+        ..color = accent.withOpacity(.55 * strength));
+      canvas.drawPath(contour, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..strokeJoin = StrokeJoin.round
         ..color = accent.withOpacity(.83 * strength));
-      canvas.drawPath(outline, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.55
-        ..color = accent.withOpacity(.96 * strength));
-      // Two modest feet-of-sleeve glints anchoring the selected art.
-      contactGlint(quad[3], performanceMode ? 9 : 13, .72);
-      contactGlint(quad[2], performanceMode ? 9 : 13, .72);
-    } else {
-      // The angled sleeves are illuminated ONLY where they touch the floor:
-      // lower outside corner and very short adjacent edge segments.
-      // This is NOT a glow around the card's rectangular perimeter.
-      final outerBottom = side < 0 ? quad[3] : quad[2];
-      final outerTop = side < 0 ? quad[0] : quad[1];
-      final innerBottom = side < 0 ? quad[2] : quad[3];
-      final up = along(outerBottom, outerTop, .23);
-      final across = along(outerBottom, innerBottom, .23);
-
-      final segmentGlow = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = performanceMode ? 3.0 : 4.0
-        ..strokeCap = StrokeCap.round
-        ..maskFilter = MaskFilter.blur(
-            BlurStyle.normal, performanceMode ? 1.7 : 2.7)
-        ..color = accent.withOpacity(.72 * strength);
-      canvas.drawLine(up, outerBottom, segmentGlow);
-      canvas.drawLine(outerBottom, across, segmentGlow);
-
-      final pinline = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.15
-        ..strokeCap = StrokeCap.round
-        ..color = Color.lerp(accent, Colors.white, .27)!
-            .withOpacity(.83 * strength);
-      canvas.drawLine(up, outerBottom, pinline);
-      canvas.drawLine(outerBottom, across, pinline);
-
-      // This spot is the dominant specular reflection: the contact between
-      // the album's nearest outside corner and the polished floor.
-      contactGlint(outerBottom, performanceMode ? 11 : 18, 1.0);
-      // A much smaller second reflection at the inside bottom contact.
-      contactGlint(innerBottom, performanceMode ? 6 : 9, .27);
+      contact(quad[3], performanceMode ? 9 : 14, .65);
+      contact(quad[2], performanceMode ? 9 : 14, .65);
+      return;
     }
+
+    // The outer side sleeves have NO stroke of any kind. Their lower
+    // outside corner touches the stage: a soft, diffuse elliptical bloom.
+    final foot = side < 0 ? quad[3] : quad[2];
+    final insideFoot = side < 0 ? quad[2] : quad[3];
+    contact(foot, performanceMode ? 13 : 23, .97);
+    contact(insideFoot, performanceMode ? 7 : 11, .24);
   }
 
   @override
