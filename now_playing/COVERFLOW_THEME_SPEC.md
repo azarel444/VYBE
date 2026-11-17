@@ -12,7 +12,7 @@ Target the supplied landscape reference composition as closely as current track 
 - Perspective floor below the covers with fine grain / streak texture, dark sheen, luminous contact line, and diffused light pools. Its texture must show **through** translucent reflections.
 - The active and visible side covers each reflect directly beneath their own baseline, mirrored correctly with transparency strongest at the contact and gradually decreasing toward the bottom. The existing album-art drop-shadow treatment elsewhere in VYBE is unchanged.
 - Thin horizontal waveforms on extreme left and right edges, tinted by active palette.
-- Dominant title below the center cover, an angular outlined album-title plaque beneath, unobtrusive progress line beneath. Artist clearlogo remains the largest branding element when present.
+- Dominant title below the center cover and an angular outlined album-title plaque beneath. **No progress line/bar in the theme**; music transport controls remain in VYBE's existing slide-up control panel. Artist clearlogo remains the largest branding element when present.
 - First implement a landscape composition for 16:9 head units (including 1600×900 DeX and ATOTO A5L); preserve visual character in narrower portrait using a scaled/reflowed arrangement, not a distorted horizontal stretch.
 
 ### Dynamic color contract

@@ -18,7 +18,6 @@ class CoverflowScene extends StatelessWidget {
   final Widget artistHeader;
   final Widget trackTitle;
   final Widget albumPlaque;
-  final Widget progress;
   final Widget? leftVisualizer;
   final Widget? rightVisualizer;
   final bool performanceMode;
@@ -32,7 +31,6 @@ class CoverflowScene extends StatelessWidget {
     required this.artistHeader,
     required this.trackTitle,
     required this.albumPlaque,
-    required this.progress,
     this.leftVisualizer,
     this.rightVisualizer,
     this.performanceMode = false,
@@ -45,11 +43,13 @@ class CoverflowScene extends StatelessWidget {
       final h = box.maxHeight;
       if (w <= 0 || h <= 0) return const SizedBox.shrink();
       final portrait = h > w * 1.08;
+      // Give the art the scale and visual priority of the approved render.
+      // Do not reserve any vertical space for an on-theme progress bar.
       final centerSize = portrait
-          ? math.min(w * .57, h * .36)
-          : math.min(h * .44, w * .31);
-      final coverTop = portrait ? h * .295 : h * .238;
-      final floorY = coverTop + centerSize * .97;
+          ? math.min(w * .65, h * .37)
+          : math.min(h * .49, w * .35);
+      final coverTop = portrait ? h * .265 : h * .215;
+      final floorY = coverTop + centerSize;
       final side = queue.where((e) =>
           e.slot != 0 && e.slot.abs() <= (portrait ? 2 : 3) &&
           e.thumb != null && e.thumb!.isNotEmpty).toList();
@@ -81,19 +81,16 @@ class CoverflowScene extends StatelessWidget {
         ),
         Positioned(
           left: w * .12, right: w * .12,
-          top: portrait ? h * .763 : h * .721,
+          top: portrait ? h * .745 : h * .738,
           height: portrait ? h * .092 : h * .098,
           child: Center(child: trackTitle),
         ),
         Positioned(
           left: w * .15, right: w * .15,
-          top: portrait ? h * .86 : h * .842,
+          top: portrait ? h * .846 : h * .855,
           height: portrait ? h * .07 : h * .07,
           child: Center(child: albumPlaque),
         ),
-        Positioned(left: w * .26, right: w * .26,
-          bottom: h * .06, height: 3.5,
-          child: progress),
       ];
       return ClipRect(child: TweenAnimationBuilder<double>(
         // Transition occurs only on track change. No continuously animated
@@ -116,19 +113,24 @@ class CoverflowScene extends StatelessWidget {
       double centerSize, double coverTop, {required bool portrait}) {
     final distance = entry.slot.abs();
     final near = distance == 1;
+    // Deliberately overlap successive sleeves. Near sleeves obscure a
+    // substantial part of the next sleeve, which creates the depth and
+    // recognizable cascade of the reference rather than a flat row.
     final shrink = portrait
-        ? (near ? .77 : .56)
-        : (distance == 1 ? .84 : distance == 2 ? .65 : .48);
+        ? (near ? .77 : .52)
+        : (distance == 1 ? .84 : distance == 2 ? .61 : .43);
     final size = centerSize * shrink;
     final xFraction = portrait
-        ? (near ? .21 : .095)
-        : distance == 1 ? .292 : distance == 2 ? .195 : .124;
+        ? (near ? .21 : .085)
+        : distance == 1 ? .285 : distance == 2 ? .178 : .095;
     final centerX = entry.slot < 0 ? w * xFraction : w * (1 - xFraction);
     // The near cards touch the center's rim but do not obliterate it.
     final top = coverTop + centerSize - size +
         (distance > 1 ? centerSize * .019 * (distance - 1) : 0);
-    final intensity = near ? .91 : distance == 2 ? .68 : .46;
-    final turn = (entry.slot < 0 ? 1 : -1) * (.34 + .07 * distance);
+    final intensity = near ? .98 : distance == 2 ? .79 : .58;
+    // More pronounced yaw: these are receding 3D sleeves, not angled
+    // flat thumbnails. Perspective remains symmetric left and right.
+    final turn = (entry.slot < 0 ? 1 : -1) * (.53 + .08 * distance);
     return Positioned(
       left: centerX - size / 2,
       top: top,
@@ -179,7 +181,7 @@ class CoverflowScene extends StatelessWidget {
               width: size, height: size, fit: BoxFit.cover),
     );
 
-    return Stack(clipBehavior: Clip.hardEdge, children: [
+    return Stack(clipBehavior: Clip.none, children: [
       Positioned(left: 1, top: size + 3,
         width: size - 2, height: reflectionHeight,
         child: Opacity(
@@ -217,15 +219,24 @@ class CoverflowScene extends StatelessWidget {
               color: accent.withOpacity(active ? .93 : .67),
               width: active ? 2.1 : 1.35),
             boxShadow: [
-              const BoxShadow(color: Color(0xD9000000),
-                offset: Offset(8, 11), blurRadius: 14),
+              // Painted behind later/nearer covers; this shadow actually
+              // reaches the artwork behind it instead of darkening itself.
               BoxShadow(
-                color: accent.withOpacity(active ? .56 : distance == 1 ? .33 : .11),
-                blurRadius: active ? 21 : distance == 1 ? 11 : 3,
-                spreadRadius: active ? .9 : 0),
+                color: Colors.black.withOpacity(active ? .84 : .94),
+                offset: Offset(active ? 9 : (left ? -17 : 17),
+                  active ? 13 : 8),
+                blurRadius: active ? 23 : 20,
+                spreadRadius: active ? 2 : 9),
+              BoxShadow(
+                color: accent.withOpacity(active
+                    ? .82 : distance == 1 ? .54 : distance == 2 ? .31 : .16),
+                blurRadius: performanceMode
+                    ? (active ? 17 : 10)
+                    : (active ? 38 : distance == 1 ? 24 : 12),
+                spreadRadius: active ? (performanceMode ? 2 : 5) : 1.5),
               if (active && !performanceMode)
-                BoxShadow(color: palette.b.withOpacity(.23),
-                  blurRadius: 29, spreadRadius: 1),
+                BoxShadow(color: palette.b.withOpacity(.38),
+                  blurRadius: 50, spreadRadius: 1),
             ],
           ),
           child: Stack(fit: StackFit.expand, children: [
@@ -307,22 +318,33 @@ class _CoverflowAtmosphere extends CustomPainter {
         width: w * .74, height: h * .27);
     canvas.drawOval(pool, Paint()
       ..shader = RadialGradient(colors: [
-        p.a.withOpacity(.23), p.b.withOpacity(.09),
+        p.a.withOpacity(.37), p.b.withOpacity(.16),
         Colors.transparent],
       ).createShader(pool));
+    // Separate reflected colored light around the left and right sleeves.
+    for (final sideX in [.23, .77]) {
+      final sidePool = Rect.fromCenter(
+        center: Offset(w * sideX, y + h * .051),
+        width: w * .32, height: h * .18);
+      canvas.drawOval(sidePool, Paint()
+        ..shader = RadialGradient(colors: [
+          p.b.withOpacity(.20), p.c.withOpacity(.07),
+          Colors.transparent,
+        ]).createShader(sidePool));
+    }
     // Very fine film-grain streaks and tiny reflected highlights. Because
     // the mirrored covers are translucent, this remains visible through them.
-    final grain = Paint()..strokeWidth = .60;
-    for (var i = 0; i < 150; i++) {
+    final grain = Paint()..strokeWidth = .85;
+    for (var i = 0; i < 440; i++) {
       final seed = (i * 1664525 + 1013904223) & 0x7fffffff;
       final u = (seed % 10003) / 10003.0;
       final v = ((seed ~/ 59) % 10007) / 10007.0;
       final yy = y + (h - y) * v;
       final xx = w * u;
-      final length = (4 + (1 - v) * 26) * (i % 5 == 0 ? 2.7 : 1);
+      final length = (5 + v * 41) * (i % 7 == 0 ? 2.9 : 1);
       final tint = i % 4 == 0 ? p.a : (i % 4 == 1 ? p.b : Colors.white);
-      grain.color = tint.withOpacity((.018 + (1 - v) * .038)
-          .clamp(0.0, .07));
+      grain.color = tint.withOpacity((.040 + v * .087)
+          .clamp(0.0, .13));
       canvas.drawLine(Offset(xx, yy), Offset(xx + length, yy), grain);
     }
     final rim = Paint()
