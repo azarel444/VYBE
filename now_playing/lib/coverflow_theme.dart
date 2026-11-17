@@ -89,7 +89,10 @@ class CoverflowScene extends StatelessWidget {
           child: Center(child: trackTitle),
         ),
         Positioned(
-          left: w * .15, right: w * .15,
+          // The long angular plaque spans almost two-thirds of the scene
+          // once VYBE's content-driven inner framing is applied, matching
+          // the approved render instead of the cramped build #685 badge.
+          left: w * .105, right: w * .105,
           top: portrait ? h * .872 : h * .886,
           height: portrait ? h * .073 : h * .075,
           child: Center(child: albumPlaque),
