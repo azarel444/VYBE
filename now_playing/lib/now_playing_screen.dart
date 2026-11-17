@@ -33,6 +33,7 @@ import 'theme_parts.dart';
 import 'theme_library.dart';
 import 'template_background.dart';
 import 'club_background.dart';
+import 'coverflow_theme.dart';
 import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
 
@@ -690,6 +691,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   layout = _cinematicLayout(w, h);
                 } else if (settings.theme == AppSettings.tEditorial) {
                   layout = _editorialLayout(w, h);
+                } else if (settings.theme == AppSettings.tCoverflow) {
+                  layout = _coverflowLayout(w, h);
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tFan) {
@@ -1125,7 +1128,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final linkSender = !widget.driveHost && link.enabled && link.role == 'sender';
     if (linkSender) link.setFanartArtist(artist);
     final isFanartTheme = settings.theme == AppSettings.tCinematic ||
-        settings.theme == AppSettings.tEditorial;
+        settings.theme == AppSettings.tEditorial ||
+        settings.theme == AppSettings.tCoverflow;
     final needsLocalFanart = isFanartTheme
         ? !settings.fanartOverride
         : settings.backgroundSource == 6 ||
@@ -1339,7 +1343,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     if (!widget.driveHost &&
         (settings.theme == AppSettings.tCinematic ||
-         settings.theme == AppSettings.tEditorial)) {
+         settings.theme == AppSettings.tEditorial ||
+         settings.theme == AppSettings.tCoverflow)) {
       return _cinematicBackdrop();
     }
     if (settings.backgroundSource == 1) {
@@ -1666,6 +1671,58 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       case _VybeTextRole.album:
         return _drawAlbum(alignment: alignment, flushFrame: flushFrame);
     }
+  }
+
+  /// Approved VYBE Coverflow: fanart + real receding MediaSession covers,
+  /// luminous edges, layered shadows and a textured mirrored floor.
+  /// The visual treatment is fixed; EVERY illuminated accent follows the
+  /// current album's extracted palette or the user-selected VYBE override.
+  Widget _coverflowLayout(double w, double h) {
+    final logo = settings.useArtistClearLogo &&
+            _clearLogoBytes != null && model.active
+        ? _scaledClearLogo(alignment: Alignment.center)
+        : _metadataText(_VybeTextRole.artist, Alignment.center);
+    final trackKey = '${model.artist}|${model.album}|${model.title}';
+    return CoverflowScene(
+      trackKey: trackKey,
+      activeCover: model.art?.bytes,
+      queue: model.coverflowCovers,
+      palette: _palette,
+      artistHeader: logo,
+      trackTitle: _metadataText(_VybeTextRole.title, Alignment.center),
+      albumPlaque: _metadataText(_VybeTextRole.album, Alignment.center),
+      leftVisualizer: settings.visualizer
+          ? _edgeBars(w * .08, leftEdge: true) : null,
+      rightVisualizer: settings.visualizer
+          ? _edgeBars(w * .08, leftEdge: false) : null,
+      performanceMode: _fxTier <= 1,
+      progress: AnimatedBuilder(
+        animation: _slow,
+        builder: (context, _) {
+          final fraction = model.durationMs > 0
+              ? (model.positionMs / model.durationMs).clamp(0.0, 1.0).toDouble()
+              : 0.0;
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: Stack(fit: StackFit.expand, children: [
+              ColoredBox(color: _palette.b.withOpacity(.25)),
+              FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: fraction,
+                child: DecoratedBox(decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [_palette.b, _palette.a, _palette.c]),
+                  boxShadow: [
+                    BoxShadow(color: _palette.a.withOpacity(.45),
+                      blurRadius: 5),
+                  ],
+                )),
+              ),
+            ]),
+          );
+        },
+      ),
+    );
   }
 
   /// Editorial: an angled, recognizable album sleeve over full-bleed
