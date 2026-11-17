@@ -1019,6 +1019,35 @@ open class MainActivity : FlutterActivity() {
             val seek = actions and PlaybackState.ACTION_SEEK_TO != 0L
             val playFromId = actions and PlaybackState.ACTION_PLAY_FROM_MEDIA_ID != 0L
             val playFromSearch = actions and PlaybackState.ACTION_PLAY_FROM_SEARCH != 0L
+            // Standard YouTube thumbnails include a video ID in /vi/VIDEO_ID/.
+            // This is an *identifier*, not a media stream or embedability proof.
+            fun youtubeThumbnailId(raw: String?): String? {
+                if (raw.isNullOrBlank()) return null
+                return try {
+                    val uri = Uri.parse(raw)
+                    if (uri.host?.lowercase() !in listOf("i.ytimg.com", "img.youtube.com")) {
+                        null
+                    } else {
+                        val parts = uri.pathSegments
+                        if (parts.size >= 2 &&
+                            (parts[0] == "vi" || parts[0] == "vi_webp") &&
+                            Regex("[A-Za-z0-9_-]{11}").matches(parts[1])) {
+                            parts[1]
+                        } else null
+                    }
+                } catch (_: Exception) { null }
+            }
+            val activeQueueEntry = queue?.firstOrNull {
+                it.queueId == st?.activeQueueItemId
+            }
+            val activeQueueArtworkUri = activeQueueEntry?.description?.iconUri?.toString()
+            val activeQueueVideoId = youtubeThumbnailId(activeQueueArtworkUri)
+            val videoIdEntries = queue?.mapNotNull { item ->
+                val id = youtubeThumbnailId(item.description.iconUri?.toString())
+                    ?: return@mapNotNull null
+                mapOf("queueId" to item.queueId, "videoId" to id,
+                    "title" to (item.description.title?.toString() ?: ""))
+            } ?: emptyList()
             val tracks = queue?.take(100)?.mapIndexed { index, item ->
                 mapOf(
                     "index" to index, "queueId" to item.queueId,
@@ -1026,6 +1055,8 @@ open class MainActivity : FlutterActivity() {
                     "subtitle" to item.description.subtitle?.toString(),
                     "mediaId" to item.description.mediaId,
                     "artworkUri" to item.description.iconUri?.toString(),
+                    "youtubeThumbnailVideoId" to youtubeThumbnailId(
+                        item.description.iconUri?.toString()),
                     "mediaUri" to item.description.mediaUri?.toString(),
                     "extrasKeys" to (item.description.extras?.keySet()?.toList() ?: emptyList<String>())
                 )
@@ -1039,7 +1070,10 @@ open class MainActivity : FlutterActivity() {
                     lower.contains("content_type") || lower.contains("stream_type")
             }?.sorted() ?: emptyList<String>()
             val possibleVideoValues = possibleVideoKeys.associateWith { key ->
-                try { md?.getString(key)?.take(300) } catch (_: Exception) { null }
+                try {
+                    if (key.endsWith("_PX")) md?.getLong(key)?.toString()
+                    else md?.getString(key)?.take(300)
+                } catch (_: Exception) { null }
             }
             val flags = c.flags
             mapOf(
@@ -1071,6 +1105,10 @@ open class MainActivity : FlutterActivity() {
                 "videoProbe" to mapOf(
                     "activeMediaId" to description?.mediaId,
                     "activeMediaUri" to description?.mediaUri?.toString(),
+                    "activeQueueArtworkUri" to activeQueueArtworkUri,
+                    "activeQueueVideoId" to activeQueueVideoId,
+                    "queueVideoIdCount" to videoIdEntries.size,
+                    "queueVideoIds" to videoIdEntries,
                     "descriptionTitle" to description?.title?.toString(),
                     "descriptionSubtitle" to description?.subtitle?.toString(),
                     "descriptionExtrasKeys" to (description?.extras?.keySet()?.sorted() ?: emptyList<String>()),
@@ -1079,7 +1117,7 @@ open class MainActivity : FlutterActivity() {
                     "playbackExtrasKeys" to (st?.extras?.keySet()?.sorted() ?: emptyList<String>()),
                     "sessionExtrasKeys" to (c.extras?.keySet()?.sorted() ?: emptyList<String>()),
                     "directVideoStreamVerified" to false,
-                    "assessment" to "Read-only MediaSession metadata inspection only; playable video stream access is not established."
+                    "assessment" to "Thumbnail /vi/ IDs identify candidate YouTube videos only. Stream access and embed permissions remain unverified."
                 ),
                 "queueIds" to (queue?.map { it.queueId } ?: emptyList<Long>()),
                 "queueArtworkUrlCount" to (queue?.count { it.description.iconUri != null } ?: 0),
