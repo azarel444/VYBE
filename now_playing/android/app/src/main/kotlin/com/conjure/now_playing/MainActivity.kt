@@ -713,6 +713,7 @@ open class MainActivity : FlutterActivity() {
                 "refresh" -> { refresh(); result.success(null) }
                 "recheckArtwork" -> { push(true); result.success(null) }
                 "integrationDiagnostics" -> result.success(integrationDiagnostics(call.argument<String>("service") ?: ""))
+                "pauseYoutubeMusicForVideoTest" -> result.success(pauseYoutubeMusicForVideoTest())
                 "startVisualizer" -> result.success(startVisualizer())
                 "stopVisualizer" -> { stopVisualizer(); result.success(null) }
                 "openAccessSettings" -> { openAccessSettings(); result.success(null) }
@@ -989,6 +990,34 @@ open class MainActivity : FlutterActivity() {
     } catch (error: Exception) {
         mapOf("requested" to false,
             "message" to "Could not dispatch system media key: ${error.message}")
+    }
+
+    // Called ONLY after the tester presses Play in the embedded-player test.
+    // Pause exactly YouTube Music, never the currently selected VYBE output.
+    // The user resumes YouTube Music manually after the test.
+    private fun pauseYoutubeMusicForVideoTest(): Map<String, Any?> {
+        if (!hasAccess()) return mapOf("paused" to false,
+            "reason" to "Notification access unavailable; pause YouTube Music manually")
+        return try {
+            val mgr = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val cn = ComponentName(this, MediaListenerService::class.java)
+            val c = mgr.getActiveSessions(cn).firstOrNull {
+                it.packageName == "com.google.android.apps.youtube.music"
+            }
+            when {
+                c == null -> mapOf("paused" to false,
+                    "reason" to "No YouTube Music session; make sure other source audio is paused")
+                c.playbackState?.state != PlaybackState.STATE_PLAYING ->
+                    mapOf("paused" to false, "reason" to "YouTube Music already paused or stopped")
+                else -> {
+                    c.transportControls.pause()
+                    mapOf("paused" to true, "reason" to "Paused YouTube Music for embedded-video test")
+                }
+            }
+        } catch (e: Exception) {
+            mapOf("paused" to false,
+                "reason" to "Could not pause YouTube Music: ${e.message}")
+        }
     }
 
     private fun integrationDiagnostics(service: String): Map<String, Any?> {
