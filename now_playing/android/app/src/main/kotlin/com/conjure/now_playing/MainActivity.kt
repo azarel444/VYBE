@@ -1007,8 +1007,12 @@ open class MainActivity : FlutterActivity() {
             when {
                 c == null -> mapOf("paused" to false,
                     "reason" to "No YouTube Music session; make sure other source audio is paused")
+                c.playbackState?.state == PlaybackState.STATE_PAUSED ->
+                    mapOf("paused" to false, "alreadyPaused" to true,
+                        "reason" to "YouTube Music already paused")
                 c.playbackState?.state != PlaybackState.STATE_PLAYING ->
-                    mapOf("paused" to false, "reason" to "YouTube Music already paused or stopped")
+                    mapOf("paused" to false,
+                        "reason" to "YouTube Music is not playing")
                 else -> {
                     c.transportControls.pause()
                     mapOf("paused" to true, "reason" to "Paused YouTube Music for embedded-video test")
