@@ -2666,7 +2666,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final bottomInset = h * .008;
       final hasLogo = settings.useArtistClearLogo &&
           _clearLogoBytes != null && model.active;
-      final brandingHeight = math.min(h * .105, w * .24).toDouble();
+      // Riot uses a 1.45x glyph scale and a 1.27x word initial.
+      // The old 10.5%-high artist slot was shorter than a SINGLE rendered
+      // letter line; multiword names painted directly through the record.
+      // Drive keeps one full-sized, edge-faded scrolling line instead of
+      // letting the normal multi-line artist overflow this reserved area.
+      final brandingHeight = math.min(h * .145, w * .38).toDouble();
       final songFontSize = h * .031;
       final songHeight = h * .053;
       final albumHeight = _showAlbumLabel ? h * .055 : 0.0;
@@ -2687,11 +2692,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           padding: EdgeInsets.only(top: safeTop, bottom: bottomInset),
           child: Column(mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Clip the artist/logo to its own reserved band. Even a
+              // three-word Riot artist must never appear underneath art.
               SizedBox(width: w * .86, height: brandingHeight,
-                child: hasLogo
-                    ? _scaledClearLogo()
-                    : Center(child: _artist(
-                        h * .058, Alignment.center, false))),
+                child: ClipRect(
+                  child: hasLogo
+                      ? _scaledClearLogo()
+                      : _drivePortraitArtist(w * .86),
+                )),
               SizedBox(height: brandArtGap),
               _driveArtwork(artSide),
               SizedBox(height: artSongGap),
@@ -2774,6 +2782,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ],
       ],
     );
+  }
+
+  // Portrait Drive has a finite artist band above the record. Other
+  // themes may wrap Riot artist names, but Drive must never send a third
+  // glyph line behind album art or the navigation window. Preserve the
+  // global unshrunk Riot font size; scroll the entire name horizontally
+  // with soft edge fades when it does not fit its allocated width.
+  Widget _drivePortraitArtist(double availableWidth) {
+    final lettering = _artistStr.toUpperCase().trim();
+    if (lettering.isEmpty) return const SizedBox.shrink();
+    final fontSize = _artistFontSize(0);
+    final render = (String text) => _artistText(
+        fontSize, letteringOverride: text);
+    final content = _artistRunWidth(lettering, fontSize);
+    if (content > availableWidth * .985) {
+      return Center(
+        child: _overflowRiotWord(
+            lettering, fontSize, availableWidth, render),
+      );
+    }
+    return Center(child: render(lettering));
   }
 
   /// Drive art selection is shared by portrait and landscape.
