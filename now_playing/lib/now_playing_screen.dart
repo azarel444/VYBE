@@ -4863,12 +4863,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Keep the I readable. Its glyph advance is only ~0.273 em, so the
     // previous I->C/N/S corrections could shift the following letter over
     // nearly the entire I. Both layout and width measurement call here.
-    // IV and VI already had gentle approved contact.
+    // Q/V and U/V are diagonally projected brush forms. Their ink
+    // extends past the font's advance boxes (verified from the Riot TTF).
+    // Any generic negative tracking lets V bury Q or U, particularly
+    // when V is the enlarged first letter. At zero extra overlap the
+    // visible contours already meet, without one glyph covering another.
+    if (pair == 'QV' || pair == 'VQ' ||
+        pair == 'UV' || pair == 'VU') {
+      return 0.0;
+    }
     if (pair == 'IV') {
       return math.min(fontSize * .018, glyphWidth * .05);
     }
+    // VI had a false word gap; close it gently without obscuring I.
     if (pair == 'VI') {
-      return math.min(fontSize * .05, glyphWidth * .17);
+      return math.min(fontSize * .115, glyphWidth * .45);
+    }
+    // The angled entry on S creates another visible gap after narrow I.
+    if (pair == 'IS') {
+      return math.min(fontSize * .145, glyphWidth * .36);
     }
     // Keep the already-connected approaches into I. It is the following
     // glyph, not the preceding glyph, that gets painted on top of the I.
@@ -4918,7 +4931,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'ES') {
       // S begins with a slanted top stroke. This pair has much more
       // empty space than other E-following letters at the same advance.
-      return math.min(fontSize * .35, glyphWidth * .73);
+      return math.min(fontSize * .43, glyphWidth * .89);
     }
     // Riot is a connected brush alphabet: maintain contact without
     // obscuring a recognizable counter or terminal.
@@ -4972,7 +4985,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     // The Y's fork and the Z's upper brush stroke should read as one word.
     if (pair == 'YZ') {
-      return math.min(fontSize * .34, glyphWidth * .62);
+      // Y's long descending brush already overlaps Z's upper branch.
+      // The old .34em tracking buried the start of Z.
+      return math.min(fontSize * .065, glyphWidth * .16);
     }
     // Riot's W has visible space inside its measured advance. Tighten only
     // the W→O (WORLD) and W→N (RENOWN) transitions seen in testing.
