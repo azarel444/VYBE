@@ -323,8 +323,8 @@ class CoverflowScene extends StatelessWidget {
               IgnorePointer(child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    begin: left ? Alignment.centerRight : Alignment.centerLeft,
-                    end: left ? Alignment.centerLeft : Alignment.centerRight,
+                    begin: left ? Alignment.centerLeft : Alignment.centerRight,
+                    end: left ? Alignment.centerRight : Alignment.centerLeft,
                     colors: [
                       Colors.black.withOpacity(distance == 1 ? .36 : .55),
                       Colors.black.withOpacity(.07),
