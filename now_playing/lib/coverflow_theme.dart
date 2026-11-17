@@ -92,8 +92,13 @@ class CoverflowScene extends StatelessWidget {
         child: Stack(fit: StackFit.expand, clipBehavior: Clip.hardEdge,
           children: [
             Positioned.fill(child: IgnorePointer(
-              child: CustomPaint(
-                painter: _CoverflowAtmosphere(palette, floorY / h),
+              child: FutureBuilder<ui.Image>(
+                future: _coverflowGrainImage,
+                builder: (context, frame) => CustomPaint(
+                  painter: _CoverflowAtmosphere(
+                    palette, floorY / h, grain: frame.data,
+                  ),
+                ),
               ),
             )),
             if (leftVisualizer != null)
@@ -459,7 +464,8 @@ class CoverflowScene extends StatelessWidget {
 class _CoverflowAtmosphere extends CustomPainter {
   final ArtPalette p;
   final double contactFraction;
-  const _CoverflowAtmosphere(this.p, this.contactFraction);
+  final ui.Image? grain;
+  const _CoverflowAtmosphere(this.p, this.contactFraction, {this.grain});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -485,6 +491,49 @@ class _CoverflowAtmosphere extends CustomPainter {
         ],
       ).createShader(surface));
 
+    // The horizon and rear surface need the SAME photograph behind the
+    // albums as the reflection finish uses below them. A projected,
+    // low-opacity copy is composited here BEFORE any album is painted,
+    // so the floor visibly recedes behind the standing sleeves.
+    if (grain != null) {
+      final source = grain!;
+      final src = Rect.fromLTWH(
+        0, 0, source.width.toDouble(), source.height.toDouble());
+      final m = _CoverflowFloorGeometry.transform(size, src.size, topY);
+      const restoredAlpha = ColorFilter.matrix([
+        1.22, 0, 0, 0, -18,
+        0, 1.22, 0, 0, -18,
+        0, 0, 1.22, 0, -18,
+        0, 0, 0, 0, 96,
+      ]);
+      canvas.save();
+      canvas.clipRect(surface);
+      canvas.saveLayer(surface, Paint()..blendMode = BlendMode.overlay);
+      canvas.save();
+      canvas.transform(m.storage);
+      canvas.drawImageRect(source, src, src, Paint()
+        ..colorFilter = restoredAlpha
+        ..filterQuality = FilterQuality.medium);
+      canvas.restore();
+      canvas.drawRect(surface, Paint()
+        ..blendMode = BlendMode.dstIn
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          stops: [0, .14, .34, .53, .80, 1],
+          colors: [
+            Color(0x00FFFFFF),
+            Color(0x4AFFFFFF),
+            Color(0xBEFFFFFF),
+            Color(0xC9FFFFFF),
+            Color(0xA6FFFFFF),
+            Color(0x00FFFFFF),
+          ],
+        ).createShader(surface));
+      canvas.restore();
+      canvas.restore();
+    }
+
     // Diffuse album-colored light is pooled near contact points. This
     // illuminates the grain but does not create a hard straight horizon.
     for (final pool in const <List<double>>[
@@ -509,7 +558,7 @@ class _CoverflowAtmosphere extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
-      old.contactFraction != contactFraction ||
+      old.grain != grain || old.contactFraction != contactFraction ||
       old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
 }
 
