@@ -566,11 +566,24 @@ open class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "thumbnail" -> {
                         val id = call.argument<Number>("queueId")?.toLong()
+                        val side = call.argument<Number>("targetSide")?.toInt() ?: 768
                         if (id == null) {
                             result.success(null)
                         } else {
                             Thread {
-                                val bytes = queueArtThumbnail(id)
+                                val bytes = queueArtThumbnail(id, side)
+                                mainHandler.post { result.success(bytes) }
+                            }.start()
+                        }
+                    }
+                    "encode" -> {
+                        val input = call.argument<ByteArray>("bytes")
+                        val side = call.argument<Number>("targetSide")?.toInt() ?: 768
+                        if (input == null) {
+                            result.success(null)
+                        } else {
+                            Thread {
+                                val bytes = encodeQueueArtBytes(input, side)
                                 mainHandler.post { result.success(bytes) }
                             }.start()
                         }
@@ -1215,38 +1228,94 @@ open class MainActivity : FlutterActivity() {
         }
     }
 
-    /** The queue icon is a real media-session bitmap or a local content URI.
-     * The phone may fetch an https image URI through its existing HTTP helper.
-     * Keep side images small for the ATOTO and for Wi-Fi Direct transfers.
+    /**
+     * Real MediaSession queue artwork rendered at adequate resolution for
+     * Coverflow side sleeves (which occupy almost as much screen as the
+     * selected album). Prefer the higher-resolution content URI to the
+     * often 128/256px session iconBitmap. No enlargement of low-res sources.
      */
-    private fun queueArtThumbnail(queueId: Long): ByteArray? {
+    private fun queueArtThumbnail(queueId: Long, requestedSide: Int): ByteArray? {
         val item = try { controller?.queue?.firstOrNull {
             it.queueId == queueId } } catch (_: Exception) { null } ?: return null
         val description = item.description
-        var image = description.iconBitmap
-        if (image == null) {
-            val uri = description.iconUri ?: return null
-            if (uri.scheme != "content" && uri.scheme != "file" &&
-                uri.scheme != "android.resource") return null
+        val maxSide = requestedSide.coerceIn(384, 896)
+        var image: Bitmap? = null
+        val uri = description.iconUri
+        if (uri != null && (uri.scheme == "content" || uri.scheme == "file" ||
+                uri.scheme == "android.resource")) {
             image = try {
-                contentResolver.openInputStream(uri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream)
+                val bounds = BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, bounds)
+                }
+                var sample = 1
+                while (maxOf(bounds.outWidth, bounds.outHeight) / sample >
+                        maxSide * 2) sample *= 2
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                    inPreferredConfig = Bitmap.Config.RGB_565
+                }
+                contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, options)
                 }
             } catch (_: Exception) { null }
         }
-        val bitmap = image ?: return null
+        // Many players publish only a small icon. Use it if there is no
+        // better asset, but do NOT upscale and claim detail is recovered.
+        val bitmap = image ?: description.iconBitmap ?: return null
+        return encodeQueueCoverBitmap(bitmap, maxSide)
+    }
+
+    private fun encodeQueueArtBytes(input: ByteArray, requestedSide: Int): ByteArray? {
+        if (input.isEmpty || input.size > 8 * 1024 * 1024) return null
         return try {
-            val side = maxOf(bitmap.width, bitmap.height)
-            val scaled = if (side > 320) {
-                val factor = 320.0 / side
+            val bounds = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeByteArray(input, 0, input.size, bounds)
+            val maxSide = requestedSide.coerceIn(384, 896)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample >
+                    maxSide * 2) sample *= 2
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+            val bmp = BitmapFactory.decodeByteArray(
+                input, 0, input.size, options) ?: return null
+            try { encodeQueueCoverBitmap(bmp, maxSide) }
+            finally { bmp.recycle() }
+        } catch (_: Exception) { null }
+    }
+
+    private fun encodeQueueCoverBitmap(bitmap: Bitmap, maxSide: Int): ByteArray? {
+        return try {
+            val longest = maxOf(bitmap.width, bitmap.height)
+            if (longest <= 0) return null
+            val scaled = if (longest > maxSide) {
+                val ratio = maxSide.toDouble() / longest
                 Bitmap.createScaledBitmap(bitmap,
-                    maxOf(1, (bitmap.width * factor).toInt()),
-                    maxOf(1, (bitmap.height * factor).toInt()), true)
+                    maxOf(1, (bitmap.width * ratio).toInt()),
+                    maxOf(1, (bitmap.height * ratio).toInt()), true)
             } else bitmap
-            val output = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 80, output)
-            if (scaled !== bitmap) scaled.recycle()
-            output.toByteArray().takeIf { it.size < 256 * 1024 }
+            try {
+                // Keep actual pixel detail, while bounding transfers so
+                // VYBE Connect can send up to six JPEG side sleeves.
+                val output = ByteArrayOutputStream()
+                var data = ByteArray(0)
+                for (quality in intArrayOf(90, 83, 76, 68)) {
+                    output.reset()
+                    if (!scaled.compress(Bitmap.CompressFormat.JPEG,
+                            quality, output)) return null
+                    data = output.toByteArray()
+                    if (data.size <= 240 * 1024) break
+                }
+                data.takeIf { it.size <= 280 * 1024 }
+            } finally {
+                if (scaled !== bitmap) scaled.recycle()
+            }
         } catch (_: Exception) { null }
     }
 
