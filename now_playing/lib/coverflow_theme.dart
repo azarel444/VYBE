@@ -92,13 +92,8 @@ class CoverflowScene extends StatelessWidget {
         child: Stack(fit: StackFit.expand, clipBehavior: Clip.hardEdge,
           children: [
             Positioned.fill(child: IgnorePointer(
-              child: FutureBuilder<ui.Image>(
-                future: _coverflowGrainImage,
-                builder: (context, snapshot) => CustomPaint(
-                  painter: _CoverflowAtmosphere(
-                    palette, floorY / h, grain: snapshot.data,
-                  ),
-                ),
+              child: CustomPaint(
+                painter: _CoverflowAtmosphere(palette, floorY / h),
               ),
             )),
             if (leftVisualizer != null)
@@ -188,6 +183,18 @@ class CoverflowScene extends StatelessWidget {
                   slot: 0, portrait: portrait),
                 accent: palette.a, performanceMode: performanceMode,
                 strength: 1.0, selected: true, side: 0)),
+            )),
+            // The texture must be composited OVER the mirrored sleeves,
+            // not buried under them. Clip it to the FLOOR only so it
+            // cannot fog or darken artwork above the point of contact.
+            Positioned.fill(child: IgnorePointer(
+              child: FutureBuilder<ui.Image>(
+                future: _coverflowGrainImage,
+                builder: (context, frame) => CustomPaint(
+                  painter: _CoverflowFloorFinish(
+                    palette, floorY / h, frame.data),
+                ),
+              ),
             )),
 
             Positioned(
@@ -561,6 +568,113 @@ class _CoverflowAtmosphere extends CustomPainter {
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
       old.contactFraction != contactFraction || old.grain != grain ||
       old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
+}
+
+/// Visible photographic polish ABOVE the reflections, but BELOW metadata.
+/// The previous painter multiplied the (mostly transparent) texture into
+/// the scene BEFORE mirrored sleeves were drawn, so the reflection layer
+/// covered the entire texture. This finish composes both dark and lit grain
+/// over the real reflection using two bounded, low-overdraw passes.
+class _CoverflowFloorFinish extends CustomPainter {
+  final ArtPalette p;
+  final double contactFraction;
+  final ui.Image? grain;
+  const _CoverflowFloorFinish(this.p, this.contactFraction, this.grain);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final source = grain;
+    if (source == null) return;
+    final w = size.width, h = size.height;
+    // The 2-pixel pad prevents textural grain from covering the lower rim.
+    final footY = h * contactFraction + 2;
+    final floor = Rect.fromLTRB(0, footY, w, h);
+    final src = Rect.fromLTWH(
+        0, 0, source.width.toDouble(), source.height.toDouble());
+    final perspective = _CoverflowFloorGeometry.transform(
+        size, src.size, footY - h * .12);
+
+    // Pass 1: black parts of the source DARKEN the real reflections.
+    // A full-canvas gray or opaque wash must never be used.
+    canvas.save();
+    canvas.clipRect(floor);
+    canvas.saveLayer(floor, Paint()..blendMode = BlendMode.multiply);
+    canvas.transform(perspective.storage);
+    canvas.drawImageRect(source, src, src, Paint()
+      ..color = const Color(0xCCFFFFFF)
+      ..filterQuality = FilterQuality.medium);
+    canvas.restore();
+    canvas.restore();
+
+    // Pass 2: textured bright portions catch the reflected album light.
+    // It is deliberately visible nearest the contact points and fades
+    // toward the foreground. This also makes the photographic relief
+    // legible over a dark floor, where multiply alone cannot lighten.
+    canvas.save();
+    canvas.clipRect(floor);
+    canvas.saveLayer(floor, Paint()..blendMode = BlendMode.screen);
+    canvas.save();
+    canvas.transform(perspective.storage);
+    canvas.drawImageRect(source, src, src, Paint()
+      ..color = const Color(0xE6FFFFFF)
+      ..filterQuality = FilterQuality.medium
+      ..colorFilter = ColorFilter.mode(
+        Color.lerp(p.a, Colors.white, .25)!, BlendMode.modulate));
+    canvas.restore();
+    canvas.drawRect(floor, Paint()
+      ..blendMode = BlendMode.dstIn
+      ..shader = RadialGradient(
+        center: const Alignment(0, -.90),
+        radius: 1.20,
+        stops: const [0, .24, .60, 1],
+        colors: const [
+          Color(0xEEFFFFFF),
+          Color(0xC7FFFFFF),
+          Color(0x5AFFFFFF),
+          Color(0x00FFFFFF),
+        ],
+      ).createShader(floor));
+    canvas.restore();
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _CoverflowFloorFinish old) =>
+      old.grain != grain || old.contactFraction != contactFraction ||
+      old.p.a != p.a || old.p.b != p.b;
+}
+
+/// Perspective warp shared by the textured upper floor and its finish.
+/// The projected far edge is narrower than the near edge.
+class _CoverflowFloorGeometry {
+  static Matrix4 transform(Size size, Size src, double topY) {
+    final w = size.width, h = size.height;
+    final q = <Offset>[
+      Offset(-w * .08, topY),
+      Offset(w * 1.08, topY),
+      Offset(w * 1.40, h * 1.16),
+      Offset(-w * .40, h * 1.16),
+    ];
+    final tl = q[0], tr = q[1], br = q[2], bl = q[3];
+    final dx1 = tr.dx - br.dx, dx2 = bl.dx - br.dx;
+    final dx3 = tl.dx - tr.dx + br.dx - bl.dx;
+    final dy1 = tr.dy - br.dy, dy2 = bl.dy - br.dy;
+    final dy3 = tl.dy - tr.dy + br.dy - bl.dy;
+    final det = dx1 * dy2 - dx2 * dy1;
+    final g = det.abs() < .000001 ? 0.0
+        : (dx3 * dy2 - dx2 * dy3) / det;
+    final j = det.abs() < .000001 ? 0.0
+        : (dx1 * dy3 - dx3 * dy1) / det;
+    return Matrix4.identity()
+      ..setEntry(0, 0, (tr.dx - tl.dx + g * tr.dx) / src.width)
+      ..setEntry(0, 1, (bl.dx - tl.dx + j * bl.dx) / src.height)
+      ..setEntry(0, 3, tl.dx)
+      ..setEntry(1, 0, (tr.dy - tl.dy + g * tr.dy) / src.width)
+      ..setEntry(1, 1, (bl.dy - tl.dy + j * bl.dy) / src.height)
+      ..setEntry(1, 3, tl.dy)
+      ..setEntry(3, 0, g / src.width)
+      ..setEntry(3, 1, j / src.height);
+  }
 }
 
 /// Screen-space black cast shadow from a front sleeve into the album
