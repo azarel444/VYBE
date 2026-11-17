@@ -129,7 +129,6 @@ class CoverflowScene extends StatelessWidget {
     // The receding card bases rise subtly into the background perspective.
     final top = coverTop + centerSize - size -
         centerSize * (.032 + .012 * (distance - 1));
-    final intensity = near ? .98 : distance == 2 ? .70 : .44;
     final turn = (entry.slot < 0 ? 1 : -1) *
         (distance == 1 ? .50 : distance == 2 ? .57 : .64);
     // The render also angles the COVER IN SCREEN SPACE (right edge lower
@@ -143,17 +142,19 @@ class CoverflowScene extends StatelessWidget {
       width: size,
       height: size * 1.38,
       child: RepaintBoundary(
-        child: Opacity(opacity: intensity,
-          child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.identity()
-              ..setEntry(3, 2, .0014)
-              ..rotateZ(lean)
-              ..rotateY(turn),
-            child: _coverAndReflection(
-              entry.thumb, size, distance: distance,
-              left: entry.slot < 0),
-          ),
+        // Don't put an Opacity saveLayer around the entire card. Besides
+        // washing pale covers out against fanart, it could crop the halo at
+        // the card's raster bounds. Recession darkens the face internally
+        // without clipping the cast shadow or illuminated outline.
+        child: Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, .0014)
+            ..rotateZ(lean)
+            ..rotateY(turn),
+          child: _coverAndReflection(
+            entry.thumb, size, distance: distance,
+            left: entry.slot < 0),
         ),
       ),
     );
@@ -259,6 +260,11 @@ class CoverflowScene extends StatelessWidget {
           child: Stack(fit: StackFit.expand, children: [
             Padding(padding: EdgeInsets.all(active ? 2 : 1),
               child: coverFace()),
+            if (distance >= 2)
+              Positioned.fill(child: IgnorePointer(child: ColoredBox(
+                color: Colors.black.withOpacity(
+                    distance == 2 ? .25 : .48),
+              ))),
             // Closest cover occludes the next one and casts a dark falloff on
             // the visible rear face; no hard black bar or duplicate album.
             if (!active)
