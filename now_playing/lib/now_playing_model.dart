@@ -126,39 +126,36 @@ class NowPlayingModel extends ChangeNotifier {
   Future<void> _fetchCoverflowThumbnail(CoverflowCover entry, int token) async {
     Uint8List? bytes;
     final cacheKey = '${entry.id}|${entry.artUri}';
+    // These sleeves can occupy almost the selected cover's screen size.
+    // Old 256/320px side images look very pixelated on DeX and head units.
+    final targetSide = entry.slot.abs() == 1 ? 768
+        : entry.slot.abs() == 2 ? 640 : 512;
     try {
       final numericId = int.tryParse(entry.id);
       if (numericId != null) {
-        bytes = await _queueArt.invokeMethod<Uint8List>(
-            'thumbnail', {'queueId': numericId});
+        bytes = await _queueArt.invokeMethod<Uint8List>('thumbnail', {
+          'queueId': numericId, 'targetSide': targetSide,
+        });
       }
       if ((bytes == null || bytes.isEmpty) && entry.artUri.isNotEmpty) {
         final uri = Uri.tryParse(entry.artUri);
         if (uri != null && uri.scheme == 'https') {
           final downloaded = await httpGetBytes(uri);
-          if (downloaded != null && downloaded.isNotEmpty) {
-            // Keep side thumbnails small and transferable over Wi-Fi Direct.
-            final codec = await ui.instantiateImageCodec(
-                downloaded, targetWidth: 256);
-            try {
-              final frame = await codec.getNextFrame();
-              try {
-                final data = await frame.image.toByteData(
-                    format: ui.ImageByteFormat.png);
-                bytes = data?.buffer.asUint8List();
-              } finally {
-                frame.image.dispose();
-              }
-            } finally {
-              codec.dispose();
-            }
+          if (downloaded != null && downloaded.isNotEmpty &&
+              downloaded.length <= 8 * 1024 * 1024) {
+            // High-res JPEG encoding on the Kotlin worker thread preserves
+            // details while respecting the receiver's transport limits.
+            // Do not downsample to a 256px PNG before displaying the image.
+            bytes = await _queueArt.invokeMethod<Uint8List>('encode', {
+              'bytes': downloaded, 'targetSide': targetSide,
+            });
           }
         }
       }
     } catch (error) {
       debugPrint('VYBE Coverflow queue thumbnail unavailable: $error');
     }
-    if (bytes == null || bytes.isEmpty || bytes.length > 320 * 1024 ||
+    if (bytes == null || bytes.isEmpty || bytes.length > 280 * 1024 ||
         token != _coverflowToken || _disposed) return;
     _coverflowThumbCache[cacheKey] = bytes;
     if (_coverflowThumbCache.length > 30) {
