@@ -85,14 +85,6 @@ class CoverflowScene extends StatelessWidget {
             // Back to front. Every near sleeve occludes its actual rear
             // neighbor; selected art is always the final and frontmost cover.
             for (final entry in side) ...[
-              if (entry.slot.abs() <= 2)
-                Positioned.fill(child: IgnorePointer(
-                  child: CustomPaint(painter: _CoverflowCastShadow(
-                    quad: _coverQuad(w, floorY, centerSize,
-                      slot: entry.slot, portrait: portrait),
-                    unit: centerSize,
-                    side: entry.slot < 0 ? -1 : 1)),
-                )),
               if (entry.slot.abs() == 1)
                 Positioned.fill(child: IgnorePointer(
                   child: CustomPaint(painter: _CoverflowCoverGlow(
@@ -106,12 +98,6 @@ class CoverflowScene extends StatelessWidget {
                   slot: entry.slot, portrait: portrait),
                 distance: entry.slot.abs(), left: entry.slot < 0),
             ],
-            Positioned.fill(child: IgnorePointer(
-              child: CustomPaint(painter: _CoverflowCastShadow(
-                quad: _coverQuad(w, floorY, centerSize,
-                  slot: 0, portrait: portrait),
-                unit: centerSize, side: 0)),
-            )),
             Positioned.fill(child: IgnorePointer(
               child: CustomPaint(painter: _CoverflowCoverGlow(
                 quad: _coverQuad(w, floorY, centerSize,
@@ -155,13 +141,14 @@ class CoverflowScene extends StatelessWidget {
       {required int slot, required bool portrait}) {
     final cx = width * .5;
     if (slot == 0) {
-      // The active cover is ALSO angled: upper edge narrower than lower
-      // edge, as in the render, but remains prominent and nearly frontal.
+      // Main sleeve is a deliberately PROJECTED square, not a rectangle:
+      // its upper edge has receded in depth, with a slight diagonal pitch.
+      // Its bottom edge is wider and closer to the camera, like the render.
       return [
-        Offset(cx - size * .50, floor - size * .90),
-        Offset(cx + size * .50, floor - size * .90),
-        Offset(cx + size * .545, floor),
-        Offset(cx - size * .545, floor),
+        Offset(cx - size * .475, floor - size * .965),
+        Offset(cx + size * .485, floor - size * .938),
+        Offset(cx + size * .565, floor),
+        Offset(cx - size * .565, floor),
       ];
     }
 
@@ -171,11 +158,14 @@ class CoverflowScene extends StatelessWidget {
     // X coordinates describe offsets LEFT of center. The right side mirrors
     // these exact corners. Close cards tuck visibly UNDER the active art,
     // and each outward sleeve is largely hidden by the preceding sleeve.
+    // Exterior top corners move BACK and UP in depth. Bottom corners
+    // remain on an almost level stage line. Do not turn the bottom edges
+    // upward into the incorrect "wings" shown in previous APK screenshots.
     final v = d == 1
-        ? [-1.09, -.45, -1.20, -.425, -.80, -.69, -.05, 0.0]
+        ? [-1.09, -.46, -1.225, -.45, -.82, -.69, -.008, -.008]
         : d == 2
-            ? [-1.43, -.91, -1.57, -.92, -.64, -.56, -.08, -.025]
-            : [-1.59, -1.25, -1.69, -1.28, -.51, -.44, -.10, -.05];
+            ? [-1.45, -.90, -1.56, -.94, -.655, -.555, -.025, -.025]
+            : [-1.69, -1.31, -1.78, -1.34, -.51, -.435, -.050, -.050];
     final xScale = portrait ? .56 : 1.0;
     Offset p(double x, double y) =>
         Offset(cx + size * x * xScale, floor + size * y);
@@ -269,24 +259,6 @@ class CoverflowScene extends StatelessWidget {
     );
 
     return Stack(clipBehavior: Clip.none, children: [
-      // Cast a distinct, soft shadow OUTWARD over the actual rear sleeve.
-      // The near art is composited after that rear sleeve, so it visibly
-      // occludes and shades it, instead of just dimming its own front face.
-      if (!active)
-        Positioned(
-          left: left ? -size * .38 : size * .79,
-          top: size * .11,
-          width: size * .59,
-          height: size * .80,
-          child: IgnorePointer(child: DecoratedBox(
-            decoration: BoxDecoration(gradient: LinearGradient(
-              begin: left ? Alignment.centerLeft : Alignment.centerRight,
-              end: left ? Alignment.centerRight : Alignment.centerLeft,
-              colors: [Colors.transparent,
-                Colors.black.withOpacity(distance == 1 ? .78 : .63)],
-            )),
-          )),
-        ),
       Positioned(left: 1, top: size + 3,
         width: size - 2, height: reflectionHeight,
         child: Opacity(
@@ -324,14 +296,14 @@ class CoverflowScene extends StatelessWidget {
               color: accent.withOpacity(active ? .96 : .87),
               width: active ? 2.1 : 1.35),
             boxShadow: [
-              // Painted behind later/nearer covers; this shadow actually
-              // reaches the artwork behind it instead of darkening itself.
+              // Only a small neutral contact shadow below the sleeve.
+              // Cast darkness is painted INSIDE the underlying rear face,
+              // never as a floating black rectangle off the front rim.
               BoxShadow(
-                color: Colors.black.withOpacity(active ? .84 : .94),
-                offset: Offset(active ? 9 : (left ? -17 : 17),
-                  active ? 13 : 8),
-                blurRadius: active ? 23 : 20,
-                spreadRadius: active ? 2 : 9),
+                color: Colors.black.withOpacity(.45),
+                offset: const Offset(0, 3),
+                blurRadius: 6,
+                spreadRadius: 0),
               BoxShadow(
                 color: accent.withOpacity(active
                     ? .82 : distance == 1 ? .54 : distance == 2 ? .31 : .16),
@@ -347,26 +319,28 @@ class CoverflowScene extends StatelessWidget {
           child: Stack(fit: StackFit.expand, children: [
             Padding(padding: EdgeInsets.all(active ? 2 : 1),
               child: coverFace()),
-            // Closest cover occludes the next one and casts a dark falloff on
-            // the visible rear face; no hard black bar or duplicate album.
-            // The near side covers stay clean and luminous. Older, more
-            // distant covers have a *dark* occluded inner edge, not grey
-            // transparency: foreground sleeves cast a strong shadow on them.
+            // True BLACK occlusion is limited to pixels of the REAR
+            // album face. Each inner edge faces its nearer neighbor.
+            // Clipping the shade here prevents cast shadows from hanging
+            // outside the rear cover or across the fanart/background.
             if (!active)
-              IgnorePointer(child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: left ? Alignment.centerRight : Alignment.centerLeft,
-                    end: left ? Alignment.centerLeft : Alignment.centerRight,
-                    colors: [
-                      Colors.black.withOpacity(distance == 1 ? .05
-                          : distance == 2 ? .91 : .97),
-                      Colors.black.withOpacity(distance == 1 ? .02
-                          : distance == 2 ? .24 : .55),
-                    ],
-                    stops: const [0, 1],
+              Positioned.fill(child: ClipRRect(
+                borderRadius: borderRadius,
+                child: IgnorePointer(child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: left ? Alignment.centerRight : Alignment.centerLeft,
+                      end: left ? Alignment.centerLeft : Alignment.centerRight,
+                      colors: [
+                        Colors.black.withOpacity(.995),
+                        Colors.black.withOpacity(distance == 1 ? .95 : .985),
+                        Colors.black.withOpacity(distance == 1 ? .35 : .52),
+                        Colors.transparent,
+                      ],
+                      stops: const [0, .11, .34, .61],
+                    ),
                   ),
-                ),
+                )),
               )),
             // Luminous top-edge specular reflection follows palette, not
             // the fixed amber coloring of the reference mockup.
@@ -469,60 +443,6 @@ class _CoverflowAtmosphere extends CustomPainter {
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
       old.horizon != horizon || old.p.a != p.a ||
       old.p.b != p.b || old.p.c != p.c;
-}
-
-/// A strong but soft, deliberately BLACK cast shadow on the actual sleeve
-/// immediately behind the current one. A dark halo alone leaves the adjacent
-/// album washed grey; this explicit stripe creates the mockup's separation.
-class _CoverflowCastShadow extends CustomPainter {
-  final List<Offset> quad;
-  final double unit;
-  final int side; // -1 left sleeve, +1 right sleeve, 0 center
-  const _CoverflowCastShadow({
-    required this.quad, required this.unit, required this.side,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    void cast(Offset top, Offset bottom, double direction, double strength) {
-      final reach = unit * (side == 0 ? .15 : .16);
-      final dx = direction * reach;
-      final outerTop = top.translate(dx, 0);
-      final outerBottom = bottom.translate(dx, 0);
-      final path = Path()
-        ..moveTo(top.dx, top.dy - 6)
-        ..lineTo(bottom.dx, bottom.dy + 4)
-        ..lineTo(outerBottom.dx, outerBottom.dy + 4)
-        ..lineTo(outerTop.dx, outerTop.dy - 6)
-        ..close();
-      final from = math.min(top.dx, top.dx + dx);
-      final to = math.max(top.dx, top.dx + dx);
-      canvas.drawPath(path, Paint()
-        ..shader = LinearGradient(
-          colors: direction < 0
-              ? [Colors.transparent,
-                 Colors.black.withOpacity(strength)]
-              : [Colors.black.withOpacity(strength),
-                 Colors.transparent],
-          stops: const [0, 1],
-        ).createShader(Rect.fromLTRB(from, top.dy,
-            math.max(from + 1, to), bottom.dy)));
-    }
-
-    if (side == 0) {
-      cast(quad[0], quad[3], -1, .92); // center onto left sleeve
-      cast(quad[1], quad[2], 1, .92);  // center onto right sleeve
-    } else if (side < 0) {
-      cast(quad[0], quad[3], -1, .94); // near-left onto distant left
-    } else {
-      cast(quad[1], quad[2], 1, .94);  // near-right onto distant right
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _CoverflowCastShadow old) =>
-      old.unit != unit || old.side != side || old.quad[0] != quad[0] ||
-      old.quad[1] != quad[1] || old.quad[2] != quad[2];
 }
 
 /// A bright tight rim plus soft colored bloom, drawn immediately BEHIND
