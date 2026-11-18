@@ -340,7 +340,11 @@ class CoverflowScene extends StatelessWidget {
               child: Center(child: trackTitle),
             ),
             Positioned(
-              left: w * .15, right: w * .15,
+              // Portrait Coverflow needs a generous album-name plaque;
+              // keep its diagonal wings outside the text and clear of the
+              // edge visualizers. Landscape preserves the approved width.
+              left: w * (portrait ? .055 : .15),
+              right: w * (portrait ? .055 : .15),
               top: portrait ? h * .864 : h * .887,
               height: portrait ? h * .075 : h * .076,
               child: Center(child: albumPlaque),
