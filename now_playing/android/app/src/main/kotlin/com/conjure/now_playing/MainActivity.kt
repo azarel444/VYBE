@@ -13,6 +13,7 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.media.AudioManager
+import android.telephony.TelephonyManager
 import android.view.KeyEvent
 import android.net.Uri
 import android.os.Bundle
@@ -355,6 +356,8 @@ open class MainActivity : FlutterActivity() {
     private var visualizer: Visualizer? = null
     private var fftSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var videoPhonePermissionResult: MethodChannel.Result? = null
+    private val videoPhonePermissionCode = 4734
 
     private val sessionsListener =
         MediaSessionManager.OnActiveSessionsChangedListener { list -> pick(list) }
@@ -714,6 +717,28 @@ open class MainActivity : FlutterActivity() {
                 "recheckArtwork" -> { push(true); result.success(null) }
                 "integrationDiagnostics" -> result.success(integrationDiagnostics(call.argument<String>("service") ?: ""))
                 "pauseYoutubeMusicForVideoTest" -> result.success(pauseYoutubeMusicForVideoTest())
+                "videoTestPlaybackState" -> result.success(videoTestPlaybackState())
+                "videoTestSkipNext" -> result.success(videoTestSkipNext())
+                "videoTestResumeSource" -> result.success(videoTestResumeSource())
+                "videoTestCallState" -> result.success(videoTestCallState())
+                "videoTestEnableCallPermission" -> {
+                    if (!packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)) {
+                        result.success(mapOf("available" to false, "granted" to false,
+                            "reason" to "No telephony radio. Bluetooth call detection uses Android audio mode."))
+                    } else if (Build.VERSION.SDK_INT < 23 ||
+                        checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+                        PackageManager.PERMISSION_GRANTED) {
+                        result.success(mapOf("available" to true, "granted" to true,
+                            "reason" to "Phone call detection enabled"))
+                    } else if (videoPhonePermissionResult != null) {
+                        result.success(mapOf("available" to true, "granted" to false,
+                            "reason" to "Call permission request already open"))
+                    } else {
+                        videoPhonePermissionResult = result
+                        requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE),
+                            videoPhonePermissionCode)
+                    }
+                }
                 "startVisualizer" -> result.success(startVisualizer())
                 "stopVisualizer" -> { stopVisualizer(); result.success(null) }
                 "openAccessSettings" -> { openAccessSettings(); result.success(null) }
@@ -995,6 +1020,158 @@ open class MainActivity : FlutterActivity() {
     // Called ONLY after the tester presses Play in the embedded-player test.
     // Pause exactly YouTube Music, never the currently selected VYBE output.
     // The user resumes YouTube Music manually after the test.
+    /// Inspect YouTube Music's *published* MediaSession queue only. No
+    /// stream extraction or fabricated IDs, and no transport command to
+    /// unrelated music players.
+    private fun videoTestSession(): MediaController? {
+        if (!hasAccess()) return null
+        return try {
+            val mgr = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val cn = ComponentName(this, MediaListenerService::class.java)
+            mgr.getActiveSessions(cn).firstOrNull {
+                it.packageName == "com.google.android.apps.youtube.music"
+            }
+        } catch (_: Exception) { null }
+    }
+
+    private fun videoTestCandidateId(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            val uri = Uri.parse(raw)
+            if (uri.host?.lowercase() !in listOf("i.ytimg.com", "img.youtube.com"))
+                return null
+            val parts = uri.pathSegments
+            if (parts.size >= 2 &&
+                (parts[0] == "vi" || parts[0] == "vi_webp") &&
+                Regex("[A-Za-z0-9_-]{11}").matches(parts[1])) parts[1] else null
+        } catch (_: Exception) { null }
+    }
+
+    /// Small polling payload: the full integration report is too large to
+    /// request every 600ms on the ATOTO A5L.
+    private fun videoTestPlaybackState(): Map<String, Any?> {
+        val c = videoTestSession() ?: return mapOf(
+            "sessionFound" to false, "reason" to "YouTube Music session unavailable")
+        return try {
+            val st = c.playbackState
+            val md = c.metadata
+            val queueId = st?.activeQueueItemId ?: -1L
+            val item = c.queue?.firstOrNull { it.queueId == queueId }
+            val title = md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+            val mediaId = md?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID) ?: ""
+            val artwork = item?.description?.iconUri?.toString()
+            mapOf(
+                "sessionFound" to true,
+                "queueId" to queueId,
+                "title" to title,
+                "mediaId" to mediaId,
+                "playing" to (st?.state == PlaybackState.STATE_PLAYING),
+                "playbackState" to (st?.state ?: -1),
+                "videoId" to videoTestCandidateId(artwork),
+                "skipNextSupported" to ((st?.actions ?: 0L) and
+                    PlaybackState.ACTION_SKIP_TO_NEXT != 0L)
+            )
+        } catch (e: Exception) {
+            mapOf("sessionFound" to false, "reason" to "MediaSession read failed: ${e.message}")
+        }
+    }
+
+    /// Only skip inside the source music app. The test confirms afterward
+    /// that metadata actually changed; transport calls aren't proof.
+    private fun videoTestSkipNext(): Map<String, Any?> {
+        val c = videoTestSession() ?: return mapOf(
+            "requested" to false, "reason" to "No active YouTube Music session")
+        val supported = (c.playbackState?.actions ?: 0L) and
+            PlaybackState.ACTION_SKIP_TO_NEXT != 0L
+        if (!supported) return mapOf(
+            "requested" to false, "reason" to "YouTube Music does not publish Skip Next")
+        return try {
+            val before = c.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+            c.transportControls.skipToNext()
+            // Skip may cause the source to start playing again. Pause the
+            // music session only; the embedded player's audio is independent.
+            mainHandler.postDelayed({
+                try {
+                    val source = videoTestSession()
+                    if (source?.playbackState?.state == PlaybackState.STATE_PLAYING) {
+                        source.transportControls.pause()
+                    }
+                } catch (_: Exception) {}
+            }, 180)
+            mapOf("requested" to true, "previousTitle" to before,
+                "reason" to "Skip Next requested on YouTube Music")
+        } catch (e: Exception) {
+            mapOf("requested" to false, "reason" to "Skip Next failed: ${e.message}")
+        }
+    }
+
+    private fun videoTestResumeSource(): Map<String, Any?> {
+        val c = videoTestSession() ?: return mapOf(
+            "resumed" to false, "reason" to "YouTube Music session unavailable")
+        return try {
+            if (c.playbackState?.state == PlaybackState.STATE_PLAYING) {
+                mapOf("resumed" to true, "reason" to "YouTube Music is playing")
+            } else {
+                c.transportControls.play()
+                mapOf("resumed" to true, "reason" to "Requested YouTube Music audio fallback")
+            }
+        } catch (e: Exception) {
+            mapOf("resumed" to false, "reason" to "Could not resume source: ${e.message}")
+        }
+    }
+
+    /// On a phone, permissioned TelephonyManager detects ringing as well
+    /// as connected calls. On non-cellular Android head units, Bluetooth
+    /// phone apps typically signal via MODE_RINGTONE/IN_COMMUNICATION.
+    /// Not all HFP implementations report the latter: test on the ATOTO.
+    private fun videoTestCallState(): Map<String, Any?> {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val mode = audio.mode
+        val audioCall = mode == AudioManager.MODE_IN_CALL ||
+            mode == AudioManager.MODE_IN_COMMUNICATION ||
+            mode == AudioManager.MODE_RINGTONE
+        val hasPhone = packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
+        val allowed = hasPhone && (Build.VERSION.SDK_INT < 23 ||
+            checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+                PackageManager.PERMISSION_GRANTED)
+        var callState = -1
+        if (allowed) {
+            try {
+                val telephony = getSystemService(Context.TELEPHONY_SERVICE)
+                    as? TelephonyManager
+                callState = telephony?.callState ?: -1
+            } catch (_: Exception) {}
+        }
+        val telephonyCall = callState == TelephonyManager.CALL_STATE_RINGING ||
+            callState == TelephonyManager.CALL_STATE_OFFHOOK
+        return mapOf(
+            "interrupted" to (audioCall || telephonyCall),
+            "audioMode" to mode,
+            "phoneAvailable" to hasPhone,
+            "phonePermission" to allowed,
+            "phoneCallState" to callState,
+            "reason" to (if (telephonyCall) "Phone call ringing/in progress"
+                else if (audioCall) "Bluetooth or system call audio mode"
+                else "No call detected")
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != videoPhonePermissionCode) return
+        val pending = videoPhonePermissionResult ?: return
+        videoPhonePermissionResult = null
+        val allowed = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        pending.success(mapOf(
+            "available" to true, "granted" to allowed,
+            "reason" to if (allowed) "Incoming call detection enabled"
+                else "Permission denied: Bluetooth call audio mode is still monitored"))
+    }
+
     private fun pauseYoutubeMusicForVideoTest(): Map<String, Any?> {
         if (!hasAccess()) return mapOf("paused" to false,
             "reason" to "Notification access unavailable; pause YouTube Music manually")
