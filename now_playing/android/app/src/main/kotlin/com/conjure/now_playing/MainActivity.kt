@@ -13,6 +13,7 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.media.AudioManager
+import android.telephony.TelephonyManager
 import android.view.KeyEvent
 import android.net.Uri
 import android.os.Bundle
@@ -714,6 +715,10 @@ open class MainActivity : FlutterActivity() {
                 "recheckArtwork" -> { push(true); result.success(null) }
                 "integrationDiagnostics" -> result.success(integrationDiagnostics(call.argument<String>("service") ?: ""))
                 "pauseYoutubeMusicForVideoTest" -> result.success(pauseYoutubeMusicForVideoTest())
+                "advanceYoutubeMusicForVideoTest" -> result.success(advanceYoutubeMusicForVideoTest())
+                "resumeYoutubeMusicForVideoTest" -> result.success(resumeYoutubeMusicForVideoTest())
+                "musicVideoCallState" -> result.success(musicVideoCallState())
+                "requestMusicVideoCallPermission" -> requestMusicVideoCallPermission(result)
                 "startVisualizer" -> result.success(startVisualizer())
                 "stopVisualizer" -> { stopVisualizer(); result.success(null) }
                 "openAccessSettings" -> { openAccessSettings(); result.success(null) }
@@ -1022,6 +1027,108 @@ open class MainActivity : FlutterActivity() {
             mapOf("paused" to false,
                 "reason" to "Could not pause YouTube Music: ${e.message}")
         }
+    }
+
+    // Music Video sequence diagnostic: target YouTube Music explicitly.
+    // Never skip whatever happened to be selected by VYBE's general
+    // media-session controller (which could belong to another app).
+    private fun youtubeMusicSession(): MediaController? {
+        if (!hasAccess()) return null
+        return try {
+            val mgr = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val component = ComponentName(this, MediaListenerService::class.java)
+            mgr.getActiveSessions(component).firstOrNull {
+                it.packageName == "com.google.android.apps.youtube.music"
+            }
+        } catch (_: Exception) { null }
+    }
+
+    private fun advanceYoutubeMusicForVideoTest(): Map<String, Any?> {
+        val c = youtubeMusicSession() ?: return mapOf(
+            "sent" to false, "reason" to "YouTube Music session unavailable")
+        val state = c.playbackState
+        if ((state?.actions ?: 0L) and PlaybackState.ACTION_SKIP_TO_NEXT == 0L) {
+            return mapOf("sent" to false,
+                "reason" to "YouTube Music does not expose Skip Next")
+        }
+        return try {
+            val fromQueueId = state?.activeQueueItemId ?: -1L
+            val fromTitle = c.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+            c.transportControls.skipToNext()
+            mapOf("sent" to true, "fromQueueId" to fromQueueId,
+                "fromTitle" to fromTitle,
+                "reason" to "Sent Skip Next to YouTube Music; awaiting new metadata")
+        } catch (e: Exception) {
+            mapOf("sent" to false, "reason" to "Skip Next failed: ${e.message}")
+        }
+    }
+
+    private fun resumeYoutubeMusicForVideoTest(): Map<String, Any?> {
+        val c = youtubeMusicSession() ?: return mapOf(
+            "resumed" to false, "reason" to "YouTube Music session unavailable")
+        return try {
+            if (c.playbackState?.state == PlaybackState.STATE_PLAYING) {
+                mapOf("resumed" to false, "alreadyPlaying" to true,
+                    "reason" to "Source audio already playing")
+            } else {
+                c.transportControls.play()
+                mapOf("resumed" to true,
+                    "reason" to "Requested YouTube Music playback")
+            }
+        } catch (e: Exception) {
+            mapOf("resumed" to false, "reason" to "Resume failed: ${e.message}")
+        }
+    }
+
+    // Standalone Android head units can signal HFP calls through audio mode,
+    // even when they have no telephony radio. Phone-side ringing detection
+    // additionally uses the optional READ_PHONE_STATE runtime permission.
+    private fun musicVideoCallState(): Map<String, Any?> {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val mode = audio.mode
+        val audioCall = mode == AudioManager.MODE_RINGTONE ||
+            mode == AudioManager.MODE_IN_CALL ||
+            mode == AudioManager.MODE_IN_COMMUNICATION
+        val telephony = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        val hasPhone = telephony != null &&
+            telephony.phoneType != TelephonyManager.PHONE_TYPE_NONE
+        val permitted = Build.VERSION.SDK_INT < 23 ||
+            checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+                PackageManager.PERMISSION_GRANTED
+        var cellularCall = false
+        if (hasPhone && permitted) {
+            try {
+                cellularCall = telephony!!.callState != TelephonyManager.CALL_STATE_IDLE
+            } catch (_: SecurityException) {}
+        }
+        return mapOf(
+            "inCall" to (audioCall || cellularCall),
+            "audioMode" to mode,
+            "cellularCall" to cellularCall,
+            "hasPhone" to hasPhone,
+            "permissionGranted" to permitted,
+            "permissionNeeded" to (hasPhone && !permitted),
+            "detection" to if (cellularCall) "phone call state"
+                else if (audioCall) "Android audio call mode" else "idle"
+        )
+    }
+
+    private var pendingMusicVideoCallPermission: MethodChannel.Result? = null
+    private val requestMusicVideoCallCode = 4785
+
+    private fun requestMusicVideoCallPermission(result: MethodChannel.Result) {
+        val telephony = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        if (telephony == null || telephony.phoneType == TelephonyManager.PHONE_TYPE_NONE ||
+            Build.VERSION.SDK_INT < 23 ||
+            checkSelfPermission(Manifest.permission.READ_PHONE_STATE) ==
+                PackageManager.PERMISSION_GRANTED) {
+            result.success(true)
+            return
+        }
+        pendingMusicVideoCallPermission?.success(false)
+        pendingMusicVideoCallPermission = result
+        requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE),
+            requestMusicVideoCallCode)
     }
 
     private fun integrationDiagnostics(service: String): Map<String, Any?> {
@@ -1679,6 +1786,13 @@ open class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == requestMusicVideoCallCode) {
+            pendingMusicVideoCallPermission?.success(
+                grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED)
+            pendingMusicVideoCallPermission = null
+            return
+        }
         if (requestCode == REQ_AUDIO_ONBOARD) {
             pendingAudioResult?.success(
                 grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
