@@ -182,20 +182,13 @@ class CoverflowScene extends StatelessWidget {
           e.thumb != null && e.thumb!.isNotEmpty).toList()
         ..sort((a, b) => b.slot.abs().compareTo(a.slot.abs()));
 
-      return ClipRect(child: TweenAnimationBuilder<double>(
-        key: ValueKey<String>('coverflow-transition-$trackKey'),
-        tween: Tween<double>(begin: 0, end: 1),
-        duration: const Duration(milliseconds: 430),
-        curve: Curves.easeOutCubic,
-        builder: (context, t, child) => Transform.translate(
-          offset: Offset((1 - t) * w * .037, 0),
-          child: Opacity(
-            opacity: (.55 + .45 * t).clamp(0.0, 1.0).toDouble(),
-            child: child,
-          ),
-        ),
-        child: Stack(fit: StackFit.expand, clipBehavior: Clip.hardEdge,
-          children: [
+      // The STAGE is not part of the track-change animation. The
+      // previous TweenAnimationBuilder wrapped this whole Stack and
+      // shifted the fanart floor, visualizers, artist text and plaque.
+      // Keep those stationary and animate ONLY the album sleeve group.
+      return ClipRect(child: Stack(
+        fit: StackFit.expand, clipBehavior: Clip.hardEdge,
+        children: [
             Positioned.fill(child: IgnorePointer(
               child: FutureBuilder<_CoverflowTextureLayers>(
                 future: floorLayers,
@@ -213,6 +206,23 @@ class CoverflowScene extends StatelessWidget {
               Positioned(right: 0, top: 0, bottom: 0, width: w * .08,
                 child: IgnorePointer(child: rightVisualizer!)),
 
+            // Only the album sleeves and their contact effects shift
+            // on track change. The stage, floor finish, visualizers,
+            // artist title and plaque remain fixed in screen space.
+            TweenAnimationBuilder<double>(
+              key: ValueKey<String>('coverflow-transition-$trackKey'),
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 430),
+              curve: Curves.easeOutCubic,
+              builder: (context, t, child) => Transform.translate(
+                offset: Offset((1 - t) * w * .037, 0),
+                child: Opacity(
+                  opacity: (.55 + .45 * t).clamp(0.0, 1.0).toDouble(),
+                  child: child,
+                ),
+              ),
+              child: Stack(fit: StackFit.expand,
+                clipBehavior: Clip.hardEdge, children: [
             // Back to front. Every near sleeve occludes its actual rear
             // neighbor; selected art is always the final and frontmost cover.
             for (final entry in side) ...[
@@ -301,6 +311,9 @@ class CoverflowScene extends StatelessWidget {
                 accent: palette.a, performanceMode: performanceMode,
                 strength: 1.0, selected: true, side: 0)),
             )),
+              ],
+              ),
+            ),
             // The texture must be composited OVER the mirrored sleeves,
             // not buried under them. Clip it to the FLOOR only so it
             // cannot fog or darken artwork above the point of contact.
@@ -333,7 +346,6 @@ class CoverflowScene extends StatelessWidget {
               child: Center(child: albumPlaque),
             ),
           ],
-        ),
       ));
     });
   }
