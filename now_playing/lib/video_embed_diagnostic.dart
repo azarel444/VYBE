@@ -31,6 +31,24 @@ class _VideoEmbedDiagnosticPageState extends State<VideoEmbedDiagnosticPage> {
   bool _pausingSource = false;
   bool _sourcePauseConfirmed = false;
   bool _showYoutubeControls = false;
+  bool _automaticNext = true;
+  bool _advancing = false;
+  bool _waitingAfterCall = false;
+  bool _inCall = false;
+  bool _callPollBusy = false;
+  bool _callPermissionNeeded = false;
+  bool _resumeVideoAfterCall = false;
+  bool _resumeSourceAfterCall = false;
+  bool _sourceAudioFallback = false;
+  bool _disposed = false;
+  int _sequenceToken = 0;
+  Timer? _callTimer;
+  String _videoId = '';
+  String _sourceTitle = '';
+  String _sourceArtist = '';
+  String _queueStatus = 'Waiting for source playlist';
+  String _callStatus = 'Monitoring call audio mode';
+  String _transitionStatus = 'Ready to test automatic Next';
   String _state = 'Initializing embedded YouTube player';
   String _sourcePause = 'YouTube Music has not been paused by this test';
   String _lastError = '';
@@ -38,6 +56,10 @@ class _VideoEmbedDiagnosticPageState extends State<VideoEmbedDiagnosticPage> {
   @override
   void initState() {
     super.initState();
+    _videoId = widget.videoId;
+    _callTimer = Timer.periodic(const Duration(milliseconds: 900),
+        (_) => unawaited(_pollCallState()));
+    unawaited(_pollCallState());
     _web = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF000000))
@@ -58,6 +80,7 @@ class _VideoEmbedDiagnosticPageState extends State<VideoEmbedDiagnosticPage> {
           .setMediaPlaybackRequiresUserGesture(false));
     }
     unawaited(_load());
+    unawaited(_readSourceStatus());
   }
 
   void _record(String description) {
@@ -113,11 +136,29 @@ class _VideoEmbedDiagnosticPageState extends State<VideoEmbedDiagnosticPage> {
       // button. Observe the iframe state so BOTH control paths pause the
       // original source and only one audio track continues.
       if (name == 'state' && detail == 'Playing') {
-        unawaited(_pauseMusicSource('Embedded video entered Playing'));
+        if (_inCall) {
+          // A late iframe autoplay event must never restart video mid-call.
+          unawaited(_send('window.vybePause && window.vybePause();'));
+        } else {
+          _sourceAudioFallback = false;
+          unawaited(_pauseMusicSource('Embedded video entered Playing'));
+        }
+      }
+      if (name == 'state' && detail == 'Ended' && _automaticNext) {
+        if (_inCall) {
+          _waitingAfterCall = true;
+          _record('Video ended during call; next track deferred');
+        } else {
+          unawaited(_advanceToNext('Embedded video ended'));
+        }
       }
       if (name == 'ready' && _playOnReady) {
         _playOnReady = false;
-        unawaited(_send('window.vybePlay && window.vybePlay();'));
+        if (!_inCall) {
+          unawaited(_send('window.vybePlay && window.vybePlay();'));
+        } else {
+          _resumeVideoAfterCall = true;
+        }
       }
     } catch (error) {
       _record('Invalid player status message: $error');
@@ -161,7 +202,7 @@ function onYouTubeIframeAPIReady() {
   try {
     ytPlayer = new YT.Player('player', {
       width: '100%', height: '100%',
-      videoId: '${widget.videoId}',
+      videoId: '$_videoId',
       playerVars: {
         autoplay: 0,
         controls: $controls,
@@ -194,16 +235,16 @@ document.head.appendChild(tag);
 ''';
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool playOnReady = false}) async {
     if (!mounted) return;
-    _playOnReady = false;
+    _playOnReady = playOnReady;
     _sourcePauseConfirmed = false;
     setState(() {
       _ready = false;
       _state = 'Loading YouTube iframe…';
       _lastError = '';
     });
-    _record('Loading video ID ${widget.videoId}; controls=${_showYoutubeControls ? 1 : 0}');
+    _record('Loading video ID $_videoId; controls=${_showYoutubeControls ? 1 : 0}');
     try {
       await _web.loadHtmlString(_html(), baseUrl: '$_appOrigin/');
     } catch (e) {
@@ -272,12 +313,14 @@ document.head.appendChild(tag);
 
   Future<void> _pause() async {
     _playOnReady = false;
+    _resumeVideoAfterCall = false;
     _record('Pause requested');
     await _send('window.vybePause && window.vybePause();');
   }
 
   Future<void> _stop() async {
     _playOnReady = false;
+    _resumeVideoAfterCall = false;
     _record('Stop requested');
     await _send('window.vybeStop && window.vybeStop();');
   }
@@ -285,7 +328,17 @@ document.head.appendChild(tag);
   void _copyReport() {
     final content = const JsonEncoder.withIndent('  ').convert({
       'test': 'YouTube IFrame player inside VYBE Android WebView',
-      'videoId': widget.videoId,
+      'initialVideoId': widget.videoId,
+      'currentVideoId': _videoId,
+      'automaticNext': _automaticNext,
+      'sourceTitle': _sourceTitle,
+      'sourceArtist': _sourceArtist,
+      'queueStatus': _queueStatus,
+      'transitionStatus': _transitionStatus,
+      'callStatus': _callStatus,
+      'callPermissionNeeded': _callPermissionNeeded,
+      'audioCallActive': _inCall,
+      'usingSourceAudioFallback': _sourceAudioFallback,
       'controlsShown': _showYoutubeControls,
       'playerReady': _ready,
       'currentState': _state,
@@ -304,6 +357,9 @@ document.head.appendChild(tag);
 
   @override
   void dispose() {
+    _disposed = true;
+    _callTimer?.cancel();
+    _sequenceToken++;
     _playOnReady = false;
     // Do not permit the iframe to keep playing after its test page closes.
     unawaited(_web.runJavaScript('window.vybeStop && window.vybeStop();')
@@ -325,7 +381,7 @@ document.head.appendChild(tag);
           child: ListView(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 36),
             children: [
-              Text('YouTube ID: ${widget.videoId}',
+              Text('YouTube ID: $_videoId',
                   style: const TextStyle(fontSize: 15, color: Colors.white70)),
               const SizedBox(height: 10),
               AspectRatio(
