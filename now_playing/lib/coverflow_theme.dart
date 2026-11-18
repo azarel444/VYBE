@@ -2,159 +2,31 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'coverflow_floor_grain.dart';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 import 'coverflow_queue.dart';
 import 'palette.dart';
 
-// Decode the supplied floor photograph exactly once, instead of decoding
-// a texture on every playback frame. All art and color glows remain dynamic.
-final Future<ui.Image> _coverflowGrainImage = () async {
-  final codec = await ui.instantiateImageCodec(coverflowFloorGrainBytes);
+// The user-supplied landscape/portrait floors already have perspective,
+// grain, transparency and feathered edges baked into their PNG pixels.
+// Decode each asset once per process; never build/project/crossfade a floor
+// texture in response to track changes or ATOTO display-layout jitter.
+final Future<ui.Image> _coverflowLandscapeFloor =
+    _decodeCoverflowFloor('assets/coverflow_floor_landscape.png');
+final Future<ui.Image> _coverflowPortraitFloor =
+    _decodeCoverflowFloor('assets/coverflow_floor_portrait.png');
+
+Future<ui.Image> _decodeCoverflowFloor(String asset) async {
+  final bytes = await rootBundle.load(asset);
+  final codec = await ui.instantiateImageCodec(
+    bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+  );
   try {
-    final frame = await codec.getNextFrame();
-    return frame.image;
+    return (await codec.getNextFrame()).image;
   } finally {
     codec.dispose();
   }
-}();
-
-/// Cache only the visible portion of each stage texture, with its
-/// original floor-space offset. This keeps the photograph, gradients,
-/// projected grain and blend modes identical without three full-screen
-/// GPU textures per display size.
-class _CoverflowFloorStrip {
-  final ui.Image image;
-  final int cropTop;
-  final int fullHeight;
-  const _CoverflowFloorStrip(this.image, this.cropTop, this.fullHeight);
-
-  void draw(Canvas canvas, Size size, BlendMode blend) {
-    final scale = size.height / fullHeight;
-    canvas.drawImageRect(
-      image,
-      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-      Rect.fromLTWH(0, cropTop * scale, size.width, image.height * scale),
-      // Reduce only the photographed floor grain by 20%; keep the
-      // black stage fade, colored contact lights and reflections intact.
-      Paint()
-        ..color = const Color(0xCCFFFFFF)
-        ..blendMode = blend
-        ..filterQuality = FilterQuality.low,
-    );
-  }
-}
-
-class _CoverflowTextureLayers {
-  final _CoverflowFloorStrip rear;
-  final _CoverflowFloorStrip shadow;
-  final _CoverflowFloorStrip highlights;
-  const _CoverflowTextureLayers(this.rear, this.shadow, this.highlights);
-}
-
-final Map<String, Future<_CoverflowTextureLayers>> _coverflowTextureCache = {};
-// Keep last COMPLETE floor per orientation during any layout transition.
-final Map<bool, _CoverflowTextureLayers> _coverflowReadyByOrientation = {};
-
-Future<_CoverflowTextureLayers> _floorTextures(Size size, double contactFraction) {
-  // Suppress 1px layout jitter that used to create new large GPU textures.
-  final width = math.max(16, (size.width / 16).round() * 16);
-  final height = math.max(16, (size.height / 16).round() * 16);
-  final key = '${width}x${height}-${(contactFraction * 10000).round()}';
-  final cached = _coverflowTextureCache.putIfAbsent(key, () async {
-    final source = await _coverflowGrainImage;
-    final src = Rect.fromLTWH(
-        0, 0, source.width.toDouble(), source.height.toDouble());
-    final topRear = math.max(0.0, height * (contactFraction - .155));
-    final rearBounds = Rect.fromLTWH(0, topRear, width.toDouble(),
-        height - topRear);
-    final topFinish = math.max(0.0, height * (contactFraction - .125));
-    final finishBounds = Rect.fromLTRB(0, topFinish,
-        width.toDouble(), height.toDouble());
-    final rearTransform = _CoverflowFloorGeometry.transform(
-        Size(width.toDouble(), height.toDouble()), src.size, topRear);
-    final finishTransform = _CoverflowFloorGeometry.transform(
-        Size(width.toDouble(), height.toDouble()), src.size, topFinish);
-
-    // Original alpha/contrast matrices, unchanged.
-    const rearColor = ColorFilter.matrix([
-      1.22, 0, 0, 0, -18, 0, 1.22, 0, 0, -18,
-      0, 0, 1.22, 0, -18, 0, 0, 0, 0, 83,
-    ]);
-    const darkGrain = ColorFilter.matrix([
-      1.27, 0, 0, 0, -26, 0, 1.27, 0, 0, -26,
-      0, 0, 1.27, 0, -26, 0, 0, 0, 0, 152,
-    ]);
-    const highlightGrain = ColorFilter.matrix([
-      2.1, 0, 0, 0, -210, 0, 2.1, 0, 0, -210,
-      0, 0, 2.1, 0, -210, 0, 0, 0, 0, 54,
-    ]);
-    const rearMask = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      stops: [0, .14, .34, .53, .80, 1],
-      colors: [
-        Color(0x00FFFFFF), Color(0x4AFFFFFF),
-        Color(0xADFFFFFF), Color(0xB8FFFFFF),
-        Color(0x92FFFFFF), Color(0x00FFFFFF),
-      ],
-    );
-    const finishMask = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      stops: [0, .15, .28, .39, .57, .77, 1],
-      colors: [
-        Color(0x00FFFFFF), Color(0x05FFFFFF),
-        Color(0x24FFFFFF), Color(0x98FFFFFF),
-        Color(0xDDFFFFFF), Color(0x94FFFFFF),
-        Color(0x00FFFFFF),
-      ],
-    );
-    Future<_CoverflowFloorStrip> bake(Rect bounds, Matrix4 projection,
-        ColorFilter filter, LinearGradient mask) async {
-      final cropTop = math.min(height - 1, math.max(0, bounds.top.floor()));
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      // Paint at the original coordinates, but rasterize only the
-      // actual floor strip rather than storing transparent sky pixels.
-      canvas.translate(0, -cropTop.toDouble());
-      canvas.save();
-      canvas.clipRect(bounds);
-      canvas.saveLayer(bounds, Paint());
-      _CoverflowFloorGeometry.paintAcrossFloor(
-        canvas, Size(width.toDouble(), height.toDouble()),
-        source, projection, bounds,
-        Paint()..colorFilter = filter..filterQuality = FilterQuality.medium);
-      canvas.drawRect(bounds, Paint()
-        ..blendMode = BlendMode.dstIn
-        ..shader = mask.createShader(bounds));
-      canvas.restore();
-      canvas.restore();
-      final picture = recorder.endRecording();
-      try {
-        final image = await picture.toImage(width, height - cropTop);
-        return _CoverflowFloorStrip(image, cropTop, height);
-      } finally {
-        picture.dispose();
-      }
-    }
-
-    final rear = await bake(rearBounds, rearTransform, rearColor, rearMask);
-    final shadow = await bake(
-        finishBounds, finishTransform, darkGrain, finishMask);
-    final highlights = await bake(
-        finishBounds, finishTransform, highlightGrain, finishMask);
-    final layers = _CoverflowTextureLayers(rear, shadow, highlights);
-    _coverflowReadyByOrientation[height > width * 1.08] = layers;
-    return layers;
-  });
-  // Do not keep every temporary head-unit layout size in GPU memory.
-  while (_coverflowTextureCache.length > 4) {
-    _coverflowTextureCache.remove(_coverflowTextureCache.keys.first);
-  }
-  return cached;
 }
 
 /// Landscape-first VYBE Coverflow. Geometry, layered occlusion, ambient light,
@@ -210,7 +82,8 @@ class CoverflowScene extends StatelessWidget {
           ? math.min(w * .72, h * .37)
           : math.min(h * .54, w * .345);
       final floorY = h * (portrait ? .695 : .766);
-      final floorLayers = _floorTextures(Size(w, h), floorY / h);
+      final floorImage = portrait ? _coverflowPortraitFloor
+          : _coverflowLandscapeFloor;
       final selectedQuad = _coverQuad(w, floorY, centerSize,
           slot: 0, portrait: portrait);
       final side = queue.where((e) =>
@@ -222,20 +95,16 @@ class CoverflowScene extends StatelessWidget {
       // previous TweenAnimationBuilder wrapped this whole Stack and
       // shifted the fanart floor, visualizers, artist text and plaque.
       // Keep those stationary and animate ONLY the album sleeve group.
-      // One async snapshot keeps both grain surfaces synchronized.
-      // Retain the last completed floor while a new size bakes instead
-      // of momentarily unloading/reloading the visible floor.
-      return ClipRect(child: FutureBuilder<_CoverflowTextureLayers>(
-        future: floorLayers,
-        initialData: _coverflowReadyByOrientation[portrait],
+      // Only one permanently cached image per orientation. The texture
+      // itself is no longer generated by Flutter at runtime.
+      return ClipRect(child: FutureBuilder<ui.Image>(
+        future: floorImage,
         builder: (context, floorFrame) => Stack(
         fit: StackFit.expand, clipBehavior: Clip.hardEdge,
         children: [
             Positioned.fill(child: IgnorePointer(
               child: CustomPaint(
-                painter: _CoverflowAtmosphere(
-                  palette, floorY / h, grain: floorFrame.data?.rear,
-                ),
+                painter: _CoverflowAtmosphere(palette, floorY / h),
               ),
             )),
             // The same black edge shadow used under Focused Bars, but
@@ -392,8 +261,8 @@ class CoverflowScene extends StatelessWidget {
             // cannot fog or darken artwork above the point of contact.
             Positioned.fill(child: IgnorePointer(
               child: CustomPaint(
-                painter: _CoverflowFloorFinish(
-                  palette, floorY / h, floorFrame.data),
+                painter: _CoverflowStaticFloor(
+                  floorFrame.data, floorY / h, portrait),
               ),
             )),
 
@@ -662,8 +531,7 @@ class CoverflowScene extends StatelessWidget {
 class _CoverflowAtmosphere extends CustomPainter {
   final ArtPalette p;
   final double contactFraction;
-  final _CoverflowFloorStrip? grain;
-  const _CoverflowAtmosphere(this.p, this.contactFraction, {this.grain});
+  const _CoverflowAtmosphere(this.p, this.contactFraction);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -695,13 +563,6 @@ class _CoverflowAtmosphere extends CustomPainter {
         ],
       ).createShader(surface));
 
-    // Identical photographed floor projection, contrast and feathering,
-    // already pre-rasterized. This replaces multiple GPU saveLayer passes
-    // with one ordinary image composite per stable frame.
-    if (grain != null) {
-      grain!.draw(canvas, size, BlendMode.overlay);
-    }
-
     // Diffuse album-colored light is pooled near contact points. This
     // illuminates the grain but does not create a hard straight horizon.
     for (final pool in const <List<double>>[
@@ -726,95 +587,51 @@ class _CoverflowAtmosphere extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CoverflowAtmosphere old) =>
-      old.grain != grain || old.contactFraction != contactFraction ||
+      old.contactFraction != contactFraction ||
       old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
 }
 
-/// Blend grunge INTO the actual reflected floor, not onto album faces.
-/// The previous version clipped everything at the feet and produced a
-/// horizontal cut, while the low-alpha source was multiplied invisibly.
-class _CoverflowFloorFinish extends CustomPainter {
-  final ArtPalette p;
+/// The user-supplied floor texture is a single, static, transparent PNG.
+/// It is composited once OVER the live album reflections with Exclusion
+/// transfer mode, matching the intended authoring blend. Colored contact
+/// lights, moving artwork and visualizers remain fully dynamic.
+class _CoverflowStaticFloor extends CustomPainter {
+  final ui.Image? floor;
   final double contactFraction;
-  final _CoverflowTextureLayers? grain;
-  const _CoverflowFloorFinish(this.p, this.contactFraction, this.grain);
+  final bool portrait;
+
+  const _CoverflowStaticFloor(this.floor, this.contactFraction, this.portrait);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final layers = grain;
-    if (layers == null) return;
-    // Preserve the old multiply + screen compositing over the ACTUAL
-    // album reflections, without per-frame projection, matrix filters,
-    // offscreen layers or feather shaders.
-    layers.shadow.draw(canvas, size, BlendMode.multiply);
-    layers.highlights.draw(canvas, size, BlendMode.screen);
+    final image = floor;
+    if (image == null || size.isEmpty) return;
+    final contactY = size.height * contactFraction;
+    final originalHeight = size.width * image.height / image.width;
+
+    // These are shallow floor overlays, not full-screen backgrounds.
+    // Place the far edge just above the album-feet line and extend the
+    // texture below it into the reflections. Landscape retains the
+    // original aspect; portrait has a slightly deeper physical floor.
+    final height = portrait
+        ? math.max(originalHeight * 1.5, size.height * .22)
+        : math.max(originalHeight, size.height * .23);
+    final top = contactY - height * (portrait ? .36 : .40);
+    final target = Rect.fromLTWH(0, top, size.width, height);
+    final source = Rect.fromLTWH(
+        0, 0, image.width.toDouble(), image.height.toDouble());
+
+    canvas.drawImageRect(image, source, target,
+      Paint()
+        ..blendMode = BlendMode.exclusion
+        ..filterQuality = FilterQuality.low);
   }
 
   @override
-  bool shouldRepaint(covariant _CoverflowFloorFinish old) =>
-      old.grain != grain || old.contactFraction != contactFraction ||
-      old.p.a != p.a || old.p.b != p.b;
-}
-
-/// Perspective warp shared by the textured upper floor and its finish.
-/// The projected far edge is narrower than the near edge.
-class _CoverflowFloorGeometry {
-  // The reference photograph has deep dark material on its left and
-  // illuminated mineral texture on its right. Mirror the right source
-  // across the floor's center so BOTH reflection pools visibly pick up
-  // real grunge. The two halves meet at the same source centerline, so
-  // there is no vertical seam or sharp boundary.
-  static void paintAcrossFloor(
-      Canvas canvas, Size size, ui.Image source,
-      Matrix4 perspective, Rect bounds, Paint paint) {
-    final half = size.width * .5;
-    final src = Rect.fromLTWH(
-        0, 0, source.width.toDouble(), source.height.toDouble());
-
-    canvas.save();
-    canvas.clipRect(Rect.fromLTRB(0, bounds.top, half, bounds.bottom));
-    canvas.translate(size.width, 0);
-    canvas.scale(-1, 1);
-    canvas.transform(perspective.storage);
-    canvas.drawImageRect(source, src, src, paint);
-    canvas.restore();
-
-    canvas.save();
-    canvas.clipRect(Rect.fromLTRB(
-        half, bounds.top, size.width, bounds.bottom));
-    canvas.transform(perspective.storage);
-    canvas.drawImageRect(source, src, src, paint);
-    canvas.restore();
-  }
-
-  static Matrix4 transform(Size size, Size src, double topY) {
-    final w = size.width, h = size.height;
-    final q = <Offset>[
-      Offset(-w * .08, topY),
-      Offset(w * 1.08, topY),
-      Offset(w * 1.40, h * 1.16),
-      Offset(-w * .40, h * 1.16),
-    ];
-    final tl = q[0], tr = q[1], br = q[2], bl = q[3];
-    final dx1 = tr.dx - br.dx, dx2 = bl.dx - br.dx;
-    final dx3 = tl.dx - tr.dx + br.dx - bl.dx;
-    final dy1 = tr.dy - br.dy, dy2 = bl.dy - br.dy;
-    final dy3 = tl.dy - tr.dy + br.dy - bl.dy;
-    final det = dx1 * dy2 - dx2 * dy1;
-    final g = det.abs() < .000001 ? 0.0
-        : (dx3 * dy2 - dx2 * dy3) / det;
-    final j = det.abs() < .000001 ? 0.0
-        : (dx1 * dy3 - dx3 * dy1) / det;
-    return Matrix4.identity()
-      ..setEntry(0, 0, (tr.dx - tl.dx + g * tr.dx) / src.width)
-      ..setEntry(0, 1, (bl.dx - tl.dx + j * bl.dx) / src.height)
-      ..setEntry(0, 3, tl.dx)
-      ..setEntry(1, 0, (tr.dy - tl.dy + g * tr.dy) / src.width)
-      ..setEntry(1, 1, (bl.dy - tl.dy + j * bl.dy) / src.height)
-      ..setEntry(1, 3, tl.dy)
-      ..setEntry(3, 0, g / src.width)
-      ..setEntry(3, 1, j / src.height);
-  }
+  bool shouldRepaint(covariant _CoverflowStaticFloor old) =>
+      old.floor != floor ||
+      old.contactFraction != contactFraction ||
+      old.portrait != portrait;
 }
 
 /// Screen-space black cast shadow from a front sleeve into the album

@@ -29,6 +29,8 @@ flutter:
     - assets/vybe_album_placeholder.png
     - assets/vybe_splash_portrait.png
     - assets/vybe_splash_landscape.png
+    - assets/coverflow_floor_landscape.png
+    - assets/coverflow_floor_portrait.png
     - assets/theme_previews/
   shaders:
     - shaders/vybe_refraction.frag
