@@ -52,6 +52,7 @@ class _VideoEmbedDiagnosticPageState extends State<VideoEmbedDiagnosticPage> {
   String _state = 'Initializing embedded YouTube player';
   String _sourcePause = 'YouTube Music has not been paused by this test';
   String _lastError = '';
+  String _videoIdEvidence = 'No video ID resolved';
 
   @override
   void initState() {
@@ -337,12 +338,106 @@ document.head.appendChild(tag);
     }
   }
 
+  // The MediaSession activeQueueItemId can remain unchanged after a skip,
+  // even when YouTube Music has already published different track metadata.
+  // Never trust the active queue's artwork ID without checking its title.
+  String _candidateId(dynamic raw) {
+    final value = raw?.toString().trim() ?? '';
+    return RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(value) ? value : '';
+  }
+
+  String _youtubeIdFromUri(dynamic raw) {
+    final value = raw?.toString() ?? '';
+    final uri = Uri.tryParse(value);
+    if (uri == null) return '';
+    final host = uri.host.toLowerCase();
+    final segments = uri.pathSegments;
+    if ((host == 'i.ytimg.com' || host == 'img.youtube.com') &&
+        segments.length >= 2 &&
+        (segments[0] == 'vi' || segments[0] == 'vi_webp')) {
+      return _candidateId(segments[1]);
+    }
+    if (host == 'youtu.be' && segments.isNotEmpty) {
+      return _candidateId(segments.first);
+    }
+    if (host == 'youtube.com' || host == 'www.youtube.com' ||
+        host == 'music.youtube.com' || host == 'm.youtube.com') {
+      return _candidateId(uri.queryParameters['v']);
+    }
+    return '';
+  }
+
+  String _normalizeSong(String text) =>
+      text.toLowerCase().trim().replaceAll(RegExp(r'\\s+'), ' ');
+
   String _activeVideoId(Map<String, dynamic> snapshot) {
+    final title = _normalizeSong(_activeTitle(snapshot));
+    final metadata = snapshot['metadata'];
     final probe = snapshot['videoProbe'];
-    if (probe is! Map) return '';
-    final candidate = probe['activeQueueVideoId']?.toString() ?? '';
-    return RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(candidate)
-        ? candidate : '';
+
+    // Prefer a real queue entry whose TITLE matches the newly playing
+    // song, not the possibly stale activeQueueItemId.
+    final queue = snapshot['queue'];
+    if (queue is List && title.isNotEmpty) {
+      final exact = queue.where((entry) => entry is Map &&
+          _normalizeSong(entry['title']?.toString() ?? '') == title).toList();
+      final ids = <String>{};
+      for (final entry in exact) {
+        final item = entry as Map;
+        for (final candidate in <String>[
+          _candidateId(item['youtubeThumbnailVideoId']),
+          _youtubeIdFromUri(item['artworkUri']),
+          _candidateId(item['mediaId']),
+          _youtubeIdFromUri(item['mediaUri']),
+        ]) {
+          if (candidate.isNotEmpty) ids.add(candidate);
+        }
+      }
+      if (ids.length == 1) {
+        _videoIdEvidence = 'Matching queue track title';
+        return ids.single;
+      }
+      if (ids.length > 1) {
+        _videoIdEvidence = 'Multiple conflicting IDs for same queue title';
+        return '';
+      }
+    }
+
+    // Some YouTube Music modes publish an 11-character YouTube media ID
+    // or a direct YouTube URL on the current metadata instead of the
+    // queue thumbnail. Treat that as a candidate, not an embed guarantee.
+    if (metadata is Map) {
+      for (final pair in <MapEntry<String, String>>[
+        MapEntry('mediaId', _candidateId(metadata['mediaId'])),
+        MapEntry('artUri', _youtubeIdFromUri(metadata['artUri'])),
+        MapEntry('albumArtUri', _youtubeIdFromUri(metadata['albumArtUri'])),
+        MapEntry('displayIconUri', _youtubeIdFromUri(metadata['displayIconUri'])),
+      ]) {
+        if (pair.value.isNotEmpty) {
+          _videoIdEvidence = 'Current metadata ${pair.key}';
+          return pair.value;
+        }
+      }
+    }
+
+    // Description metadata can be used ONLY when its published title
+    // agrees with the playing track. Otherwise it may be from the
+    // previous queue item, exactly as seen with queue ID 163.
+    if (probe is Map &&
+        _normalizeSong(probe['descriptionTitle']?.toString() ?? '') == title &&
+        title.isNotEmpty) {
+      for (final pair in <MapEntry<String, String>>[
+        MapEntry('activeMediaId', _candidateId(probe['activeMediaId'])),
+        MapEntry('activeMediaUri', _youtubeIdFromUri(probe['activeMediaUri'])),
+      ]) {
+        if (pair.value.isNotEmpty) {
+          _videoIdEvidence = 'Current description ${pair.key}';
+          return pair.value;
+        }
+      }
+    }
+    _videoIdEvidence = 'Not published for matching song';
+    return '';
   }
 
   String _activeTitle(Map<String, dynamic> snapshot) {
@@ -361,6 +456,7 @@ document.head.appendChild(tag);
     final actions = snapshot['actions'];
     final skipAllowed = actions is Map && actions['skipNext'] == true;
     final id = _activeVideoId(snapshot);
+    _record('Video identity: $_videoIdEvidence');
     setState(() {
       _sourceTitle = _activeTitle(snapshot);
       _sourceArtist = _activeArtist(snapshot);
@@ -517,9 +613,17 @@ document.head.appendChild(tag);
         return;
       }
       _record('Skip Next sent from "$beforeTitle" (queue ID $beforeId)');
+      // YouTube Music can restart audio after skipToNext. Keep it paused
+      // while attempting to load a matching embedded video.
+      _sourcePauseConfirmed = false;
+      await _pauseMusicSource('Skip Next handoff');
+      if (!mounted || token != _sequenceToken) return;
       setState(() => _transitionStatus =
           'Skip Next sent; waiting for new MediaSession metadata…');
-      // Allow time for YouTube Music to publish the next real queue entry.
+      // MediaSession IDs and artwork can arrive several seconds AFTER
+      // the title changes. Re-check the new song a few times before
+      // deciding its video ID is genuinely unavailable.
+      var changedSeen = false;
       for (var attempt = 0; attempt < 17; attempt++) {
         await Future<void>.delayed(const Duration(milliseconds: 800));
         if (!mounted || token != _sequenceToken) return;
@@ -539,20 +643,36 @@ document.head.appendChild(tag);
         final changedTitle = nextTitle.isNotEmpty &&
             nextTitle != beforeTitle;
         if (!changedId && !changedTitle) continue;
+        changedSeen = true;
+        // The source may resume automatically during the queue transition.
+        if (after['playbackState'] == 3) {
+          _sourcePauseConfirmed = false;
+          await _pauseMusicSource('Keep YouTube Music paused during next video lookup');
+          if (!mounted || token != _sequenceToken) return;
+        }
         final nextId = _activeVideoId(after);
         _sourceTitle = nextTitle;
         _sourceArtist = _activeArtist(after);
         _queueStatus = 'New source track: $_sourceArtist — $_sourceTitle; '
-            'queue ID $nextQueueId; video ID ${nextId.isEmpty ? "not published" : nextId}';
+            'queue ID $nextQueueId; video ID ${nextId.isEmpty ? "not published" : nextId}; '
+            '$_videoIdEvidence';
         _record(_queueStatus);
         if (nextId.isEmpty) {
-          // The full theme will do a verified video lookup here; this
-          // diagnostic deliberately avoids guessing an unrelated video.
+          // A stale queue entry is common immediately after a skip.
+          // Try the next four snapshots for a matching track and ID.
+          if (attempt < 5) {
+            setState(() => _transitionStatus =
+                'Next song detected, waiting for matching video ID '
+                '(attempt ${attempt + 1}/6)…');
+            continue;
+          }
+          // Never substitute a different song's video. Allow YouTube
+          // Music to take over audio for a track that has no usable ID.
           _sourceAudioFallback = true;
           _playOnReady = false;
           setState(() => _transitionStatus =
-              'Next song has no published video ID. Testing fallback: '
-              'resume source-player audio; no guessed video.');
+              'No matching video ID after six checks. '
+              'Resuming source-player audio; no guessed video.');
           await _resumeMusicSource();
           return;
         }
@@ -566,9 +686,16 @@ document.head.appendChild(tag);
         await _load(playOnReady: true);
         return;
       }
-      setState(() => _transitionStatus =
-          'Timed out: source did not publish a different queue item '
-          'after Skip Next. No second skip was sent.');
+      if (changedSeen) {
+        _sourceAudioFallback = true;
+        await _resumeMusicSource();
+        setState(() => _transitionStatus =
+            'New track recognized but no usable video ID. Source audio resumed.');
+      } else {
+        setState(() => _transitionStatus =
+            'Timed out: source did not publish a different queue item '
+            'after Skip Next. No second skip was sent.');
+      }
       _record(_transitionStatus);
     } catch (error) {
       if (mounted) {
@@ -591,6 +718,7 @@ document.head.appendChild(tag);
       'sourceArtist': _sourceArtist,
       'queueStatus': _queueStatus,
       'transitionStatus': _transitionStatus,
+      'videoIdEvidence': _videoIdEvidence,
       'callStatus': _callStatus,
       'callPermissionNeeded': _callPermissionNeeded,
       'audioCallActive': _inCall,
