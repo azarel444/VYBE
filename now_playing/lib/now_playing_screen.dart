@@ -1836,6 +1836,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // album-emitted FX, and this mid-depth stage owns them instead.
       depthFx: heavy ? _extraFx(coverflowDepthOnly: true) : const <Widget>[],
       performanceMode: _fxTier <= 1,
+      // Keep the approved Screen look on the phone, but use a simpler
+      // visible alpha composite on a Wi-Fi Direct receiving head unit.
+      headUnitReceiver: VybeLink.instance.enabled &&
+          VybeLink.instance.role == 'receiver',
 
     );
   }
