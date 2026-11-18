@@ -325,6 +325,257 @@ document.head.appendChild(tag);
     await _send('window.vybeStop && window.vybeStop();');
   }
 
+  Future<Map<String, dynamic>?> _sourceSnapshot() async {
+    try {
+      final raw = await _control.invokeMapMethod<String, dynamic>(
+          'integrationDiagnostics', {'service': 'youtube_music'});
+      if (raw == null) return null;
+      return Map<String, dynamic>.from(raw);
+    } catch (error) {
+      _record('Could not read source MediaSession: $error');
+      return null;
+    }
+  }
+
+  String _activeVideoId(Map<String, dynamic> snapshot) {
+    final probe = snapshot['videoProbe'];
+    if (probe is! Map) return '';
+    final candidate = probe['activeQueueVideoId']?.toString() ?? '';
+    return RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(candidate)
+        ? candidate : '';
+  }
+
+  String _activeTitle(Map<String, dynamic> snapshot) {
+    final metadata = snapshot['metadata'];
+    return metadata is Map ? metadata['title']?.toString() ?? '' : '';
+  }
+
+  String _activeArtist(Map<String, dynamic> snapshot) {
+    final metadata = snapshot['metadata'];
+    return metadata is Map ? metadata['artist']?.toString() ?? '' : '';
+  }
+
+  Future<void> _readSourceStatus() async {
+    final snapshot = await _sourceSnapshot();
+    if (!mounted || snapshot == null) return;
+    final actions = snapshot['actions'];
+    final skipAllowed = actions is Map && actions['skipNext'] == true;
+    final id = _activeVideoId(snapshot);
+    setState(() {
+      _sourceTitle = _activeTitle(snapshot);
+      _sourceArtist = _activeArtist(snapshot);
+      _queueStatus = snapshot['sessionFound'] == true
+          ? 'Source: $_sourceArtist — $_sourceTitle; '
+              'active thumbnail ID: ${id.isEmpty ? "none" : id}; '
+              'Skip Next: ${skipAllowed ? "available" : "unsupported"}'
+          : 'YouTube Music session not found';
+    });
+    _record(_queueStatus);
+  }
+
+  /// Polling is intentionally limited to this open test page. On an actual
+  /// phone, READ_PHONE_STATE detects RINGING as well as OFFHOOK; an Android
+  /// stereo may instead report Bluetooth HFP calls through AudioManager
+  /// MODE_RINGTONE / MODE_IN_CALL / MODE_IN_COMMUNICATION.
+  Future<void> _pollCallState() async {
+    if (_disposed || _callPollBusy) return;
+    _callPollBusy = true;
+    try {
+      final state = await _control.invokeMapMethod<String, dynamic>(
+          'musicVideoCallState');
+      if (!mounted || state == null) return;
+      final active = state['inCall'] == true;
+      final permissionNeeded = state['permissionNeeded'] == true;
+      final signal = state['detection']?.toString() ?? 'unknown';
+      if (_callPermissionNeeded != permissionNeeded ||
+          _inCall != active || (_inCall && _callStatus != signal)) {
+        setState(() {
+          _callPermissionNeeded = permissionNeeded;
+          _callStatus = active ? 'Call detected: $signal'
+              : permissionNeeded
+                  ? 'Phone permission needed to detect incoming ringing'
+                  : 'No call detected (monitoring enabled)';
+        });
+      }
+      if (active == _inCall) return;
+      _inCall = active;
+      if (active) {
+        _record('Phone/BT call started: $signal');
+        _resumeVideoAfterCall = _state == 'Playing' ||
+            _state == 'Buffering' || _playOnReady;
+        _resumeSourceAfterCall = _sourceAudioFallback;
+        _playOnReady = false;
+        await _send('window.vybePause && window.vybePause();');
+        if (_sourceAudioFallback) {
+          _sourcePauseConfirmed = false;
+          await _pauseMusicSource('Incoming call during source-audio fallback');
+        }
+      } else {
+        _record('Call ended; restoring the audio path that was active');
+        if (_resumeVideoAfterCall && !_sourceAudioFallback) {
+          // YouTube Music sometimes resumes on its own after a BT phone call.
+          // Pause the source again BEFORE restarting embedded video audio.
+          _sourcePauseConfirmed = false;
+          await _pauseMusicSource('Call completed; returning to embedded video');
+          await _send('window.vybePlay && window.vybePlay();');
+        } else if (_resumeSourceAfterCall && _sourceAudioFallback) {
+          await _resumeMusicSource();
+        }
+        _resumeVideoAfterCall = false;
+        _resumeSourceAfterCall = false;
+        if (_waitingAfterCall) {
+          _waitingAfterCall = false;
+          unawaited(_advanceToNext('Video ended during call'));
+        }
+      }
+    } catch (error) {
+      _record('Call-state check unavailable: $error');
+    } finally {
+      _callPollBusy = false;
+    }
+  }
+
+  Future<void> _requestCallPermission() async {
+    try {
+      final granted = await _control.invokeMethod<bool>(
+          'requestMusicVideoCallPermission');
+      _record('Phone call detection permission: ${granted == true ? "enabled" : "not granted"}');
+      await _pollCallState();
+    } catch (error) {
+      _record('Could not request call detection: $error');
+    }
+  }
+
+  Future<void> _resumeMusicSource() async {
+    try {
+      final result = await _control.invokeMapMethod<String, dynamic>(
+          'resumeYoutubeMusicForVideoTest');
+      if (!mounted) return;
+      final reason = result?['reason']?.toString() ?? 'Unknown source resume status';
+      setState(() => _sourcePause = reason);
+      _record('Source audio resume: $reason');
+    } catch (error) {
+      _record('Source audio could not resume: $error');
+    }
+  }
+
+  /// One video completion must produce at most one source-player Skip Next.
+  /// Do not silently skip an unrelated track when the iframe ID no longer
+  /// matches YouTube Music's CURRENT queue item.
+  Future<void> _advanceToNext(String trigger) async {
+    if (!mounted || _disposed || _advancing) return;
+    if (_inCall) {
+      _waitingAfterCall = true;
+      _record('Next-video transition deferred during phone call');
+      return;
+    }
+    final token = ++_sequenceToken;
+    setState(() {
+      _advancing = true;
+      _transitionStatus = 'Verifying source queue before Skip Next…';
+    });
+    _record('Automatic next triggered: $trigger');
+    try {
+      final before = await _sourceSnapshot();
+      if (!mounted || token != _sequenceToken) return;
+      if (before == null || before['sessionFound'] != true) {
+        setState(() => _transitionStatus = 'No YouTube Music session to advance');
+        _record(_transitionStatus);
+        return;
+      }
+      final sourceId = _activeVideoId(before);
+      if (sourceId.isEmpty || sourceId != _videoId) {
+        setState(() => _transitionStatus =
+            'Queue mismatch: YouTube Music video ID '
+            '${sourceId.isEmpty ? "not published" : sourceId} '
+            'does not match embedded $_videoId. No skip sent.');
+        _record(_transitionStatus);
+        return;
+      }
+      final actions = before['actions'];
+      if (actions is! Map || actions['skipNext'] != true) {
+        setState(() => _transitionStatus =
+            'YouTube Music does not expose Skip Next; no skip sent');
+        _record(_transitionStatus);
+        return;
+      }
+      final beforeId = before['activeQueueItemId']?.toString() ?? '';
+      final beforeTitle = _activeTitle(before);
+      await _send('window.vybeStop && window.vybeStop();');
+      final command = await _control.invokeMapMethod<String, dynamic>(
+          'advanceYoutubeMusicForVideoTest');
+      if (!mounted || token != _sequenceToken) return;
+      if (command?['sent'] != true) {
+        setState(() => _transitionStatus =
+            command?['reason']?.toString() ?? 'Skip Next refused');
+        _record(_transitionStatus);
+        return;
+      }
+      _record('Skip Next sent from "$beforeTitle" (queue ID $beforeId)');
+      setState(() => _transitionStatus =
+          'Skip Next sent; waiting for new MediaSession metadata…');
+      // Allow time for YouTube Music to publish the next real queue entry.
+      for (var attempt = 0; attempt < 17; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        if (!mounted || token != _sequenceToken) return;
+        if (_inCall) {
+          _record('Call interrupted queue transition; check session after call');
+          setState(() => _transitionStatus =
+              'Call interrupted queue transition. Inspect report and retry manually.');
+          return;
+        }
+        final after = await _sourceSnapshot();
+        if (!mounted || token != _sequenceToken) return;
+        if (after == null || after['sessionFound'] != true) continue;
+        final nextQueueId = after['activeQueueItemId']?.toString() ?? '';
+        final nextTitle = _activeTitle(after);
+        final changedId = beforeId != '-1' && nextQueueId != '-1' &&
+            nextQueueId != beforeId;
+        final changedTitle = nextTitle.isNotEmpty &&
+            nextTitle != beforeTitle;
+        if (!changedId && !changedTitle) continue;
+        final nextId = _activeVideoId(after);
+        _sourceTitle = nextTitle;
+        _sourceArtist = _activeArtist(after);
+        _queueStatus = 'New source track: $_sourceArtist — $_sourceTitle; '
+            'queue ID $nextQueueId; video ID ${nextId.isEmpty ? "not published" : nextId}';
+        _record(_queueStatus);
+        if (nextId.isEmpty) {
+          // The full theme will do a verified video lookup here; this
+          // diagnostic deliberately avoids guessing an unrelated video.
+          _sourceAudioFallback = true;
+          _playOnReady = false;
+          setState(() => _transitionStatus =
+              'Next song has no published video ID. Testing fallback: '
+              'resume source-player audio; no guessed video.');
+          await _resumeMusicSource();
+          return;
+        }
+        _videoId = nextId;
+        _sourceAudioFallback = false;
+        _sourcePauseConfirmed = false;
+        await _pauseMusicSource('Next track reported by YouTube Music');
+        if (!mounted || token != _sequenceToken) return;
+        setState(() => _transitionStatus =
+            'Next video ID found: $nextId; starting YouTube iframe…');
+        await _load(playOnReady: true);
+        return;
+      }
+      setState(() => _transitionStatus =
+          'Timed out: source did not publish a different queue item '
+          'after Skip Next. No second skip was sent.');
+      _record(_transitionStatus);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _transitionStatus =
+            'Next-video diagnostic failed: $error');
+        _record(_transitionStatus);
+      }
+    } finally {
+      if (mounted) setState(() => _advancing = false);
+    }
+  }
+
   void _copyReport() {
     final content = const JsonEncoder.withIndent('  ').convert({
       'test': 'YouTube IFrame player inside VYBE Android WebView',
