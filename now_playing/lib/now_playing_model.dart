@@ -107,11 +107,118 @@ class NowPlayingModel extends ChangeNotifier {
       }
       // Persist in the SAME exact artist+song cache read by _lookupArt.
       unawaited(MediaCache.putArt(key, bytes));
+      // Coverflow previously kept displaying the low-resolution queue
+      // icon even AFTER Smart Prefetch prepared an exact recording match.
+      // Feed that high-quality image straight into any visible future sleeve.
+      // Do not substitute a cover when artist or song/version differs.
+      await _publishPrefetchedCoverflowArt(key, bytes);
       debugPrint('VYBE Smart Prefetch: ready album for ${entry.artist} — ${entry.title}');
     } catch (error) {
       debugPrint('VYBE Smart Prefetch album unavailable: $error');
     } finally {
       _smartPrefetchInFlight.remove(key);
+    }
+  }
+
+  /// Reuse the verified, full-resolution cover prepared by Smart Prefetch
+  /// for the same song in Coverflow, including when viewing via VYBE Link.
+  /// This also prevents repeated online queries for a cover already cached.
+  Future<void> _publishPrefetchedCoverflowArt(String trackKey, Uint8List bytes) async {
+    if (_disposed || _linkReceiverActive) return;
+    final matches = _coverflowCandidates.where((entry) =>
+        entry.slot > 0 &&
+        _smartPrefetchKey(entry.artist, entry.title) == trackKey).toList();
+    if (matches.isEmpty) return;
+    try {
+      final encoded = await _queueArt.invokeMethod<Uint8List>('encode', {
+        'bytes': bytes, 'targetSide': 768,
+      });
+      if (_disposed || encoded == null || encoded.isEmpty ||
+          encoded.length > 280 * 1024) return;
+      var changed = false;
+      final upgraded = <CoverflowCover>[];
+      for (final entry in _coverflowCandidates) {
+        if (entry.slot > 0 &&
+            _smartPrefetchKey(entry.artist, entry.title) == trackKey) {
+          final key = '${entry.id}|${entry.artUri}';
+          _coverflowThumbCache[key] = encoded;
+          upgraded.add(entry.withThumbnail(encoded));
+          changed = true;
+        } else {
+          upgraded.add(entry);
+        }
+      }
+      if (changed) {
+        _coverflowCandidates = upgraded;
+        _checkCoverflowRepeatedArtwork();
+      }
+    } catch (error) {
+      debugPrint('VYBE cached Coverflow cover upgrade unavailable: $error');
+    }
+  }
+
+  /// Remote media queues (notably YouTube Music) frequently publish a
+  /// 60-pixel URL even while the underlying cover is available at 768px.
+  /// Request the larger provider-owned thumbnail instead of stretching
+  /// the 60px icon. The original URI remains the last-resort fallback.
+  List<Uri> _coverflowSourceUris(String raw) {
+    final original = Uri.tryParse(raw);
+    if (original == null || original.scheme != 'https') return <Uri>[];
+    final host = original.host.toLowerCase();
+    final candidates = <Uri>[];
+    void add(String url) {
+      final uri = Uri.tryParse(url);
+      if (uri != null && uri.scheme == 'https' &&
+          uri.host.toLowerCase() == host && !candidates.contains(uri)) {
+        candidates.add(uri);
+      }
+    }
+    if (host == 'yt3.googleusercontent.com' ||
+        host == 'lh3.googleusercontent.com' || host == 'yt3.ggpht.com') {
+      // Only rewrite documented thumbnail size suffixes for known hosts.
+      final larger = raw.replaceFirst(
+          RegExp(r'=w[0-9]+-h[0-9]+'), '=w768-h768');
+      if (larger != raw) add(larger);
+      final largerSquare = raw.replaceFirst(
+          RegExp(r'=s[0-9]+'), '=s768');
+      if (largerSquare != raw) add(largerSquare);
+    } else if (host == 'i.ytimg.com' || host == 'img.youtube.com') {
+      // For video entries, a larger thumbnail for the SAME video ID
+      // is preferable when provided by YouTube; no unrelated search.
+      final segments = original.pathSegments;
+      if (segments.length >= 3 &&
+          (segments[0] == 'vi' || segments[0] == 'vi_webp') &&
+          RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(segments[1])) {
+        add(original.replace(
+          pathSegments: [...segments.take(2), 'maxresdefault.jpg'],
+          query: '',
+        ).toString());
+        add(original.replace(
+          pathSegments: [...segments.take(2), 'sddefault.jpg'],
+          query: '',
+        ).toString());
+      }
+    }
+    add(raw);
+    return candidates;
+  }
+
+  /// Resolution is checked on SOURCE bytes before native compression.
+  /// Changing targetSide alone cannot restore detail to a 60px image.
+  Future<int> _coverflowSourceDetail(Uint8List bytes) async {
+    ui.Codec? codec;
+    try {
+      codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      try {
+        return math.min(frame.image.width, frame.image.height);
+      } finally {
+        frame.image.dispose();
+      }
+    } catch (_) {
+      return 0;
+    } finally {
+      codec?.dispose();
     }
   }
 
@@ -336,25 +443,48 @@ class NowPlayingModel extends ChangeNotifier {
   Future<void> _fetchCoverflowThumbnail(CoverflowCover entry, int token) async {
     Uint8List? bytes;
     final cacheKey = '${entry.id}|${entry.artUri}';
-    // These sleeves can occupy almost the selected cover's screen size.
-    // Old 256/320px side images look very pixelated on DeX and head units.
+    if (_coverflowThumbCache[cacheKey]?.isNotEmpty == true) return;
+    // The nearest sleeves are almost as large as the selected cover.
     final targetSide = entry.slot.abs() == 1 ? 768
         : entry.slot.abs() == 2 ? 640 : 512;
     try {
-      final uri = Uri.tryParse(entry.artUri);
-      // A player's tiny 128/256px iconBitmap may coexist with a full-size
-      // HTTPS album-art URI. Prefer the actual image over the tiny icon.
-      if (uri != null && uri.scheme == 'https') {
-        try {
-          final downloaded = await httpGetBytes(uri);
-          if (downloaded != null && downloaded.isNotEmpty &&
-              downloaded.length <= 8 * 1024 * 1024) {
-            bytes = await _queueArt.invokeMethod<Uint8List>('encode', {
-              'bytes': downloaded, 'targetSide': targetSide,
-            });
+      final trackKey = _smartPrefetchKey(entry.artist, entry.title);
+      // First check the EXACT recording cache prepared in normal playback.
+      // It is already persisted and often sharper than a player's queue icon.
+      Uint8List? cachedCover = _artCache[trackKey];
+      cachedCover ??= await MediaCache.getArt(trackKey);
+      if (cachedCover != null && cachedCover.isNotEmpty &&
+          cachedCover.length <= 8 * 1024 * 1024 &&
+          await _coverflowSourceDetail(cachedCover) >= 420) {
+        bytes = await _queueArt.invokeMethod<Uint8List>('encode', {
+          'bytes': cachedCover, 'targetSide': targetSide,
+        });
+      }
+
+      if (bytes == null || bytes.isEmpty) {
+        Uint8List? bestSource;
+        var detail = 0;
+        // Prefer the genuine larger artwork URL, not an enlarged icon.
+        for (final uri in _coverflowSourceUris(entry.artUri)) {
+          if (token != _coverflowToken || _disposed) return;
+          try {
+            final downloaded = await httpGetBytes(uri);
+            if (downloaded == null || downloaded.isEmpty ||
+                downloaded.length > 8 * 1024 * 1024) continue;
+            final measured = await _coverflowSourceDetail(downloaded);
+            if (measured > detail) {
+              bestSource = downloaded;
+              detail = measured;
+            }
+            if (detail >= math.min(targetSide, 600)) break;
+          } catch (error) {
+            debugPrint('VYBE Coverflow larger queue image unavailable: $error');
           }
-        } catch (error) {
-          debugPrint('VYBE full-size queue art unavailable: $error');
+        }
+        if (bestSource != null) {
+          bytes = await _queueArt.invokeMethod<Uint8List>('encode', {
+            'bytes': bestSource, 'targetSide': targetSide,
+          });
         }
       }
       if (bytes == null || bytes.isEmpty) {
@@ -370,6 +500,9 @@ class NowPlayingModel extends ChangeNotifier {
     }
     if (bytes == null || bytes.isEmpty || bytes.length > 280 * 1024 ||
         token != _coverflowToken || _disposed) return;
+    // Smart Prefetch might have supplied a sharper matching cover during
+    // the network request; never overwrite it with a delayed small bitmap.
+    if (_coverflowThumbCache[cacheKey]?.isNotEmpty == true) return;
     _coverflowThumbCache[cacheKey] = bytes;
     if (_coverflowThumbCache.length > 30) {
       _coverflowThumbCache.remove(_coverflowThumbCache.keys.first);
@@ -381,12 +514,11 @@ class NowPlayingModel extends ChangeNotifier {
       ..[index] = entry.withThumbnail(bytes);
     _checkCoverflowRepeatedArtwork();
 
-    // The nearest sleeves are almost the selected cover's size. A player's
-    // 128/256px MediaSession icon remains pixelated even if Flutter requests
-    // 768px cacheWidth. Only when genuinely low-resolution, try a verified
-    // artist+recording artwork lookup and replace the tiny icon on success.
-    // Keep showing the player's art throughout; a miss leaves it intact.
-    if (entry.slot.abs() == 1 && artLookupEnabled &&
+    // Upgrade every visible *future* sleeve, not just the closest one.
+    // A source image with genuinely sufficient dimensions exits fast.
+    // When a provider only publishes low-resolution artwork, attempt an
+    // exact artist+recording catalog match. Never invent an unrelated art.
+    if (entry.slot > 0 && entry.slot <= 3 && artLookupEnabled &&
         entry.title.trim().isNotEmpty && entry.artist.trim().isNotEmpty &&
         _coverflowSharpLookupAttempts.add(cacheKey)) {
       if (_coverflowSharpLookupAttempts.length > 80) {
