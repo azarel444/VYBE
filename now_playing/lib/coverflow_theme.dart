@@ -86,6 +86,15 @@ class CoverflowScene extends StatelessWidget {
           : _coverflowLandscapeFloor;
       final selectedQuad = _coverQuad(w, floorY, centerSize,
           slot: 0, portrait: portrait);
+      // The portrait logo / artist title should sit in the CENTER of
+      // the actual open space above the selected sleeve, not at a fixed
+      // 4.5% screen top which leaves a disproportionate gap below it.
+      // Use the projected sleeve's upper edge so this also scales on
+      // phones with different aspect ratios and album sizes.
+      final portraitHeaderHeight = h * .18;
+      final upperCoverEdge = math.min(selectedQuad[0].dy, selectedQuad[1].dy);
+      final portraitHeaderTop = math.max(
+          h * .045, (upperCoverEdge - portraitHeaderHeight) * .5);
       final side = queue.where((e) =>
           e.slot != 0 && e.slot.abs() <= (portrait ? 2 : 3) &&
           e.thumb != null && e.thumb!.isNotEmpty).toList()
@@ -268,9 +277,9 @@ class CoverflowScene extends StatelessWidget {
             )),
 
             Positioned(
-              top: portrait ? h * .045 : h * .002,
+              top: portrait ? portraitHeaderTop : h * .002,
               left: w * .095, width: w * .81,
-              height: portrait ? h * .18 : h * .255,
+              height: portrait ? portraitHeaderHeight : h * .255,
               child: Center(child: artistHeader),
             ),
             Positioned(
