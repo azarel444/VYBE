@@ -5089,6 +5089,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (pair == 'VI') {
       return math.min(fontSize * .115, glyphWidth * .45);
     }
+    // INTERVALS: V's long diagonal enters R's brushwork. These glyph
+    // contours nearly touch without any negative tracking; avoid hiding R.
+    if (pair == 'RV') {
+      return math.min(fontSize * .012, glyphWidth * .04);
+    }
     // The angled entry on S creates another visible gap after narrow I.
     if (pair == 'IS') {
       return math.min(fontSize * .145, glyphWidth * .36);
@@ -5186,7 +5191,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // This optical pair correction applies to every theme via _artistText
     // and its matching _artistRunWidth measurement.
     if (pair == 'JE') {
-      return math.min(fontSize * .35, glyphWidth * .70);
+      // ARJEN: the larger overlap that closed JERU buries J's
+      // downward stroke. Leave both letterforms identifiable.
+      return math.min(fontSize * .13, glyphWidth * .30);
     }
     if (pair == 'OS') {
       return math.min(fontSize * .145, glyphWidth * .32);
@@ -5208,6 +5215,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // the W→O (WORLD) and W→N (RENOWN) transitions seen in testing.
     if (pair == 'WO' || pair == 'WN') {
       return math.min(fontSize * .20, glyphWidth * .48);
+    }
+    // HOWSAM: W has a wide invisible exit bearing, while S begins
+    // with an angled brush. Close the false word break without
+    // overlapping the readable body of S.
+    if (pair == 'WS') {
+      return math.min(fontSize * .36, glyphWidth * .68);
     }
     // BROVAZ: the generic V correction pulled V halfway through O.
     // Keep the letters close without placing the V over the O's body.
