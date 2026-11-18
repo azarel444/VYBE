@@ -86,14 +86,18 @@ Future<_CoverflowTextureLayers> _floorTextures(Size size, double contactFraction
       2.1, 0, 0, 0, -210, 0, 2.1, 0, 0, -210,
       0, 0, 2.1, 0, -210, 0, 0, 0, 0, 54,
     ]);
+    // Approximately 20% less photographed floor texture. Bake the
+    // softer opacity into the existing feather masks ONCE; do not add
+    // another per-frame blend/filter pass on the ATOTO A5L GPU.
+    // Perspective, contrast, reflection and stage lighting stay the same.
     const rearMask = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       stops: [0, .14, .34, .53, .80, 1],
       colors: [
-        Color(0x00FFFFFF), Color(0x4AFFFFFF),
-        Color(0xADFFFFFF), Color(0xB8FFFFFF),
-        Color(0x92FFFFFF), Color(0x00FFFFFF),
+        Color(0x00FFFFFF), Color(0x3BFFFFFF),
+        Color(0x8AFFFFFF), Color(0x93FFFFFF),
+        Color(0x75FFFFFF), Color(0x00FFFFFF),
       ],
     );
     const finishMask = LinearGradient(
@@ -101,9 +105,9 @@ Future<_CoverflowTextureLayers> _floorTextures(Size size, double contactFraction
       end: Alignment.bottomCenter,
       stops: [0, .15, .28, .39, .57, .77, 1],
       colors: [
-        Color(0x00FFFFFF), Color(0x05FFFFFF),
-        Color(0x24FFFFFF), Color(0x98FFFFFF),
-        Color(0xDDFFFFFF), Color(0x94FFFFFF),
+        Color(0x00FFFFFF), Color(0x04FFFFFF),
+        Color(0x1DFFFFFF), Color(0x7AFFFFFF),
+        Color(0xB1FFFFFF), Color(0x76FFFFFF),
         Color(0x00FFFFFF),
       ],
     );
@@ -233,6 +237,40 @@ class CoverflowScene extends StatelessWidget {
                 ),
               ),
             )),
+            // The Focused Bars black edge shadow, shortened specifically
+            // for Coverflow. Keep the bars bright over the dark strip while
+            // the gradient clears only ~1.75 bar widths into the stage
+            // (Focused extends 2.8 widths). Shadows sit BEHIND the bars.
+            if (leftVisualizer != null)
+              Positioned(left: 0, top: 0, bottom: 0,
+                width: w * .08 * 1.75,
+                child: const IgnorePointer(child: DecoratedBox(
+                  decoration: BoxDecoration(gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      Color(0xE6000000), Color(0x99000000),
+                      Color(0x00000000),
+                    ],
+                    stops: [0.0, .45, 1.0],
+                  )),
+                )),
+              ),
+            if (rightVisualizer != null)
+              Positioned(right: 0, top: 0, bottom: 0,
+                width: w * .08 * 1.75,
+                child: const IgnorePointer(child: DecoratedBox(
+                  decoration: BoxDecoration(gradient: LinearGradient(
+                    begin: Alignment.centerRight,
+                    end: Alignment.centerLeft,
+                    colors: [
+                      Color(0xE6000000), Color(0x99000000),
+                      Color(0x00000000),
+                    ],
+                    stops: [0.0, .45, 1.0],
+                  )),
+                )),
+              ),
             if (leftVisualizer != null)
               Positioned(left: 0, top: 0, bottom: 0, width: w * .08,
                 child: IgnorePointer(child: leftVisualizer!)),
