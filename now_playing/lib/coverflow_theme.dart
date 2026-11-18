@@ -21,23 +21,44 @@ final Future<ui.Image> _coverflowGrainImage = () async {
   }
 }();
 
-/// GPU-friendly static cache of the *original* projected, color-filtered
-/// floor grain. Its three layers are rasterized once per layout size,
-/// keeping the original perspective, feathering, and the two reflection
-/// blend modes. Artwork and palette lighting remain live.
+/// Cache only the visible portion of each stage texture, with its
+/// original floor-space offset. This keeps the photograph, gradients,
+/// projected grain and blend modes identical without three full-screen
+/// GPU textures per display size.
+class _CoverflowFloorStrip {
+  final ui.Image image;
+  final int cropTop;
+  final int fullHeight;
+  const _CoverflowFloorStrip(this.image, this.cropTop, this.fullHeight);
+
+  void draw(Canvas canvas, Size size, BlendMode blend) {
+    final scale = size.height / fullHeight;
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      Rect.fromLTWH(0, cropTop * scale, size.width, image.height * scale),
+      Paint()..blendMode = blend..filterQuality = FilterQuality.low,
+    );
+  }
+}
+
 class _CoverflowTextureLayers {
-  final ui.Image rear;
-  final ui.Image shadow;
-  final ui.Image highlights;
+  final _CoverflowFloorStrip rear;
+  final _CoverflowFloorStrip shadow;
+  final _CoverflowFloorStrip highlights;
   const _CoverflowTextureLayers(this.rear, this.shadow, this.highlights);
 }
 
 final Map<String, Future<_CoverflowTextureLayers>> _coverflowTextureCache = {};
+// Keep last COMPLETE floor per orientation during any layout transition.
+final Map<bool, _CoverflowTextureLayers> _coverflowReadyByOrientation = {};
 
 Future<_CoverflowTextureLayers> _floorTextures(Size size, double contactFraction) {
-  final width = size.width.ceil(), height = size.height.ceil();
+  // Suppress 1px layout jitter that used to create new large GPU textures.
+  final width = math.max(16, (size.width / 16).round() * 16);
+  final height = math.max(16, (size.height / 16).round() * 16);
   final key = '${width}x${height}-${(contactFraction * 10000).round()}';
-  return _coverflowTextureCache.putIfAbsent(key, () async {
+  final cached = _coverflowTextureCache.putIfAbsent(key, () async {
     final source = await _coverflowGrainImage;
     final src = Rect.fromLTWH(
         0, 0, source.width.toDouble(), source.height.toDouble());
@@ -86,12 +107,14 @@ Future<_CoverflowTextureLayers> _floorTextures(Size size, double contactFraction
         Color(0x00FFFFFF),
       ],
     );
-    Future<ui.Image> bake(Rect bounds, Matrix4 projection,
+    Future<_CoverflowFloorStrip> bake(Rect bounds, Matrix4 projection,
         ColorFilter filter, LinearGradient mask) async {
+      final cropTop = math.min(height - 1, math.max(0, bounds.top.floor()));
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
-      // The expensive mirror perspective + color matrix + dstIn feather
-      // is computed ONCE, rather than re-rendered with every FX tick.
+      // Paint at the original coordinates, but rasterize only the
+      // actual floor strip rather than storing transparent sky pixels.
+      canvas.translate(0, -cropTop.toDouble());
       canvas.save();
       canvas.clipRect(bounds);
       canvas.saveLayer(bounds, Paint());
@@ -106,7 +129,8 @@ Future<_CoverflowTextureLayers> _floorTextures(Size size, double contactFraction
       canvas.restore();
       final picture = recorder.endRecording();
       try {
-        return await picture.toImage(width, height);
+        final image = await picture.toImage(width, height - cropTop);
+        return _CoverflowFloorStrip(image, cropTop, height);
       } finally {
         picture.dispose();
       }
@@ -117,8 +141,15 @@ Future<_CoverflowTextureLayers> _floorTextures(Size size, double contactFraction
         finishBounds, finishTransform, darkGrain, finishMask);
     final highlights = await bake(
         finishBounds, finishTransform, highlightGrain, finishMask);
-    return _CoverflowTextureLayers(rear, shadow, highlights);
+    final layers = _CoverflowTextureLayers(rear, shadow, highlights);
+    _coverflowReadyByOrientation[height > width * 1.08] = layers;
+    return layers;
   });
+  // Do not keep every temporary head-unit layout size in GPU memory.
+  while (_coverflowTextureCache.length > 4) {
+    _coverflowTextureCache.remove(_coverflowTextureCache.keys.first);
+  }
+  return cached;
 }
 
 /// Landscape-first VYBE Coverflow. Geometry, layered occlusion, ambient light,
@@ -186,16 +217,19 @@ class CoverflowScene extends StatelessWidget {
       // previous TweenAnimationBuilder wrapped this whole Stack and
       // shifted the fanart floor, visualizers, artist text and plaque.
       // Keep those stationary and animate ONLY the album sleeve group.
-      return ClipRect(child: Stack(
+      // One async snapshot keeps both grain surfaces synchronized.
+      // Retain the last completed floor while a new size bakes instead
+      // of momentarily unloading/reloading the visible floor.
+      return ClipRect(child: FutureBuilder<_CoverflowTextureLayers>(
+        future: floorLayers,
+        initialData: _coverflowReadyByOrientation[portrait],
+        builder: (context, floorFrame) => Stack(
         fit: StackFit.expand, clipBehavior: Clip.hardEdge,
         children: [
             Positioned.fill(child: IgnorePointer(
-              child: FutureBuilder<_CoverflowTextureLayers>(
-                future: floorLayers,
-                builder: (context, frame) => CustomPaint(
-                  painter: _CoverflowAtmosphere(
-                    palette, floorY / h, grain: frame.data?.rear,
-                  ),
+              child: CustomPaint(
+                painter: _CoverflowAtmosphere(
+                  palette, floorY / h, grain: floorFrame.data?.rear,
                 ),
               ),
             )),
@@ -318,12 +352,9 @@ class CoverflowScene extends StatelessWidget {
             // not buried under them. Clip it to the FLOOR only so it
             // cannot fog or darken artwork above the point of contact.
             Positioned.fill(child: IgnorePointer(
-              child: FutureBuilder<_CoverflowTextureLayers>(
-                future: floorLayers,
-                builder: (context, frame) => CustomPaint(
-                  painter: _CoverflowFloorFinish(
-                    palette, floorY / h, frame.data),
-                ),
+              child: CustomPaint(
+                painter: _CoverflowFloorFinish(
+                  palette, floorY / h, floorFrame.data),
               ),
             )),
 
@@ -350,7 +381,7 @@ class CoverflowScene extends StatelessWidget {
               child: Center(child: albumPlaque),
             ),
           ],
-      ));
+      )));
     });
   }
 
@@ -592,7 +623,7 @@ class CoverflowScene extends StatelessWidget {
 class _CoverflowAtmosphere extends CustomPainter {
   final ArtPalette p;
   final double contactFraction;
-  final ui.Image? grain;
+  final _CoverflowFloorStrip? grain;
   const _CoverflowAtmosphere(this.p, this.contactFraction, {this.grain});
 
   @override
@@ -629,8 +660,7 @@ class _CoverflowAtmosphere extends CustomPainter {
     // already pre-rasterized. This replaces multiple GPU saveLayer passes
     // with one ordinary image composite per stable frame.
     if (grain != null) {
-      canvas.drawImage(grain!, Offset.zero,
-          Paint()..blendMode = BlendMode.overlay);
+      grain!.draw(canvas, size, BlendMode.overlay);
     }
 
     // Diffuse album-colored light is pooled near contact points. This
@@ -677,10 +707,8 @@ class _CoverflowFloorFinish extends CustomPainter {
     // Preserve the old multiply + screen compositing over the ACTUAL
     // album reflections, without per-frame projection, matrix filters,
     // offscreen layers or feather shaders.
-    canvas.drawImage(layers.shadow, Offset.zero,
-        Paint()..blendMode = BlendMode.multiply);
-    canvas.drawImage(layers.highlights, Offset.zero,
-        Paint()..blendMode = BlendMode.screen);
+    layers.shadow.draw(canvas, size, BlendMode.multiply);
+    layers.highlights.draw(canvas, size, BlendMode.screen);
   }
 
   @override
