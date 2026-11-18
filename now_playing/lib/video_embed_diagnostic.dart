@@ -368,7 +368,7 @@ document.head.appendChild(tag);
   }
 
   String _normalizeSong(String text) =>
-      text.toLowerCase().trim().replaceAll(RegExp(r'\\s+'), ' ');
+      text.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
 
   String _activeVideoId(Map<String, dynamic> snapshot) {
     final title = _normalizeSong(_activeTitle(snapshot));
