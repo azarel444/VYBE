@@ -37,7 +37,12 @@ class _CoverflowFloorStrip {
       image,
       Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
       Rect.fromLTWH(0, cropTop * scale, size.width, image.height * scale),
-      Paint()..blendMode = blend..filterQuality = FilterQuality.low,
+      // Reduce only the photographed floor grain by 20%; keep the
+      // black stage fade, colored contact lights and reflections intact.
+      Paint()
+        ..color = const Color(0xCCFFFFFF)
+        ..blendMode = blend
+        ..filterQuality = FilterQuality.low,
     );
   }
 }
@@ -233,6 +238,40 @@ class CoverflowScene extends StatelessWidget {
                 ),
               ),
             )),
+            // The same black edge shadow used under Focused Bars, but
+            // shortened to 1.65x the actual bar width (Focused uses 2.8x).
+            // Draw it BEHIND the moving bars and only when visualizers
+            // are enabled. It fades gently into the Coverflow stage.
+            if (leftVisualizer != null)
+              Positioned(left: 0, top: 0, bottom: 0, width: w * .08 * 1.65,
+                child: const IgnorePointer(child: DecoratedBox(
+                  decoration: BoxDecoration(gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      Color(0xE6000000),
+                      Color(0x99000000),
+                      Color(0x00000000),
+                    ],
+                    stops: [0.0, .45, 1.0],
+                  )),
+                )),
+              ),
+            if (rightVisualizer != null)
+              Positioned(right: 0, top: 0, bottom: 0, width: w * .08 * 1.65,
+                child: const IgnorePointer(child: DecoratedBox(
+                  decoration: BoxDecoration(gradient: LinearGradient(
+                    begin: Alignment.centerRight,
+                    end: Alignment.centerLeft,
+                    colors: [
+                      Color(0xE6000000),
+                      Color(0x99000000),
+                      Color(0x00000000),
+                    ],
+                    stops: [0.0, .45, 1.0],
+                  )),
+                )),
+              ),
             if (leftVisualizer != null)
               Positioned(left: 0, top: 0, bottom: 0, width: w * .08,
                 child: IgnorePointer(child: leftVisualizer!)),
