@@ -261,8 +261,9 @@ class CoverflowScene extends StatelessWidget {
             // cannot fog or darken artwork above the point of contact.
             Positioned.fill(child: IgnorePointer(
               child: CustomPaint(
-                painter: _CoverflowStaticFloor(
-                  floorFrame.data, floorY / h, portrait),
+                // Position against the whole display, not album contact.
+                // The user authored each PNG against VYBE's exact theme.
+                painter: _CoverflowStaticFloor(floorFrame.data, portrait),
               ),
             )),
 
@@ -591,47 +592,45 @@ class _CoverflowAtmosphere extends CustomPainter {
       old.p.a != p.a || old.p.b != p.b || old.p.c != p.c;
 }
 
-/// The user-supplied floor texture is a single, static, transparent PNG.
-/// It is composited once OVER the live album reflections with Exclusion
-/// transfer mode, matching the intended authoring blend. Colored contact
-/// lights, moving artwork and visualizers remain fully dynamic.
+/// Screen-aligned floor overlay authored against VYBE itself. No runtime
+/// perspective transforms, masks, duplicate projection or track FX.
+/// The final image fills the full viewport width and is pinned to the
+/// BOTTOM edge: the previous album-contact placement truncated it early.
+/// Screen at 80% opacity preserves the user's transparent fades without
+/// Exclusion's inverted tonal mapping/posterization of the dark surface.
 class _CoverflowStaticFloor extends CustomPainter {
   final ui.Image? floor;
-  final double contactFraction;
   final bool portrait;
 
-  const _CoverflowStaticFloor(this.floor, this.contactFraction, this.portrait);
+  const _CoverflowStaticFloor(this.floor, this.portrait);
 
   @override
   void paint(Canvas canvas, Size size) {
     final image = floor;
     if (image == null || size.isEmpty) return;
-    final contactY = size.height * contactFraction;
-    final originalHeight = size.width * image.height / image.width;
 
-    // These are shallow floor overlays, not full-screen backgrounds.
-    // Place the far edge just above the album-feet line and extend the
-    // texture below it into the reflections. Landscape retains the
-    // original aspect; portrait has a slightly deeper physical floor.
-    final height = portrait
-        ? math.max(originalHeight * 1.5, size.height * .22)
-        : math.max(originalHeight, size.height * .23);
-    final top = contactY - height * (portrait ? .36 : .40);
-    final target = Rect.fromLTWH(0, top, size.width, height);
+    // The screenshot reference was composed at full screen width and
+    // aligned to the bottom edge. Retain landscape's supplied pixel
+    // proportions where possible, but allow portrait's specially authored
+    // asset to fill the lower third of a tall phone screen.
+    final proportionalHeight = size.width * image.height / image.width;
+    final height = math.max(
+      proportionalHeight, size.height * (portrait ? .36 : .27));
+    final target = Rect.fromLTWH(
+      0, size.height - height, size.width, height);
     final source = Rect.fromLTWH(
-        0, 0, image.width.toDouble(), image.height.toDouble());
+      0, 0, image.width.toDouble(), image.height.toDouble());
 
     canvas.drawImageRect(image, source, target,
       Paint()
-        ..blendMode = BlendMode.exclusion
-        ..filterQuality = FilterQuality.low);
+        ..blendMode = BlendMode.screen
+        ..color = const Color(0xCCFFFFFF)
+        ..filterQuality = FilterQuality.medium);
   }
 
   @override
   bool shouldRepaint(covariant _CoverflowStaticFloor old) =>
-      old.floor != floor ||
-      old.contactFraction != contactFraction ||
-      old.portrait != portrait;
+      old.floor != floor || old.portrait != portrait;
 }
 
 /// Screen-space black cast shadow from a front sleeve into the album
