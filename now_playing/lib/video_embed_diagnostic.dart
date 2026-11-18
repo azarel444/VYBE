@@ -388,7 +388,7 @@ document.head.appendChild(tag);
       final permissionNeeded = state['permissionNeeded'] == true;
       final signal = state['detection']?.toString() ?? 'unknown';
       if (_callPermissionNeeded != permissionNeeded ||
-          _inCall != active || (_inCall && _callStatus != signal)) {
+          _inCall != active || (_inCall && _callStatus != 'Call detected: $signal')) {
         setState(() {
           _callPermissionNeeded = permissionNeeded;
           _callStatus = active ? 'Call detected: $signal'
@@ -412,6 +412,11 @@ document.head.appendChild(tag);
         }
       } else {
         _record('Call ended; restoring the audio path that was active');
+        if (_waitingAfterCall) {
+          // The video is complete; advance the playlist instead of
+          // restarting an already-finished video after the call.
+          _resumeVideoAfterCall = false;
+        }
         if (_resumeVideoAfterCall && !_sourceAudioFallback) {
           // YouTube Music sometimes resumes on its own after a BT phone call.
           // Pause the source again BEFORE restarting embedded video audio.
@@ -645,6 +650,25 @@ document.head.appendChild(tag);
               const SizedBox(height: 10),
               Text('Status: $_state',
                   style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              Text(_transitionStatus,
+                  style: const TextStyle(color: Colors.cyanAccent, fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(_queueStatus,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              Text(_callStatus,
+                  style: TextStyle(
+                    color: _inCall ? Colors.orangeAccent : Colors.white70,
+                    fontSize: 12,
+                  )),
+              if (_callPermissionNeeded) ...[
+                const SizedBox(height: 6),
+                FilledButton.icon(
+                  onPressed: _requestCallPermission,
+                  icon: const Icon(Icons.phone_in_talk),
+                  label: const Text('Enable incoming call detection'),
+                ),
+              ],
               if (_lastError.isNotEmpty)
                 Text(_lastError, style: const TextStyle(color: Colors.amber)),
               const SizedBox(height: 6),
@@ -670,11 +694,32 @@ document.head.appendChild(tag);
                     label: const Text('Stop'),
                   ),
                   OutlinedButton.icon(
-                    onPressed: _load,
+                    onPressed: _advancing ? null
+                        : () => _advanceToNext('Manual Next test button'),
+                    icon: const Icon(Icons.skip_next),
+                    label: const Text('Test next video'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _load(),
                     icon: const Icon(Icons.refresh),
                     label: const Text('Reload'),
                   ),
                 ],
+              ),
+              SwitchListTile(
+                title: const Text('Automatically play next video'),
+                subtitle: const Text('When the iframe reports Ended, '
+                    'send one Skip Next to YouTube Music, wait for its '
+                    'new track metadata, then load its next video ID. '
+                    'Only advances when the current video ID matches '
+                    'the active YouTube Music queue entry.'),
+                value: _automaticNext,
+                onChanged: (value) => setState(() => _automaticNext = value),
+              ),
+              OutlinedButton.icon(
+                onPressed: _readSourceStatus,
+                icon: const Icon(Icons.playlist_play),
+                label: const Text('Read current YouTube Music queue'),
               ),
               SwitchListTile(
                 title: const Text('Show YouTube player controls'),
@@ -686,14 +731,19 @@ document.head.appendChild(tag);
                   unawaited(_load());
                 },
               ),
-              const Text('This is an isolated test, not a new VYBE theme. '
-                  'Press Play in VYBE or tap the video itself. The test '
-                  'will pause YouTube Music when playback starts to avoid '
-                  'two audio sources. Close this page to stop the video. '
-                  'Resume the music app manually afterward. '
-                  'YouTube can reject embeds, restrict autoplay, or display '
-                  'its required attribution. It does not expose video bytes '
-                  'to VYBE.',
+              const Text('Two-track playback diagnostic, not the finished '
+                  'Music Video theme. Start with YouTube Music in Video mode '
+                  'and a playlist with at least two tracks. The embedded '
+                  'video ID must match its active queue video ID. Play a '
+                  'video to test automatic handoff, or tap Test next video '
+                  'without waiting for the video to finish. If the next '
+                  'track has no published YouTube video ID, this test '
+                  'resumes source audio rather than guessing a match. '
+                  'Cellular ringing detection needs optional phone permission; '
+                  'standalone head units use Android audio-call mode where '
+                  'available. Embedded autoplay may still be blocked. '
+                  'Close the page to stop the test video. ',
+
                   style: TextStyle(fontSize: 12, color: Colors.white70)),
               const SizedBox(height: 8),
               OutlinedButton.icon(
