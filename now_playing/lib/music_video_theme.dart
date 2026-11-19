@@ -1122,7 +1122,7 @@ class _MusicVideoFeatheredHalo extends CustomPainter {
     final paint = Paint()
       ..shader = RadialGradient(
         center: const Alignment(-.12, .08),
-        radius: .47,
+        radius: .43,
         stops: const [0, .28, .55, .82, 1],
         colors: [
           accent.withOpacity(.45),
