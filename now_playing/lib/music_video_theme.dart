@@ -938,7 +938,7 @@ document.head.appendChild(tag);
                 Text(_title, textAlign: TextAlign.right,
                   maxLines: 2, overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: Colors.white,
-                    fontSize: portrait ? w * .055 : (w * .020).clamp(18.0, 32.0),
+                    fontSize: portrait ? w * .055 : (w * .020).clamp(18.0, 32.0).toDouble(),
                     fontWeight: FontWeight.w500,
                     letterSpacing: .05,
                     shadows: const [
@@ -950,7 +950,7 @@ document.head.appendChild(tag);
                   Text(_album, textAlign: TextAlign.right,
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: Colors.white,
-                      fontSize: portrait ? w * .038 : (w * .015).clamp(13.0, 24.0),
+                      fontSize: portrait ? w * .038 : (w * .015).clamp(13.0, 24.0).toDouble(),
                       letterSpacing: .08,
                       shadows: const [
                         Shadow(color: Color(0xDD000000), blurRadius: 10),
@@ -1021,7 +1021,7 @@ document.head.appendChild(tag);
                     ' - ' + (_duration > 0 ? _clock(_duration) : '0:00'),
                     maxLines: 1,
                     style: TextStyle(color: Colors.white,
-                      fontSize: portrait ? 11 : (h * .020).clamp(12.0, 18.0)),
+                      fontSize: portrait ? 11.0 : (h * .020).clamp(12.0, 18.0).toDouble()),
                   ),
                 ],
               )),
@@ -1202,13 +1202,13 @@ class MusicVideoThemePreview extends StatelessWidget {
             Expanded(child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Container(height: math.max(2, h * .009),
+                Container(height: math.max(2.0, h * .009).toDouble(),
                   decoration: BoxDecoration(color: accent,
                     borderRadius: BorderRadius.circular(3))),
                 SizedBox(height: h * .016),
                 Text('1:22 - 4:45',
                   style: TextStyle(color: Colors.white,
-                    fontSize: math.max(7, h * .017))),
+                    fontSize: math.max(7.0, h * .017).toDouble())),
               ],
             )),
             SizedBox(width: w * .016),
