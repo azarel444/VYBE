@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'theme_parts.dart';
 
@@ -36,36 +37,61 @@ class _VybeSpinningVinylState extends State<VybeSpinningVinyl>
     .117, .393, .040, 0, 0,
     0, 0, 0, 1, 0,
   ]);
-  late final AnimationController _rotation;
+  final ValueNotifier<double> _angle = ValueNotifier<double>(0.0);
+  late final Ticker _ticker;
+  Duration? _lastElapsed;
+  double _turns = 0;
+  double _speed = 0;
 
   @override
   void initState() {
     super.initState();
-    _rotation = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 10),
-    );
-    _syncAnimation();
+    _ticker = createTicker(_step);
+    if (widget.animate && widget.playing) _startTicker();
   }
 
   @override
   void didUpdateWidget(covariant VybeSpinningVinyl oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.playing != widget.playing ||
-        oldWidget.animate != widget.animate) _syncAnimation();
+        oldWidget.animate != widget.animate) _startTicker();
   }
 
-  void _syncAnimation() {
-    if (widget.playing && widget.animate) {
-      if (!_rotation.isAnimating) _rotation.repeat();
-    } else {
-      _rotation.stop(canceled: false);
+  void _startTicker() {
+    if (!_ticker.isActive) {
+      _lastElapsed = null;
+      _ticker.start();
+    }
+  }
+
+  // Identical to the existing Record Cut/Drive motion: 33 1/3 RPM,
+  // 0.75 s spin-up, 1.5 s coast-down, and no reset of the platter angle.
+  void _step(Duration elapsed) {
+    final last = _lastElapsed;
+    _lastElapsed = elapsed;
+    if (last == null) return;
+    final dt = ((elapsed - last).inMicroseconds / 1000000.0)
+        .clamp(0.0, 0.07).toDouble();
+    const full = 1 / 1.8;
+    final target = widget.animate && widget.playing ? full : 0.0;
+    if (_speed < target) {
+      _speed = math.min(target, _speed + full / .75 * dt);
+    } else if (_speed > target) {
+      _speed = math.max(target, _speed - full / 1.5 * dt);
+    }
+    if (_speed > 0) {
+      _turns = (_turns + _speed * dt) % 1.0;
+      _angle.value = _turns;
+    } else if (target == 0) {
+      _ticker.stop(canceled: false);
+      _lastElapsed = null;
     }
   }
 
   @override
   void dispose() {
-    _rotation.dispose();
+    _ticker.dispose();
+    _angle.dispose();
     super.dispose();
   }
 
@@ -165,10 +191,10 @@ class _VybeSpinningVinylState extends State<VybeSpinningVinyl>
         ),
         Positioned.fill(
           child: AnimatedBuilder(
-            animation: _rotation,
+            animation: _angle,
             child: face,
             builder: (context, child) => Transform.rotate(
-              angle: _rotation.value * 2 * math.pi,
+              angle: _angle.value * 2 * math.pi,
               child: child,
             ),
           ),
