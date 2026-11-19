@@ -50,6 +50,10 @@ class CoverflowScene extends StatelessWidget {
   final Uint8List? activeCover;
   final List<CoverflowCover> queue;
   final ArtPalette palette;
+  // Independent, switchable bloom for projected Coverflow artwork.
+  final bool coverBloom;
+  final double bloomStrength;
+  final double bloomSize;
   final Widget artistHeader;
   final Widget trackTitle;
   final Widget albumPlaque;
@@ -71,6 +75,9 @@ class CoverflowScene extends StatelessWidget {
     required this.activeCover,
     required this.queue,
     required this.palette,
+    this.coverBloom = false,
+    this.bloomStrength = 0.7,
+    this.bloomSize = 1.0,
     required this.artistHeader,
     required this.trackTitle,
     required this.albumPlaque,
@@ -213,6 +220,20 @@ class CoverflowScene extends StatelessWidget {
                     unit: centerSize,
                   )),
                 )),
+              // Draw broad, soft artwork-colored bloom BEHIND each sleeve.
+              // The original thin contact/corner lights stay unchanged.
+              if (coverBloom && bloomStrength > 0 &&
+                  entry.slot.abs() <= (performanceMode ? 1 : 2))
+                Positioned.fill(child: IgnorePointer(
+                  child: CustomPaint(painter: _CoverflowBloom(
+                    quad: _coverQuad(w, floorY, centerSize,
+                      slot: entry.slot, portrait: portrait),
+                    accent: Color.lerp(palette.a, palette.b, .25)!,
+                    unit: centerSize, strength: bloomStrength *
+                        (entry.slot.abs() == 1 ? .75 : .42),
+                    sizeFactor: bloomSize, performanceMode: performanceMode,
+                  )),
+                )),
               _sceneCover(entry.thumb, centerSize,
                 _coverQuad(w, floorY, centerSize,
                   slot: entry.slot, portrait: portrait),
@@ -249,6 +270,16 @@ class CoverflowScene extends StatelessWidget {
                     side: sign, unit: centerSize,
                   )),
                 )),
+            // Cover Bloom is separately toggleable and must be projected
+            // onto the same quadrilateral as the active sleeve.
+            if (coverBloom && bloomStrength > 0)
+              Positioned.fill(child: IgnorePointer(
+                child: CustomPaint(painter: _CoverflowBloom(
+                  quad: selectedQuad, accent: palette.a,
+                  unit: centerSize, strength: bloomStrength,
+                  sizeFactor: bloomSize, performanceMode: performanceMode,
+                )),
+              )),
             _sceneCover(activeCover, centerSize,
               _coverQuad(w, floorY, centerSize,
                 slot: 0, portrait: portrait),
@@ -730,6 +761,69 @@ class _CoverflowGapShadow extends CustomPainter {
       old.front[2] != front[2] || old.front[3] != front[3] ||
       old.rear[0] != rear[0] || old.rear[1] != rear[1] ||
       old.rear[2] != rear[2] || old.rear[3] != rear[3];
+}
+
+/// Optional Cover Bloom for the actual perspective-projected Coverflow
+/// sleeves. The regular _front() bloom cannot affect this theme. Paint only
+/// the feathered light OUTSIDE the quads, leaving each album face sharp.
+/// This does not alter the existing permanent thin outlines or floor texture.
+class _CoverflowBloom extends CustomPainter {
+  final List<Offset> quad;
+  final Color accent;
+  final double unit;
+  final double strength;
+  final double sizeFactor;
+  final bool performanceMode;
+
+  const _CoverflowBloom({
+    required this.quad,
+    required this.accent,
+    required this.unit,
+    required this.strength,
+    required this.sizeFactor,
+    required this.performanceMode,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (strength <= 0) return;
+    final contour = Path()
+      ..moveTo(quad[0].dx, quad[0].dy)
+      ..lineTo(quad[1].dx, quad[1].dy)
+      ..lineTo(quad[2].dx, quad[2].dy)
+      ..lineTo(quad[3].dx, quad[3].dy)
+      ..close();
+    final intensity = strength.clamp(0.0, 1.0).toDouble();
+    final spread = sizeFactor.clamp(0.35, 2.5).toDouble();
+
+    // Broad luminous haze extends visibly beyond the cover's edges.
+    // Only enabled sleeves allocate blur work, keeping the OFF path free.
+    canvas.drawPath(contour, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = unit * .072 * spread
+      ..strokeJoin = StrokeJoin.round
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal,
+          unit * (performanceMode ? .035 : .065) * spread)
+      ..color = accent.withOpacity((.78 * intensity).clamp(0.0, 1.0).toDouble()));
+    // A brighter inner bloom makes the effect legible even on vivid fanart.
+    if (!performanceMode) {
+      canvas.drawPath(contour, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = unit * .024 * spread
+        ..strokeJoin = StrokeJoin.round
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, unit * .021 * spread)
+        ..color = Color.lerp(accent, Colors.white, .50)!
+            .withOpacity((.63 * intensity).clamp(0.0, 1.0).toDouble()));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CoverflowBloom old) =>
+      old.accent != accent || old.unit != unit ||
+      old.strength != strength || old.sizeFactor != sizeFactor ||
+      old.performanceMode != performanceMode ||
+      old.quad[0] != quad[0] || old.quad[1] != quad[1] ||
+      old.quad[2] != quad[2] || old.quad[3] != quad[3];
 }
 
 /// Bright pin-point corner glints with tiny specular edges.

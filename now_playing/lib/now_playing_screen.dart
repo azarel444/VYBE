@@ -1824,6 +1824,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       activeCover: model.art?.bytes,
       queue: model.coverflowCovers,
       palette: _palette,
+      // Coverflow projects its own sleeves; it does not use _front().
+      // Wire Cover Bloom to the actual Coverflow stage instead.
+      coverBloom: settings.fxBloom,
+      bloomStrength: (settings.kBloom *
+          (settings.fxBlendOpacity['Cover Bloom'] ?? 1.0)).clamp(0.0, 1.0).toDouble(),
+      bloomSize: (settings.fxSize['Cover Bloom'] ?? 1.0).clamp(0.35, 2.5).toDouble(),
       artistHeader: logo,
       artAnchorKey: _artKey,
       onTapCover: _openPlayer,
