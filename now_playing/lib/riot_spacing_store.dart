@@ -80,7 +80,7 @@ class RiotSpacingStore extends ChangeNotifier {
           !number.isFinite || pair.contains(RegExp(r'\s'))) {
         throw FormatException('Invalid Riot pair or spacing: ' + pair);
       }
-      final delta = number.toDouble().clamp(-.40, .40);
+      final delta = number.toDouble().clamp(-.40, .40).toDouble();
       if (delta.abs() >= .005) next[pair] = delta;
     }
     _pairs
