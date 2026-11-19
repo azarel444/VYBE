@@ -35,6 +35,7 @@ import 'theme_library.dart';
 import 'template_background.dart';
 import 'club_background.dart';
 import 'coverflow_theme.dart';
+import 'riot_fixed_spacing.dart';
 import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
 
@@ -5072,6 +5073,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // a long empty right-side bearing; E also leaves too much whitespace.
   // This one method is used by both glyph placement and line measurement.
   double _riotPairOverlap(String previous, String character,
+      double fontSize, double glyphWidth) {
+    final original = _riotDefaultPairOverlap(
+        previous, character, fontSize, glyphWidth);
+    // Saved user corrections are fixed font defaults, never preferences.
+    return original - (riotFixedPairOffsets[previous + character] ?? 0.0) * fontSize;
+  }
+
+  double _riotDefaultPairOverlap(String previous, String character,
       double fontSize, double glyphWidth) {
     final pair = previous + character;
     // Keep the I readable. Its glyph advance is only ~0.273 em, so the
