@@ -1081,44 +1081,141 @@ class _MusicVideoVinylGrooves extends CustomPainter {
 /// network activity merely because the user browses available themes.
 class MusicVideoThemePreview extends StatelessWidget {
   final Uint8List? artwork;
+  final Uint8List? fanart;
+  final Uint8List? clearLogo;
   final String title;
+  final String album;
   final String artist;
   final Color accent;
 
-  const MusicVideoThemePreview({super.key, this.artwork,
-    required this.title, required this.artist, required this.accent});
+  const MusicVideoThemePreview({
+    super.key,
+    this.artwork,
+    this.fanart,
+    this.clearLogo,
+    required this.title,
+    required this.album,
+    required this.artist,
+    required this.accent,
+  });
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
-      final h = box.maxHeight;
+      final w = box.maxWidth, h = box.maxHeight;
+      final portrait = h > w * 1.1;
+      final side = portrait ? w * .63 : w * .285;
+      final left = portrait ? w * .035 : w * .013;
+      final top = portrait ? h * .69 : h * .747;
+      final discSide = side * .72;
       return ClipRect(child: Stack(fit: StackFit.expand, children: [
-        if (artwork != null)
-          ImageFiltered(imageFilter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-            child: Image.memory(artwork!, fit: BoxFit.cover))
+        // A static fanart approximation for the theme gallery. Never start
+        // YouTube/WebView simply by browsing the theme preview.
+        if (fanart != null || artwork != null)
+          Image.memory(fanart ?? artwork!, fit: BoxFit.cover,
+              gaplessPlayback: true)
         else
-          const ColoredBox(color: Color(0xFF10101A)),
-        const ColoredBox(color: Color(0x9F000000)),
-        Positioned.fill(child: Center(child: Icon(
-          Icons.play_circle_outline_rounded,
-          color: accent, size: h * .31))),
-        Positioned(left: 9, top: 8, width: box.maxWidth * .45,
-          child: Text(artist.isEmpty ? 'VYBE' : artist.toUpperCase(),
-            maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: h * .11, color: Colors.white,
-              fontWeight: FontWeight.w900, fontStyle: FontStyle.italic))),
-        Positioned(right: 9, top: 8, width: box.maxWidth * .42,
-          child: Text(title.isEmpty ? 'MUSIC VIDEO' : title,
-            textAlign: TextAlign.right, maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: h * .09, color: Colors.white))),
-        Positioned(left: 0, right: 0, bottom: 0, height: h * .12,
+          const ColoredBox(color: Color(0xFF091319)),
+        const Positioned.fill(child: ColoredBox(color: Color(0x32000000))),
+        Positioned(
+          left: left - side * .20, top: top - side * .21,
+          width: side * 1.75, height: side * 1.30,
           child: DecoratedBox(decoration: BoxDecoration(
-            color: const Color(0xDD08080F),
-            border: Border(top: BorderSide(
-                color: accent.withOpacity(.7), width: 2))),
-            child: const Center(child: Icon(Icons.play_arrow_rounded,
-              color: Colors.white, size: 17)))),
+            gradient: RadialGradient(
+              colors: [accent.withOpacity(.55),
+                accent.withOpacity(.18), Colors.transparent],
+            ),
+          )),
+        ),
+        Positioned(left: left + side * .80, top: top + side * .075,
+          width: discSide, height: discSide,
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const RadialGradient(
+                colors: [Color(0xFF2F3138), Color(0xFF0C0D12),
+                  Color(0xFF34343C), Colors.black],
+                stops: [0, .33, .67, 1],
+              ),
+            ),
+            child: CustomPaint(painter: _MusicVideoVinylGrooves()),
+          ),
+        ),
+        Positioned(left: left, top: top, width: side, height: side,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(3),
+              border: Border.all(color: accent, width: 1.1),
+              boxShadow: [BoxShadow(color: accent.withOpacity(.55),
+                blurRadius: 11, spreadRadius: 2)],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: artwork != null
+                ? Image.memory(artwork!, fit: BoxFit.cover)
+                : const ColoredBox(color: Color(0xFF121518)),
+            ),
+          ),
+        ),
+        Positioned(left: w * .024, top: h * .045,
+          width: portrait ? w * .43 : w * .185,
+          height: portrait ? h * .155 : h * .29,
+          child: Align(alignment: Alignment.topLeft,
+            child: clearLogo != null
+              ? Image.memory(clearLogo!, fit: BoxFit.contain,
+                  alignment: Alignment.topLeft)
+              : Text(artist.isEmpty ? 'VYBE' : artist.toUpperCase(),
+                  maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontStyle: FontStyle.italic,
+                    fontSize: portrait ? w * .047 : w * .022)),
+          ),
+        ),
+        Positioned(right: w * .032, top: h * .049,
+          width: portrait ? w * .46 : w * .27,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(title.isEmpty ? 'MUSIC VIDEO' : title,
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: TextStyle(color: Colors.white,
+                    fontSize: portrait ? w * .048 : w * .020)),
+              if (album.isNotEmpty &&
+                  album.trim().toLowerCase() != title.trim().toLowerCase())
+                Text(album, textAlign: TextAlign.right,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white70,
+                    fontSize: portrait ? w * .030 : w * .014)),
+            ],
+          )),
+        Positioned(right: w * .032, bottom: h * .038,
+          width: portrait ? w * .94 : w * .52,
+          height: h * .084,
+          child: Row(children: [
+            Icon(Icons.arrow_circle_left_outlined,
+              color: accent, size: h * .054),
+            SizedBox(width: w * .012),
+            Icon(Icons.pause_circle_outline_rounded,
+              color: accent, size: h * .054),
+            SizedBox(width: w * .016),
+            Expanded(child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(height: math.max(2, h * .009),
+                  decoration: BoxDecoration(color: accent,
+                    borderRadius: BorderRadius.circular(3))),
+                SizedBox(height: h * .016),
+                Text('1:22 - 4:45',
+                  style: TextStyle(color: Colors.white,
+                    fontSize: math.max(7, h * .017))),
+              ],
+            )),
+            SizedBox(width: w * .016),
+            Icon(Icons.arrow_circle_right_outlined,
+              color: accent, size: h * .054),
+          ]),
+        ),
       ]));
     },
   );

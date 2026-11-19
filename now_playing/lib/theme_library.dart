@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -15,12 +16,16 @@ class ThemeLibrary extends StatefulWidget {
   final NowPlayingModel model;
   final AppSettings settings;
   final ArtPalette palette;
+  final Uint8List? artistClearLogo;
+  final Uint8List? fanartBytes;
 
   const ThemeLibrary({
     super.key,
     required this.model,
     required this.settings,
     required this.palette,
+    this.artistClearLogo,
+    this.fanartBytes,
   });
 
   @override
@@ -55,8 +60,11 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     if (id == AppSettings.tMusicVideo) {
       return MusicVideoThemePreview(
         artwork: widget.model.art?.bytes,
+        fanart: widget.fanartBytes,
+        clearLogo: widget.artistClearLogo,
         artist: widget.model.artist,
         title: widget.model.title,
+        album: widget.model.displayAlbumTitle,
         accent: widget.palette.a,
       );
     }

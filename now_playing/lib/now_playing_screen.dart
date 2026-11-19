@@ -682,6 +682,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         model: model,
         settings: settings,
         palette: _palette,
+        artistClearLogo: _clearLogoBytes,
+        fanartBytes: _fanartBytes,
       ),
     );
     if (!mounted) return;
