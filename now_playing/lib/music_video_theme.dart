@@ -450,6 +450,9 @@ document.head.appendChild(tag);
         _busy = false;
         _status = 'No verified video yet — music continues with VYBE artwork';
       });
+      // After video-driven Skip Next, the source may still be muted.
+      // Fallback must always restore the original music app's audio.
+      await _resumeSource();
       return;
     }
     if (!await _pauseSource()) {
@@ -643,6 +646,16 @@ document.head.appendChild(tag);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_songKey, id);
     if (mounted) {
+      // A replacement link must replace the current iframe, not resume it.
+      if (_embedded) {
+        await _send('window.vybeStop && window.vybeStop();');
+        if (mounted) setState(() {
+          _embedded = false;
+          _ready = false;
+          _videoPlaying = false;
+        });
+      }
+      if (!mounted) return;
       setState(() => _status = 'Video link saved for this song');
       await _beginVideo();
     }
