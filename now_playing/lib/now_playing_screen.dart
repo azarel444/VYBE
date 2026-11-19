@@ -635,7 +635,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _stepGlitch();
     fxClock.t = _time;
     fxClock.bass = bass;
-    ripples.update(_time, bass, model.playing, liveAudio: model.realActive && model.fft != null);
+    // Only real, fresh Android FFT packets may trigger Beat Ripples.
+    // The smoothed/simulated visualizer bass is intentionally excluded.
+    ripples.update(_time, model.realActive ? model.fft : null,
+        model.fftFrame, model.playing);
 
     // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.

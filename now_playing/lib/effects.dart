@@ -527,30 +527,93 @@ class RaysPainter extends CustomPainter {
       old.palette != palette || old.k != k || old.topOrigin != topOrigin;
 }
 
-/// Starts of the ripple rings. A ring is born on each detected beat.
+/// Timestamped kick-like low-frequency onsets from ACTUAL Android FFT.
+/// No simulated beat clock, repeated frame sampling, or free-running pulses.
 class RippleState {
   final List<double> starts = [];
+  int _lastFftFrame = -1;
+  double _lowFloor = 0;
+  double _lastLow = 0;
+  double _lastMid = 0;
+  double _riseFloor = 0;
   double _lastBeat = -10;
-  double _baseline = 0.0;
-  double _previous = 0.0;
+  bool _primed = false;
 
-  /// Detect low-frequency onsets only from live FFT, not the simulated spectrum.
-  void update(double now, double bass, bool enabled, {bool liveAudio = false}) {
-    starts.removeWhere((s) => now - s > 2.8);
-    if (!enabled || !liveAudio) {
-      _baseline = 0;
-      _previous = 0;
+  void _reset() {
+    _primed = false;
+    _lastFftFrame = -1;
+    _lowFloor = 0;
+    _lastLow = 0;
+    _lastMid = 0;
+    _riseFloor = 0;
+    starts.clear();
+  }
+
+  /// Each incoming 96-band FFT represents one audio observation. The prior
+  /// implementation averaged bands 0..7 of the SMOOTHED visualizer, which
+  /// were almost all the same very-low FFT bin. That missed kicks whose main
+  /// energy is higher (about 60-200 Hz), and confused visualizer animation
+  /// with fresh audio transients.
+  void update(double now, Uint8List? fft, int fftFrame, bool playing) {
+    starts.removeWhere((s) => now - s > 1.45);
+    if (!playing || fft == null || fft.length < 96) {
+      _reset();
       return;
     }
-    final rise = bass - _previous;
-    final threshold = math.max(0.035, _baseline * 0.28);
-    final hit = bass > 0.10 &&
-        rise > threshold &&
-        bass > _baseline * 1.18 &&
-        now - _lastBeat > 0.22;
-    _previous = bass;
-    // Slow baseline tracks sustained bass without treating it as new hits.
-    _baseline += (bass - _baseline) * 0.035;
+    // Flutter paints at ~30 fps but Android FFT updates independently.
+    // Re-evaluating one stale sample at every render frame creates fake
+    // rising edges. One detector update per genuine FFT packet, only.
+    if (_lastFftFrame == fftFrame) return;
+    _lastFftFrame = fftFrame;
+
+    // The source bins are logarithmic (Kotlin's Visualizer mapping).
+    // This window reaches kick fundamentals and upper-bass punch instead
+    // of only the near-DC/sub-bass bins used by the old 0..7 average.
+    var lowSum = 0.0, lowWeight = 0.0;
+    for (var i = 2; i < 30; i++) {
+      final weight = i < 22 ? 1.0 : 0.55;
+      lowSum += (fft[i] / 255.0) * weight;
+      lowWeight += weight;
+    }
+    final low = lowSum / lowWeight;
+
+    // Compare with midrange onsets to avoid emitting a new ring for every
+    // snare/hi-hat or broad full-mix loudness jump.
+    var midSum = 0.0;
+    for (var i = 32; i < 60; i++) {
+      midSum += fft[i] / 255.0;
+    }
+    final mid = midSum / 28.0;
+
+    if (!_primed) {
+      _primed = true;
+      _lowFloor = low;
+      _lastLow = low;
+      _lastMid = mid;
+      return;
+    }
+
+    final lowRise = math.max(0.0, low - _lastLow);
+    final midRise = math.max(0.0, mid - _lastMid);
+    // An adaptive slow energy floor detects impacts even if the song's
+    // absolute bass level is naturally high or low. A transient/flux floor
+    // rejects jitter from compressed, sustained bass notes.
+    final riseGate = math.max(0.023, _riseFloor * 1.8);
+    final floorGate = math.max(0.024, _lowFloor * 0.065);
+    final kickLike = low >= mid * 0.58 || lowRise > midRise * 0.85;
+    final hit = low > 0.09 &&
+        lowRise >= riseGate &&
+        low > _lowFloor + floorGate &&
+        kickLike &&
+        now - _lastBeat >= 0.21;
+
+    // Update reference AFTER testing: the new impact must be measured
+    // against earlier energy, not against a baseline already pulled upward.
+    _lowFloor += (low - _lowFloor) * 0.07;
+    _riseFloor += (lowRise - _riseFloor) * 0.12;
+    _lastLow = low;
+    _lastMid = mid;
+
     if (hit) {
       _lastBeat = now;
       starts.add(now);
@@ -593,7 +656,9 @@ class RipplesPainter extends CustomPainter {
     final maxR = math.sqrt(size.width * size.width + size.height * size.height) * 0.55;
     final p = Paint()..style = PaintingStyle.stroke;
     for (final s in state.starts) {
-      final f = (clock.t - s) / 2.6;
+      // A shorter visible echo reads as one kick-synced ripple rather than
+      // an unrelated ring still travelling several beats later.
+      final f = (clock.t - s) / 1.3;
       if (f < 0 || f > 1) continue;
       p.strokeWidth = 1.0 + 3.0 * (1 - f);
       p.color = palette.at(f).withOpacity(_a((1 - f) * 0.70 * k));

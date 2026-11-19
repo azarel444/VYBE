@@ -783,6 +783,9 @@ class NowPlayingModel extends ChangeNotifier {
 
   /// Latest frequency bands from the audio output (96 values, 0..255).
   Uint8List? fft;
+  // Monotonic packet number lets effects distinguish a NEW audio frame from
+  // a render tick reusing the same FFT values.
+  int fftFrame = 0;
   DateTime _realAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// True while the device is giving us real audio data. When it stops
@@ -801,6 +804,7 @@ class NowPlayingModel extends ChangeNotifier {
   void _onFft(dynamic e) {
     if (e is! Uint8List) return;
     fft = e;
+    fftFrame++;
     var sum = 0;
     for (final b in e) {
       sum += b;
