@@ -97,6 +97,14 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   double? _fallbackSeekPosition;
   DateTime _fallbackSeekUntil = DateTime.fromMillisecondsSinceEpoch(0);
   String _autoAttemptedTrack = '';
+  // The new YT Music MediaSession can publish its title BEFORE the queue's
+  // video thumbnail/media ID becomes available. Keep verified queue IDs
+  // from the same active playlist and make bounded delayed rechecks.
+  final Map<String, String> _publishedQueueVideoIds = {};
+  final Set<String> _ambiguousQueueTitles = {};
+  Timer? _videoRetryTimer;
+  String _videoRetryTrack = '';
+  int _videoMisses = 0;
 
   @override
   void initState() {
@@ -149,6 +157,9 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
       if (changed) {
         ++_generation; // Cancel all in-flight lookups for the old track.
         final hadVideo = _embedded;
+        _videoRetryTimer?.cancel();
+        _videoRetryTrack = '';
+        _videoMisses = 0;
         _busy = false;
         _advancing = false;
         _embedded = false;
@@ -256,47 +267,78 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     return '';
   }
 
+  void _rememberPublishedYoutubeQueue(Map<dynamic, dynamic> snapshot) {
+    if (snapshot['package'] != _ytMusic || snapshot['sessionFound'] != true) {
+      return;
+    }
+    final queue = snapshot['queue'];
+    if (queue is! List) return;
+    for (final item in queue) {
+      if (item is! Map) continue;
+      final name = _normalize(item['title']?.toString() ?? '');
+      if (name.isEmpty || _ambiguousQueueTitles.contains(name)) continue;
+      // Only IDs published by this actual YouTube Music MediaSession and its
+      // playlist, never video IDs guessed from search-result titles.
+      final candidates = <String>{
+        _validId(item['youtubeThumbnailVideoId']),
+        _idFromUri(item['artworkUri']),
+        _validId(item['mediaId']),
+        _idFromUri(item['mediaUri']),
+      }..remove('');
+      if (candidates.length != 1) {
+        if (candidates.length > 1) {
+          _publishedQueueVideoIds.remove(name);
+          _ambiguousQueueTitles.add(name);
+        }
+        continue;
+      }
+      final id = candidates.single;
+      final oldId = _publishedQueueVideoIds[name];
+      if (oldId != null && oldId != id) {
+        _publishedQueueVideoIds.remove(name);
+        _ambiguousQueueTitles.add(name);
+      } else {
+        _publishedQueueVideoIds[name] = id;
+      }
+    }
+  }
+
   String _verifiedYoutubeMusicId(Map<dynamic, dynamic> snapshot) {
     final meta = snapshot['metadata'];
     if (meta is! Map ||
         _normalize(meta['title']?.toString() ?? '') != _normalize(_title)) {
       return '';
     }
-    final queue = snapshot['queue'];
-    if (queue is List) {
-      final exact = <String>{};
-      for (final item in queue) {
-        if (item is! Map ||
-            _normalize(item['title']?.toString() ?? '') != _normalize(_title)) {
-          continue;
-        }
-        final id = _validId(item['youtubeThumbnailVideoId']);
-        final fromUri = _idFromUri(item['artworkUri']);
-        if (id.isNotEmpty) exact.add(id);
-        if (fromUri.isNotEmpty) exact.add(fromUri);
-      }
-      if (exact.length == 1) return exact.single;
-      if (exact.length > 1) return '';
+    _rememberPublishedYoutubeQueue(snapshot);
+    final currentTitle = _normalize(_title);
+    // The active queue ID is tied to PlaybackState.activeQueueItemId:
+    // it belongs to the currently playing track, even if descriptionTitle
+    // is empty or differs from MediaMetadata's display title.
+    final probe = snapshot['videoProbe'];
+    if (probe is Map) {
+      final activeId = _validId(probe['activeQueueVideoId']);
+      if (activeId.isNotEmpty) return activeId;
     }
-    for (final value in [
+    final fromQueue = _ambiguousQueueTitles.contains(currentTitle)
+        ? null : _publishedQueueVideoIds[currentTitle];
+    if (fromQueue != null && fromQueue.isNotEmpty) return fromQueue;
+    for (final candidate in [
       meta['mediaId'],
       _idFromUri(meta['artUri']),
       _idFromUri(meta['albumArtUri']),
       _idFromUri(meta['displayIconUri']),
     ]) {
-      final id = _validId(value);
+      final id = _validId(candidate);
       if (id.isNotEmpty) return id;
     }
-    final probe = snapshot['videoProbe'];
     if (probe is Map &&
         _normalize(probe['descriptionTitle']?.toString() ?? '') ==
-            _normalize(_title)) {
-      for (final value in [
+            currentTitle) {
+      for (final candidate in [
         probe['activeMediaId'],
         _idFromUri(probe['activeMediaUri']),
-        probe['activeQueueVideoId'],
       ]) {
-        final id = _validId(value);
+        final id = _validId(candidate);
         if (id.isNotEmpty) return id;
       }
     }
@@ -305,34 +347,52 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
 
   Future<String> _findVideo() async {
     if (_title.isEmpty || _artist.isEmpty) return '';
+    final song = _songKey;
     final prefs = await SharedPreferences.getInstance();
-    // The proven automatic identity route is YouTube Music's actual current
-    // MediaSession metadata and title-matched queue artwork. Never guess an
-    // unrelated video from a search-result title.
+    // Start with known, previous-queue IDs when the source just skipped.
+    // The next song's notification metadata is sometimes published ahead
+    // of its queue artwork, leading to a false permanent "no video" result.
     if (_sourcePackage == _ytMusic) {
-      try {
-        final snapshot = await _channel.invokeMapMethod<String, dynamic>(
-            'integrationDiagnostics', {'service': 'youtube_music'});
-        if (snapshot != null && snapshot['sessionFound'] == true) {
-          final id = _verifiedYoutubeMusicId(snapshot);
-          if (id.isNotEmpty) {
-            await prefs.setString(_songKey, id);
-            return id;
+      final queueTitle = _normalize(_title);
+      final queued = _ambiguousQueueTitles.contains(queueTitle)
+          ? null : _publishedQueueVideoIds[queueTitle];
+      if (queued != null && queued.isNotEmpty) return queued;
+      for (var scan = 0; scan < 4; scan++) {
+        if (!mounted || _disposed || _songKey != song ||
+            _sourcePackage != _ytMusic) return '';
+        try {
+          final snapshot = await _channel.invokeMapMethod<String, dynamic>(
+              'integrationDiagnostics', {'service': 'youtube_music'});
+          if (snapshot != null && snapshot['sessionFound'] == true) {
+            // This collects the active playlist's exact published IDs even
+            // if the new MediaMetadata title has not caught up yet.
+            _rememberPublishedYoutubeQueue(snapshot);
+            final id = _verifiedYoutubeMusicId(snapshot);
+            if (id.isNotEmpty) {
+              await prefs.setString(song, id);
+              return id;
+            }
+            final fromQueue = _ambiguousQueueTitles.contains(queueTitle)
+                ? null : _publishedQueueVideoIds[queueTitle];
+            if (fromQueue != null && fromQueue.isNotEmpty) return fromQueue;
           }
+        } catch (error) {
+          debugPrint('Music Video: YTM session probe failed: $error');
         }
-      } catch (_) {}
+        if (scan < 3) {
+          await Future<void>.delayed(const Duration(milliseconds: 525));
+        }
+      }
+      final saved = _validId(prefs.getString(song));
+      if (saved.isNotEmpty) return saved;
+      debugPrint('Music Video: YTM published no usable video ID for $_artist — $_title');
+      return '';
     }
-    // A previously confirmed/manual link is portable across local music,
-    // Spotify and other media players with the same artist/song identity.
-    final saved = _validId(prefs.getString(_songKey));
+
+    final saved = _validId(prefs.getString(song));
     if (saved.isNotEmpty) return saved;
-    // YouTube Music has its own authoritative session video ID. If neither
-    // the session nor a manually verified link supplies one, return fast.
-    // A long online MusicBrainz search previously left Next looking stuck
-    // while YouTube Music continued playing the new track outside VYBE.
-    if (_sourcePackage == _ytMusic) return '';
     final related = await _musicBrainzVideoId();
-    if (related.isNotEmpty) await prefs.setString(_songKey, related);
+    if (related.isNotEmpty) await prefs.setString(song, related);
     return related;
   }
 
@@ -516,6 +576,28 @@ document.head.appendChild(tag);
     }
   }
 
+  // An unavailable ID is not necessarily "no video": YouTube Music can
+  // publish the corresponding thumbnail one or two seconds after the title.
+  // Retry quietly, at most twice, with the artwork fallback still displayed.
+  void _retryUnmatchedYoutubeMusicVideo() {
+    if (_sourcePackage != _ytMusic || !mounted || _disposed || _inCall) return;
+    final key = _songKey;
+    if (_videoRetryTrack != key) {
+      _videoRetryTrack = key;
+      _videoMisses = 0;
+    }
+    if (_videoMisses >= 2) return;
+    final attempt = ++_videoMisses;
+    _videoRetryTimer?.cancel();
+    _videoRetryTimer = Timer(Duration(milliseconds: attempt == 1 ? 2400 : 4800),
+        () {
+      if (!mounted || _disposed || _songKey != key || _embedded ||
+          _busy || _advancing || _inCall || _sourcePackage != _ytMusic ||
+          !widget.sourcePlaying) return;
+      unawaited(_beginVideo());
+    });
+  }
+
   Future<void> _beginVideo() async {
     if (_busy || _advancing || _inCall || _title.isEmpty || _artist.isEmpty) return;
     if (_embedded && _ready) {
@@ -539,8 +621,11 @@ document.head.appendChild(tag);
       // After video-driven Skip Next, the source may still be muted.
       // Fallback must always restore the original music app's audio.
       await _resumeSource();
+      _retryUnmatchedYoutubeMusicVideo();
       return;
     }
+    // Successful source-to-embed handoff cancels stale future retries.
+    _videoRetryTimer?.cancel();
     if (!await _pauseSource()) {
       if (mounted && token == _generation) {
         setState(() {
@@ -1155,6 +1240,7 @@ document.head.appendChild(tag);
     _disposed = true;
     _generation++;
     _callTimer?.cancel();
+    _videoRetryTimer?.cancel();
     unawaited(_send('window.vybeStop && window.vybeStop();'));
     widget.onVideoPlaybackChanged(false);
     if (!_inCall) unawaited(_resumeSource());
