@@ -132,8 +132,14 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   @override
   void didUpdateWidget(covariant MusicVideoTheme oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.sourcePackage.isNotEmpty) {
-      _sourcePackage = widget.sourcePackage;
+    // Embedded WebView playback can advertise VYBE's own MediaSession.
+    // Never replace the remembered original music app with that session;
+    // otherwise Next accidentally stops addressing YouTube Music.
+    final incomingPackage = widget.sourcePackage;
+    if (incomingPackage.isNotEmpty &&
+        incomingPackage != 'com.conjure.now_playing' &&
+        (_sourcePackage.isEmpty || !_embedded)) {
+      _sourcePackage = incomingPackage;
     }
     if (oldWidget.title != widget.title || oldWidget.artist != widget.artist) {
       // Treat a changed MediaSession track as authoritative, even when the
