@@ -777,13 +777,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Applied once, after background rendering, before foreground FX/UI.
             Positioned.fill(child: IgnorePointer(child: ColoredBox(
               color: Colors.black.withOpacity(((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial) && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
-            if (heavy) _shaderFxLayer(),
-            if (heavy) ..._extraFx(),
+            // Video playback owns its visuals. Global shaders and spectrum FX
+            // behind the WebView would be invisible but still cost frame time.
+            if (heavy && settings.theme != AppSettings.tMusicVideo)
+              _shaderFxLayer(),
+            if (heavy && settings.theme != AppSettings.tMusicVideo)
+              ..._extraFx(),
             if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
               opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
               child: Transform.scale(scale: settings.fxSize['VHS'] ?? 1.0,
                 child: Stack(fit: StackFit.expand, children: _vhsBackdrop(fx)))),
-            if (settings.bgEffects && settings.particles && heavy)
+            if (settings.bgEffects && settings.particles && heavy &&
+                settings.theme != AppSettings.tMusicVideo)
               IgnorePointer(
                 child: Transform.scale(
                   scale: settings.fxSize['Floating Particles'] ?? 1.0,
@@ -1476,6 +1481,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   );
 
   Widget _background() {
+    // The video theme draws its own carefully dimmed fanart/cover fallback.
+    // Do not render a second animated, blurred backdrop underneath WebView:
+    // this is unnecessary GPU work on the ATOTO A5L.
+    if (!widget.driveHost && settings.theme == AppSettings.tMusicVideo) {
+      return const ColoredBox(color: Color(0xFF090911));
+    }
     if (!model.active && !widget.driveHost) {
       return _edgyStandbyBackground();
     }
