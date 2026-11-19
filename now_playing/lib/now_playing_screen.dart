@@ -750,12 +750,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     Widget content(bool controlsInside) => GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: _toggleControls,
-        onHorizontalDragStart: (_) => _horizontalSwipeDistance = 0,
-        onHorizontalDragUpdate: (d) =>
-            _horizontalSwipeDistance += d.delta.dx,
-        onHorizontalDragCancel: () => _horizontalSwipeDistance = 0,
-        onHorizontalDragEnd: (d) {
+        onTap: settings.theme == AppSettings.tMusicVideo && !widget.driveHost
+            ? null : _toggleControls,
+        onHorizontalDragStart: settings.theme == AppSettings.tMusicVideo &&
+                !widget.driveHost ? null
+            : (_) => _horizontalSwipeDistance = 0,
+        onHorizontalDragUpdate: settings.theme == AppSettings.tMusicVideo &&
+                !widget.driveHost ? null
+            : (d) => _horizontalSwipeDistance += d.delta.dx,
+        onHorizontalDragCancel: settings.theme == AppSettings.tMusicVideo &&
+                !widget.driveHost ? null
+            : () => _horizontalSwipeDistance = 0,
+        onHorizontalDragEnd: settings.theme == AppSettings.tMusicVideo &&
+                !widget.driveHost ? null
+            : (d) {
           final distance = _horizontalSwipeDistance;
           _horizontalSwipeDistance = 0;
           // Flutter's horizontal drag recognizer rejects vertical gestures;
@@ -783,7 +791,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _shaderFxLayer(),
             if (heavy && settings.theme != AppSettings.tMusicVideo)
               ..._extraFx(),
-            if (vhs) FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
+            if (vhs && settings.theme != AppSettings.tMusicVideo)
+              FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
               opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
               child: Transform.scale(scale: settings.fxSize['VHS'] ?? 1.0,
                 child: Stack(fit: StackFit.expand, children: _vhsBackdrop(fx)))),
@@ -833,6 +842,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fanart: _fanartBytes,
                     clearLogo: settings.useArtistClearLogo ? _clearLogoBytes : null,
                     accent: _palette.a,
+                    onOpenThemes: _pickTheme,
+                    onOpenCustomize: _openQuickCustomize,
+                    onOpenSettings: _openSettings,
                   );
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
@@ -862,13 +874,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     children: [
                       layout,
                       // Clock is displayed only with the popup controls.
-                      if (vhs && !widget.driveHost && settings.theme != 4) _osd(h, compact: narrow),
+                      if (vhs && !widget.driveHost && settings.theme != 4 &&
+                          settings.theme != AppSettings.tMusicVideo)
+                        _osd(h, compact: narrow),
                     ],
                   ),
                 );
               }),
             // These sit on top of everything, so they must not catch touches.
-            if (vhs)
+            if (vhs && settings.theme != AppSettings.tMusicVideo)
               IgnorePointer(
                 child: FxComposite(
                   mode: settings.fxBlendMode['VHS'] ?? 0,
@@ -881,8 +895,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 ),
               ),
             // Night Mode uses window brightness, never a text-dimming overlay.
-            _progressLine(),
-            if (controlsInside) ...[
+            if (settings.theme != AppSettings.tMusicVideo || widget.driveHost)
+              _progressLine(),
+            // The embedded Music Video timeline must be the ONLY progress
+            // line; the normal popup would control the wrong MediaSession.
+            if (controlsInside &&
+                settings.theme != AppSettings.tMusicVideo) ...[
               if (settings.showClock) _controlsClockHeader(),
               _controls(),
             ],

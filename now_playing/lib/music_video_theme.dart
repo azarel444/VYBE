@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -23,6 +24,9 @@ class MusicVideoTheme extends StatefulWidget {
   final Uint8List? fanart;
   final Uint8List? clearLogo;
   final Color accent;
+  final VoidCallback onOpenThemes;
+  final VoidCallback onOpenCustomize;
+  final VoidCallback onOpenSettings;
 
   const MusicVideoTheme({
     super.key,
@@ -31,6 +35,9 @@ class MusicVideoTheme extends StatefulWidget {
     required this.album,
     required this.sourcePackage,
     required this.accent,
+    required this.onOpenThemes,
+    required this.onOpenCustomize,
+    required this.onOpenSettings,
     this.artwork,
     this.fanart,
     this.clearLogo,
@@ -69,6 +76,9 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   String _status = 'Press Play to find a matching music video';
   double _position = 0;
   double _duration = 0;
+  bool _scrubbing = false;
+  double _seekPreview = 0;
+  DateTime _ignoreOldProgressUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -384,11 +394,16 @@ function vybeEvent(event,detail) {
 window.vybePlay=function(){if(vybePlayer)vybePlayer.playVideo();};
 window.vybePause=function(){if(vybePlayer)vybePlayer.pauseVideo();};
 window.vybeStop=function(){if(vybePlayer)vybePlayer.stopVideo();};
+window.vybeSeek=function(seconds){
+ if(vybePlayer && typeof vybePlayer.seekTo==='function'){
+   vybePlayer.seekTo(Math.max(0,seconds),true);
+ }
+};
 function onYouTubeIframeAPIReady() {
  try {
   vybePlayer=new YT.Player('player',{
    width:'100%',height:'100%',videoId:'$id',
-   playerVars:{autoplay:0,controls:1,playsinline:1,rel:0,enablejsapi:1,origin:'$_origin'},
+   playerVars:{autoplay:0,controls:0,playsinline:1,rel:0,enablejsapi:1,origin:'$_origin'},
    events:{
     onReady:function(){vybeEvent('ready','ok');},
     onStateChange:function(e){
@@ -421,6 +436,8 @@ document.head.appendChild(tag);
       _videoPlaying = false;
       _position = 0;
       _duration = 0;
+      _scrubbing = false;
+      _seekPreview = 0;
       _status = 'Loading verified music video…';
     });
     try {
@@ -509,9 +526,17 @@ document.head.appendChild(tag);
       } else if (type == 'progress') {
         final parts = detail.split(',');
         if (parts.length == 2) {
-          _position = double.tryParse(parts[0]) ?? _position;
-          _duration = double.tryParse(parts[1]) ?? _duration;
-          if (mounted) setState(() {});
+          final current = double.tryParse(parts[0]);
+          final total = double.tryParse(parts[1]);
+          setState(() {
+            if (total != null && total.isFinite && total > 0) _duration = total;
+            // Do not let late WebView progress overwrite the user's drag.
+            if (!_scrubbing &&
+                DateTime.now().isAfter(_ignoreOldProgressUntil) &&
+                current != null && current.isFinite) {
+              _position = current;
+            }
+          });
         }
       } else if (type == 'error') {
         final message = detail == '101' || detail == '150'
@@ -605,6 +630,23 @@ document.head.appendChild(tag);
     } catch (_) {}
   }
 
+  /// Seek the video that is actually playing in VYBE's YouTube iframe.
+  /// The original YouTube Music MediaSession remains paused while embedded
+  /// playback owns the audio; seeking it would affect the wrong player.
+  Future<void> _seekVideo(double seconds) async {
+    if (!_embedded || !_ready || _duration <= 0 || _inCall) return;
+    final target = seconds.clamp(0.0, _duration).toDouble();
+    setState(() {
+      _scrubbing = false;
+      _position = target;
+      _seekPreview = target;
+      _ignoreOldProgressUntil =
+          DateTime.now().add(const Duration(milliseconds: 1100));
+    });
+    await _send('window.vybeSeek && window.vybeSeek(' +
+        target.toStringAsFixed(3) + ');');
+  }
+
   Future<void> _togglePlay() async {
     if (_embedded && _videoPlaying) {
       await _send('window.vybePause && window.vybePause();');
@@ -687,38 +729,51 @@ document.head.appendChild(tag);
     ]);
   }
 
-  Widget _vinyl(double size) {
-    final art = widget.artwork;
-    return SizedBox(width: size * 1.32, height: size * 1.25,
-      child: Stack(clipBehavior: Clip.none, children: [
-        Positioned(left: -size * .13, bottom: -size * .40,
-          width: size, height: size,
-          child: DecoratedBox(
-            decoration: BoxDecoration(shape: BoxShape.circle,
-              gradient: const RadialGradient(stops: [0,.16,.18,.27,.29,.43,.45,.67,.7,1],
-                colors: [
-                  Color(0xFF4E4A56), Color(0xFF0F0E12),
-                  Color(0xFF5A5261), Color(0xFF111117),
-                  Color(0xFF302F35), Color(0xFF09090D),
-                  Color(0xFF3A3940), Color(0xFF0D0D10),
-                  Color(0xFF29272E), Color(0xFF040407)]),
-              boxShadow: [BoxShadow(color: widget.accent.withOpacity(.35),
-                  blurRadius: 26, spreadRadius: 1)]))),
-        Positioned(left: size * .35, bottom: 0, width: size * .79,
-          height: size * .79,
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: widget.accent.withOpacity(.8), width: 1.2),
-              borderRadius: BorderRadius.circular(5),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(.7),
-                  blurRadius: 15)]),
-            child: ClipRRect(borderRadius: BorderRadius.circular(4),
-              child: art == null
-                ? const ColoredBox(color: Color(0xFF12111A),
-                    child: Center(child: Icon(Icons.album, color: Colors.white38)))
-                : Image.memory(art, fit: BoxFit.cover, gaplessPlayback: true)),
-          )),
-      ]));
+  /// Black vinyl with radial reflections and fine groove rings, viewed
+  /// partly behind the sleeve rather than centered under a small thumbnail.
+  Widget _referenceVinyl(double diameter) {
+    return Container(
+      width: diameter, height: diameter,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const RadialGradient(
+          stops: [0, .07, .10, .16, .19, .28, .32, .50, .54, .73, .77, 1],
+          colors: [
+            Color(0xFF353941), Color(0xFF15151B), Color(0xFF44444B),
+            Color(0xFF0B0D10), Color(0xFF3A3A41), Color(0xFF111216),
+            Color(0xFF35353C), Color(0xFF0B0C10), Color(0xFF303138),
+            Color(0xFF101115), Color(0xFF33343B), Color(0xFF07080B),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(color: widget.accent.withOpacity(.27),
+              blurRadius: 42, spreadRadius: 4),
+          const BoxShadow(color: Color(0xB5000000),
+              blurRadius: 24, offset: Offset(10, 14)),
+        ],
+      ),
+      child: CustomPaint(painter: _MusicVideoVinylGrooves()),
+    );
+  }
+
+  Widget _ringTransport(IconData icon, VoidCallback? onTap,
+      double diameter, String tooltip) {
+    return Tooltip(message: tooltip, child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(width: diameter, height: diameter,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0x30050D10),
+            border: Border.all(color: widget.accent.withOpacity(.92),
+                width: 1.2),
+          ),
+          child: Center(child: Icon(icon, color: Colors.white,
+              size: diameter * .58)),
+        ),
+      ),
+    ));
   }
 
   @override
@@ -726,131 +781,265 @@ document.head.appendChild(tag);
     return LayoutBuilder(builder: (context, bounds) {
       final w = bounds.maxWidth, h = bounds.maxHeight;
       final portrait = h > w * 1.1;
-      final headerHeight = portrait ? h * .16 : h * .145;
-      final footerHeight = portrait ? 82.0 : 66.0;
-      final recordSize = portrait ? w * .34 : h * .245;
+      // Landscape anchors follow the supplied 1536x864 reference:
+      // artwork x=1.3%, y=74.7%, width=28.5%; record peeks out behind it
+      // to the right. Transport is x=44.8%..96.8%, y≈92%.
+      final artSide = portrait ? w * .63 : w * .285;
+      final artLeft = portrait ? w * .035 : w * .013;
+      final artTop = portrait ? h * .69 : h * .747;
+      final discSide = artSide * .72;
+      final discLeft = artLeft + artSide * .80;
+      final discTop = artTop + artSide * .075;
+      final transportWidth = portrait ? w * .94 : w * .52;
+      final transportRight = portrait ? w * .03 : w * .032;
+      final transportBottom = portrait ? h * .035 : h * .038;
+      final transportHeight = portrait ? 68.0 : (h * .084).clamp(62.0, 76.0).toDouble();
+      final iconSize = portrait ? 39.0
+          : (h * .061).clamp(40.0, 55.0).toDouble();
+      final iconGap = portrait ? 7.0 : w * .015;
+      final infoWidth = portrait ? w * .46 : w * .27;
+
       return ClipRect(child: Stack(fit: StackFit.expand, children: [
+        // Keep existing artist imagery as a safe fallback while a verified
+        // video is not available. Never display an empty, black-only theme.
         _videoBackdrop(),
         if (_embedded)
-          Positioned(left: portrait ? 0 : w * .10,
-            right: portrait ? 0 : w * .10,
-            top: headerHeight, bottom: footerHeight,
-            child: Center(child: AspectRatio(aspectRatio: 16 / 9,
-              child: ColoredBox(color: Colors.black,
-                child: WebViewWidget(controller: _web))))),
+          Positioned.fill(child: ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.center,
+              minWidth: 0, minHeight: 0,
+              maxWidth: double.infinity, maxHeight: double.infinity,
+              child: SizedBox(
+                // Enlarge to 16:9 and crop overflow; never letterbox the
+                // full-screen reference inside a centered small rectangle.
+                width: math.max(w, h * (16 / 9)),
+                height: math.max(h, w * (9 / 16)),
+                child: WebViewWidget(controller: _web),
+              ),
+            ),
+          )),
+        // Light vignette protects white logos over bright video frames.
+        // No full-width black control panel or permanently visible clock.
+        const Positioned.fill(child: IgnorePointer(child: DecoratedBox(
+          decoration: BoxDecoration(gradient: LinearGradient(
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            stops: [0, .21, .62, 1],
+            colors: [Color(0x72000000), Color(0x12000000),
+                     Color(0x00000000), Color(0x70000000)],
+          )),
+        ))),
         if (!_embedded)
           Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.play_circle_outline_rounded,
-                size: portrait ? 66 : 80,
-                color: widget.accent.withOpacity(.93)),
+              color: widget.accent, size: portrait ? 52 : 76),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _busy ? null : _beginVideo,
-              icon: _busy ? const SizedBox(width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xCC11171C),
+                foregroundColor: Colors.white),
+              icon: _busy
+                  ? const SizedBox(width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.play_arrow_rounded),
               label: Text(_busy ? 'FINDING VIDEO' : 'PLAY MUSIC VIDEO'),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xD9211B29),
-                foregroundColor: Colors.white),
             ),
           ])),
-        if (_showVinyl)
-          Positioned(left: portrait ? -w * .055 : -h * .055,
-            bottom: footerHeight + (portrait ? 8 : 2),
-            child: IgnorePointer(child: _vinyl(recordSize))),
-        // All VYBE decoration is outside the iframe controls/attribution.
-        Positioned(left: 0, right: 0, top: 0, height: headerHeight,
-          child: Padding(padding: EdgeInsets.symmetric(
-              horizontal: portrait ? 13 : 28, vertical: 5),
-            child: Row(children: [
-              if (_showLogo)
-                Expanded(flex: 4, child: Align(alignment: Alignment.centerLeft,
-                  child: widget.clearLogo != null
-                    ? Image.memory(widget.clearLogo!,
-                        fit: BoxFit.contain, height: headerHeight * .72)
-                    : Text(_artist.toUpperCase(), maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.white,
-                          fontSize: portrait ? 20 : 28,
-                          fontWeight: FontWeight.w800, fontStyle: FontStyle.italic,
-                          shadows: const [Shadow(color: Colors.black,
-                            blurRadius: 12)]))))
-              else
-                const Spacer(flex: 1),
-              const SizedBox(width: 12),
-              if (_showInfo)
-                Expanded(flex: 5, child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Text(_title, textAlign: TextAlign.right, maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+        if (_showVinyl) ...[
+          // A broad album-colored lamp-like bloom, not just a thin outline.
+          Positioned(
+            left: artLeft - artSide * .20,
+            top: artTop - artSide * .21,
+            width: artSide * 1.75, height: artSide * 1.30,
+            child: IgnorePointer(child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(-.13, -.12),
+                  radius: .79,
+                  colors: [
+                    widget.accent.withOpacity(.48),
+                    widget.accent.withOpacity(.24),
+                    widget.accent.withOpacity(.08),
+                    Colors.transparent,
+                  ],
+                  stops: const [0, .42, .73, 1],
+                ),
+              ),
+            )),
+          ),
+          Positioned(left: discLeft, top: discTop,
+            width: discSide, height: discSide,
+            child: IgnorePointer(child: _referenceVinyl(discSide))),
+          Positioned(
+            left: artLeft, top: artTop,
+            width: artSide, height: artSide,
+            child: IgnorePointer(child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(color: widget.accent.withOpacity(.67),
+                    blurRadius: 48, spreadRadius: 4),
+                  const BoxShadow(color: Color(0xB0000000),
+                    blurRadius: 24, offset: Offset(6, 14)),
+                ],
+                border: Border.all(color: widget.accent.withOpacity(.91),
+                  width: 1.8),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: widget.artwork == null
+                    ? const ColoredBox(color: Color(0xFF0E1315),
+                        child: Center(child: Icon(Icons.album,
+                          color: Colors.white38, size: 55)))
+                    : Image.memory(widget.artwork!, fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        filterQuality: FilterQuality.high),
+              ),
+            )),
+          ),
+        ],
+        if (_showLogo)
+          Positioned(
+            left: portrait ? w * .025 : w * .024,
+            top: portrait ? h * .025 : h * .045,
+            width: portrait ? w * .43 : w * .185,
+            height: portrait ? h * .155 : h * .29,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onOpenThemes,
+              onLongPress: widget.onOpenCustomize,
+              onDoubleTap: widget.onOpenSettings,
+              child: Align(alignment: Alignment.topLeft,
+                child: widget.clearLogo != null
+                  ? Image.memory(widget.clearLogo!,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.topLeft,
+                      gaplessPlayback: true)
+                  : Text(_artist.toUpperCase(),
+                      maxLines: 2, overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: portrait ? 15 : 23)),
-                  if (_album.isNotEmpty)
-                    Text(_album, textAlign: TextAlign.right, maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: Colors.white70,
-                        fontSize: portrait ? 11 : 14)),
-                ]))
-              else
-                const Spacer(flex: 1),
-            ]))),
-        Positioned(left: 0, right: 0, bottom: 0, height: footerHeight,
-          child: Container(
-            color: const Color(0xDD090A0F),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              SizedBox(height: 5,
-                child: LinearProgressIndicator(
-                  value: _duration > 0 ? (_position / _duration).clamp(0.0, 1.0).toDouble() : 0.0,
-                  color: widget.accent, backgroundColor: Colors.white12)),
-              Expanded(child: Row(children: [
-                Text(_clock(_position), style: const TextStyle(
-                    color: Colors.white54, fontSize: 11)),
-                const Spacer(),
-                IconButton(tooltip: 'Previous song',
-                  onPressed: _advancing ? null : () => _advance(previous: true),
-                  icon: const Icon(Icons.skip_previous_rounded),
-                  color: Colors.white),
-                IconButton(tooltip: _videoPlaying ? 'Pause video' : 'Play video',
-                  onPressed: _busy || _advancing ? null : _togglePlay,
-                  icon: Icon(_videoPlaying ? Icons.pause_circle_filled_rounded
-                      : Icons.play_circle_fill_rounded),
-                  iconSize: 32, color: Colors.white),
-                IconButton(tooltip: 'Next song',
-                  onPressed: _advancing ? null : _advance,
-                  icon: const Icon(Icons.skip_next_rounded),
-                  color: Colors.white),
-                const Spacer(),
-                Text(_duration > 0 ? _clock(_duration) : '—:—',
-                  style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                IconButton(tooltip: 'Link a video for this track',
-                  icon: const Icon(Icons.link_rounded), color: Colors.white70,
-                  onPressed: _linkVideo),
-                PopupMenuButton<String>(
-                  tooltip: 'Video overlays', icon: const Icon(
-                      Icons.layers_outlined, color: Colors.white70),
-                  onSelected: _toggleOverlay,
-                  itemBuilder: (context) => [
-                    CheckedPopupMenuItem(value: 'logo', checked: _showLogo,
-                        child: const Text('Artist / clearlogo')),
-                    CheckedPopupMenuItem(value: 'info', checked: _showInfo,
-                        child: const Text('Song / album')),
-                    CheckedPopupMenuItem(value: 'vinyl', checked: _showVinyl,
-                        child: const Text('Album art + vinyl')),
-                  ]),
-              ])),
-            ]))),
+                        fontSize: portrait ? w * .060 : w * .030,
+                        fontWeight: FontWeight.w800,
+                        fontStyle: FontStyle.italic,
+                        shadows: const [
+                          Shadow(color: Colors.black, blurRadius: 12),
+                        ])),
+              ),
+            ),
+          ),
+        if (_showInfo)
+          Positioned(
+            right: portrait ? w * .035 : w * .031,
+            top: portrait ? h * .035 : h * .049,
+            width: infoWidth,
+            child: IgnorePointer(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(_title, textAlign: TextAlign.right,
+                  maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white,
+                    fontSize: portrait ? w * .055 : (w * .020).clamp(18.0, 32.0),
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: .05,
+                    shadows: const [
+                      Shadow(color: Color(0xDD000000), blurRadius: 10),
+                    ])),
+                if (_album.isNotEmpty &&
+                    _normalize(_album) != _normalize(_title)) ...[
+                  const SizedBox(height: 10),
+                  Text(_album, textAlign: TextAlign.right,
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.white,
+                      fontSize: portrait ? w * .038 : (w * .015).clamp(13.0, 24.0),
+                      letterSpacing: .08,
+                      shadows: const [
+                        Shadow(color: Color(0xDD000000), blurRadius: 10),
+                      ])),
+                ],
+              ],
+            )),
+          ),
+        // EXACTLY ONE interaction row, aligned at lower right of the mockup.
+        // In contrast to the previous noninteractive progress indicator,
+        // this slider seeks the actual embedded YouTube video.
+        Positioned(
+          right: transportRight, bottom: transportBottom,
+          width: transportWidth, height: transportHeight,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _ringTransport(Icons.arrow_left_rounded,
+                  _advancing ? null
+                      : () => unawaited(_advance(previous: true)),
+                  iconSize, 'Previous song'),
+              SizedBox(width: iconGap),
+              _ringTransport(_videoPlaying ? Icons.pause_rounded
+                  : Icons.play_arrow_rounded,
+                  _busy || _advancing ? null
+                      : () => unawaited(_togglePlay()),
+                  iconSize, _videoPlaying ? 'Pause video' : 'Play video'),
+              SizedBox(width: iconGap),
+              Expanded(child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(height: transportHeight * .60,
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: portrait ? 5 : 9,
+                        activeTrackColor: widget.accent,
+                        inactiveTrackColor: widget.accent.withOpacity(.73),
+                        thumbColor: const Color(0xFF050C10),
+                        disabledThumbColor: const Color(0xFF050C10),
+                        overlayColor: widget.accent.withOpacity(.25),
+                        thumbShape: RoundSliderThumbShape(
+                          enabledThumbRadius: portrait ? 9 : 15,
+                          disabledThumbRadius: portrait ? 8 : 13,
+                          elevation: 0, pressedElevation: 0),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 17),
+                      ),
+                      child: Slider(
+                        value: (_scrubbing ? _seekPreview : _position)
+                          .clamp(0.0, _duration > 0 ? _duration : 1.0)
+                          .toDouble(),
+                        min: 0,
+                        max: _duration > 0 ? _duration : 1.0,
+                        onChangeStart: _embedded && _ready && _duration > 0 && !_inCall
+                          ? (value) => setState(() {
+                              _scrubbing = true; _seekPreview = value;
+                            }) : null,
+                        onChanged: _embedded && _ready && _duration > 0 && !_inCall
+                          ? (value) => setState(() => _seekPreview = value)
+                          : null,
+                        onChangeEnd: _embedded && _ready && _duration > 0 && !_inCall
+                          ? (value) => unawaited(_seekVideo(value))
+                          : null,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _clock(_scrubbing ? _seekPreview : _position) +
+                    ' - ' + (_duration > 0 ? _clock(_duration) : '0:00'),
+                    maxLines: 1,
+                    style: TextStyle(color: Colors.white,
+                      fontSize: portrait ? 11 : (h * .020).clamp(12.0, 18.0)),
+                  ),
+                ],
+              )),
+              SizedBox(width: iconGap),
+              _ringTransport(Icons.arrow_right_rounded,
+                  _advancing ? null : () => unawaited(_advance()),
+                  iconSize, 'Next song'),
+            ],
+          ),
+        ),
         if (_status.isNotEmpty && (_busy || _advancing || !_embedded))
-          Positioned(left: portrait ? 12 : w * .24,
-            right: portrait ? 12 : w * .24,
-            bottom: footerHeight + 8,
+          Positioned(left: portrait ? w * .12 : w * .33,
+            right: portrait ? w * .12 : w * .33,
+            bottom: transportBottom + transportHeight + 14,
             child: IgnorePointer(child: Text(_status,
               textAlign: TextAlign.center, maxLines: 2,
               style: const TextStyle(color: Colors.white70, fontSize: 12,
-                shadows: [Shadow(color: Colors.black, blurRadius: 7)])))),
+                shadows: [Shadow(color: Colors.black, blurRadius: 8)])))),
       ]));
     });
   }
@@ -864,6 +1053,28 @@ document.head.appendChild(tag);
     if (!_inCall) unawaited(_resumeSource());
     super.dispose();
   }
+}
+
+/// Subtle grooves catch the light near the exposed right side of the record.
+class _MusicVideoVinylGrooves extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.shortestSide / 2;
+    for (var i = 0; i < 28; i++) {
+      final radius = r * (.35 + i * .021);
+      canvas.drawCircle(c, radius, Paint()
+        ..color = Colors.white.withOpacity(i.isEven ? .043 : .023)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = .65);
+    }
+    canvas.drawCircle(c, r * .095, Paint()
+      ..color = const Color(0xFF141418));
+    canvas.drawCircle(c, r * .021, Paint()
+      ..color = const Color(0xFF767B85));
+  }
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// Offline, nonplaying theme-library preview. Never starts video or YouTube
