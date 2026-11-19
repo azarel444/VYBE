@@ -402,6 +402,10 @@ open class MainActivity : FlutterActivity() {
                         startActivityForResult(intent, cacheRequestCode)
                     }
                 }
+                // Match path_provider's Android application-support directory,
+                // but do not depend on its Java/plugin class loader. Cache reads
+                // and Fanart.tv lookups need this path even if that plugin fails.
+                "appSupportPath" -> result.success(filesDir.absolutePath)
                 "getStorageLocations" -> result.success(storageLocations())
                 "mirrorLocalArtwork" -> Thread {
                     try {

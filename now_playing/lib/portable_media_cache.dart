@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+import 'vybe_app_storage.dart';
 
 /// Persistent artwork library that can be stored separately from music.
 ///
@@ -136,7 +136,7 @@ class PortableMediaCache {
     }
 
     try {
-      final root = await getApplicationSupportDirectory();
+      final root = await VybeAppStorage.supportDirectory();
       final basic = Directory('${root.path}/vybe_media_cache');
       if (await basic.exists()) {
         await for (final item in basic.list(followLinks: false)) {

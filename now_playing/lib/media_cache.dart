@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:path_provider/path_provider.dart';
+import 'vybe_app_storage.dart';
 import 'lyrics.dart';
 import 'portable_media_cache.dart';
 
@@ -11,7 +11,7 @@ class MediaCache {
   static Directory? _dir;
   static Future<Directory> _directory() async {
     if (_dir != null) return _dir!;
-    final root = await getApplicationSupportDirectory();
+    final root = await VybeAppStorage.supportDirectory();
     final dir = Directory('${root.path}/vybe_media_cache');
     if (!await dir.exists()) await dir.create(recursive: true);
     _dir = dir;

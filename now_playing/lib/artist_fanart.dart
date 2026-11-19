@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:path_provider/path_provider.dart';
+import 'vybe_app_storage.dart';
 import 'portable_media_cache.dart';
 
 /// Fanart.tv client. Receives the development credential from app settings.
@@ -237,7 +237,7 @@ class ArtistFanartCache {
     final memory = _memory[key];
     if (memory != null && memory.isNotEmpty) return memory;
     try {
-      final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
+      final folder = Directory('${(await VybeAppStorage.supportDirectory()).path}/artist_fanart');
       final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
       final file = File('${folder.path}/$name.jpg');
       if (await file.exists()) {
@@ -273,7 +273,7 @@ class ArtistFanartCache {
     final memory = _logoMemory[key];
     if (memory != null && memory.isNotEmpty) return memory;
     try {
-      final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
+      final folder = Directory('${(await VybeAppStorage.supportDirectory()).path}/artist_fanart');
       final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
       final file = File('${folder.path}/$name.clearlogo.png');
       if (await file.exists()) {
@@ -324,7 +324,7 @@ class ArtistFanartCache {
     if (_memory[cacheKey] != null) { record('Memory cache hit'); report('Cached artwork'); return _memory[cacheKey]; }
     try {
       record('Memory cache miss');
-      final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
+      final folder = Directory('${(await VybeAppStorage.supportDirectory()).path}/artist_fanart');
       await folder.create(recursive: true);
       final name = base64Url.encode(utf8.encode(cacheKey)).replaceAll('=', '');
       final file = File('${folder.path}/$name.jpg');
@@ -417,7 +417,7 @@ class ArtistFanartCache {
       {String personalKey = '', int maxImages = 10}) async {
     final key = artist.toLowerCase().trim();
     if (key.isEmpty) return [];
-    final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
+    final folder = Directory('${(await VybeAppStorage.supportDirectory()).path}/artist_fanart');
     await folder.create(recursive: true);
     final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
     final result = <Uint8List>[];
@@ -522,7 +522,7 @@ class ArtistFanartCache {
       {String personalKey = '', bool cacheChecked = false}) async {
     if (artist.trim().isEmpty) return null;
     final key = artist.toLowerCase().trim();
-    final folder = Directory('${(await getApplicationSupportDirectory()).path}/artist_fanart');
+    final folder = Directory('${(await VybeAppStorage.supportDirectory()).path}/artist_fanart');
     await folder.create(recursive: true);
     final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
     final file = File('${folder.path}/$name.clearlogo.png');
