@@ -816,24 +816,27 @@ document.head.appendChild(tag);
     return (time ~/ 60).toString() + ':' + (time % 60).toString().padLeft(2, '0');
   }
 
+  /// If no video matches, fanart is the full-screen visual—not a stalled
+  /// YouTube "press play" screen. Preserve its detail when artist fanart
+  /// exists; soften only a scaled-up album cover fallback.
   Widget _videoBackdrop() {
-    final bytes = widget.fanart ?? widget.artwork;
+    final fanart = widget.fanart;
+    final cover = widget.artwork;
     return Stack(fit: StackFit.expand, children: [
-      if (bytes != null)
-        ImageFiltered(imageFilter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          child: Transform.scale(scale: 1.14, child: Image.memory(bytes,
-              fit: BoxFit.cover, gaplessPlayback: true)))
+      if (fanart != null)
+        Image.memory(fanart, fit: BoxFit.cover,
+            gaplessPlayback: true, filterQuality: FilterQuality.medium)
+      else if (cover != null)
+        ImageFiltered(imageFilter: ui.ImageFilter.blur(sigmaX: 13, sigmaY: 13),
+          child: Transform.scale(scale: 1.12,
+            child: Image.memory(cover, fit: BoxFit.cover,
+              gaplessPlayback: true)))
       else
         const DecoratedBox(decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft, end: Alignment.bottomRight,
-            colors: [Color(0xFF171020), Color(0xFF100B19), Colors.black]))),
-      const ColoredBox(color: Color(0x93000000)),
-      const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
-        begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        stops: [0, .25, .74, 1],
-        colors: [Color(0xC0000000), Colors.transparent,
-          Color(0x30000000), Color(0xE8000000)]))),
+          gradient: LinearGradient(begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF14121D), Color(0xFF090B10), Colors.black]))),
+      const ColoredBox(color: Color(0x38000000)),
     ]);
   }
 
@@ -862,6 +865,10 @@ document.head.appendChild(tag);
     return LayoutBuilder(builder: (context, bounds) {
       final w = bounds.maxWidth, h = bounds.maxHeight;
       final portrait = h > w * 1.1;
+      // Top fade must end by the title/album caption—not obscure the
+      // upper third of the video. The lower fade is independently deep.
+      final topFadeHeight = portrait ? h * .16 : h * .17;
+      final bottomFadeHeight = portrait ? h * .48 : h * .48;
       // Landscape anchors follow the supplied 1536x864 reference:
       // artwork x=1.3%, y=74.7%, width=28.5%; record peeks out behind it
       // to the right. Transport is x=44.8%..96.8%, y≈92%.
@@ -909,35 +916,48 @@ document.head.appendChild(tag);
               ),
             ),
           )),
-        // Light vignette protects white logos over bright video frames.
-        // No full-width black control panel or permanently visible clock.
-        const Positioned.fill(child: IgnorePointer(child: DecoratedBox(
-          decoration: BoxDecoration(gradient: LinearGradient(
-            begin: Alignment.topCenter, end: Alignment.bottomCenter,
-            stops: [0, .09, .25, .62, .77, .91, 1],
-            colors: [Color(0xD0000000), Color(0x85000000),
-                     Color(0x15000000), Color(0x00000000),
-                     Color(0x30000000), Color(0xB5000000),
-                     Color(0xE0000000)],
+        // Independent cinematic fades: TOP becomes transparent at the end
+        // of the title/album band (~17% of screen height). BOTTOM transitions
+        // from clear video into SOLID BLACK before the transport row.
+        Positioned(left: 0, right: 0, top: 0,
+          height: topFadeHeight,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0, .34, .68, 1],
+              colors: [
+                Color(0xFA000000), Color(0xDC000000),
+                Color(0x80000000), Color(0x00000000),
+              ],
+            )),
           )),
-        ))),
+        ),
+        Positioned(left: 0, right: 0, bottom: 0,
+          height: bottomFadeHeight,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0, .25, .50, .64, 1],
+              colors: [
+                Color(0x00000000), Color(0x28000000),
+                Color(0xA5000000), Color(0xFF000000),
+                Color(0xFF000000),
+              ],
+            )),
+          )),
+        ),
         if (!_embedded)
-          Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.play_circle_outline_rounded,
-              color: widget.accent, size: portrait ? 52 : 76),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _busy ? null : _beginVideo,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xCC11171C),
-                foregroundColor: Colors.white),
-              icon: _busy
-                  ? const SizedBox(width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.play_arrow_rounded),
-              label: Text(_busy ? 'FINDING VIDEO' : 'PLAY MUSIC VIDEO'),
-            ),
-          ])),
+          // Full artwork/fanart theme remains visible while no verified
+          // music video is known. No giant Play Video prompt. The backdrop
+          // can still be double-tapped to retry, or long-pressed to link an
+          // exact YouTube video without adding icons to the reference.
+          Positioned.fill(child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onDoubleTap: () => unawaited(_beginVideo()),
+            onLongPress: () => unawaited(_linkVideo()),
+          )),
         if (_showVinyl) ...[
           // True feathered halo with ZERO alpha at every drawing edge.
           // The previous rectangle began abruptly ~20% above the sleeve,
@@ -1120,14 +1140,6 @@ document.head.appendChild(tag);
             ],
           ),
         ),
-        if (_status.isNotEmpty && (_busy || _advancing || !_embedded))
-          Positioned(left: portrait ? w * .12 : w * .33,
-            right: portrait ? w * .12 : w * .33,
-            bottom: transportBottom + transportHeight + 14,
-            child: IgnorePointer(child: Text(_status,
-              textAlign: TextAlign.center, maxLines: 2,
-              style: const TextStyle(color: Colors.white70, fontSize: 12,
-                shadows: [Shadow(color: Colors.black, blurRadius: 8)])))),
       ]));
     });
   }
