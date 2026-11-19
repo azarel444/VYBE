@@ -1031,7 +1031,7 @@ document.head.appendChild(tag);
                   SizedBox(height: transportHeight * .60,
                     child: SliderTheme(
                       data: SliderTheme.of(context).copyWith(
-                        trackHeight: portrait ? 5 : 9,
+                        trackHeight: portrait ? 5.0 : 9.0,
                         activeTrackColor: widget.accent,
                         inactiveTrackColor: widget.accent.withOpacity(.73),
                         thumbColor: const Color(0xFF050C10),
