@@ -132,15 +132,19 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   @override
   void didUpdateWidget(covariant MusicVideoTheme oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.sourcePackage.isNotEmpty && _sourcePackage.isEmpty) {
+    if (widget.sourcePackage.isNotEmpty) {
       _sourcePackage = widget.sourcePackage;
     }
     if (oldWidget.title != widget.title || oldWidget.artist != widget.artist) {
-      // New track published from outside this theme; never leave the old
-      // video running underneath a different MediaSession song.
-      if (!_advancing && (_title != widget.title || _artist != widget.artist)) {
+      // Treat a changed MediaSession track as authoritative, even when the
+      // change arrived during a Next request. The old implementation ignored
+      // these events while _advancing and could remain on the old player.
+      final changed = _title != widget.title || _artist != widget.artist;
+      if (changed) {
+        ++_generation; // Cancel all in-flight lookups for the old track.
         final hadVideo = _embedded;
-        _generation++;
+        _busy = false;
+        _advancing = false;
         _embedded = false;
         _ready = false;
         _playWhenReady = false;
@@ -149,12 +153,15 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
         _videoId = '';
         _position = 0;
         _duration = 0;
+        _scrubbing = false;
         _fallbackSeekPosition = null;
+        // The next MediaSession track may already be playing externally.
+        // Never force-resume the newly selected song based on stale state.
+        _pausedSource = false;
+        _status = '';
         if (hadVideo) {
           unawaited(_send('window.vybeStop && window.vybeStop();'));
-          unawaited(_resumeSource());
         }
-        _status = 'New track — press Play to load its video';
       }
       _title = widget.title;
       _artist = widget.artist;
@@ -163,19 +170,22 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     _maybeAutoStart();
   }
 
-  /// Attempt only once for each YT Music song while its source audio is
-  /// actively playing. This also handles metadata arriving after launch.
-  /// For other players, starting an embedded video remains an explicit tap.
-  void _maybeAutoStart() {
+  // A new song receives its own attempt; status and backdrop remain clean
+  // while the identity lookup runs. A missing verified video leaves the
+  // existing full-screen VYBE artwork/vinyl composition in place.
+  void _maybeAutoStart({bool sourceConfirmedPlaying = false}) {
     if (!mounted || _disposed || _sourcePackage != _ytMusic ||
-        !widget.sourcePlaying || _title.isEmpty || _artist.isEmpty ||
+        (!widget.sourcePlaying && !sourceConfirmedPlaying) ||
+        _title.isEmpty || _artist.isEmpty ||
         _busy || _embedded || _advancing || _inCall) return;
     final key = _sourcePackage + '|' + _artist + '|' + _title;
     if (_autoAttemptedTrack == key) return;
     _autoAttemptedTrack = key;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed || _embedded || _busy || _inCall ||
-          _autoAttemptedTrack != key || _sourcePackage != _ytMusic) return;
+          _autoAttemptedTrack != key || _sourcePackage != _ytMusic ||
+          _artist.isEmpty || _title.isEmpty ||
+          key != _sourcePackage + '|' + _artist + '|' + _title) return;
       unawaited(_beginVideo());
     });
   }
@@ -310,6 +320,11 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     // Spotify and other media players with the same artist/song identity.
     final saved = _validId(prefs.getString(_songKey));
     if (saved.isNotEmpty) return saved;
+    // YouTube Music has its own authoritative session video ID. If neither
+    // the session nor a manually verified link supplies one, return fast.
+    // A long online MusicBrainz search previously left Next looking stuck
+    // while YouTube Music continued playing the new track outside VYBE.
+    if (_sourcePackage == _ytMusic) return '';
     final related = await _musicBrainzVideoId();
     if (related.isNotEmpty) await prefs.setString(_songKey, related);
     return related;
@@ -513,7 +528,7 @@ document.head.appendChild(tag);
     if (id.isEmpty) {
       setState(() {
         _busy = false;
-        _status = 'No verified video yet — music continues with VYBE artwork';
+        _status = '';
       });
       // After video-driven Skip Next, the source may still be muted.
       // Fallback must always restore the original music app's audio.
@@ -521,7 +536,12 @@ document.head.appendChild(tag);
       return;
     }
     if (!await _pauseSource()) {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && token == _generation) {
+        setState(() {
+          _busy = false;
+          _status = '';
+        });
+      }
       return;
     }
     if (!mounted || token != _generation) return;
@@ -598,67 +618,78 @@ document.head.appendChild(tag);
     } catch (_) {}
   }
 
+  /// Send a skip only to the ORIGINAL music app. Show the artwork fallback
+  /// immediately and observe the next MediaSession song in parallel instead
+  /// of holding the previous WebView and a "looking up" screen for seconds.
   Future<void> _advance({bool previous = false}) async {
     if (_busy || _advancing || _inCall || _sourcePackage.isEmpty) return;
     final previousTitle = _title;
     final token = ++_generation;
     setState(() {
       _advancing = true;
-      _status = previous ? 'Previous track…' : 'Finding the next video…';
+      _status = '';
     });
     await _send('window.vybeStop && window.vybeStop();');
     widget.onVideoPlaybackChanged(false);
-    final command = await _sourceCommand(previous ? 'previous' : 'next',
-        previousTitle);
+    final response = await _sourceCommand(
+        previous ? 'previous' : 'next', previousTitle);
     if (!mounted || token != _generation) return;
-    if (command?['sent'] != true) {
-      setState(() {
-        _advancing = false;
-        _status = command?['reason']?.toString() ?? 'Unable to change source track';
-      });
-      return;
-    }
-    // Retain source-audio ownership until a video or art fallback finishes.
-    String nextTitle = '';
-    String nextArtist = '';
-    String nextAlbum = '';
-    for (var i = 0; i < 17; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 750));
-      if (!mounted || token != _generation) return;
-      if (_inCall) break;
-      final snapshot = await _sourceSnapshot();
-      final title = snapshot?['title']?.toString() ?? '';
-      if (title.isEmpty || _normalize(title) == _normalize(previousTitle)) {
-        continue;
-      }
-      nextTitle = title;
-      nextArtist = snapshot?['artist']?.toString() ?? '';
-      nextAlbum = snapshot?['album']?.toString() ?? '';
-      break;
-    }
-    if (!mounted || token != _generation) return;
+
     setState(() {
       _advancing = false;
+      _busy = false;
       _embedded = false;
       _ready = false;
+      _playWhenReady = false;
       _videoPlaying = false;
-      if (nextTitle.isNotEmpty) {
-        _title = nextTitle;
-        _artist = nextArtist;
-        _album = nextAlbum;
-        _videoId = '';
-      }
-      _status = nextTitle.isEmpty
-          ? 'Waiting for source playlist to update'
-          : 'Looking up the next track video…';
+      _videoId = '';
+      _position = 0;
+      _duration = 0;
+      _status = '';
     });
-    if (nextTitle.isEmpty) {
+    if (response?['sent'] != true) {
+      // Skip was rejected: give up video ownership safely and leave a
+      // functional album-art fallback. It still has Play/Pause and seeking.
       await _resumeSource();
       return;
     }
-    // The official iframe is re-created for every independently verified
-    // next track. An absent ID simply leaves source audio and art available.
-    await _beginVideo();
+    // Source Skip Next commonly starts YouTube Music video playback
+    // externally. That new playing song becomes our source to match/pause.
+    _pausedSource = false;
+    unawaited(_observeSkippedSong(previousTitle, token));
+  }
+
+  Future<void> _observeSkippedSong(String previousTitle, int token) async {
+    for (var attempt = 0; attempt < 13; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted || _disposed || token != _generation || _inCall) return;
+      final snapshot = await _sourceSnapshot();
+      final title = snapshot?['title']?.toString().trim() ?? '';
+      if (title.isEmpty || _normalize(title) == _normalize(previousTitle)) {
+        continue;
+      }
+      final nextArtist = snapshot?['artist']?.toString() ?? '';
+      final nextAlbum = snapshot?['album']?.toString() ?? '';
+      if (nextArtist.trim().isEmpty) return;
+
+      if (_title != title || _artist != nextArtist) {
+        // The native snapshot can arrive before Flutter's media stream.
+        // Reset the current song without forcing a resume or holding a
+        // stale old video on the screen.
+        setState(() {
+          _title = title;
+          _artist = nextArtist;
+          _album = nextAlbum;
+          _status = '';
+        });
+      }
+      if (snapshot?['playing'] == true) {
+        _maybeAutoStart(sourceConfirmedPlaying: true);
+      }
+      return;
+    }
+    // No confirmed next track: artwork still remains visible and controls
+    // still address the source app. Never leave an indefinite waiting label.
   }
 
   Future<void> _checkCall() async {
