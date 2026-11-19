@@ -791,7 +791,7 @@ document.head.appendChild(tag);
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               SizedBox(height: 5,
                 child: LinearProgressIndicator(
-                  value: _duration > 0 ? (_position / _duration).clamp(0.0, 1.0) : 0,
+                  value: _duration > 0 ? (_position / _duration).clamp(0.0, 1.0).toDouble() : 0.0,
                   color: widget.accent, backgroundColor: Colors.white12)),
               Expanded(child: Row(children: [
                 Text(_clock(_position), style: const TextStyle(
