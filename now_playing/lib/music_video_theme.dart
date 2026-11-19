@@ -131,8 +131,18 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   @override
   void didUpdateWidget(covariant MusicVideoTheme oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.sourcePackage.isNotEmpty && _sourcePackage.isEmpty) {
+    final sourceBecameAvailable = _sourcePackage.isEmpty &&
+        widget.sourcePackage.isNotEmpty;
+    if (sourceBecameAvailable) {
       _sourcePackage = widget.sourcePackage;
+    }
+    // YTM can publish its title before its playback state/package updates.
+    // A source that begins playing later still needs its initial handoff.
+    if (sourceBecameAvailable ||
+        (!oldWidget.sourcePlaying && widget.sourcePlaying)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scheduleAutomaticVideo();
+      });
     }
     if (oldWidget.title != widget.title || oldWidget.artist != widget.artist) {
       // An embedded player may briefly publish a different Android session.
@@ -810,7 +820,7 @@ document.head.appendChild(tag);
                 width: 1.2),
           ),
           child: Center(child: Icon(icon, color: Colors.white,
-              size: diameter * .58)),
+              size: diameter * .77)),
         ),
       ),
     ));
@@ -1111,6 +1121,7 @@ document.head.appendChild(tag);
     _disposed = true;
     _generation++;
     _callTimer?.cancel();
+    _automaticStartTimer?.cancel();
     unawaited(_send('window.vybeStop && window.vybeStop();'));
     if (!_inCall) unawaited(_resumeSource());
     super.dispose();
@@ -1156,7 +1167,17 @@ class MusicVideoThemePreview extends StatelessWidget {
               gaplessPlayback: true)
         else
           const ColoredBox(color: Color(0xFF091319)),
-        const Positioned.fill(child: ColoredBox(color: Color(0x32000000))),
+        const Positioned.fill(child: IgnorePointer(child: DecoratedBox(
+          decoration: BoxDecoration(gradient: LinearGradient(
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            stops: [0.0, .11, .26, .58, .76, 1.0],
+            colors: [
+              Color(0xD8000000), Color(0x80000000),
+              Color(0x0A000000), Colors.transparent,
+              Color(0x67000000), Color(0xE5000000),
+            ],
+          )),
+        ))),
         Positioned(
           left: left - side * .32, top: top - side * .39,
           width: side * 1.92, height: side * 1.80,
