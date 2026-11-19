@@ -24,6 +24,11 @@ class MusicVideoTheme extends StatefulWidget {
   final Uint8List? fanart;
   final Uint8List? clearLogo;
   final Color accent;
+  final int sourcePositionMs;
+  final int sourceDurationMs;
+  final bool sourcePlaying;
+  final Future<void> Function(int) onSeekSource;
+  final Future<void> Function() onSourcePlayPause;
   final VoidCallback onOpenThemes;
   final VoidCallback onOpenCustomize;
   final VoidCallback onOpenSettings;
@@ -35,6 +40,11 @@ class MusicVideoTheme extends StatefulWidget {
     required this.album,
     required this.sourcePackage,
     required this.accent,
+    required this.sourcePositionMs,
+    required this.sourceDurationMs,
+    required this.sourcePlaying,
+    required this.onSeekSource,
+    required this.onSourcePlayPause,
     required this.onOpenThemes,
     required this.onOpenCustomize,
     required this.onOpenSettings,
@@ -79,6 +89,8 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   bool _scrubbing = false;
   double _seekPreview = 0;
   DateTime _ignoreOldProgressUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  double? _fallbackSeekPosition;
+  DateTime _fallbackSeekUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -127,6 +139,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
         _videoId = '';
         _position = 0;
         _duration = 0;
+        _fallbackSeekPosition = null;
         if (hadVideo) {
           unawaited(_send('window.vybeStop && window.vybeStop();'));
           unawaited(_resumeSource());
@@ -647,7 +660,31 @@ document.head.appendChild(tag);
         target.toStringAsFixed(3) + ');');
   }
 
+  /// The same mockup slider also seeks source audio when no verified video
+  /// exists, instead of becoming a decorative, dead control.
+  Future<void> _seekPlayback(double seconds) async {
+    if (_embedded) {
+      await _seekVideo(seconds);
+      return;
+    }
+    if (widget.sourceDurationMs <= 0 || _inCall) return;
+    final target = seconds.clamp(
+        0.0, widget.sourceDurationMs / 1000.0).toDouble();
+    setState(() {
+      _scrubbing = false;
+      _seekPreview = target;
+      _fallbackSeekPosition = target;
+      _fallbackSeekUntil = DateTime.now().add(
+          const Duration(milliseconds: 1500));
+    });
+    await widget.onSeekSource((target * 1000).round());
+  }
+
   Future<void> _togglePlay() async {
+    if (!_embedded) {
+      await widget.onSourcePlayPause();
+      return;
+    }
     if (_embedded && _videoPlaying) {
       await _send('window.vybePause && window.vybePause();');
       if (mounted) setState(() => _videoPlaying = false);
@@ -798,6 +835,16 @@ document.head.appendChild(tag);
           : (h * .061).clamp(40.0, 55.0).toDouble();
       final iconGap = portrait ? 7.0 : w * .015;
       final infoWidth = portrait ? w * .46 : w * .27;
+      final duration = _embedded ? _duration
+          : widget.sourceDurationMs / 1000.0;
+      final position = _embedded ? _position
+          : (_fallbackSeekPosition != null &&
+             DateTime.now().isBefore(_fallbackSeekUntil)
+              ? _fallbackSeekPosition!
+              : widget.sourcePositionMs / 1000.0);
+      final canSeek = !_inCall && (_embedded
+          ? _ready && _duration > 0 : widget.sourceDurationMs > 0);
+      final isPlaying = _embedded ? _videoPlaying : widget.sourcePlaying;
 
       return ClipRect(child: Stack(fit: StackFit.expand, children: [
         // Keep existing artist imagery as a safe fallback while a verified
@@ -972,11 +1019,11 @@ document.head.appendChild(tag);
                       : () => unawaited(_advance(previous: true)),
                   iconSize, 'Previous song'),
               SizedBox(width: iconGap),
-              _ringTransport(_videoPlaying ? Icons.pause_rounded
+              _ringTransport(isPlaying ? Icons.pause_rounded
                   : Icons.play_arrow_rounded,
                   _busy || _advancing ? null
                       : () => unawaited(_togglePlay()),
-                  iconSize, _videoPlaying ? 'Pause video' : 'Play video'),
+                  iconSize, isPlaying ? 'Pause' : 'Play'),
               SizedBox(width: iconGap),
               Expanded(child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -998,27 +1045,27 @@ document.head.appendChild(tag);
                           overlayRadius: 17),
                       ),
                       child: Slider(
-                        value: (_scrubbing ? _seekPreview : _position)
-                          .clamp(0.0, _duration > 0 ? _duration : 1.0)
+                        value: (_scrubbing ? _seekPreview : position)
+                          .clamp(0.0, duration > 0 ? duration : 1.0)
                           .toDouble(),
-                        min: 0,
-                        max: _duration > 0 ? _duration : 1.0,
-                        onChangeStart: _embedded && _ready && _duration > 0 && !_inCall
+                        min: 0.0,
+                        max: duration > 0 ? duration : 1.0,
+                        onChangeStart: canSeek
                           ? (value) => setState(() {
                               _scrubbing = true; _seekPreview = value;
                             }) : null,
-                        onChanged: _embedded && _ready && _duration > 0 && !_inCall
+                        onChanged: canSeek
                           ? (value) => setState(() => _seekPreview = value)
                           : null,
-                        onChangeEnd: _embedded && _ready && _duration > 0 && !_inCall
-                          ? (value) => unawaited(_seekVideo(value))
+                        onChangeEnd: canSeek
+                          ? (value) => unawaited(_seekPlayback(value))
                           : null,
                       ),
                     ),
                   ),
                   Text(
-                    _clock(_scrubbing ? _seekPreview : _position) +
-                    ' - ' + (_duration > 0 ? _clock(_duration) : '0:00'),
+                    _clock(_scrubbing ? _seekPreview : position) +
+                    ' - ' + (duration > 0 ? _clock(duration) : '0:00'),
                     maxLines: 1,
                     style: TextStyle(color: Colors.white,
                       fontSize: portrait ? 11.0 : (h * .020).clamp(12.0, 18.0).toDouble()),
