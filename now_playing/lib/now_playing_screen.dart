@@ -28,6 +28,8 @@ import 'settings.dart';
 import 'settings_screen.dart';
 import 'song_title_marquee.dart';
 import 'quick_customize.dart';
+import 'riot_spacing_store.dart';
+import 'riot_spacing_editor.dart';
 import 'fx_library.dart';
 import 'spectrum.dart';
 import 'theme_parts.dart';
@@ -202,6 +204,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fxProfiler.start();
     model.addListener(_onModel);
     settings.addListener(_onSettings);
+    RiotSpacingStore.instance.addListener(_onRiotSpacingChanged);
+    unawaited(RiotSpacingStore.instance.load());
     model.start();
     if (!widget.driveHost) {
       VybeLink.instance.addListener(_onLinkFanart);
@@ -257,6 +261,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (!widget.driveHost) VybeLink.instance.removeListener(_onLinkFanart);
     model.removeListener(_onModel);
     settings.removeListener(_onSettings);
+    RiotSpacingStore.instance.removeListener(_onRiotSpacingChanged);
     _ticker.dispose();
     _hideTimer?.cancel();
     _brightnessChannel.invokeMethod<void>('setNight', false).catchError((Object _) {});
@@ -692,6 +697,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ));
   }
 
+  void _onRiotSpacingChanged() {
+    // Letter widths use the same adjusted pairs as painted glyphs.
+    // Clear measured width cache when a pair changes or settings are loaded.
+    _artistWidthCache.clear();
+    if (mounted) setState(() {});
+  }
+
+  void _openRiotSpacingEditor() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => RiotSpacingEditor(
+        initialText: model.active && model.artist.trim().isNotEmpty
+            ? model.artist : 'MORRISSEY',
+        previewBuilder: (text, size) => _artistText(
+          size, letteringOverride: text, color: Colors.white),
+      ),
+    ));
+  }
+
   /// Customize is hidden until the floating button is tapped. The bottom
   /// sheet route handles the smooth slide-up / slide-down animation; no
   /// always-visible handle or drag-to-open interaction is offered.
@@ -719,6 +742,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             Navigator.of(sheetContext).pop();
             Navigator.of(context).push(MaterialPageRoute<void>(
               builder: (_) => FxLibraryScreen(settings: settings)));
+          },
+          onOpenRiotEditor: () {
+            Navigator.of(sheetContext).pop();
+            _openRiotSpacingEditor();
           },
         ),
       ),
@@ -5072,6 +5099,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // a long empty right-side bearing; E also leaves too much whitespace.
   // This one method is used by both glyph placement and line measurement.
   double _riotPairOverlap(String previous, String character,
+      double fontSize, double glyphWidth) {
+    final original = _riotDefaultPairOverlap(
+        previous, character, fontSize, glyphWidth);
+    // Positive em moves letters farther apart; negative closes the gap.
+    // This same method is used for painting and measured line width.
+    return original -
+        RiotSpacingStore.instance.deltaFor(previous + character) * fontSize;
+  }
+
+  double _riotDefaultPairOverlap(String previous, String character,
       double fontSize, double glyphWidth) {
     final pair = previous + character;
     // Keep the I readable. Its glyph advance is only ~0.273 em, so the
