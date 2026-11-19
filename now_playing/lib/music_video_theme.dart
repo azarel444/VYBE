@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'vybe_spinning_vinyl.dart';
 
 /// Music Video: user-initiated official YouTube embed with the source player's
 /// audio paused during video playback. When no verified video is available,
@@ -64,6 +65,8 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
 
   late final WebViewController _web;
   Timer? _callTimer;
+  Timer? _automaticStartTimer;
+  String _lastAutomaticTrack = '';
   bool _busy = false;
   bool _embedded = false;
   bool _ready = false;
@@ -118,6 +121,11 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     unawaited(_loadOverlayChoices());
     _callTimer = Timer.periodic(const Duration(milliseconds: 1100),
         (_) => unawaited(_checkCall()));
+    // VYBE opens on a new YouTube Music track. Begin video handoff without
+    // requiring an extra tap; the source audio is kept if ID/iframe fails.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scheduleAutomaticVideo();
+    });
   }
 
   @override
@@ -127,6 +135,9 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
       _sourcePackage = widget.sourcePackage;
     }
     if (oldWidget.title != widget.title || oldWidget.artist != widget.artist) {
+      // An embedded player may briefly publish a different Android session.
+      // Only the original music app may trigger a new-song handoff.
+      if (_embedded && widget.sourcePackage != _sourcePackage) return;
       // New track published from outside this theme; never leave the old
       // video running underneath a different MediaSession song.
       if (!_advancing && (_title != widget.title || _artist != widget.artist)) {
@@ -144,12 +155,31 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
           unawaited(_send('window.vybeStop && window.vybeStop();'));
           unawaited(_resumeSource());
         }
-        _status = 'New track — press Play to load its video';
+        _status = 'Finding the new track video…';
       }
       _title = widget.title;
       _artist = widget.artist;
       _album = widget.album;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scheduleAutomaticVideo();
+      });
     }
+  }
+
+  void _scheduleAutomaticVideo() {
+    if (_disposed || !mounted || _busy || _advancing || _inCall ||
+        _embedded || _title.trim().isEmpty || _artist.trim().isEmpty ||
+        _sourcePackage != _ytMusic || !widget.sourcePlaying) return;
+    final key = _sourcePackage + '|' + _artist.toLowerCase().trim() +
+        '|' + _title.toLowerCase().trim();
+    if (_lastAutomaticTrack == key) return;
+    _lastAutomaticTrack = key;
+    _automaticStartTimer?.cancel();
+    _automaticStartTimer = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || _disposed || _inCall ||
+          _sourcePackage != _ytMusic || !widget.sourcePlaying) return;
+      unawaited(_beginVideo());
+    });
   }
 
   String get _songKey =>
@@ -398,7 +428,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<style>html,body,#player{padding:0;margin:0;width:100%;height:100%;overflow:hidden;background:#000}</style>
+<style>html,body,#player{padding:0;margin:0;width:100%;height:100%;overflow:hidden!important;background:#000;overscroll-behavior:none;touch-action:none}</style>
 </head><body><div id="player"></div><script>
 var vybePlayer=null;
 function vybeEvent(event,detail) {
@@ -416,7 +446,7 @@ function onYouTubeIframeAPIReady() {
  try {
   vybePlayer=new YT.Player('player',{
    width:'100%',height:'100%',videoId:'$id',
-   playerVars:{autoplay:0,controls:0,playsinline:1,rel:0,enablejsapi:1,origin:'$_origin'},
+   playerVars:{autoplay:0,controls:0,playsinline:1,rel:0,cc_load_policy:0,iv_load_policy:3,disablekb:1,enablejsapi:1,origin:'$_origin'},
    events:{
     onReady:function(){vybeEvent('ready','ok');},
     onStateChange:function(e){
@@ -766,33 +796,6 @@ document.head.appendChild(tag);
     ]);
   }
 
-  /// Black vinyl with radial reflections and fine groove rings, viewed
-  /// partly behind the sleeve rather than centered under a small thumbnail.
-  Widget _referenceVinyl(double diameter) {
-    return Container(
-      width: diameter, height: diameter,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const RadialGradient(
-          stops: [0, .07, .10, .16, .19, .28, .32, .50, .54, .73, .77, 1],
-          colors: [
-            Color(0xFF353941), Color(0xFF15151B), Color(0xFF44444B),
-            Color(0xFF0B0D10), Color(0xFF3A3A41), Color(0xFF111216),
-            Color(0xFF35353C), Color(0xFF0B0C10), Color(0xFF303138),
-            Color(0xFF101115), Color(0xFF33343B), Color(0xFF07080B),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(color: widget.accent.withOpacity(.27),
-              blurRadius: 42, spreadRadius: 4),
-          const BoxShadow(color: Color(0xB5000000),
-              blurRadius: 24, offset: Offset(10, 14)),
-        ],
-      ),
-      child: CustomPaint(painter: _MusicVideoVinylGrooves()),
-    );
-  }
-
   Widget _ringTransport(IconData icon, VoidCallback? onTap,
       double diameter, String tooltip) {
     return Tooltip(message: tooltip, child: GestureDetector(
@@ -829,11 +832,12 @@ document.head.appendChild(tag);
       final discTop = artTop + artSide * .075;
       final transportWidth = portrait ? w * .94 : w * .52;
       final transportRight = portrait ? w * .03 : w * .032;
-      final transportBottom = portrait ? h * .035 : h * .038;
-      final transportHeight = portrait ? 68.0 : (h * .084).clamp(62.0, 76.0).toDouble();
+      final transportBottom = portrait ? h * .024 : h * .012;
+      final transportHeight = portrait ? 80.0
+          : (h * .125).clamp(84.0, 108.0).toDouble();
       final iconSize = portrait ? 39.0
           : (h * .061).clamp(40.0, 55.0).toDouble();
-      final iconGap = portrait ? 7.0 : w * .015;
+      final iconGap = portrait ? 7.0 : w * .011;
       final infoWidth = portrait ? w * .46 : w * .27;
       final duration = _embedded ? _duration
           : widget.sourceDurationMs / 1000.0;
@@ -861,18 +865,23 @@ document.head.appendChild(tag);
                 // full-screen reference inside a centered small rectangle.
                 width: math.max(w, h * (16 / 9)),
                 height: math.max(h, w * (9 / 16)),
-                child: WebViewWidget(controller: _web),
+                child: IgnorePointer(
+                  child: WebViewWidget(controller: _web),
+                ),
               ),
             ),
           )),
-        // Light vignette protects white logos over bright video frames.
-        // No full-width black control panel or permanently visible clock.
+        // Exact mockup treatment: black fades FROM the top and UP from
+        // the bottom, uninterrupted over the entire displayed video.
         const Positioned.fill(child: IgnorePointer(child: DecoratedBox(
           decoration: BoxDecoration(gradient: LinearGradient(
             begin: Alignment.topCenter, end: Alignment.bottomCenter,
-            stops: [0, .21, .62, 1],
-            colors: [Color(0x72000000), Color(0x12000000),
-                     Color(0x00000000), Color(0x70000000)],
+            stops: [0.0, .10, .26, .58, .72, .88, 1.0],
+            colors: [
+              Color(0xD8000000), Color(0x86000000),
+              Color(0x0A000000), Color(0x00000000),
+              Color(0x36000000), Color(0xC0000000), Color(0xEA000000),
+            ],
           )),
         ))),
         if (!_embedded)
@@ -893,30 +902,33 @@ document.head.appendChild(tag);
             ),
           ])),
         if (_showVinyl) ...[
-          // A broad album-colored lamp-like bloom, not just a thin outline.
+          // The glow must reach full transparency BEFORE its paint bounds.
+          // Radius .5 (not .79) eliminates the rectangular cutoff line
+          // visible at the top of the old blurred artwork area.
           Positioned(
-            left: artLeft - artSide * .20,
-            top: artTop - artSide * .21,
-            width: artSide * 1.75, height: artSide * 1.30,
+            left: artLeft - artSide * .32,
+            top: artTop - artSide * .39,
+            width: artSide * 1.92, height: artSide * 1.80,
             child: IgnorePointer(child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(-.13, -.12),
-                  radius: .79,
+                  radius: .5,
                   colors: [
-                    widget.accent.withOpacity(.48),
-                    widget.accent.withOpacity(.24),
-                    widget.accent.withOpacity(.08),
+                    widget.accent.withOpacity(.40),
+                    widget.accent.withOpacity(.20),
+                    widget.accent.withOpacity(.04),
                     Colors.transparent,
                   ],
-                  stops: const [0, .42, .73, 1],
+                  stops: const [0, .43, .79, 1],
                 ),
               ),
             )),
           ),
           Positioned(left: discLeft, top: discTop,
             width: discSide, height: discSide,
-            child: IgnorePointer(child: _referenceVinyl(discSide))),
+            child: IgnorePointer(child: VybeSpinningVinyl(
+              diameter: discSide, artwork: widget.artwork,
+              playing: isPlaying))),
           Positioned(
             left: artLeft, top: artTop,
             width: artSide, height: artSide,
@@ -1025,10 +1037,11 @@ document.head.appendChild(tag);
                       : () => unawaited(_togglePlay()),
                   iconSize, isPlaying ? 'Pause' : 'Play'),
               SizedBox(width: iconGap),
-              Expanded(child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(height: transportHeight * .60,
+              Expanded(child: SizedBox(height: transportHeight,
+                child: Stack(clipBehavior: Clip.none, children: [
+                  Positioned(left: 0, right: 0,
+                    top: (transportHeight - iconSize) / 2,
+                    height: iconSize,
                     child: SliderTheme(
                       data: SliderTheme.of(context).copyWith(
                         trackHeight: portrait ? 5.0 : 9.0,
@@ -1063,14 +1076,16 @@ document.head.appendChild(tag);
                       ),
                     ),
                   ),
-                  Text(
+                  Positioned(left: 0, right: 0, bottom: 0,
+                    child: Text(
                     _clock(_scrubbing ? _seekPreview : position) +
                     ' - ' + (duration > 0 ? _clock(duration) : '0:00'),
                     maxLines: 1,
+                    textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white,
                       fontSize: portrait ? 11.0 : (h * .020).clamp(12.0, 18.0).toDouble()),
-                  ),
-                ],
+                  )),
+                ]),
               )),
               SizedBox(width: iconGap),
               _ringTransport(Icons.arrow_right_rounded,
@@ -1100,28 +1115,6 @@ document.head.appendChild(tag);
     if (!_inCall) unawaited(_resumeSource());
     super.dispose();
   }
-}
-
-/// Subtle grooves catch the light near the exposed right side of the record.
-class _MusicVideoVinylGrooves extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = size.shortestSide / 2;
-    for (var i = 0; i < 28; i++) {
-      final radius = r * (.35 + i * .021);
-      canvas.drawCircle(c, radius, Paint()
-        ..color = Colors.white.withOpacity(i.isEven ? .043 : .023)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = .65);
-    }
-    canvas.drawCircle(c, r * .095, Paint()
-      ..color = const Color(0xFF141418));
-    canvas.drawCircle(c, r * .021, Paint()
-      ..color = const Color(0xFF767B85));
-  }
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// Offline, nonplaying theme-library preview. Never starts video or YouTube
@@ -1165,27 +1158,21 @@ class MusicVideoThemePreview extends StatelessWidget {
           const ColoredBox(color: Color(0xFF091319)),
         const Positioned.fill(child: ColoredBox(color: Color(0x32000000))),
         Positioned(
-          left: left - side * .20, top: top - side * .21,
-          width: side * 1.75, height: side * 1.30,
+          left: left - side * .32, top: top - side * .39,
+          width: side * 1.92, height: side * 1.80,
           child: DecoratedBox(decoration: BoxDecoration(
             gradient: RadialGradient(
-              colors: [accent.withOpacity(.55),
+              radius: .5,
+              colors: [accent.withOpacity(.42),
                 accent.withOpacity(.18), Colors.transparent],
             ),
           )),
         ),
         Positioned(left: left + side * .80, top: top + side * .075,
           width: discSide, height: discSide,
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const RadialGradient(
-                colors: [Color(0xFF2F3138), Color(0xFF0C0D12),
-                  Color(0xFF34343C), Colors.black],
-                stops: [0, .33, .67, 1],
-              ),
-            ),
-            child: CustomPaint(painter: _MusicVideoVinylGrooves()),
+          child: VybeSpinningVinyl(
+            diameter: discSide, artwork: artwork,
+            playing: false, animate: false,
           ),
         ),
         Positioned(left: left, top: top, width: side, height: side,
