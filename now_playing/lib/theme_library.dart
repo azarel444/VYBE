@@ -5,6 +5,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import 'now_playing_model.dart';
 import 'coverflow_theme.dart';
+import 'music_video_theme.dart';
 import 'palette.dart';
 import 'settings.dart';
 
@@ -51,6 +52,14 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
   /// queue/fanart theme; a fake screenshot would promise imaginary upcoming
   /// tracks on players that publish no queue.
   Widget _themeVisual(int id, bool portrait) {
+    if (id == AppSettings.tMusicVideo) {
+      return MusicVideoThemePreview(
+        artwork: widget.model.art?.bytes,
+        artist: widget.model.artist,
+        title: widget.model.title,
+        accent: widget.palette.a,
+      );
+    }
     if (id != AppSettings.tCoverflow) {
       return Image.asset(
         _imagePath(id, portrait),
@@ -324,9 +333,11 @@ class _ThemeLibraryState extends State<ThemeLibrary> {
     final id = _preview!;
     final screenshotPortrait = _previewPortrait ?? portrait;
     final active = widget.settings.theme == id;
-    final screenshot = id == AppSettings.tCoverflow
-        ? 'coverflow:${widget.model.title}:$screenshotPortrait'
-        : _imagePath(id, screenshotPortrait);
+    final screenshot = id == AppSettings.tMusicVideo
+        ? 'music-video:${widget.model.title}:$screenshotPortrait'
+        : id == AppSettings.tCoverflow
+            ? 'coverflow:${widget.model.title}:$screenshotPortrait'
+            : _imagePath(id, screenshotPortrait);
 
     return Column(
       key: ValueKey('vybe-preview-$id'),

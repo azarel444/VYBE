@@ -692,6 +692,8 @@ class NowPlayingModel extends ChangeNotifier {
   // Detected visual fingerprints of Musicolet's branded default cover.
   final Set<int> _automaticPlaceholderHashes = {};
   String _sessionPlayerPackage = '';
+  /// Original Android MediaSession package, never the embedded video player.
+  String get sourcePlayerPackage => _sessionPlayerPackage;
   /// Spotify represents an ad break as a track with an artist credit such
   /// as "Advertisement 2 of 3". This is not a real artist.
   bool get isSpotifyAdvertisement {

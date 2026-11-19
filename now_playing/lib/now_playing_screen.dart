@@ -35,6 +35,7 @@ import 'theme_library.dart';
 import 'template_background.dart';
 import 'club_background.dart';
 import 'coverflow_theme.dart';
+import 'music_video_theme.dart';
 import 'riot_fixed_spacing.dart';
 import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
@@ -817,6 +818,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   layout = _editorialLayout(w, h);
                 } else if (settings.theme == AppSettings.tCoverflow) {
                   layout = _coverflowLayout(w, h, heavy: heavy);
+                } else if (settings.theme == AppSettings.tMusicVideo) {
+                  layout = MusicVideoTheme(
+                    title: model.title,
+                    artist: model.artist,
+                    album: model.displayAlbumTitle,
+                    sourcePackage: model.sourcePlayerPackage,
+                    artwork: model.art?.bytes,
+                    fanart: _fanartBytes,
+                    clearLogo: settings.useArtistClearLogo ? _clearLogoBytes : null,
+                    accent: _palette.a,
+                  );
                 } else if (settings.theme == AppSettings.tRecord) {
                   layout = _recordLayout(w, h, narrow);
                 } else if (settings.theme == AppSettings.tFan) {
@@ -1253,7 +1265,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (linkSender) link.setFanartArtist(artist);
     final isFanartTheme = settings.theme == AppSettings.tCinematic ||
         settings.theme == AppSettings.tEditorial ||
-        settings.theme == AppSettings.tCoverflow;
+        settings.theme == AppSettings.tCoverflow ||
+        settings.theme == AppSettings.tMusicVideo;
     final needsLocalFanart = isFanartTheme
         ? !settings.fanartOverride
         : settings.backgroundSource == 6 ||
@@ -1469,7 +1482,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (!widget.driveHost &&
         (settings.theme == AppSettings.tCinematic ||
          settings.theme == AppSettings.tEditorial ||
-         settings.theme == AppSettings.tCoverflow)) {
+         settings.theme == AppSettings.tCoverflow ||
+         settings.theme == AppSettings.tMusicVideo)) {
       return _cinematicBackdrop();
     }
     if (settings.backgroundSource == 1) {

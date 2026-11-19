@@ -21,6 +21,7 @@ class AppSettings extends ChangeNotifier {
     'Bigfan',
     'Muzine',
     'Coverflow',
+    'Music Video',
   ];
 
   /// Theme numbers, so the screen does not rely on bare digits.
@@ -32,6 +33,7 @@ class AppSettings extends ChangeNotifier {
   static const int tCinematic = 10;
   static const int tEditorial = 11;
   static const int tCoverflow = 12;
+  static const int tMusicVideo = 13;
 
   /// The bundled screenshot filenames for Focused and Orbit are historically
   /// reversed relative to their actual rendered themes. Keep this explicit:
@@ -48,7 +50,7 @@ class AppSettings extends ChangeNotifier {
   static const int tRemovedVhs = 2;
 
   /// The themes that can be picked, in order.
-  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  static const List<int> pickable = [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
   static const accentNames = [
     'Auto (from art)',
     'Vaporwave',
