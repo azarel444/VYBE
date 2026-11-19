@@ -717,6 +717,14 @@ open class MainActivity : FlutterActivity() {
                 "pauseYoutubeMusicForVideoTest" -> result.success(pauseYoutubeMusicForVideoTest())
                 "advanceYoutubeMusicForVideoTest" -> result.success(advanceYoutubeMusicForVideoTest())
                 "resumeYoutubeMusicForVideoTest" -> result.success(resumeYoutubeMusicForVideoTest())
+                // Production Music Video theme uses the precise original media
+                // app, not the possibly changed global MediaSession controller.
+                "musicVideoSourceSnapshot" -> result.success(musicVideoSourceSnapshot(
+                    call.argument<String>("package") ?: ""))
+                "musicVideoSourceControl" -> result.success(musicVideoSourceControl(
+                    call.argument<String>("package") ?: "",
+                    call.argument<String>("action") ?: "",
+                    call.argument<String>("expectedTitle") ?: ""))
                 "musicVideoCallState" -> result.success(musicVideoCallState())
                 "requestMusicVideoCallPermission" -> requestMusicVideoCallPermission(result)
                 "startVisualizer" -> result.success(startVisualizer())
@@ -1077,6 +1085,99 @@ open class MainActivity : FlutterActivity() {
             }
         } catch (e: Exception) {
             mapOf("resumed" to false, "reason" to "Resume failed: ${e.message}")
+        }
+    }
+
+    /** The theme must control the ORIGINAL source app after the WebView
+     * starts producing audio. Never dispatch global media keys: they can
+     * pause the iframe or an entirely unrelated music player.
+     */
+    private fun musicVideoSession(target: String): MediaController? {
+        if (target.isBlank() || target == packageName || !hasAccess()) return null
+        return try {
+            val service = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val component = ComponentName(this, MediaListenerService::class.java)
+            val matches = service.getActiveSessions(component).filter {
+                it.packageName == target
+            }
+            matches.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+                ?: matches.firstOrNull()
+        } catch (_: Exception) { null }
+    }
+
+    private fun musicVideoSourceSnapshot(target: String): Map<String, Any?> {
+        val source = musicVideoSession(target) ?: return mapOf(
+            "found" to false, "package" to target,
+            "reason" to "Original source session unavailable")
+        val metadata = source.metadata
+        val state = source.playbackState
+        return mapOf(
+            "found" to true,
+            "package" to source.packageName,
+            "title" to (metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""),
+            "artist" to (metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""),
+            "album" to (metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""),
+            "playing" to (state?.state == PlaybackState.STATE_PLAYING),
+            "paused" to (state?.state == PlaybackState.STATE_PAUSED),
+            "canSkipNext" to ((state?.actions ?: 0L) and PlaybackState.ACTION_SKIP_TO_NEXT != 0L)
+        )
+    }
+
+    private fun musicVideoSourceControl(
+        target: String, action: String, expectedTitle: String): Map<String, Any?> {
+        val source = musicVideoSession(target) ?: return mapOf(
+            "sent" to false, "reason" to "Original music player not found")
+        val currentTitle =
+            source.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+        // Never pause, resume or skip a newly selected unrelated track when
+        // a delayed WebView event from the PREVIOUS song arrives.
+        if (expectedTitle.isBlank() ||
+            !currentTitle.trim().equals(expectedTitle.trim(), ignoreCase = true)) {
+            return mapOf("sent" to false,
+                "reason" to "Source song changed; refusing stale video command")
+        }
+        val state = source.playbackState
+        val actions = state?.actions ?: 0L
+        return try {
+            when (action) {
+                "pause" -> when (state?.state) {
+                    PlaybackState.STATE_PAUSED -> mapOf("alreadyPaused" to true,
+                        "reason" to "Original music player already paused")
+                    PlaybackState.STATE_PLAYING -> {
+                        source.transportControls.pause()
+                        mapOf("paused" to true, "reason" to "Paused original music source")
+                    }
+                    else -> mapOf("paused" to false,
+                        "reason" to "Source is not playing or paused")
+                }
+                "resume" -> {
+                    if (state?.state == PlaybackState.STATE_PLAYING) {
+                        mapOf("alreadyPlaying" to true,
+                            "reason" to "Original music source already playing")
+                    } else {
+                        source.transportControls.play()
+                        mapOf("resumed" to true, "reason" to "Resumed source audio")
+                    }
+                }
+                "next", "previous" -> {
+                    val requiredAction = if (action == "next")
+                        PlaybackState.ACTION_SKIP_TO_NEXT else PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                    if (actions and requiredAction == 0L) {
+                        mapOf("sent" to false,
+                            "reason" to "Original music player does not allow this skip")
+                    } else {
+                        if (action == "next") source.transportControls.skipToNext()
+                        else source.transportControls.skipToPrevious()
+                        mapOf("sent" to true,
+                            "reason" to "Track skip sent to original source")
+                    }
+                }
+                else -> mapOf("sent" to false,
+                    "reason" to "Unsupported music-video command")
+            }
+        } catch (error: Exception) {
+            mapOf("sent" to false,
+                "reason" to "Source control failed: " + (error.message ?: "unknown"))
         }
     }
 
