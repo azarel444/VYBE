@@ -152,6 +152,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // distance; a quick vertical/diagonal movement must never skip music.
   double _horizontalSwipeDistance = 0;
   bool _showControls = false;
+  // The embedded player owns playback while YouTube Music is paused.
+  // The same Record Cut animation is allowed to keep spinning in this theme.
+  bool _musicVideoIsPlaying = false;
   Timer? _hideTimer;
   Timer? _clockTimer;
 
@@ -644,9 +647,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.
     if (settings.theme == AppSettings.tRecord ||
-        settings.theme == AppSettings.tEditorial || settings.theme == 4) {
+        settings.theme == AppSettings.tEditorial ||
+        settings.theme == AppSettings.tMusicVideo || settings.theme == 4) {
       const full = 1 / 1.8;
-      final target = model.playing ? full : 0.0;
+      final target = (model.playing ||
+          (settings.theme == AppSettings.tMusicVideo && _musicVideoIsPlaying))
+          ? full : 0.0;
       if (_recSpeed < target) {
         _recSpeed = math.min(target, _recSpeed + full / 0.75 * dt);
       } else if (_recSpeed > target) {
@@ -844,6 +850,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fanart: _fanartBytes,
                     clearLogo: settings.useArtistClearLogo ? _clearLogoBytes : null,
                     accent: _palette.a,
+                    buildVinyl: _vinyl,
+                    onVideoPlaybackChanged: (playing) {
+                      _musicVideoIsPlaying = playing;
+                    },
                     sourcePositionMs: model.positionMs,
                     sourceDurationMs: model.durationMs,
                     sourcePlaying: model.playing,

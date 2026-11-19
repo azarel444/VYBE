@@ -24,6 +24,9 @@ class MusicVideoTheme extends StatefulWidget {
   final Uint8List? fanart;
   final Uint8List? clearLogo;
   final Color accent;
+  /// Reuse the real, spinning Record Cut renderer. Never draw a fake vinyl.
+  final Widget Function(double diameter) buildVinyl;
+  final ValueChanged<bool> onVideoPlaybackChanged;
   final int sourcePositionMs;
   final int sourceDurationMs;
   final bool sourcePlaying;
@@ -40,6 +43,8 @@ class MusicVideoTheme extends StatefulWidget {
     required this.album,
     required this.sourcePackage,
     required this.accent,
+    required this.buildVinyl,
+    required this.onVideoPlaybackChanged,
     required this.sourcePositionMs,
     required this.sourceDurationMs,
     required this.sourcePlaying,
@@ -91,6 +96,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   DateTime _ignoreOldProgressUntil = DateTime.fromMillisecondsSinceEpoch(0);
   double? _fallbackSeekPosition;
   DateTime _fallbackSeekUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  String _autoAttemptedTrack = '';
 
   @override
   void initState() {
@@ -118,6 +124,9 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     unawaited(_loadOverlayChoices());
     _callTimer = Timer.periodic(const Duration(milliseconds: 1100),
         (_) => unawaited(_checkCall()));
+    // Entering from an already playing YouTube Music video should not
+    // require a second manual tap on VYBE's Play Music Video button.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAutoStart());
   }
 
   @override
@@ -150,6 +159,24 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
       _artist = widget.artist;
       _album = widget.album;
     }
+    _maybeAutoStart();
+  }
+
+  /// Attempt only once for each YT Music song while its source audio is
+  /// actively playing. This also handles metadata arriving after launch.
+  /// For other players, starting an embedded video remains an explicit tap.
+  void _maybeAutoStart() {
+    if (!mounted || _disposed || _sourcePackage != _ytMusic ||
+        !widget.sourcePlaying || _title.isEmpty || _artist.isEmpty ||
+        _busy || _embedded || _advancing || _inCall) return;
+    final key = _sourcePackage + '|' + _artist + '|' + _title;
+    if (_autoAttemptedTrack == key) return;
+    _autoAttemptedTrack = key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disposed || _embedded || _busy || _inCall ||
+          _autoAttemptedTrack != key || _sourcePackage != _ytMusic) return;
+      unawaited(_beginVideo());
+    });
   }
 
   String get _songKey =>
@@ -398,7 +425,11 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<style>html,body,#player{padding:0;margin:0;width:100%;height:100%;overflow:hidden;background:#000}</style>
+<style>
+html,body{padding:0;margin:0;position:fixed;inset:0;width:100%;height:100%;
+overflow:hidden;overscroll-behavior:none;background:#000}
+#player{position:absolute;inset:0;width:100%;height:100%;overflow:hidden}
+</style>
 </head><body><div id="player"></div><script>
 var vybePlayer=null;
 function vybeEvent(event,detail) {
@@ -416,7 +447,9 @@ function onYouTubeIframeAPIReady() {
  try {
   vybePlayer=new YT.Player('player',{
    width:'100%',height:'100%',videoId:'$id',
-   playerVars:{autoplay:0,controls:0,playsinline:1,rel:0,enablejsapi:1,origin:'$_origin'},
+   playerVars:{autoplay:0,controls:0,playsinline:1,rel:0,
+    cc_load_policy:0,iv_load_policy:3,disablekb:1,
+    enablejsapi:1,origin:'$_origin'},
    events:{
     onReady:function(){vybeEvent('ready','ok');},
     onStateChange:function(e){
@@ -499,6 +532,7 @@ document.head.appendChild(tag);
     _generation++;
     _playWhenReady = false;
     _videoPlaying = false;
+    widget.onVideoPlaybackChanged(false);
     await _send('window.vybeStop && window.vybeStop();');
     if (!mounted) return;
     setState(() {
@@ -528,10 +562,12 @@ document.head.appendChild(tag);
             unawaited(_send('window.vybePause && window.vybePause();'));
           } else {
             _videoPlaying = true;
+            widget.onVideoPlaybackChanged(true);
             unawaited(_pauseSource());
           }
         } else {
           _videoPlaying = false;
+          widget.onVideoPlaybackChanged(false);
           if (detail == 'Ended' && !_advancing) unawaited(_advance());
         }
         setState(() => _status = detail == 'Playing'
@@ -569,6 +605,7 @@ document.head.appendChild(tag);
       _status = previous ? 'Previous track…' : 'Finding the next video…';
     });
     await _send('window.vybeStop && window.vybeStop();');
+    widget.onVideoPlaybackChanged(false);
     final command = await _sourceCommand(previous ? 'previous' : 'next',
         previousTitle);
     if (!mounted || token != _generation) return;
@@ -687,6 +724,7 @@ document.head.appendChild(tag);
     }
     if (_embedded && _videoPlaying) {
       await _send('window.vybePause && window.vybePause();');
+      widget.onVideoPlaybackChanged(false);
       if (mounted) setState(() => _videoPlaying = false);
     } else {
       await _beginVideo();
@@ -766,33 +804,6 @@ document.head.appendChild(tag);
     ]);
   }
 
-  /// Black vinyl with radial reflections and fine groove rings, viewed
-  /// partly behind the sleeve rather than centered under a small thumbnail.
-  Widget _referenceVinyl(double diameter) {
-    return Container(
-      width: diameter, height: diameter,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const RadialGradient(
-          stops: [0, .07, .10, .16, .19, .28, .32, .50, .54, .73, .77, 1],
-          colors: [
-            Color(0xFF353941), Color(0xFF15151B), Color(0xFF44444B),
-            Color(0xFF0B0D10), Color(0xFF3A3A41), Color(0xFF111216),
-            Color(0xFF35353C), Color(0xFF0B0C10), Color(0xFF303138),
-            Color(0xFF101115), Color(0xFF33343B), Color(0xFF07080B),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(color: widget.accent.withOpacity(.27),
-              blurRadius: 42, spreadRadius: 4),
-          const BoxShadow(color: Color(0xB5000000),
-              blurRadius: 24, offset: Offset(10, 14)),
-        ],
-      ),
-      child: CustomPaint(painter: _MusicVideoVinylGrooves()),
-    );
-  }
-
   Widget _ringTransport(IconData icon, VoidCallback? onTap,
       double diameter, String tooltip) {
     return Tooltip(message: tooltip, child: GestureDetector(
@@ -870,9 +881,11 @@ document.head.appendChild(tag);
         const Positioned.fill(child: IgnorePointer(child: DecoratedBox(
           decoration: BoxDecoration(gradient: LinearGradient(
             begin: Alignment.topCenter, end: Alignment.bottomCenter,
-            stops: [0, .21, .62, 1],
-            colors: [Color(0x72000000), Color(0x12000000),
-                     Color(0x00000000), Color(0x70000000)],
+            stops: [0, .09, .25, .62, .77, .91, 1],
+            colors: [Color(0xD0000000), Color(0x85000000),
+                     Color(0x15000000), Color(0x00000000),
+                     Color(0x30000000), Color(0xB5000000),
+                     Color(0xE0000000)],
           )),
         ))),
         if (!_embedded)
@@ -893,30 +906,21 @@ document.head.appendChild(tag);
             ),
           ])),
         if (_showVinyl) ...[
-          // A broad album-colored lamp-like bloom, not just a thin outline.
+          // True feathered halo with ZERO alpha at every drawing edge.
+          // The previous rectangle began abruptly ~20% above the sleeve,
+          // creating the clearly visible horizontal band in the screenshots.
           Positioned(
             left: artLeft - artSide * .20,
-            top: artTop - artSide * .21,
-            width: artSide * 1.75, height: artSide * 1.30,
-            child: IgnorePointer(child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(-.13, -.12),
-                  radius: .79,
-                  colors: [
-                    widget.accent.withOpacity(.48),
-                    widget.accent.withOpacity(.24),
-                    widget.accent.withOpacity(.08),
-                    Colors.transparent,
-                  ],
-                  stops: const [0, .42, .73, 1],
-                ),
-              ),
+            top: artTop - artSide * .34,
+            width: artSide * 1.80,
+            height: artSide * 1.76,
+            child: IgnorePointer(child: CustomPaint(
+              painter: _MusicVideoFeatheredHalo(widget.accent),
             )),
           ),
           Positioned(left: discLeft, top: discTop,
             width: discSide, height: discSide,
-            child: IgnorePointer(child: _referenceVinyl(discSide))),
+            child: IgnorePointer(child: widget.buildVinyl(discSide))),
           Positioned(
             left: artLeft, top: artTop,
             width: artSide, height: artSide,
@@ -1025,20 +1029,21 @@ document.head.appendChild(tag);
                       : () => unawaited(_togglePlay()),
                   iconSize, isPlaying ? 'Pause' : 'Play'),
               SizedBox(width: iconGap),
-              Expanded(child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(height: transportHeight * .60,
+              Expanded(child: Stack(fit: StackFit.expand, children: [
+                // The thumb/track share the SAME vertical center as buttons.
+                Positioned.fill(child: Align(
+                  alignment: Alignment.center,
+                  child: SizedBox(height: iconSize,
                     child: SliderTheme(
                       data: SliderTheme.of(context).copyWith(
-                        trackHeight: portrait ? 5.0 : 9.0,
+                        trackHeight: portrait ? 5.0 : 8.0,
                         activeTrackColor: widget.accent,
                         inactiveTrackColor: widget.accent.withOpacity(.73),
                         thumbColor: const Color(0xFF050C10),
                         disabledThumbColor: const Color(0xFF050C10),
                         overlayColor: widget.accent.withOpacity(.25),
                         thumbShape: RoundSliderThumbShape(
-                          enabledThumbRadius: portrait ? 9 : 15,
+                          enabledThumbRadius: portrait ? 9 : 14,
                           disabledThumbRadius: portrait ? 8 : 13,
                           elevation: 0, pressedElevation: 0),
                         overlayShape: const RoundSliderOverlayShape(
@@ -1063,15 +1068,18 @@ document.head.appendChild(tag);
                       ),
                     ),
                   ),
-                  Text(
+                )),
+                Positioned(left: 0, right: 0, bottom: 0,
+                  child: IgnorePointer(child: Text(
                     _clock(_scrubbing ? _seekPreview : position) +
                     ' - ' + (duration > 0 ? _clock(duration) : '0:00'),
-                    maxLines: 1,
+                    maxLines: 1, textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white,
-                      fontSize: portrait ? 11.0 : (h * .020).clamp(12.0, 18.0).toDouble()),
-                  ),
-                ],
-              )),
+                      fontSize: portrait ? 11.0 :
+                          (h * .020).clamp(12.0, 18.0).toDouble()),
+                  )),
+                ),
+              ])),
               SizedBox(width: iconGap),
               _ringTransport(Icons.arrow_right_rounded,
                   _advancing ? null : () => unawaited(_advance()),
@@ -1097,9 +1105,38 @@ document.head.appendChild(tag);
     _generation++;
     _callTimer?.cancel();
     unawaited(_send('window.vybeStop && window.vybeStop();'));
+    widget.onVideoPlaybackChanged(false);
     if (!_inCall) unawaited(_resumeSource());
     super.dispose();
   }
+}
+
+/// Gaussian-like radial falloff reaching full transparency before its bounds.
+/// No rectangular background means no hard band when album colors change.
+class _MusicVideoFeatheredHalo extends CustomPainter {
+  final Color accent;
+  const _MusicVideoFeatheredHalo(this.accent);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final paint = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-.12, .08),
+        radius: .47,
+        stops: const [0, .28, .55, .82, 1],
+        colors: [
+          accent.withOpacity(.45),
+          accent.withOpacity(.34),
+          accent.withOpacity(.14),
+          accent.withOpacity(.025),
+          accent.withOpacity(0),
+        ],
+      ).createShader(rect);
+    canvas.drawRect(rect, paint);
+  }
+  @override
+  bool shouldRepaint(covariant _MusicVideoFeatheredHalo old) =>
+      old.accent != accent;
 }
 
 /// Subtle grooves catch the light near the exposed right side of the record.
