@@ -145,6 +145,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
         _ready = false;
         _playWhenReady = false;
         _videoPlaying = false;
+        widget.onVideoPlaybackChanged(false);
         _videoId = '';
         _position = 0;
         _duration = 0;
@@ -474,6 +475,7 @@ document.head.appendChild(tag);
 
   Future<void> _loadVideo(String id) async {
     if (!mounted) return;
+    widget.onVideoPlaybackChanged(false);
     setState(() {
       _videoId = id;
       _embedded = true;
