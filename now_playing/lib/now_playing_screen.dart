@@ -860,6 +860,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     onSeekSource: model.seekTo,
                     onSourcePlayPause: model.playPause,
                     onOpenThemes: _pickTheme,
+                    onToggleUtilityMenu: _toggleControls,
                     onOpenCustomize: _openQuickCustomize,
                     onOpenSettings: _openSettings,
                   );
@@ -916,6 +917,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               _progressLine(),
             // The embedded Music Video timeline must be the ONLY progress
             // line; the normal popup would control the wrong MediaSession.
+            if (controlsInside && settings.theme == AppSettings.tMusicVideo)
+              _musicVideoUtilityPopup(),
             if (controlsInside &&
                 settings.theme != AppSettings.tMusicVideo) ...[
               if (settings.showClock) _controlsClockHeader(),
@@ -6135,6 +6138,77 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+
+  /// Special-purpose utility popup for Music Video. No source MediaSession
+  /// playback buttons or progress bar: the embedded video owns those.
+  Widget _musicVideoUtilityPopup() {
+    final size = MediaQuery.sizeOf(context);
+    final compact = size.width < 680;
+    final margin = compact ? 8.0 : size.width * .27;
+
+    Widget action(IconData icon, String label, VoidCallback callback) {
+      return Expanded(child: Tooltip(
+        message: label,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            _hideTimer?.cancel();
+            if (mounted) setState(() => _showControls = false);
+            callback();
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 3),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, color: Colors.white, size: compact ? 20 : 25),
+              const SizedBox(height: 4),
+              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.white,
+                    fontSize: compact ? 10.0 : 12.0)),
+            ]),
+          ),
+        ),
+      ));
+    }
+
+    return Positioned(
+      top: 0, left: margin, right: margin,
+      child: IgnorePointer(
+        ignoring: !_showControls,
+        child: AnimatedSlide(
+          duration: const Duration(milliseconds: 360),
+          curve: Curves.easeOutCubic,
+          offset: _showControls ? Offset.zero : const Offset(0, -1.35),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Color(0xF0101219),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(14)),
+              boxShadow: [BoxShadow(color: Color(0xB0000000),
+                blurRadius: 26, offset: Offset(0, 7))],
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(height: 3, decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: [
+                  Color(0xFFFF27A8), Color(0xFF995CFF),
+                  Color(0xFF05E2F3)]))),
+              SafeArea(
+                top: true, bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 7),
+                  child: Row(children: [
+                    action(Icons.grid_view_rounded, 'Themes', _pickTheme),
+                    action(Icons.tune_rounded, 'Customize', _openQuickCustomize),
+                    action(Icons.settings_outlined, 'Settings', _openSettings),
+                    action(Icons.navigation_rounded, 'Drive', _startDrive),
+                  ]),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 
   /// Full-width bottom controls. No bubble or pill background: a thin
   /// VYBE-magenta/purple/cyan rule and rising shadow separate it from the art.

@@ -33,6 +33,7 @@ class MusicVideoTheme extends StatefulWidget {
   final Future<void> Function(int) onSeekSource;
   final Future<void> Function() onSourcePlayPause;
   final VoidCallback onOpenThemes;
+  final VoidCallback onToggleUtilityMenu;
   final VoidCallback onOpenCustomize;
   final VoidCallback onOpenSettings;
 
@@ -51,6 +52,7 @@ class MusicVideoTheme extends StatefulWidget {
     required this.onSeekSource,
     required this.onSourcePlayPause,
     required this.onOpenThemes,
+    required this.onToggleUtilityMenu,
     required this.onOpenCustomize,
     required this.onOpenSettings,
     this.artwork,
@@ -1093,6 +1095,19 @@ document.head.appendChild(tag);
             )),
           ),
         ],
+        // Dedicated, always available upper-center menu touch area.
+        // No overlap with the lower-right video seek and transport.
+        Positioned(
+          left: portrait ? w * .31 : w * .27,
+          right: portrait ? w * .31 : w * .27,
+          top: 0,
+          height: portrait ? h * .085 : h * .115,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onToggleUtilityMenu,
+            child: const SizedBox.expand(),
+          ),
+        ),
         if (_showLogo)
           Positioned(
             left: portrait ? w * .025 : w * .024,
@@ -1101,7 +1116,7 @@ document.head.appendChild(tag);
             height: portrait ? h * .155 : h * .29,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: widget.onOpenThemes,
+              onTap: widget.onToggleUtilityMenu,
               onLongPress: widget.onOpenCustomize,
               onDoubleTap: widget.onOpenSettings,
               child: Align(alignment: Alignment.topLeft,
