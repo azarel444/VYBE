@@ -456,6 +456,31 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     finally { client?.close(force: true); }
   }
 
+  Future<void> _openSourcePlayer() async {
+    if (_sourcePackage.isEmpty) {
+      // The model has no identified original music app. Never launch an
+      // unrelated global MediaSession (which may belong to the WebView).
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('The source music app is not available'),
+      ));
+      return;
+    }
+    String response;
+    try {
+      response = await _channel.invokeMethod<String>(
+        'musicVideoOpenSource', {'package': _sourcePackage}) ??
+          'Could not open the music app';
+    } catch (_) {
+      response = 'Could not open the music app';
+    }
+    if (!mounted || response == 'ok') return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(response),
+        duration: const Duration(seconds: 3)),
+    );
+  }
+
   Future<Map<dynamic, dynamic>?> _sourceSnapshot() async {
     if (_sourcePackage.isEmpty) return null;
     try {
@@ -715,19 +740,38 @@ document.head.appendChild(tag);
   /// immediately and observe the next MediaSession song in parallel instead
   /// of holding the previous WebView and a "looking up" screen for seconds.
   Future<void> _advance({bool previous = false}) async {
-    if (_busy || _advancing || _inCall || _sourcePackage.isEmpty) return;
+    // User-initiated skip takes priority even while an async video lookup
+    // is in progress. Bump _generation to invalidate that stale lookup.
+    if (_advancing || _inCall || _sourcePackage.isEmpty) return;
     final previousTitle = _title;
     final token = ++_generation;
     setState(() {
       _advancing = true;
       _status = '';
     });
-    await _send('window.vybeStop && window.vybeStop();');
-    widget.onVideoPlaybackChanged(false);
+    // Ask the exact source app to skip BEFORE stopping the current video.
+    // An unavailable or rejected source session must not leave VYBE stuck
+    // on an unplayable empty fallback.
     final response = await _sourceCommand(
         previous ? 'previous' : 'next', previousTitle);
     if (!mounted || token != _generation) return;
-
+    if (response?['sent'] != true) {
+      setState(() {
+        _advancing = false;
+        _status = '';
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(response?['reason']?.toString() ??
+              'The music player did not accept the track change'),
+          duration: const Duration(seconds: 3),
+        ));
+      }
+      return;
+    }
+    await _send('window.vybeStop && window.vybeStop();');
+    widget.onVideoPlaybackChanged(false);
+    if (!mounted || token != _generation) return;
     setState(() {
       _advancing = false;
       _busy = false;
@@ -740,12 +784,6 @@ document.head.appendChild(tag);
       _duration = 0;
       _status = '';
     });
-    if (response?['sent'] != true) {
-      // Skip was rejected: give up video ownership safely and leave a
-      // functional album-art fallback. It still has Play/Pause and seeking.
-      await _resumeSource();
-      return;
-    }
     // Source Skip Next commonly starts YouTube Music video playback
     // externally. That new playing song becomes our source to match/pause.
     _pausedSource = false;
@@ -969,7 +1007,10 @@ document.head.appendChild(tag);
       final artLeft = portrait ? w * .035 : w * .013;
       final artTop = portrait ? h * .69 : h * .747;
       final discSide = artSide * .72;
-      final discLeft = artLeft + artSide * .80;
+      // Place the vinyl's CENTER exactly on the sleeve's right edge.
+      // Its left half stays hidden under the art; the exposed half
+      // matches the Muzine sleeve treatment from the reference.
+      final discLeft = artLeft + artSide - discSide * .5;
       final discTop = artTop + artSide * .075;
       final transportWidth = portrait ? w * .94 : w * .52;
       final transportRight = portrait ? w * .03 : w * .032;
@@ -1041,16 +1082,22 @@ document.head.appendChild(tag);
             )),
           )),
         ),
-        if (!_embedded)
-          // Full artwork/fanart theme remains visible while no verified
-          // music video is known. No giant Play Video prompt. The backdrop
-          // can still be double-tapped to retry, or long-pressed to link an
-          // exact YouTube video without adding icons to the reference.
-          Positioned.fill(child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onDoubleTap: () => unawaited(_beginVideo()),
-            onLongPress: () => unawaited(_linkVideo()),
-          )),
+        // One consistent gesture surface across the ENTIRE video/fanart
+        // area, not an impossible-to-discover invisible hotspot at the top.
+        // The sleeve and transport controls are painted AFTER this surface,
+        // so their own taps and drags take precedence.
+        Positioned.fill(child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onToggleUtilityMenu,
+          onDoubleTap: _embedded ? null
+              : () => unawaited(_beginVideo()),
+          onLongPress: _embedded ? null
+              : () => unawaited(_linkVideo()),
+          // Absorb vertical WebView swipes that previously moved its page.
+          onVerticalDragStart: (_) {},
+          onVerticalDragUpdate: (_) {},
+          child: const ColoredBox(color: Colors.transparent),
+        )),
         if (_showVinyl) ...[
           // True feathered halo with ZERO alpha at every drawing edge.
           // The previous rectangle began abruptly ~20% above the sleeve,
@@ -1070,7 +1117,10 @@ document.head.appendChild(tag);
           Positioned(
             left: artLeft, top: artTop,
             width: artSide, height: artSide,
-            child: IgnorePointer(child: Container(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => unawaited(_openSourcePlayer()),
+              child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: [
@@ -1095,19 +1145,6 @@ document.head.appendChild(tag);
             )),
           ),
         ],
-        // Dedicated, always available upper-center menu touch area.
-        // No overlap with the lower-right video seek and transport.
-        Positioned(
-          left: portrait ? w * .31 : w * .27,
-          right: portrait ? w * .31 : w * .27,
-          top: 0,
-          height: portrait ? h * .085 : h * .115,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.onToggleUtilityMenu,
-            child: const SizedBox.expand(),
-          ),
-        ),
         if (_showLogo)
           Positioned(
             left: portrait ? w * .025 : w * .024,
@@ -1184,7 +1221,7 @@ document.head.appendChild(tag);
               SizedBox(width: iconGap),
               _ringTransport(isPlaying ? Icons.pause_rounded
                   : Icons.play_arrow_rounded,
-                  _busy || _advancing ? null
+                  _advancing ? null
                       : () => unawaited(_togglePlay()),
                   iconSize, isPlaying ? 'Pause' : 'Play'),
               SizedBox(width: iconGap),

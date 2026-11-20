@@ -721,6 +721,8 @@ open class MainActivity : FlutterActivity() {
                 // app, not the possibly changed global MediaSession controller.
                 "musicVideoSourceSnapshot" -> result.success(musicVideoSourceSnapshot(
                     call.argument<String>("package") ?: ""))
+                "musicVideoOpenSource" -> result.success(
+                    musicVideoOpenSource(call.argument<String>("package") ?: ""))
                 "musicVideoSourceControl" -> result.success(musicVideoSourceControl(
                     call.argument<String>("package") ?: "",
                     call.argument<String>("action") ?: "",
@@ -1105,6 +1107,30 @@ open class MainActivity : FlutterActivity() {
         } catch (_: Exception) { null }
     }
 
+    /** Open the source application's actual playback screen, regardless
+     * of which MediaSession Android has selected for VYBE's global controls.
+     * Never open the current VYBE WebView in place of the source app.
+     */
+    private fun musicVideoOpenSource(target: String): String {
+        if (target.isBlank() || target == packageName) return "No source music player selected"
+        val source = musicVideoSession(target)
+        try {
+            val intent = source?.sessionActivity
+            if (intent != null) {
+                intent.send()
+                return "ok"
+            }
+        } catch (_: Exception) {}
+        try {
+            val intent = packageManager.getLaunchIntentForPackage(target)
+            if (intent != null) {
+                startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return "ok"
+            }
+        } catch (_: Exception) {}
+        return "Could not open the music player: $target"
+    }
+
     private fun musicVideoSourceSnapshot(target: String): Map<String, Any?> {
         val source = musicVideoSession(target) ?: return mapOf(
             "found" to false, "package" to target,
@@ -1129,10 +1155,13 @@ open class MainActivity : FlutterActivity() {
             "sent" to false, "reason" to "Original music player not found")
         val currentTitle =
             source.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
-        // Never pause, resume or skip a newly selected unrelated track when
-        // a delayed WebView event from the PREVIOUS song arrives.
-        if (expectedTitle.isBlank() ||
-            !currentTitle.trim().equals(expectedTitle.trim(), ignoreCase = true)) {
+        // A playback-state event may publish the new song before Flutter's
+        // title updates. User-initiated Next/Previous must not be rejected
+        // for that title lag. Only asynchronous pause/resume commands need
+        // the stale-song title guard. Source package is still exact.
+        if (action != "next" && action != "previous" &&
+            (expectedTitle.isBlank() ||
+            !currentTitle.trim().equals(expectedTitle.trim(), ignoreCase = true))) {
             return mapOf("sent" to false,
                 "reason" to "Source song changed; refusing stale video command")
         }
@@ -1162,15 +1191,15 @@ open class MainActivity : FlutterActivity() {
                 "next", "previous" -> {
                     val requiredAction = if (action == "next")
                         PlaybackState.ACTION_SKIP_TO_NEXT else PlaybackState.ACTION_SKIP_TO_PREVIOUS
-                    if (actions and requiredAction == 0L) {
-                        mapOf("sent" to false,
-                            "reason" to "Original music player does not allow this skip")
-                    } else {
-                        if (action == "next") source.transportControls.skipToNext()
-                        else source.transportControls.skipToPrevious()
-                        mapOf("sent" to true,
-                            "reason" to "Track skip sent to original source")
-                    }
+                    // Some YouTube Music sessions implement skipToNext but
+                    // don't advertise the corresponding supported-actions
+                    // bit. Send the exact package controller's transport
+                    // command and let the source's next metadata confirm it.
+                    if (action == "next") source.transportControls.skipToNext()
+                    else source.transportControls.skipToPrevious()
+                    mapOf("sent" to true, "reportedSupported" to
+                        (actions and requiredAction != 0L),
+                        "reason" to "Track skip sent to original source")
                 }
                 else -> mapOf("sent" to false,
                     "reason" to "Unsupported music-video command")
