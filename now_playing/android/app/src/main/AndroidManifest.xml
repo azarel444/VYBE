@@ -24,6 +24,8 @@
 
     <!-- Lets the app find and open the player app on Android 11+ -->
     <queries>
+        <!-- Make YouTube Music's launcher resolvable on Android 11+. -->
+        <package android:name="com.google.android.apps.youtube.music" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

@@ -1112,23 +1112,37 @@ open class MainActivity : FlutterActivity() {
      * Never open the current VYBE WebView in place of the source app.
      */
     private fun musicVideoOpenSource(target: String): String {
-        if (target.isBlank() || target == packageName) return "No source music player selected"
-        val source = musicVideoSession(target)
+        if (target.isBlank() || target == packageName)
+            return "No source music player selected"
+
+        // A MediaSession's sessionActivity PendingIntent may send without
+        // bringing the source app forward. Start its real launcher FIRST.
+        // Keep its existing task/video at the foreground if available.
         try {
-            val intent = source?.sessionActivity
-            if (intent != null) {
-                intent.send()
+            val launch = packageManager.getLaunchIntentForPackage(target)
+            if (launch != null) {
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                startActivity(launch)
                 return "ok"
             }
-        } catch (_: Exception) {}
+        } catch (error: Exception) {
+            android.util.Log.w("VYBE", "Source launcher failed: $target", error)
+        }
+
+        // Some apps hide their launch intent from package visibility checks.
+        // Their MediaSession sessionActivity remains a useful fallback.
         try {
-            val intent = packageManager.getLaunchIntentForPackage(target)
-            if (intent != null) {
-                startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val session = musicVideoSession(target)
+            val activity = session?.sessionActivity
+            if (activity != null) {
+                activity.send()
                 return "ok"
             }
-        } catch (_: Exception) {}
-        return "Could not open the music player: $target"
+        } catch (error: Exception) {
+            android.util.Log.w("VYBE", "Source session activity failed: $target", error)
+        }
+        return "Cannot open the source app: $target"
     }
 
     private fun musicVideoSourceSnapshot(target: String): Map<String, Any?> {

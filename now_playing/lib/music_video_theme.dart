@@ -749,9 +749,15 @@ document.head.appendChild(tag);
       _advancing = true;
       _status = '';
     });
-    // Ask the exact source app to skip BEFORE stopping the current video.
-    // An unavailable or rejected source session must not leave VYBE stuck
-    // on an unplayable empty fallback.
+    // Restore the handoff order used before #847: relinquish embedded
+    // video/audio playback BEFORE starting the next source-app track.
+    // Previously dispatching Skip while the iframe still played could
+    // race YouTube Music's audio focus and next-song metadata.
+    final oldVideoId = _videoId;
+    final oldVideoPlaying = _embedded && _videoPlaying;
+    await _send('window.vybeStop && window.vybeStop();');
+    widget.onVideoPlaybackChanged(false);
+    if (!mounted || token != _generation) return;
     final response = await _sourceCommand(
         previous ? 'previous' : 'next', previousTitle);
     if (!mounted || token != _generation) return;
@@ -760,6 +766,10 @@ document.head.appendChild(tag);
         _advancing = false;
         _status = '';
       });
+      // A rejected skip should not permanently stop the existing video.
+      if (oldVideoPlaying && oldVideoId.isNotEmpty && _embedded) {
+        await _loadVideo(oldVideoId);
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(response?['reason']?.toString() ??
@@ -769,8 +779,6 @@ document.head.appendChild(tag);
       }
       return;
     }
-    await _send('window.vybeStop && window.vybeStop();');
-    widget.onVideoPlaybackChanged(false);
     if (!mounted || token != _generation) return;
     setState(() {
       _advancing = false;
@@ -1046,7 +1054,14 @@ document.head.appendChild(tag);
                 // full-screen reference inside a centered small rectangle.
                 width: math.max(w, h * (16 / 9)),
                 height: math.max(h, w * (9 / 16)),
-                child: WebViewWidget(controller: _web),
+                // A raw pointer listener observes touches without winning
+                // the WebView's gesture arena. The previous full-screen
+                // opaque GestureDetector swallowed taps needed by YouTube.
+                child: Listener(
+                  behavior: HitTestBehavior.translucent,
+                  onPointerDown: (_) => widget.onToggleUtilityMenu(),
+                  child: WebViewWidget(controller: _web),
+                ),
               ),
             ),
           )),
@@ -1086,18 +1101,14 @@ document.head.appendChild(tag);
         // area, not an impossible-to-discover invisible hotspot at the top.
         // The sleeve and transport controls are painted AFTER this surface,
         // so their own taps and drags take precedence.
-        Positioned.fill(child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onToggleUtilityMenu,
-          onDoubleTap: _embedded ? null
-              : () => unawaited(_beginVideo()),
-          onLongPress: _embedded ? null
-              : () => unawaited(_linkVideo()),
-          // Absorb vertical WebView swipes that previously moved its page.
-          onVerticalDragStart: (_) {},
-          onVerticalDragUpdate: (_) {},
-          child: const ColoredBox(color: Colors.transparent),
-        )),
+        if (!_embedded)
+          Positioned.fill(child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: widget.onToggleUtilityMenu,
+            onDoubleTap: () => unawaited(_beginVideo()),
+            onLongPress: () => unawaited(_linkVideo()),
+            child: const SizedBox.expand(),
+          )),
         if (_showVinyl) ...[
           // True feathered halo with ZERO alpha at every drawing edge.
           // The previous rectangle began abruptly ~20% above the sleeve,
