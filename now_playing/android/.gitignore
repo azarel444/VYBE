@@ -1,0 +1,4 @@
+key.properties
+app/*.jks
+app/*.keystore
+app/*.p12

@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -29,9 +29,8 @@ jobs:
       - name: Verify complete VYBE source is restored
         run: |
           set -euo pipefail
-          EXPECTED_PARENT=c8cc45e7254b65af2f4295007d9a43126bb4a5ff
-          ACTUAL_PARENT="$(git rev-parse HEAD^)"
-          test "$ACTUAL_PARENT" = "$EXPECTED_PARENT" || {
+          EXPECTED_ANCESTOR=c8cc45e7254b65af2f4295007d9a43126bb4a5ff
+          git merge-base --is-ancestor "$EXPECTED_ANCESTOR" HEAD || {
             echo "::error::WRONG SOURCE BRANCH! Expected full-featured VYBE #851 lineage."
             exit 1
           }
@@ -76,6 +75,65 @@ jobs:
       - name: Set minSdk to 21
         run: |
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' android/app/build.gradle* || true
+
+      - name: Install permanent VYBE release signing
+        env:
+          VYBE_SIGNING_KEYSTORE_BASE64: ${{ secrets.VYBE_SIGNING_KEYSTORE_BASE64 }}
+          VYBE_SIGNING_PASSWORD: ${{ secrets.VYBE_SIGNING_PASSWORD }}
+          VYBE_SIGNING_KEY_ALIAS: ${{ secrets.VYBE_SIGNING_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VYBE_SIGNING_KEYSTORE_BASE64" ] || [ -z "$VYBE_SIGNING_PASSWORD" ] || [ -z "$VYBE_SIGNING_KEY_ALIAS" ]; then
+            echo "::error::Missing permanent VYBE release signing secrets. Build cancelled: no debug-key fallback allowed."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$VYBE_SIGNING_KEYSTORE_BASE64" | base64 --decode > android/app/vybe-release.jks
+          test -s android/app/vybe-release.jks || exit 1
+          keytool -list -keystore android/app/vybe-release.jks -storepass "$VYBE_SIGNING_PASSWORD" -alias "$VYBE_SIGNING_KEY_ALIAS" >/dev/null 2>&1
+          ACTUAL_CERT="$(keytool -exportcert -keystore android/app/vybe-release.jks -storepass "$VYBE_SIGNING_PASSWORD" -alias "$VYBE_SIGNING_KEY_ALIAS" 2>/dev/null | sha256sum | awk '{print toupper($1)}')"
+          test "$ACTUAL_CERT" = "703D48356F0E4D9211FCB9C863E9536B96CF47C6450B0E3338FC42BC7A7B908D" || { echo "::error::Wrong release signing certificate. Build cancelled."; exit 1; }
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          password = os.environ['VYBE_SIGNING_PASSWORD']
+          alias = os.environ['VYBE_SIGNING_KEY_ALIAS']
+          if not re.fullmatch(r'[A-Za-z0-9_-]+', password) or not re.fullmatch(r'[A-Za-z0-9_-]+', alias):
+              raise SystemExit('Invalid characters in signing credentials.')
+          keystore = (Path.cwd() / 'android/app/vybe-release.jks').resolve()
+          props = Path('android/key.properties')
+          props.write_text('storePassword=' + password + '\n' +
+                           'keyPassword=' + password + '\n' +
+                           'keyAlias=' + alias + '\n' +
+                           'storeFile=' + str(keystore) + '\n', encoding='utf-8')
+          props.chmod(0o600)
+          gradle = Path('android/app/build.gradle.kts')
+          if not gradle.is_file():
+              raise SystemExit('Unsupported Flutter scaffold: missing Kotlin Android Gradle config')
+          content = gradle.read_text(encoding='utf-8')
+          if (content.count('signingConfig = signingConfigs.getByName("debug")') != 1 or
+                  content.count('android {') != 1 or content.count('    buildTypes {') != 1):
+              raise SystemExit('Unknown Gradle signing configuration: refusing debug/unsigned release')
+          content = 'import java.io.FileInputStream\nimport java.util.Properties\n\n' + content
+          content = content.replace('android {',
+              'val vybeSigning = Properties()\n' +
+              'vybeSigning.load(FileInputStream(rootProject.file("key.properties")))\n\n' +
+              'android {', 1)
+          content = content.replace('    buildTypes {',
+              '    signingConfigs {\n' +
+              '        create("release") {\n' +
+              '            keyAlias = vybeSigning.getProperty("keyAlias")\n' +
+              '            keyPassword = vybeSigning.getProperty("keyPassword")\n' +
+              '            storeFile = file(vybeSigning.getProperty("storeFile"))\n' +
+              '            storePassword = vybeSigning.getProperty("storePassword")\n' +
+              '        }\n' +
+              '    }\n\n    buildTypes {', 1)
+          content = content.replace('signingConfig = signingConfigs.getByName("debug")',
+                                    'signingConfig = signingConfigs.getByName("release")', 1)
+          gradle.write_text(content, encoding='utf-8')
+          print('Permanent VYBE certificate validated and release Gradle signing enabled.')
+          PY
 
       - name: Install Android NDK with retry
         run: |
@@ -139,24 +197,39 @@ jobs:
 
       - run: flutter pub get
 
-      # Each APK needs a monotonically increasing Android versionCode. Without
-      # this, the package installer may treat successive builds as identical.
-      # Note: updating in place also requires the SAME signing certificate
-      # across builds. The scaffold's default debug signing is ephemeral on
-      # GitHub-hosted runners; configure persistent release signing before
-      # relying on installs over an existing app.
+      # A permanent certificate plus a monotonically increasing Android
+      # versionCode permits normal update installs without deleting app data.
       - name: Build versioned APKs
         run: |
           BUILD_CODE=$((10000 + GITHUB_RUN_NUMBER))
           echo "Building VYBE Android versionCode=$BUILD_CODE"
           flutter build apk --release --split-per-abi --build-number="$BUILD_CODE"
 
-      - name: Explain signing limitation
+      - name: Verify release APK signatures before upload
         run: |
-          echo "::warning::Generated Flutter scaffold uses a runner-local debug signing key unless release signing is configured. APKs signed by different runs cannot update each other in place. Configure persistent signing credentials for upgrade installs."
-          echo "### APK installation compatibility" >> "$GITHUB_STEP_SUMMARY"
-          echo "Version code: $((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_STEP_SUMMARY"
-          echo "In-place upgrades also require the same signing certificate across builds; generated runner debug keys are not stable." >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          EXPECTED_CERT="703D48356F0E4D9211FCB9C863E9536B96CF47C6450B0E3338FC42BC7A7B908D"
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -n "$APK_SIGNER" || { echo "::error::Missing apksigner"; exit 1; }
+          count=0
+          for apk in build/app/outputs/flutter-apk/*.apk; do
+            test -f "$apk" || continue
+            actual="$("$APK_SIGNER" verify --print-certs "$apk" |
+              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+              tr '[:lower:]' '[:upper:]' | tr -d '\r')"
+            if [ "$actual" != "$EXPECTED_CERT" ]; then
+              echo "::error::APK signing certificate mismatch. Refusing to upload $(basename "$apk")."
+              exit 1
+            fi
+            echo "Permanent VYBE release signature OK: $(basename "$apk")"
+            count=$((count + 1))
+          done
+          test "$count" -gt 0 || { echo "::error::No APKs generated"; exit 1; }
+          echo "### Permanent VYBE release signature verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified signed APKs: $count" >> "$GITHUB_STEP_SUMMARY"
+          echo "Certificate SHA-256: $EXPECTED_CERT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Android versionCode: $((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_STEP_SUMMARY"
+
 
       - uses: actions/upload-artifact@v4
         with:
