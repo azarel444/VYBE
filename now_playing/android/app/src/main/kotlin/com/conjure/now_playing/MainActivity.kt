@@ -736,6 +736,8 @@ open class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "openPlayer" -> result.success(openPlayer())
+                "musicVideoOpenSource" -> result.success(musicVideoOpenSource(
+                    call.argument<String>("package") ?: ""))
                 "openMapsPipSettings" -> {
                     try {
                         startActivity(Intent("android.settings.PICTURE_IN_PICTURE_SETTINGS",
@@ -1129,10 +1131,12 @@ open class MainActivity : FlutterActivity() {
             "sent" to false, "reason" to "Original music player not found")
         val currentTitle =
             source.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
-        // Never pause, resume or skip a newly selected unrelated track when
-        // a delayed WebView event from the PREVIOUS song arrives.
-        if (expectedTitle.isBlank() ||
-            !currentTitle.trim().equals(expectedTitle.trim(), ignoreCase = true)) {
+        // Manual skips address the original app even if Flutter still shows
+        // an older title. Automatic skipping, pause and resume remain guarded
+        // to avoid letting a stale WebView event control another track.
+        val manualSkip = action == "next" || action == "previous"
+        if (!manualSkip && (expectedTitle.isBlank() ||
+            !currentTitle.trim().equals(expectedTitle.trim(), ignoreCase = true))) {
             return mapOf("sent" to false,
                 "reason" to "Source song changed; refusing stale video command")
         }
@@ -1159,17 +1163,22 @@ open class MainActivity : FlutterActivity() {
                         mapOf("resumed" to true, "reason" to "Resumed source audio")
                     }
                 }
-                "next", "previous" -> {
-                    val requiredAction = if (action == "next")
+                "next", "previous", "nextOnVideoEnd" -> {
+                    val forward = action != "previous"
+                    val requiredAction = if (forward)
                         PlaybackState.ACTION_SKIP_TO_NEXT else PlaybackState.ACTION_SKIP_TO_PREVIOUS
-                    if (actions and requiredAction == 0L) {
+                    // YouTube Music may omit transport flags while paused
+                    // for embedded playback, though skip requests still work.
+                    val advertised = actions and requiredAction != 0L
+                    if (!advertised && target != "com.google.android.apps.youtube.music") {
                         mapOf("sent" to false,
                             "reason" to "Original music player does not allow this skip")
                     } else {
-                        if (action == "next") source.transportControls.skipToNext()
+                        if (forward) source.transportControls.skipToNext()
                         else source.transportControls.skipToPrevious()
-                        mapOf("sent" to true,
-                            "reason" to "Track skip sent to original source")
+                        mapOf("sent" to true, "fromTitle" to currentTitle,
+                            "actionAdvertised" to advertised,
+                            "reason" to "Skip requested from original music source")
                     }
                 }
                 else -> mapOf("sent" to false,
@@ -1661,6 +1670,26 @@ open class MainActivity : FlutterActivity() {
      * Opens the player app that owns the current media session.
      * Returns "ok" or a short message that the screen can show.
      */
+    /** Reopen the app that owned music before embedded video playback. */
+    private fun musicVideoOpenSource(target: String): String {
+        if (target.isBlank() || target == packageName) {
+            return "No original music app selected"
+        }
+        val activity = musicVideoSession(target)?.sessionActivity
+        if (activity != null) {
+            try {
+                activity.send()
+                return "ok"
+            } catch (_: Exception) {}
+        }
+        return try {
+            val launch = packageManager.getLaunchIntentForPackage(target)
+                ?: return "Could not open $target"
+            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            "ok"
+        } catch (_: Exception) { "Could not open $target" }
+    }
+
     private fun openPlayer(): String {
         val c = controller ?: return "No player is active"
         val pkg = c.packageName

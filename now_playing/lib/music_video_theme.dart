@@ -149,6 +149,10 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
         (_sourcePackage.isEmpty || !_embedded)) {
       _sourcePackage = incomingPackage;
     }
+    // Do not adopt a transient WebView media session while embedded
+    // playback belongs to the original YouTube Music session.
+    if ((_embedded || _busy || _advancing) &&
+        incomingPackage != _sourcePackage) return;
     if (oldWidget.title != widget.title || oldWidget.artist != widget.artist) {
       // Treat a changed MediaSession track as authoritative, even when the
       // change arrived during a Next request. The old implementation ignored
@@ -681,7 +685,7 @@ document.head.appendChild(tag);
         } else {
           _videoPlaying = false;
           widget.onVideoPlaybackChanged(false);
-          if (detail == 'Ended' && !_advancing) unawaited(_advance());
+          if (detail == 'Ended' && !_advancing) unawaited(_advance(automatic: true));
         }
         setState(() => _status = detail == 'Playing'
             ? 'Music video playing' : 'Video: ' + detail);
@@ -712,7 +716,7 @@ document.head.appendChild(tag);
   /// Send a skip only to the ORIGINAL music app. Show the artwork fallback
   /// immediately and observe the next MediaSession song in parallel instead
   /// of holding the previous WebView and a "looking up" screen for seconds.
-  Future<void> _advance({bool previous = false}) async {
+  Future<void> _advance({bool previous = false, bool automatic = false}) async {
     if (_busy || _advancing || _inCall || _sourcePackage.isEmpty) return;
     final previousTitle = _title;
     final token = ++_generation;
@@ -723,7 +727,8 @@ document.head.appendChild(tag);
     await _send('window.vybeStop && window.vybeStop();');
     widget.onVideoPlaybackChanged(false);
     final response = await _sourceCommand(
-        previous ? 'previous' : 'next', previousTitle);
+        automatic ? 'nextOnVideoEnd' : (previous ? 'previous' : 'next'),
+        previousTitle);
     if (!mounted || token != _generation) return;
 
     setState(() {
@@ -855,6 +860,24 @@ document.head.appendChild(tag);
     }
   }
 
+  /// Launch the original player instead of the WebView media session.
+  Future<void> _openSource() async {
+    if (_sourcePackage.isEmpty) return;
+    try {
+      final status = await _channel.invokeMethod<String>(
+          'musicVideoOpenSource', {'package': _sourcePackage});
+      if (mounted && status != null && status != 'ok') {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(content: Text(status)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('Could not open the music app')));
+      }
+    }
+  }
+
   Future<void> _linkVideo() async {
     final input = TextEditingController();
     final raw = await showDialog<String>(
@@ -967,7 +990,7 @@ document.head.appendChild(tag);
       final artLeft = portrait ? w * .035 : w * .013;
       final artTop = portrait ? h * .69 : h * .747;
       final discSide = artSide * .72;
-      final discLeft = artLeft + artSide * .80;
+      final discLeft = artLeft + artSide - discSide * .5;
       final discTop = artTop + artSide * .075;
       final transportWidth = portrait ? w * .94 : w * .52;
       final transportRight = portrait ? w * .03 : w * .032;
@@ -1068,7 +1091,10 @@ document.head.appendChild(tag);
           Positioned(
             left: artLeft, top: artTop,
             width: artSide, height: artSide,
-            child: IgnorePointer(child: Container(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => unawaited(_openSource()),
+              child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: [
@@ -1348,7 +1374,7 @@ class MusicVideoThemePreview extends StatelessWidget {
             ),
           )),
         ),
-        Positioned(left: left + side * .80, top: top + side * .075,
+        Positioned(left: left + side - discSide * .5, top: top + side * .075,
           width: discSide, height: discSide,
           child: Container(
             decoration: BoxDecoration(
