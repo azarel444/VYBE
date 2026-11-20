@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
+import 'stream_track_metadata.dart';
+
 /// Music Video: user-initiated official YouTube embed with the source player's
 /// audio paused during video playback. When no verified video is available,
 /// the normal source audio and VYBE fanart/album art remain the fallback.
@@ -239,6 +241,41 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   static String _normalize(String s) =>
       s.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
+  /// The shared VYBE model repairs upload-style YT Music metadata such as
+  /// "Fat Joe - Watch The Sound" to artist="Fat Joe", title="Watch The
+  /// Sound". The native MediaSession still publishes the ORIGINAL title.
+  /// Both must resolve to the same song before we take over its audio/video.
+  bool _matchesNativeTrack(Map raw) {
+    final rawTitle = raw['title']?.toString().trim() ?? '';
+    final rawArtist = raw['artist']?.toString().trim() ?? '';
+    final rawAlbum = raw['album']?.toString().trim() ?? '';
+    if (rawTitle.isEmpty || _title.isEmpty) return false;
+    final parsed = StreamTrackMetadata.resolve(
+      title: rawTitle,
+      artist: rawArtist,
+      album: rawAlbum,
+      sourcePackage: _ytMusic,
+    );
+    final displayedTitle = _normalize(_title);
+    final displayedArtist = _normalize(_artist);
+    if (_normalize(parsed.title) == displayedTitle &&
+        (displayedArtist.isEmpty || _normalize(parsed.artist) == displayedArtist ||
+         rawArtist.isEmpty)) return true;
+    // A real catalog track can have upload-specific artist metadata while
+    // preserving the same exact track title in both Android and VYBE.
+    return _normalize(rawTitle) == displayedTitle;
+  }
+
+  String _queueSongKey(String title, String artist) {
+    final parsed = StreamTrackMetadata.resolve(
+      title: title,
+      artist: artist,
+      album: '',
+      sourcePackage: _ytMusic,
+    );
+    return _normalize(parsed.title);
+  }
+
   static String _validId(Object? candidate) {
     final value = candidate?.toString().trim() ?? '';
     return RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(value) ? value : '';
@@ -277,38 +314,44 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     if (queue is! List) return;
     for (final item in queue) {
       if (item is! Map) continue;
-      final name = _normalize(item['title']?.toString() ?? '');
-      if (name.isEmpty || _ambiguousQueueTitles.contains(name)) continue;
-      // Only IDs published by this actual YouTube Music MediaSession and its
-      // playlist, never video IDs guessed from search-result titles.
-      final candidates = <String>{
-        _validId(item['youtubeThumbnailVideoId']),
-        _idFromUri(item['artworkUri']),
-        _validId(item['mediaId']),
-        _idFromUri(item['mediaUri']),
-      }..remove('');
-      if (candidates.length != 1) {
-        if (candidates.length > 1) {
+      final rawName = _normalize(item['title']?.toString() ?? '');
+      final correctedName = _queueSongKey(
+        item['title']?.toString() ?? '',
+        item['subtitle']?.toString() ?? '',
+      );
+      // Thumbnail is stronger evidence for a VIDEO than MediaSession mediaId,
+      // which can identify a separate audio-only recording. Do NOT mark a
+      // track ambiguous just because those two identifiers differ.
+      final thumb = _validId(item['youtubeThumbnailVideoId']).isNotEmpty
+          ? _validId(item['youtubeThumbnailVideoId'])
+          : _idFromUri(item['artworkUri']);
+      final id = thumb.isNotEmpty ? thumb :
+          (_validId(item['mediaId']).isNotEmpty
+              ? _validId(item['mediaId'])
+              : _idFromUri(item['mediaUri']));
+      if (id.isEmpty) continue;
+      for (final name in {rawName, correctedName}) {
+        if (name.isEmpty || _ambiguousQueueTitles.contains(name)) continue;
+        final previous = _publishedQueueVideoIds[name];
+        if (previous != null && previous != id) {
+          // Different QUEUE ENTRIES with the same displayed title are not
+          // interchangeable. Do not guess one video over another.
           _publishedQueueVideoIds.remove(name);
           _ambiguousQueueTitles.add(name);
+        } else {
+          _publishedQueueVideoIds[name] = id;
         }
-        continue;
-      }
-      final id = candidates.single;
-      final oldId = _publishedQueueVideoIds[name];
-      if (oldId != null && oldId != id) {
-        _publishedQueueVideoIds.remove(name);
-        _ambiguousQueueTitles.add(name);
-      } else {
-        _publishedQueueVideoIds[name] = id;
       }
     }
   }
 
   String _verifiedYoutubeMusicId(Map<dynamic, dynamic> snapshot) {
     final meta = snapshot['metadata'];
-    if (meta is! Map ||
-        _normalize(meta['title']?.toString() ?? '') != _normalize(_title)) {
+    if (meta is! Map || !_matchesNativeTrack(meta)) {
+      if (meta is Map) {
+        debugPrint('Music Video: YTM raw title does not match displayed '
+            'track: "${meta['title']}" vs "$_title"');
+      }
       return '';
     }
     _rememberPublishedYoutubeQueue(snapshot);
@@ -334,8 +377,11 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
       if (id.isNotEmpty) return id;
     }
     if (probe is Map &&
-        _normalize(probe['descriptionTitle']?.toString() ?? '') ==
-            currentTitle) {
+        (_normalize(probe['descriptionTitle']?.toString() ?? '') ==
+            currentTitle ||
+         _queueSongKey(probe['descriptionTitle']?.toString() ?? '',
+              probe['descriptionSubtitle']?.toString() ?? '') ==
+            currentTitle)) {
       for (final candidate in [
         probe['activeMediaId'],
         _idFromUri(probe['activeMediaUri']),
@@ -356,9 +402,6 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     // of its queue artwork, leading to a false permanent "no video" result.
     if (_sourcePackage == _ytMusic) {
       final queueTitle = _normalize(_title);
-      final queued = _ambiguousQueueTitles.contains(queueTitle)
-          ? null : _publishedQueueVideoIds[queueTitle];
-      if (queued != null && queued.isNotEmpty) return queued;
       for (var scan = 0; scan < 4; scan++) {
         if (!mounted || _disposed || _songKey != song ||
             _sourcePackage != _ytMusic) return '';
@@ -494,12 +537,25 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   Future<Map<dynamic, dynamic>?> _sourceCommand(
       String action, String expectedTitle) async {
     if (_sourcePackage.isEmpty) return null;
+    var nativeTitle = expectedTitle;
+    if (action == 'pause' || action == 'resume') {
+      // Flutter displays repaired upload titles but Android requires the
+      // exact original MediaSession title. Resolve and verify it FIRST,
+      // then send that raw title to the native stale-song safety check.
+      final snapshot = await _sourceSnapshot();
+      if (snapshot == null || snapshot['found'] != true ||
+          !_matchesNativeTrack(snapshot)) {
+        return {'sent': false, 'reason':
+            'YouTube Music source track is still updating'};
+      }
+      nativeTitle = snapshot['title']?.toString() ?? expectedTitle;
+    }
     try {
       return await _channel.invokeMapMethod<dynamic, dynamic>(
           'musicVideoSourceControl', {
         'package': _sourcePackage,
         'action': action,
-        'expectedTitle': expectedTitle,
+        'expectedTitle': nativeTitle,
       });
     } catch (_) {
       return null;
@@ -1007,7 +1063,9 @@ document.head.appendChild(tag);
       // Top fade must end by the title/album caption—not obscure the
       // upper third of the video. The lower fade is independently deep.
       final topFadeHeight = portrait ? h * .16 : h * .17;
-      final bottomFadeHeight = portrait ? h * .48 : h * .48;
+      // Fade from video to BLACK, reaching full black precisely at the
+      // lower edge of the progress track. Everything below stays black.
+      final bottomFadeHeight = h * .43;
       // Landscape anchors follow the supplied 1536x864 reference:
       // artwork x=1.3%, y=74.7%, width=28.5%; record peeks out behind it
       // to the right. Transport is x=44.8%..96.8%, y≈92%.
@@ -1027,6 +1085,11 @@ document.head.appendChild(tag);
       final iconSize = portrait ? 39.0
           : (h * .061).clamp(40.0, 55.0).toDouble();
       final iconGap = portrait ? 7.0 : w * .015;
+      final trackThickness = portrait ? 5.0 : 8.0;
+      final blackFromBottom = transportBottom + transportHeight * .5 -
+          trackThickness * .5;
+      final blackStop = (1.0 - blackFromBottom / bottomFadeHeight)
+          .clamp(.50, .94).toDouble();
       final infoWidth = portrait ? w * .46 : w * .27;
       final duration = _embedded ? _duration
           : widget.sourceDurationMs / 1000.0;
@@ -1084,14 +1147,15 @@ document.head.appendChild(tag);
         ),
         Positioned(left: 0, right: 0, bottom: 0,
           height: bottomFadeHeight,
-          child: const IgnorePointer(child: DecoratedBox(
+          child: IgnorePointer(child: DecoratedBox(
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              stops: [0, .25, .50, .64, 1],
-              colors: [
-                Color(0x00000000), Color(0x28000000),
-                Color(0xA5000000), Color(0xFF000000),
+              stops: [0, blackStop * .44, blackStop * .75,
+                      blackStop, 1],
+              colors: const [
+                Color(0x00000000), Color(0x35000000),
+                Color(0xAE000000), Color(0xFF000000),
                 Color(0xFF000000),
               ],
             )),
