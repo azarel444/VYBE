@@ -254,40 +254,43 @@ jobs:
         run: |
           set -euo pipefail
           EXPECTED_CERT="703D48356F0E4D9211FCB9C863E9536B96CF47C6450B0E3338FC42BC7A7B908D"
-          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
-          test -n "$APK_SIGNER" || { echo "::error::Missing apksigner"; exit 1; }
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APK_SIGNER" || { echo "::error::Missing Android apksigner"; exit 1; }
           count=0
           for apk in build/app/outputs/flutter-apk/*.apk; do
             test -f "$apk" || continue
-            cert_report="$("$APK_SIGNER" verify --print-certs "$apk")"
-            # apksigner output formatting varies by build-tools version.
-            # Extract only the first signer's SHA-256 digest, stripping
-            # harmless whitespace; never weaken the expected-certificate test.
-            actual="$(printf '%s\n' "$cert_report" |
-              awk -F ':' '/Signer #1 certificate SHA-256 digest/ {print $NF; exit}' |
-              tr -cd 'A-Fa-f0-9' | tr '[:lower:]' '[:upper:]')"
-            if [ "$actual" != "$EXPECTED_CERT" ]; then
-              echo "::error::Signing verification failed for $(basename "$apk")."
-              if [ -z "$actual" ]; then
-                echo "::error::Could not parse first APK signer certificate fingerprint."
-                printf '%s\n' "$cert_report" | grep -E '^Signer #[0-9]+ certificate SHA-256 digest:' || true
-              else
-                # An Android signing certificate fingerprint is public.
-                # Logging it helps identify accidental debug signing.
-                echo "::error::APK cert SHA256: $actual"
-              fi
-              echo "::error::Required VYBE cert SHA256: $EXPECTED_CERT"
+            # Capture stdout and stderr, since SDK versions vary in output.
+            if ! report="$("$APK_SIGNER" verify --verbose --print-certs "$apk" 2>&1)"; then
+              echo "::error::APK cryptographic verification failed: $(basename "$apk")"
+              printf '%s\n' "$report" | grep -Ei 'error|fail|signer|verified' | head -n 18 || true
               exit 1
             fi
-            echo "Permanent VYBE release signature OK: $(basename "$apk")"
+            # Compare an exact 256-bit fingerprint, not version-specific
+            # text prefixes. Accept colon and whitespace formatting.
+            fingerprints="$(printf '%s\n' "$report" |
+              tr '[:lower:]' '[:upper:]' | tr -d ' :\r')"
+            if ! printf '%s\n' "$fingerprints" | grep -Fq "$EXPECTED_CERT"; then
+              echo "::error::The APK signer certificate is not the trusted VYBE key: $(basename "$apk")"
+              # Certificate fingerprints are public; private credentials
+              # are never printed. Include signer diagnostics for debugging.
+              printf '%s\n' "$report" |
+                grep -Ei 'signer.*(sha.?256|fingerprint)|certificate.*sha.?256|number of signers|verifies' |
+                head -n 20 || true
+              echo "::error::Required certificate SHA-256: $EXPECTED_CERT"
+              exit 1
+            fi
+            if printf '%s\n' "$report" | grep -Eqi 'Signer #[2-9] certificate'; then
+              echo "::error::Unexpected additional APK signer in $(basename "$apk")"
+              exit 1
+            fi
+            echo "Permanent VYBE certificate verified: $(basename "$apk")"
             count=$((count + 1))
           done
-          test "$count" -gt 0 || { echo "::error::No APKs generated"; exit 1; }
-          echo "### Permanent VYBE release signature verified" >> "$GITHUB_STEP_SUMMARY"
-          echo "Verified signed APKs: $count" >> "$GITHUB_STEP_SUMMARY"
+          test "$count" -gt 0 || { echo "::error::No release APKs were created"; exit 1; }
+          echo "### VYBE permanent signing verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified APKs: $count" >> "$GITHUB_STEP_SUMMARY"
           echo "Certificate SHA-256: $EXPECTED_CERT" >> "$GITHUB_STEP_SUMMARY"
           echo "Android versionCode: $((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_STEP_SUMMARY"
-
 
       - uses: actions/upload-artifact@v4
         with:
