@@ -83,38 +83,83 @@ jobs:
           VYBE_SIGNING_KEY_ALIAS: ${{ secrets.VYBE_SIGNING_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          if [ -z "$VYBE_SIGNING_KEYSTORE_BASE64" ] || [ -z "$VYBE_SIGNING_PASSWORD" ] || [ -z "$VYBE_SIGNING_KEY_ALIAS" ]; then
-            echo "::error::Missing permanent VYBE release signing secrets. Build cancelled: no debug-key fallback allowed."
-            exit 1
-          fi
           umask 077
-          printf '%s' "$VYBE_SIGNING_KEYSTORE_BASE64" | base64 --decode > android/app/vybe-release.jks
-          test -s android/app/vybe-release.jks || exit 1
-          keytool -list -keystore android/app/vybe-release.jks -storepass "$VYBE_SIGNING_PASSWORD" -alias "$VYBE_SIGNING_KEY_ALIAS" >/dev/null 2>&1
-          ACTUAL_CERT="$(keytool -exportcert -keystore android/app/vybe-release.jks -storepass "$VYBE_SIGNING_PASSWORD" -alias "$VYBE_SIGNING_KEY_ALIAS" 2>/dev/null | sha256sum | awk '{print toupper($1)}')"
-          test "$ACTUAL_CERT" = "703D48356F0E4D9211FCB9C863E9536B96CF47C6450B0E3338FC42BC7A7B908D" || { echo "::error::Wrong release signing certificate. Build cancelled."; exit 1; }
           python3 - <<'PY'
+          import base64
+          import hashlib
           import os
           import re
+          import subprocess
           from pathlib import Path
-          password = os.environ['VYBE_SIGNING_PASSWORD']
-          alias = os.environ['VYBE_SIGNING_KEY_ALIAS']
-          if not re.fullmatch(r'[A-Za-z0-9_-]+', password) or not re.fullmatch(r'[A-Za-z0-9_-]+', alias):
-              raise SystemExit('Invalid characters in signing credentials.')
-          keystore = (Path.cwd() / 'android/app/vybe-release.jks').resolve()
-          props = Path('android/key.properties')
-          props.write_text('storePassword=' + password + '\n' +
-                           'keyPassword=' + password + '\n' +
-                           'keyAlias=' + alias + '\n' +
-                           'storeFile=' + str(keystore) + '\n', encoding='utf-8')
+
+          def fail(message):
+              raise SystemExit("::error::" + message)
+
+          def clean_secret(name):
+              raw = os.environ.get(name, "").strip()
+              # Also accept the full NAME=VALUE line from the supplied TXT,
+              # in case that was copied instead of the right-hand value.
+              prefix = name + "="
+              if raw.startswith(prefix):
+                  raw = raw[len(prefix):].strip()
+              if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ('"', "'"):
+                  raw = raw[1:-1].strip()
+              return raw
+
+          encoded = re.sub(r"\s+", "", clean_secret("VYBE_SIGNING_KEYSTORE_BASE64"))
+          password = clean_secret("VYBE_SIGNING_PASSWORD")
+          alias = clean_secret("VYBE_SIGNING_KEY_ALIAS")
+          if not encoded:
+              fail("VYBE_SIGNING_KEYSTORE_BASE64 is missing or empty.")
+          if not password:
+              fail("VYBE_SIGNING_PASSWORD is missing or empty.")
+          if not alias:
+              fail("VYBE_SIGNING_KEY_ALIAS is missing or empty.")
+          if not re.fullmatch(r"[A-Za-z0-9_-]+", password):
+              fail("Signing password contains unexpected characters; copy the single VALUE from the credentials TXT.")
+          if not re.fullmatch(r"[A-Za-z0-9_-]+", alias):
+              fail("Signing alias contains unexpected characters; copy the single VALUE from the credentials TXT.")
+
+          try:
+              key_bytes = base64.b64decode(encoded, validate=True)
+          except Exception:
+              fail("VYBE_SIGNING_KEYSTORE_BASE64 is not valid Base64. Recopy the full long encoded value.")
+          expected_file_sha = "2b46132bded1ea9fe00b67693a1140b7a64096b06545d8074683e670b941cf76"
+          if hashlib.sha256(key_bytes).hexdigest() != expected_file_sha:
+              fail("Encoded keystore doesn't match the VYBE key supplied earlier; re-copy the entire Base64 value.")
+
+          keystore = (Path.cwd() / "android/app/vybe-release.jks").resolve()
+          keystore.write_bytes(key_bytes)
+          keystore.chmod(0o600)
+
+          check = subprocess.run(
+              ["keytool", "-list", "-keystore", str(keystore), "-storepass",
+               password, "-alias", alias], stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL)
+          if check.returncode != 0:
+              fail("Keystore file is valid but signing PASSWORD or KEY ALIAS does not match. Recheck both GitHub secrets against the TXT.")
+
+          cert = subprocess.run(
+              ["keytool", "-exportcert", "-keystore", str(keystore),
+               "-storepass", password, "-alias", alias],
+              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+          expected_cert = "703D48356F0E4D9211FCB9C863E9536B96CF47C6450B0E3338FC42BC7A7B908D"
+          if cert.returncode != 0 or hashlib.sha256(cert.stdout).hexdigest().upper() != expected_cert:
+              fail("Signing certificate fingerprint mismatch; build blocked to preserve update compatibility.")
+
+          props = Path("android/key.properties")
+          props.write_text("storePassword=" + password + "\n" +
+                           "keyPassword=" + password + "\n" +
+                           "keyAlias=" + alias + "\n" +
+                           "storeFile=" + str(keystore) + "\n", encoding="utf-8")
           props.chmod(0o600)
-          gradle = Path('android/app/build.gradle.kts')
+          gradle = Path("android/app/build.gradle.kts")
           if not gradle.is_file():
-              raise SystemExit('Unsupported Flutter scaffold: missing Kotlin Android Gradle config')
-          content = gradle.read_text(encoding='utf-8')
+              fail("Expected Flutter Kotlin Android Gradle file missing.")
+          content = gradle.read_text(encoding="utf-8")
           if (content.count('signingConfig = signingConfigs.getByName("debug")') != 1 or
-                  content.count('android {') != 1 or content.count('    buildTypes {') != 1):
-              raise SystemExit('Unknown Gradle signing configuration: refusing debug/unsigned release')
+                  content.count("android {") != 1 or content.count("    buildTypes {") != 1):
+              fail("Unexpected Gradle signing configuration: no unsafe debug fallback.")
           content = 'import java.io.FileInputStream\nimport java.util.Properties\n\n' + content
           content = content.replace('android {',
               'val vybeSigning = Properties()\n' +
@@ -131,8 +176,8 @@ jobs:
               '    }\n\n    buildTypes {', 1)
           content = content.replace('signingConfig = signingConfigs.getByName("debug")',
                                     'signingConfig = signingConfigs.getByName("release")', 1)
-          gradle.write_text(content, encoding='utf-8')
-          print('Permanent VYBE certificate validated and release Gradle signing enabled.')
+          gradle.write_text(content, encoding="utf-8")
+          print("Permanent VYBE certificate and release Gradle signing verified.")
           PY
 
       - name: Install Android NDK with retry
