@@ -259,11 +259,24 @@ jobs:
           count=0
           for apk in build/app/outputs/flutter-apk/*.apk; do
             test -f "$apk" || continue
-            actual="$("$APK_SIGNER" verify --print-certs "$apk" |
-              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
-              tr '[:lower:]' '[:upper:]' | tr -d '\r')"
+            cert_report="$("$APK_SIGNER" verify --print-certs "$apk")"
+            # apksigner output formatting varies by build-tools version.
+            # Extract only the first signer's SHA-256 digest, stripping
+            # harmless whitespace; never weaken the expected-certificate test.
+            actual="$(printf '%s\n' "$cert_report" |
+              awk -F ':' '/Signer #1 certificate SHA-256 digest/ {print $NF; exit}' |
+              tr -cd 'A-Fa-f0-9' | tr '[:lower:]' '[:upper:]')"
             if [ "$actual" != "$EXPECTED_CERT" ]; then
-              echo "::error::APK signing certificate mismatch. Refusing to upload $(basename "$apk")."
+              echo "::error::Signing verification failed for $(basename "$apk")."
+              if [ -z "$actual" ]; then
+                echo "::error::Could not parse first APK signer certificate fingerprint."
+                printf '%s\n' "$cert_report" | grep -E '^Signer #[0-9]+ certificate SHA-256 digest:' || true
+              else
+                # An Android signing certificate fingerprint is public.
+                # Logging it helps identify accidental debug signing.
+                echo "::error::APK cert SHA256: $actual"
+              fi
+              echo "::error::Required VYBE cert SHA256: $EXPECTED_CERT"
               exit 1
             fi
             echo "Permanent VYBE release signature OK: $(basename "$apk")"
