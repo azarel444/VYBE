@@ -101,6 +101,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   double? _fallbackSeekPosition;
   DateTime _fallbackSeekUntil = DateTime.fromMillisecondsSinceEpoch(0);
   String _autoAttemptedTrack = '';
+  String _autoScheduledTrack = '';
   // The new YT Music MediaSession can publish its title BEFORE the queue's
   // video thumbnail/media ID becomes available. Keep verified queue IDs
   // from the same active playlist and make bounded delayed rechecks.
@@ -160,6 +161,8 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
       final changed = _title != widget.title || _artist != widget.artist;
       if (changed) {
         ++_generation; // Cancel all in-flight lookups for the old track.
+        _autoAttemptedTrack = '';
+        _autoScheduledTrack = '';
         final hadVideo = _embedded;
         _videoRetryTimer?.cancel();
         _videoRetryTrack = '';
@@ -199,14 +202,20 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
         (!widget.sourcePlaying && !sourceConfirmedPlaying) ||
         _title.isEmpty || _artist.isEmpty ||
         _busy || _embedded || _advancing || _inCall) return;
-    final key = _sourcePackage + '|' + _artist + '|' + _title;
-    if (_autoAttemptedTrack == key) return;
-    _autoAttemptedTrack = key;
+    final key = _sourcePackage + '|' + _songKey;
+    if (_autoAttemptedTrack == key || _autoScheduledTrack == key) return;
+    // Scheduling is not the same as beginning the lookup: the callback
+    // can be invalidated by a track change or a currently busy source.
+    _autoScheduledTrack = key;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _disposed || _embedded || _busy || _inCall ||
-          _autoAttemptedTrack != key || _sourcePackage != _ytMusic ||
+      if (_autoScheduledTrack == key) _autoScheduledTrack = '';
+      if (!mounted || _disposed || _embedded || _busy || _advancing ||
+          _inCall || _sourcePackage != _ytMusic ||
+          (!widget.sourcePlaying && !sourceConfirmedPlaying) ||
           _artist.isEmpty || _title.isEmpty ||
-          key != _sourcePackage + '|' + _artist + '|' + _title) return;
+          key != _sourcePackage + '|' + _songKey ||
+          _autoAttemptedTrack == key) return;
+      _autoAttemptedTrack = key;
       unawaited(_beginVideo());
     });
   }
@@ -659,26 +668,45 @@ document.head.appendChild(tag);
     }
   }
 
-  // An unavailable ID is not necessarily "no video": YouTube Music can
-  // publish the corresponding thumbnail one or two seconds after the title.
-  // Retry quietly, at most twice, with the artwork fallback still displayed.
-  void _retryUnmatchedYoutubeMusicVideo() {
+  // Missing IDs and late permission to pause the original music player
+  // both require bounded retries after playlist transitions.
+  void _retryUnmatchedYoutubeMusicVideo(String reason) {
     if (_sourcePackage != _ytMusic || !mounted || _disposed || _inCall) return;
     final key = _songKey;
     if (_videoRetryTrack != key) {
       _videoRetryTrack = key;
       _videoMisses = 0;
     }
-    if (_videoMisses >= 2) return;
+    const delays = [1500, 2700, 4500, 6500];
+    if (_videoMisses >= delays.length) {
+      debugPrint('Music Video: retry limit reached for $reason');
+      return;
+    }
     final attempt = ++_videoMisses;
     _videoRetryTimer?.cancel();
-    _videoRetryTimer = Timer(Duration(milliseconds: attempt == 1 ? 2400 : 4800),
-        () {
+    debugPrint('Music Video: retry $attempt after $reason');
+    _videoRetryTimer = Timer(
+      Duration(milliseconds: delays[attempt - 1]), () {
       if (!mounted || _disposed || _songKey != key || _embedded ||
-          _busy || _advancing || _inCall || _sourcePackage != _ytMusic ||
-          !widget.sourcePlaying) return;
-      unawaited(_beginVideo());
+          _busy || _advancing || _inCall || _sourcePackage != _ytMusic) return;
+      unawaited(_retryCurrentVideoWhenPlaying(key));
     });
+  }
+
+  Future<void> _retryCurrentVideoWhenPlaying(String key) async {
+    if (widget.sourcePlaying) {
+      await _beginVideo();
+      return;
+    }
+    // Aggregated media playback can momentarily be stale. Inspect the
+    // original source session rather than permanently aborting the retry.
+    final source = await _sourceSnapshot();
+    if (!mounted || _disposed || _songKey != key || _busy ||
+        _embedded || _advancing || _inCall) return;
+    if (source != null && source['found'] == true &&
+        source['playing'] == true && _matchesNativeTrack(source)) {
+      await _beginVideo();
+    }
   }
 
   Future<void> _beginVideo() async {
@@ -704,21 +732,23 @@ document.head.appendChild(tag);
       // After video-driven Skip Next, the source may still be muted.
       // Fallback must always restore the original music app's audio.
       await _resumeSource();
-      _retryUnmatchedYoutubeMusicVideo();
+      _retryUnmatchedYoutubeMusicVideo('video ID pending');
       return;
     }
-    // Successful source-to-embed handoff cancels stale future retries.
-    _videoRetryTimer?.cancel();
+    // A valid video ID is not a completed handoff. The source pause
+    // can reject temporarily while its media session is changing tracks.
     if (!await _pauseSource()) {
       if (mounted && token == _generation) {
         setState(() {
           _busy = false;
           _status = '';
         });
+        _retryUnmatchedYoutubeMusicVideo('source pause pending');
       }
       return;
     }
     if (!mounted || token != _generation) return;
+    _videoRetryTimer?.cancel();
     setState(() => _busy = false);
     await _loadVideo(id);
   }
@@ -866,15 +896,21 @@ document.head.appendChild(tag);
       final nextArtist = snapshot?['artist']?.toString() ?? '';
       final nextAlbum = snapshot?['album']?.toString() ?? '';
       if (nextArtist.trim().isEmpty) return;
-
-      if (_title != title || _artist != nextArtist) {
-        // The native snapshot can arrive before Flutter's media stream.
-        // Reset the current song without forcing a resume or holding a
-        // stale old video on the screen.
+      // The native player may still report the RAW upload title, while
+      // the Flutter UI already has corrected artist/song metadata.
+      final parsed = StreamTrackMetadata.resolve(
+        title: title, artist: nextArtist, album: nextAlbum,
+        sourcePackage: _sourcePackage,
+      );
+      if (_normalize(parsed.title) == _normalize(previousTitle) ||
+          _normalize(title) == _normalize(previousTitle)) continue;
+      if (_title != parsed.title || _artist != parsed.artist) {
+        _autoAttemptedTrack = '';
+        _autoScheduledTrack = '';
         setState(() {
-          _title = title;
-          _artist = nextArtist;
-          _album = nextAlbum;
+          _title = parsed.title;
+          _artist = parsed.artist;
+          _album = parsed.album;
           _status = '';
         });
       }
