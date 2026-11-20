@@ -131,8 +131,11 @@ class ReturnBubble(private val ctx: Context) {
                         } else if (e.eventTime - e.downTime >= 650L) {
                             // Existing map-safe native preview remains available.
                             val service = MediaListenerService.instance
-                            if (service?.driveRunning() == true) service.stopDrive()
-                            else service?.startDrive(mapSafePreview = true)
+                            // A repeated preview gesture must not unexpectedly close Drive.
+                            // Keep the map-safe overlay up until its own close control is used.
+                            if (service?.driveRunning() != true) {
+                                service?.startDrive(mapSafePreview = true)
+                            }
                         } else {
                             openVybe()
                         }
