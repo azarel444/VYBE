@@ -36,6 +36,7 @@ import 'template_background.dart';
 import 'club_background.dart';
 import 'coverflow_theme.dart';
 import 'music_video_theme.dart';
+import 'music_video_vhs.dart';
 import 'riot_fixed_spacing.dart';
 import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
@@ -857,6 +858,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     buildAlbum: (a) => _metadataText(_VybeTextRole.album, a),
                     buildFallbackBackground: _musicVideoFallbackBackground,
                     backgroundDarkness: settings.bgOverlay,
+                    artistLogoScale: settings.artistLogoScale,
                     onVideoPlaybackChanged: (playing) {
                       _musicVideoIsPlaying = playing;
                     },
@@ -929,8 +931,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
                   child: Stack(
                     fit: StackFit.expand,
-                    children: _vhsOverlay(settings.musicVideoVhs,
-                        !settings.performance && settings.fxPerformanceMode == 0),
+                    children: [
+                      ..._vhsOverlay(settings.musicVideoVhs,
+                          !settings.performance &&
+                              settings.fxPerformanceMode == 0),
+                      RepaintBoundary(
+                        child: CustomPaint(
+                          painter: MusicVideoTrackingPainter(
+                            intensity: settings.musicVideoVhs,
+                            clock: () => _time,
+                            repaint: _tick,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

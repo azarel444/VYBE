@@ -33,6 +33,7 @@ class MusicVideoTheme extends StatefulWidget {
   final Widget Function(Alignment alignment) buildTitle;
   final Widget Function(Alignment alignment) buildAlbum;
   final double backgroundDarkness;
+  final double artistLogoScale;
   final ValueChanged<bool> onVideoPlaybackChanged;
   final int sourcePositionMs;
   final int sourceDurationMs;
@@ -57,6 +58,7 @@ class MusicVideoTheme extends StatefulWidget {
     required this.buildTitle,
     required this.buildAlbum,
     required this.backgroundDarkness,
+    required this.artistLogoScale,
     required this.onVideoPlaybackChanged,
     required this.sourcePositionMs,
     required this.sourceDurationMs,
@@ -1086,42 +1088,63 @@ document.head.appendChild(tag);
     return LayoutBuilder(builder: (context, bounds) {
       final w = bounds.maxWidth, h = bounds.maxHeight;
       final portrait = h > w * 1.1;
-      // Top fade must end by the title/album caption—not obscure the
-      // upper third of the video. The lower fade is independently deep.
-      final topFadeHeight = portrait ? h * .16 : h * .17;
-      // Fade from video to BLACK, reaching full black precisely at the
-      // lower edge of the progress track. Everything below stays black.
-      final bottomFadeHeight = h * .43;
-      // Landscape anchors follow the supplied 1536x864 reference:
-      // artwork x=1.3%, y=74.7%, width=28.5%; record peeks out behind it
-      // to the right. Transport is x=44.8%..96.8%, y≈92%.
-      // Shrink and center portrait artwork, reserving a separate control row.
-      // Preserve the approved landscape sleeve/transport composition.
-      final artSide = portrait ? math.min(w * .38, h * .24) : w * .285;
-      final discSide = artSide * .72;
+      // Fade to truly opaque black at both edges, but ease the alpha
+      // gradually to zero so neither transition leaves a horizontal seam.
+      final topFadeHeight = h * (portrait ? .265 : .205);
+      // Portrait: center the artwork, metadata and transport in separate
+      // non-overlapping rows. Landscape: center the art and metadata inside
+      // the left 60% while keeping transport on the lower right.
+      final discRatio = .72;
+      final artSide = portrait
+          ? math.min(w * .38, h * .24)
+          : math.min(w * .25, h * .28);
+      final discSide = artSide * discRatio;
       final transportWidth = portrait ? math.min(w * .86, 560.0) : w * .52;
       final transportRight = portrait ? (w - transportWidth) * .5 : w * .032;
       final transportBottom = portrait ? h * .035 : h * .038;
       final transportHeight = portrait ? 68.0 :
           (h * .084).clamp(62.0, 76.0).toDouble();
-      final artLeft = portrait
-          ? (w - (artSide + discSide * .5)) * .5 : w * .013;
-      final artTop = portrait
-          ? math.max(h * .50, h - transportBottom - transportHeight -
-              h * .035 - artSide)
-          : h * .747;
-      // The real vinyl is half exposed to the right of the sleeve.
-      final discLeft = artLeft + artSide - discSide * .5;
-      final discTop = artTop + artSide * .075;
+      final transportTop = h - transportBottom - transportHeight;
       final iconSize = portrait ? 44.0 :
           (h * .061).clamp(40.0, 55.0).toDouble();
       final iconGap = portrait ? 9.0 : w * .015;
-      final trackThickness = portrait ? 5.0 : 8.0;
-      final blackFromBottom = transportBottom + transportHeight * .5 -
-          trackThickness * .5;
-      final blackStop = (1.0 - blackFromBottom / bottomFadeHeight)
-          .clamp(.50, .94).toDouble();
-      final infoWidth = portrait ? w * .46 : w * .27;
+      final infoWidth = portrait ? w * .90 : w * .58;
+      final infoLeft = portrait
+          ? (w - infoWidth) * .5 : (w * .60 - infoWidth) * .5;
+      final songHeight = portrait
+          ? (h * .058).clamp(54.0, 94.0).toDouble()
+          : (h * .070).clamp(27.0, 56.0).toDouble();
+      final albumHeight = portrait
+          ? (h * .049).clamp(46.0, 78.0).toDouble()
+          : (h * .055).clamp(24.0, 44.0).toDouble();
+      final infoGap = portrait ? 7.0 : 3.0;
+      final infoHeight = songHeight + infoGap + albumHeight;
+      final artGap = portrait ? 18.0 : 6.0;
+      final footerGap = portrait ? 18.0 : 7.0;
+      final artLeft = portrait
+          ? (w - (artSide + discSide * .5)) * .5
+          : (w * .60 - (artSide + discSide * .5)) * .5;
+      final artTop = math.max(
+          portrait ? h * .48 : h * .31,
+          transportTop - infoHeight - footerGap - artGap - artSide);
+      final songTop = artTop + artSide + artGap;
+      // Center of the real spinning record is at the sleeve's right edge.
+      final discLeft = artLeft + artSide - discSide * .5;
+      final discTop = artTop + artSide * .075;
+      // At 200%, artist logos can use the whole generously sized header.
+      // The shared renderer still applies its existing 50–200% scale.
+      final logoScale = widget.artistLogoScale.clamp(.5, 2.0).toDouble();
+      final logoWidth = w * (portrait
+          ? .70 + .10 * logoScale : .64 + .10 * logoScale);
+      final logoHeight = h * (portrait
+          ? .145 + .018 * logoScale : .205 + .025 * logoScale);
+      final logoLeft = (w - logoWidth) * .5;
+      final logoTop = portrait ? h * .026 : h * .016;
+      // The bottom is fully black beginning at the sleeve, then eases upward
+      // to transparent. A solid section avoids a translucent control footer.
+      final bottomFadeStart = math.max(
+          topFadeHeight * .96, artTop - h * (portrait ? .295 : .225));
+      final bottomFadeHeight = math.max(1.0, artTop - bottomFadeStart);
       final duration = _embedded ? _duration
           : widget.sourceDurationMs / 1000.0;
       final position = _embedded ? _position
@@ -1166,39 +1189,43 @@ document.head.appendChild(tag);
           Positioned.fill(child: IgnorePointer(child: ColoredBox(
             color: Colors.black.withOpacity(
               widget.backgroundDarkness.clamp(0.0, 1.0))))),
-        // Independent cinematic fades: TOP becomes transparent at the end
-        // of the title/album band (~17% of screen height). BOTTOM transitions
-        // from clear video into SOLID BLACK before the transport row.
+        // The top begins SOLID BLACK and feathers through a long low-alpha
+        // tail; the previous 17% fade showed a clear horizontal stop line.
         Positioned(left: 0, right: 0, top: 0,
           height: topFadeHeight,
           child: const IgnorePointer(child: DecoratedBox(
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              stops: [0, .34, .68, 1],
+              stops: [0, .10, .27, .43, .63, .80, .93, 1],
               colors: [
-                Color(0xFA000000), Color(0xDC000000),
-                Color(0x80000000), Color(0x00000000),
+                Color(0xFF000000), Color(0xFF000000),
+                Color(0xF6000000), Color(0xDC000000),
+                Color(0x90000000), Color(0x38000000),
+                Color(0x08000000), Color(0x00000000),
               ],
             )),
           )),
         ),
-        Positioned(left: 0, right: 0, bottom: 0,
+        // Smooth alpha tail begins ABOVE the artwork and reaches fully
+        // opaque black at the sleeve top. No suddenly terminated gradient.
+        Positioned(left: 0, right: 0, top: bottomFadeStart,
           height: bottomFadeHeight,
-          child: IgnorePointer(child: DecoratedBox(
+          child: const IgnorePointer(child: DecoratedBox(
             decoration: BoxDecoration(gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              stops: [0, blackStop * .44, blackStop * .75,
-                      blackStop, 1],
-              colors: const [
-                Color(0x00000000), Color(0x35000000),
-                Color(0xAE000000), Color(0xFF000000),
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              stops: [0, .09, .26, .48, .70, .88, 1],
+              colors: [
+                Color(0x00000000), Color(0x02000000),
+                Color(0x18000000), Color(0x58000000),
+                Color(0xB0000000), Color(0xEF000000),
                 Color(0xFF000000),
               ],
             )),
           )),
         ),
+        Positioned(left: 0, right: 0, top: artTop, bottom: 0,
+          child: const IgnorePointer(child: ColoredBox(color: Colors.black))),
         // One consistent gesture surface across the ENTIRE video/fanart
         // area, not an impossible-to-discover invisible hotspot at the top.
         // The sleeve and transport controls are painted AFTER this surface,
@@ -1260,37 +1287,33 @@ document.head.appendChild(tag);
         ],
         if (_showLogo)
           Positioned(
-            left: portrait ? w * .025 : w * .024,
-            top: portrait ? h * .025 : h * .045,
-            width: portrait ? w * .43 : w * .185,
-            height: portrait ? h * .155 : h * .29,
+            left: logoLeft, top: logoTop,
+            width: logoWidth, height: logoHeight,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: widget.onToggleUtilityMenu,
               onLongPress: widget.onOpenCustomize,
               onDoubleTap: widget.onOpenSettings,
-              // Shared VYBE ClearLogo/RIOT artist renderer, including the
-              // existing logo-size control and fixed custom letter spacing.
+              // Logo size is controlled by the same saved artistLogoScale
+              // as every VYBE theme; a wide centered slot prevents its
+              // 200% setting from being capped at a tiny 18%-width box.
               child: SizedBox.expand(
-                child: widget.buildArtist(Alignment.topLeft)),
+                child: widget.buildArtist(Alignment.topCenter)),
             ),
           ),
         if (_showInfo)
           Positioned(
-            right: portrait ? w * .035 : w * .031,
-            top: portrait ? h * .035 : h * .049,
-            width: infoWidth,
+            left: infoLeft, top: songTop, width: infoWidth,
+            height: infoHeight,
             child: IgnorePointer(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                SizedBox(width: infoWidth,
-                  height: portrait ? h * .070 : h * .065,
-                  child: widget.buildTitle(Alignment.centerRight)),
-                SizedBox(height: portrait ? 6.0 : 4.0),
-                SizedBox(width: infoWidth,
-                  height: portrait ? h * .052 : h * .060,
-                  child: widget.buildAlbum(Alignment.centerRight)),
+                SizedBox(width: infoWidth, height: songHeight,
+                  child: widget.buildTitle(Alignment.center)),
+                SizedBox(height: infoGap),
+                SizedBox(width: infoWidth, height: albumHeight,
+                  child: widget.buildAlbum(Alignment.center)),
               ],
             )),
           ),
@@ -1465,10 +1488,29 @@ class MusicVideoThemePreview extends StatelessWidget {
     builder: (context, box) {
       final w = box.maxWidth, h = box.maxHeight;
       final portrait = h > w * 1.1;
-      final side = portrait ? math.min(w * .38, h * .24) : w * .285;
+      final side = portrait ? math.min(w * .38, h * .24) :
+          math.min(w * .25, h * .28);
       final discSide = side * .72;
-      final left = portrait ? (w - (side + discSide * .5)) * .5 : w * .013;
-      final top = portrait ? math.max(h * .50, h * .846 - side) : h * .747;
+      final left = portrait
+          ? (w - (side + discSide * .5)) * .5
+          : (w * .60 - (side + discSide * .5)) * .5;
+      final controlsHeight = h * .084;
+      final controlsTop = h - h * .035 - controlsHeight;
+      final songHeight = portrait ? h * .058 : h * .070;
+      final albumHeight = portrait ? h * .049 : h * .055;
+      final infoGap = portrait ? h * .006 : h * .005;
+      final infoWidth = portrait ? w * .90 : w * .58;
+      final infoLeft = portrait
+          ? (w - infoWidth) * .5 : (w * .60 - infoWidth) * .5;
+      final artGap = portrait ? h * .014 : h * .009;
+      final top = math.max(
+          portrait ? h * .48 : h * .31,
+          controlsTop - songHeight - albumHeight - infoGap -
+              artGap - h * .016 - side);
+      final songTop = top + side + artGap;
+      final fadeStart = math.max(h * (portrait ? .255 : .197),
+          top - h * (portrait ? .295 : .225));
+      final fadeHeight = math.max(1.0, top - fadeStart);
       return ClipRect(child: Stack(fit: StackFit.expand, children: [
         // A static fanart approximation for the theme gallery. Never start
         // YouTube/WebView simply by browsing the theme preview.
@@ -1477,7 +1519,34 @@ class MusicVideoThemePreview extends StatelessWidget {
               gaplessPlayback: true)
         else
           const ColoredBox(color: Color(0xFF091319)),
-        const Positioned.fill(child: ColoredBox(color: Color(0x32000000))),
+        Positioned(top: 0, left: 0, right: 0,
+          height: h * (portrait ? .265 : .205),
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              stops: [0, .10, .27, .43, .63, .80, .93, 1],
+              colors: [
+                Color(0xFF000000), Color(0xFF000000),
+                Color(0xF6000000), Color(0xDC000000),
+                Color(0x90000000), Color(0x38000000),
+                Color(0x08000000), Color(0x00000000),
+              ]))),
+        ),
+        Positioned(top: fadeStart, left: 0, right: 0, height: fadeHeight,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              stops: [0, .09, .26, .48, .70, .88, 1],
+              colors: [
+                Color(0x00000000), Color(0x02000000),
+                Color(0x18000000), Color(0x58000000),
+                Color(0xB0000000), Color(0xEF000000),
+                Color(0xFF000000),
+              ]))),
+        ),
+        Positioned(top: top, bottom: 0, left: 0, right: 0,
+          child: const ColoredBox(color: Colors.black)),
+
         Positioned(
           left: left - side * .20, top: top - side * .21,
           width: side * 1.75, height: side * 1.30,
@@ -1518,37 +1587,45 @@ class MusicVideoThemePreview extends StatelessWidget {
             ),
           ),
         ),
-        Positioned(left: w * .024, top: h * .045,
-          width: portrait ? w * .43 : w * .185,
-          height: portrait ? h * .155 : h * .29,
-          child: Align(alignment: Alignment.topLeft,
+        Positioned(left: w * .08, right: w * .08,
+          top: portrait ? h * .026 : h * .016,
+          height: portrait ? h * .18 : h * .255,
+          child: Align(alignment: Alignment.topCenter,
             child: clearLogo != null
               ? Image.memory(clearLogo!, fit: BoxFit.contain,
-                  alignment: Alignment.topLeft)
+                  alignment: Alignment.topCenter)
               : Text(artist.isEmpty ? 'VYBE' : artist.toUpperCase(),
                   maxLines: 2, overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white,
                     fontFamily: 'VYBERiot',
                     fontWeight: FontWeight.w800,
                     fontStyle: FontStyle.italic,
-                    fontSize: portrait ? w * .047 : w * .022)),
+                    fontSize: portrait ? w * .047 : w * .032)),
           ),
         ),
-        Positioned(right: w * .032, top: h * .049,
-          width: portrait ? w * .46 : w * .27,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.end,
+        Positioned(left: infoLeft, top: songTop,
+          width: infoWidth,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(title.isEmpty ? 'MUSIC VIDEO' : title,
-                maxLines: 2, overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.right,
-                style: TextStyle(color: Colors.white,
-                    fontSize: portrait ? w * .048 : w * .020)),
-              if (album.isNotEmpty &&
-                  album.trim().toLowerCase() != title.trim().toLowerCase())
-                Text(album, textAlign: TextAlign.right,
+              SizedBox(height: songHeight,
+                child: Center(child: Text(
+                  title.isEmpty ? 'MUSIC VIDEO' : title,
                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.white70,
-                    fontSize: portrait ? w * .030 : w * .014)),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white,
+                    fontSize: portrait ? h * .033 : h * .05)))),
+              SizedBox(height: infoGap),
+              SizedBox(height: albumHeight,
+                child: Center(child: Text(
+                  album.isEmpty ? 'ALBUM' : album.toUpperCase(),
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white,
+                    fontSize: portrait ? h * .021 : h * .025,
+                    fontStyle: FontStyle.italic,
+                    letterSpacing: 1.4)))),
             ],
           )),
         Positioned(right: portrait ? w * .07 : w * .032,
