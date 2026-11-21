@@ -1288,6 +1288,13 @@ document.head.appendChild(tag);
       final bottomFadeEnd = math.max(
           bottomFadeStart + 1.0, progressBottomY).clamp(0.0, h).toDouble();
       final bottomFadeHeight = bottomFadeEnd - bottomFadeStart;
+      // The existing bottom gradient is painted UNDER the album sleeve.
+      // Portrait's enlarged sleeve covers it. Add a separate inexpensive
+      // alpha gradient ON the image so the track and buttons remain readable
+      // without moving them or altering landscape.
+      final portraitCoverFadeHeight = portrait
+          ? math.max(1.0, math.min(artSide, progressBottomY - artTop))
+          : 0.0;
       final duration = _embedded ? _duration
           : widget.sourceDurationMs / 1000.0;
       final position = _embedded ? _position
@@ -1423,13 +1430,50 @@ document.head.appendChild(tag);
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
-                child: sleeveArtwork == null
-                    // Same VYBE branded cover as other themes when idle.
-                    ? Image.asset('assets/vybe_album_placeholder.png',
-                        fit: BoxFit.cover, filterQuality: FilterQuality.high)
-                    : Image.memory(sleeveArtwork, fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                        filterQuality: FilterQuality.high),
+                child: Stack(fit: StackFit.expand, children: [
+                  sleeveArtwork == null
+                      // Same VYBE branded cover as other themes when idle.
+                      ? Image.asset('assets/vybe_album_placeholder.png',
+                          fit: BoxFit.cover, filterQuality: FilterQuality.high)
+                      : Image.memory(sleeveArtwork, fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                          filterQuality: FilterQuality.high),
+                  if (portrait) ...[
+                    // Black through a smooth alpha ramp: it has the same
+                    // darkening behavior as multiplying by black, without a
+                    // costly framebuffer blend pass on low-end head units.
+                    // Start just below the artwork's top border; fade to
+                    // near-black beneath the existing progress track.
+                    Positioned(left: 0, right: 0, top: 0,
+                      height: portraitCoverFadeHeight,
+                      child: const IgnorePointer(child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: [0, .10, .23, .40, .58, .74, .89, 1],
+                            colors: [
+                              Color(0x00000000),
+                              Color(0x00000000),
+                              Color(0x10000000),
+                              Color(0x38000000),
+                              Color(0x78000000),
+                              Color(0xB9000000),
+                              Color(0xE9000000),
+                              Color(0xFF000000),
+                            ],
+                          ),
+                        ),
+                      )),
+                    ),
+                    // Only BELOW the progress track is solid black.
+                    if (portraitCoverFadeHeight < artSide)
+                      Positioned(left: 0, right: 0,
+                        top: portraitCoverFadeHeight, bottom: 0,
+                        child: const IgnorePointer(
+                          child: ColoredBox(color: Colors.black))),
+                  ],
+                ]),
               ),
             )),
           ),
