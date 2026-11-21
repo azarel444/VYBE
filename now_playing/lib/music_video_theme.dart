@@ -1093,7 +1093,11 @@ document.head.appendChild(tag);
       final topFadeHeight = h * (portrait ? .265 : .205);
       // Only portrait changes the placement; landscape sleeve stays anchored.
       final discRatio = .72;
-      final artSide = portrait ? math.min(w * .38, h * .24) : w * .285;
+      // Portrait album cover now acts as a full-width lower image backplate.
+      // Keep the OLD compact cover measurement solely to preserve the
+      // existing song/album metadata vertical position.
+      final compactPortraitArtSide = math.min(w * .38, h * .24);
+      final artSide = portrait ? w * .94 : w * .285;
       final discSide = artSide * discRatio;
       final transportWidth = portrait ? math.min(w * .86, 560.0) : w * .52;
       final transportRight = portrait ? (w - transportWidth) * .5 : w * .032;
@@ -1119,13 +1123,16 @@ document.head.appendChild(tag);
       final infoHeight = songHeight + infoGap + albumHeight;
       final artGap = portrait ? 18.0 : 6.0;
       final footerGap = portrait ? 18.0 : 7.0;
-      final artLeft = portrait
-          ? (w - (artSide + discSide * .5)) * .5 : w * .013;
-      final artTop = portrait
+      final artLeft = portrait ? (w - artSide) * .5 : w * .013;
+      // Preserve the existing portrait song title and album-label layout.
+      // Only the cover moves DOWN behind them, its top stroke just above
+      // the first metadata line; the cover's bottom extends off-screen.
+      final songTop = portrait
           ? math.max(h * .48,
-              transportTop - infoHeight - footerGap - artGap - artSide)
-          : h * .747;
-      final songTop = artTop + artSide + artGap;
+              transportTop - infoHeight - footerGap - artGap -
+                  compactPortraitArtSide) + compactPortraitArtSide + artGap
+          : h * .747 + artSide + artGap;
+      final artTop = portrait ? songTop - h * .021 : h * .747;
       // Center of the real spinning record is at the sleeve's right edge.
       final discLeft = artLeft + artSide - discSide * .5;
       final discTop = artTop + artSide * .075;
@@ -1141,11 +1148,17 @@ document.head.appendChild(tag);
           ? h * (.145 + .018 * logoScale) : h * .29;
       final logoLeft = portrait ? (w - logoWidth) * .5 : w * .024;
       final logoTop = portrait ? h * .026 : h * .045;
-      // The bottom is fully black beginning at the sleeve, then eases upward
-      // to transparent. A solid section avoids a translucent control footer.
-      final bottomFadeStart = math.max(
-          topFadeHeight * .96, artTop - h * (portrait ? .295 : .225));
-      final bottomFadeHeight = math.max(1.0, artTop - bottomFadeStart);
+      // Only the region BELOW the bottom edge of the progress bar is
+      // solid black. Above it the shadow slowly dissolves into the video
+      // by the top of the record (landscape) / album (portrait).
+      // This changes the fade, NOT the position of any landscape control.
+      final progressTrackThickness = portrait ? 5.0 : 8.0;
+      final progressBottomY = h - transportBottom - transportHeight * .5 +
+          progressTrackThickness * .5;
+      final bottomFadeStart = portrait ? artTop : discTop;
+      final bottomFadeEnd = math.max(
+          bottomFadeStart + 1.0, progressBottomY).clamp(0.0, h).toDouble();
+      final bottomFadeHeight = bottomFadeEnd - bottomFadeStart;
       final duration = _embedded ? _duration
           : widget.sourceDurationMs / 1000.0;
       final position = _embedded ? _position
@@ -1208,24 +1221,27 @@ document.head.appendChild(tag);
             )),
           )),
         ),
-        // Smooth alpha tail begins ABOVE the artwork and reaches fully
-        // opaque black at the sleeve top. No suddenly terminated gradient.
+        // Transparent at record/album top, smoothly transitions through
+        // black levels, and reaches full black at the progress track bottom.
         Positioned(left: 0, right: 0, top: bottomFadeStart,
           height: bottomFadeHeight,
           child: const IgnorePointer(child: DecoratedBox(
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              stops: [0, .09, .26, .48, .70, .88, 1],
+              stops: [0, .08, .20, .36, .53, .68, .81, .91, 1],
               colors: [
-                Color(0x00000000), Color(0x02000000),
-                Color(0x18000000), Color(0x58000000),
-                Color(0xB0000000), Color(0xEF000000),
+                Color(0x00000000), Color(0x00000000),
+                Color(0x0D000000), Color(0x35000000),
+                Color(0x78000000), Color(0xB8000000),
+                Color(0xE8000000), Color(0xFA000000),
                 Color(0xFF000000),
               ],
             )),
           )),
         ),
-        Positioned(left: 0, right: 0, top: artTop, bottom: 0,
+        // Start the solid region at the BOTTOM of the progress line,
+        // never at the top of the album art or record.
+        Positioned(left: 0, right: 0, top: bottomFadeEnd, bottom: 0,
           child: const IgnorePointer(child: ColoredBox(color: Colors.black))),
         // One consistent gesture surface across the ENTIRE video/fanart
         // area, not an impossible-to-discover invisible hotspot at the top.
@@ -1252,9 +1268,12 @@ document.head.appendChild(tag);
               painter: _MusicVideoFeatheredHalo(widget.accent),
             )),
           ),
-          Positioned(left: discLeft, top: discTop,
-            width: discSide, height: discSide,
-            child: IgnorePointer(child: widget.buildVinyl(discSide))),
+          // The record remains untouched in landscape and is simply not
+          // rendered in portrait, where the enlarged cover is the backplate.
+          if (!portrait)
+            Positioned(left: discLeft, top: discTop,
+              width: discSide, height: discSide,
+              child: IgnorePointer(child: widget.buildVinyl(discSide))),
           Positioned(
             left: artLeft, top: artTop,
             width: artSide, height: artSide,
@@ -1497,10 +1516,10 @@ class MusicVideoThemePreview extends StatelessWidget {
     builder: (context, box) {
       final w = box.maxWidth, h = box.maxHeight;
       final portrait = h > w * 1.1;
-      final side = portrait ? math.min(w * .38, h * .24) : w * .285;
+      final originalSide = math.min(w * .38, h * .24);
+      final side = portrait ? w * .94 : w * .285;
       final discSide = side * .72;
-      final left = portrait
-          ? (w - (side + discSide * .5)) * .5 : w * .013;
+      final left = portrait ? (w - side) * .5 : w * .013;
       final controlsHeight = h * .084;
       final controlsTop = h - h * .035 - controlsHeight;
       final songHeight = portrait ? h * .058 : h * .070;
@@ -1510,14 +1529,16 @@ class MusicVideoThemePreview extends StatelessWidget {
       final infoLeft = portrait
           ? (w - infoWidth) * .5 : w - w * .032 - infoWidth;
       final artGap = portrait ? h * .014 : h * .009;
-      final top = portrait
+      final songTop = portrait
           ? math.max(h * .48, controlsTop - songHeight - albumHeight -
-              infoGap - artGap - h * .016 - side)
-          : h * .747;
-      final songTop = portrait ? top + side + artGap : h * .049;
-      final fadeStart = math.max(h * (portrait ? .255 : .197),
-          top - h * (portrait ? .295 : .225));
-      final fadeHeight = math.max(1.0, top - fadeStart);
+              infoGap - artGap - h * .016 - originalSide) +
+              originalSide + artGap
+          : h * .049;
+      final top = portrait ? songTop - h * .021 : h * .747;
+      final fadeStart = portrait ? top : top + side * .075;
+      final fadeEnd = math.max(fadeStart + 1, h - h * .035 -
+          controlsHeight * .5 + h * .003).clamp(0.0, h).toDouble();
+      final fadeHeight = fadeEnd - fadeStart;
       return ClipRect(child: Stack(fit: StackFit.expand, children: [
         // A static fanart approximation for the theme gallery. Never start
         // YouTube/WebView simply by browsing the theme preview.
@@ -1543,15 +1564,16 @@ class MusicVideoThemePreview extends StatelessWidget {
           child: const DecoratedBox(decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              stops: [0, .09, .26, .48, .70, .88, 1],
+              stops: [0, .08, .20, .36, .53, .68, .81, .91, 1],
               colors: [
-                Color(0x00000000), Color(0x02000000),
-                Color(0x18000000), Color(0x58000000),
-                Color(0xB0000000), Color(0xEF000000),
+                Color(0x00000000), Color(0x00000000),
+                Color(0x0D000000), Color(0x35000000),
+                Color(0x78000000), Color(0xB8000000),
+                Color(0xE8000000), Color(0xFA000000),
                 Color(0xFF000000),
               ]))),
         ),
-        Positioned(top: top, bottom: 0, left: 0, right: 0,
+        Positioned(top: fadeEnd, bottom: 0, left: 0, right: 0,
           child: const ColoredBox(color: Colors.black)),
 
         Positioned(
@@ -1564,7 +1586,8 @@ class MusicVideoThemePreview extends StatelessWidget {
             ),
           )),
         ),
-        Positioned(left: left + side - discSide * .5, top: top + side * .075,
+        if (!portrait)
+          Positioned(left: left + side - discSide * .5, top: top + side * .075,
           width: discSide, height: discSide,
           child: Container(
             decoration: BoxDecoration(
