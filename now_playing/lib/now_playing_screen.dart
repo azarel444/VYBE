@@ -5805,15 +5805,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           (flushRight ? offset + edgeMargin : maximalWing) + cut + safeGap;
       final desiredWidth = letteringWidth +
           naturalLeftInset + naturalRightInset;
-      // Coverflow's portrait plaque is intentionally long enough for
-      // standard album names (such as MASTERPLAN) at the established font
-      // size. Only this orientation/theme gets a wider minimum; the
-      // shared angled frame and all landscape themes are unchanged.
+      // Music Video portrait: the framed album label must line up with the
+      // enlarged 94%-screen-width album cover with a little side padding.
+      // The metadata slot is 90% wide, leaving ~2% on each side of the
+      // actual cover. Keep this width FIXED, even for a very short album.
+      // All landscape and non-Music-Video themes retain their old sizing.
+      final fullPortraitVideoBadge =
+          settings.theme == AppSettings.tMusicVideo && _textPortrait;
       final minimumFraction =
           settings.theme == AppSettings.tCoverflow && _textPortrait
               ? .92 : .78;
-      final badgeWidth = math.max(1.0, math.min(available,
-          math.max(available * minimumFraction, desiredWidth))).toDouble();
+      final badgeWidth = fullPortraitVideoBadge
+          ? available
+          : math.max(1.0, math.min(available,
+              math.max(available * minimumFraction, desiredWidth))).toDouble();
       final shape = _VybeAlbumFrameGeometry(
           Size(badgeWidth, frameHeight),
           flushLeft: flushLeft, flushRight: flushRight);

@@ -1415,9 +1415,10 @@ document.head.appendChild(tag);
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
                 child: widget.artwork == null
-                    ? const ColoredBox(color: Color(0xFF0E1315),
-                        child: Center(child: Icon(Icons.album,
-                          color: Colors.white38, size: 55)))
+                    // Reuse the SAME VYBE cover placeholder as the other
+                    // themes, in portrait and landscape, including idle mode.
+                    ? Image.asset('assets/vybe_album_placeholder.png',
+                        fit: BoxFit.cover, filterQuality: FilterQuality.high)
                     : Image.memory(widget.artwork!, fit: BoxFit.cover,
                         gaplessPlayback: true,
                         filterQuality: FilterQuality.high),
@@ -1738,7 +1739,8 @@ class MusicVideoThemePreview extends StatelessWidget {
               borderRadius: BorderRadius.circular(2),
               child: artwork != null
                 ? Image.memory(artwork!, fit: BoxFit.cover)
-                : const ColoredBox(color: Color(0xFF121518)),
+                : Image.asset('assets/vybe_album_placeholder.png',
+                    fit: BoxFit.cover),
             ),
           ),
         ),
