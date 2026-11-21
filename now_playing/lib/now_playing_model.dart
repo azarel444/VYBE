@@ -693,7 +693,9 @@ class NowPlayingModel extends ChangeNotifier {
       'Session artwork: $sessionArtworkStatus\n'
       'Source: $artworkSource\nLookup: $artworkLookupState\n'
       'Status: $artworkStatus\nFailure: $artworkFailure\n'
-      'Cover displayed: ${art != null && !art!.flat}';
+      'Cover displayed: ${art != null && !art!.flat}\n'
+      'YouTube Music pairing: $_ytmPairStatus\n'
+      '$_ytmLastPairDiagnostic';
   Timer? _idleTimer;
   Timer? _linkInactiveTimer;
   Timer? _linkDisconnectTimer;
@@ -733,8 +735,24 @@ class NowPlayingModel extends ChangeNotifier {
   bool get musicVideoHasPairedSongArtwork =>
       _ytmMatchedVideoToSongRelease && art != null;
 
-  static String _ytmKey(String value) => value.toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9]'), '');
+  // Fold accents BEFORE stripping punctuation. For example, YouTube's
+  // credited "JAŸ-Z" and the upload prefix "Jay-Z" identify the same artist.
+  // Removing the non-ASCII character instead would compare "jaz" to "jayz".
+  static String _ytmKey(String value) {
+    var folded = value.toLowerCase();
+    const groups = <String, String>{
+      'a': 'àáâãäåāăą', 'c': 'çćč', 'd': 'ďđð',
+      'e': 'èéêëēĕėęě', 'g': 'ğģ', 'i': 'ìíîïīįı',
+      'l': 'łĺľ', 'n': 'ñńň', 'o': 'òóôõöøōő',
+      'r': 'řŕ', 's': 'śšşș', 't': 'ťţț',
+      'u': 'ùúûüūůű', 'y': 'ýÿŷ', 'z': 'źżž',
+    };
+    for (final entry in groups.entries) {
+      folded = folded.replaceAll(RegExp('[${entry.value}]'), entry.key);
+    }
+    return folded.replaceAll('æ', 'ae').replaceAll('œ', 'oe')
+        .replaceAll('ß', 'ss').replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
 
   static String _ytmReleaseKey(String artistName, String songTitle) =>
       'ytm_song_version_v3|${_ytmKey(artistName)}|${_ytmKey(songTitle)}';
@@ -745,7 +763,8 @@ class NowPlayingModel extends ChangeNotifier {
     if (_sessionPlayerPackage != _ytMusicPackage ||
         !_ytmSourceHadArtistField || _ytmMatchedVideoToSongRelease ||
         title.trim().isEmpty || artist.trim().isEmpty ||
-        art == null || art!.flat || art!.bytes.isEmpty) return;
+        art == null || art!.flat || art!.bytes.isEmpty ||
+        _validSessionArtworkTrack != '$title|$artist|$album') return;
     final track = _ytmKey(title);
     if (album.trim().isNotEmpty && _ytmKey(album) == track) return;
     final bytes = art!.bytes;
@@ -875,12 +894,21 @@ class NowPlayingModel extends ChangeNotifier {
           'variousartists', 'video'}.contains(a);
   }
 
+  String _ytmPairStatus = 'Not yet checked';
+  String _ytmLastPairDiagnostic = '';
+
   _YoutubeMusicSongRelease? _matchYtMusicArtistlessVideo(
       String rawTitle, String rawArtist, String rawAlbum, int rawDurationMs) {
     final videoTitle = _ytmKey(rawTitle);
     if (videoTitle.isEmpty) return null;
     final now = DateTime.now();
     final rawArtistKey = _ytmKey(rawArtist);
+    final untrustedArtist = _artistLooksLikeVideoUploader(rawArtist, rawTitle);
+    final rawAlbumKey = _ytmKey(rawAlbum);
+    final uploadStyleAlbum = rawAlbumKey.isEmpty ||
+        rawAlbumKey == videoTitle ||
+        const {'unknown', 'unknownalbum', 'albumunknown', 'na'}.contains(rawAlbumKey);
+    final matches = <_YoutubeMusicSongRelease>[];
     for (final item in _ytMusicSongReleases) {
       final titleKey = _ytmKey(item.title);
       final artistKey = _ytmKey(item.artist);
@@ -893,23 +921,43 @@ class NowPlayingModel extends ChangeNotifier {
           (lead.length >= 4 && videoTitle == lead + titleKey);
       final sameTitle = videoTitle == titleKey;
       if (!artistPrefixed && !sameTitle) continue;
-      if (!_artistLooksLikeVideoUploader(rawArtist, rawTitle) &&
-          rawArtistKey != artistKey && rawArtistKey != lead) continue;
+      // A normal credited Song event must keep its own release and art.
+      // Only recover for an explicit artist-prefixed upload title or an
+      // uncredited, upload-like event. A conflicting credited artist is not
+      // accepted on a bare title match.
+      if (!artistPrefixed && (!untrustedArtist || !uploadStyleAlbum)) continue;
+      if (artistPrefixed && !untrustedArtist &&
+          rawArtistKey != artistKey && rawArtistKey != lead &&
+          !uploadStyleAlbum) continue;
       final age = now.difference(item.observedAt);
       // Even an artist-prefixed match should be reasonably recent. A
       // completely unprefixed title needs a very recent Song-to-Video switch.
-      if (age.isNegative || age > (artistPrefixed
-          ? const Duration(hours: 6) : const Duration(seconds: 45))) continue;
+      // Keep a successful pairing stable throughout playback, even if the
+      // initial Song-to-Video switching window has elapsed.
+      final continuingPair = _ytmMatchedVideoToSongRelease &&
+          _ytmKey(title) == titleKey && _ytmKey(artist) == artistKey;
+      if (!continuingPair && (age.isNegative || age > (artistPrefixed
+          ? const Duration(hours: 6) : const Duration(seconds: 45)))) continue;
       if (rawDurationMs > 0 && item.durationMs > 0) {
         final delta = (rawDurationMs - item.durationMs).abs();
         if (delta > math.max(45000, item.durationMs * .25)) continue;
       }
-      debugPrint('VYBE Video: restored Song release via ' +
-          (artistPrefixed ? 'artist-prefixed' : 'recent title-only') +
-          ' match; source album was "$rawAlbum"');
-      return item;
+      matches.add(item);
     }
-    return null;
+    final match = matches.length == 1 ? matches.first : null;
+    _ytmPairStatus = match != null
+        ? 'Paired: ${match.artist} — ${match.title}'
+        : 'No unique match (${matches.length}); saved: ${_ytMusicSongReleases.length}';
+    final savedKeys = _ytMusicSongReleases.map((item) =>
+        '${_ytmKey(item.artist)}+${_ytmKey(item.title)}').join(', ');
+    final diagnostic = 'Raw title: $rawTitle | Raw artist: $rawArtist | '
+        'Raw album: $rawAlbum | Duration: $rawDurationMs | $_ytmPairStatus | '
+        'Normalized title: $videoTitle | Saved keys: $savedKeys';
+    if (diagnostic != _ytmLastPairDiagnostic) {
+      _ytmLastPairDiagnostic = diagnostic;
+      debugPrint('VYBE Video: $diagnostic');
+    }
+    return match;
   }
   /// Spotify represents an ad break as a track with an artist credit such
   /// as "Advertisement 2 of 3". This is not a real artist.
