@@ -622,6 +622,8 @@ class NowPlayingModel extends ChangeNotifier {
   /// when available; if tags/catalog data are absent, preserve the track
   /// title as a possible single instead of inventing release metadata.
   String get displayAlbumTitle {
+    if (_ytmSourceIsThumbnail && !_ytmMatchedVideoToSongRelease &&
+        _catalogReleaseTitle.isNotEmpty) return _catalogReleaseTitle;
     if (!_missingAlbumTag) return album.trim();
     if (_catalogReleaseTitle.isNotEmpty) return _catalogReleaseTitle;
     return active ? title.trim() : '';
@@ -629,6 +631,7 @@ class NowPlayingModel extends ChangeNotifier {
 
   void _resolveMissingAlbum(String expectedTrack) {
     if (_disposed || !artLookupEnabled || !_missingAlbumTag ||
+        (_ytmSourceIsThumbnail && !_ytmMatchedVideoToSongRelease) ||
         title.trim().isEmpty || artist.trim().isEmpty ||
         expectedTrack != _trackKey) return;
     final key = '${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}';
@@ -694,6 +697,7 @@ class NowPlayingModel extends ChangeNotifier {
       'Source: $artworkSource\nLookup: $artworkLookupState\n'
       'Status: $artworkStatus\nFailure: $artworkFailure\n'
       'Cover displayed: ${art != null && !art!.flat}\n'
+      'YouTube Music artwork kind: $_ytmArtworkKind; bypass: $_ytmSourceIsThumbnail\n'
       'YouTube Music pairing: $_ytmPairStatus\n'
       '$_ytmLastPairDiagnostic';
   Timer? _idleTimer;
@@ -726,7 +730,7 @@ class NowPlayingModel extends ChangeNotifier {
   // trusted album-side metadata/art and pair it back ONLY with matching
   // videos. Never infer an artist from unrelated video thumbnails.
   final List<_YoutubeMusicSongRelease> _ytMusicSongReleases = [];
-  static const String _ytmReleasePrefs = 'vybe_ytm_credited_song_releases_v3';
+  static const String _ytmReleasePrefs = 'vybe_ytm_credited_song_releases_v4';
   bool _ytmReleasesLoaded = false;
   String _ytmLastPersistedKey = '';
   int _ytmLastPersistedFingerprint = 0;
@@ -735,6 +739,10 @@ class NowPlayingModel extends ChangeNotifier {
   Map<String, dynamic>? _ytmPendingArtistlessEvent;
   bool _ytmSourceHadArtistField = false;
   bool _ytmMatchedVideoToSongRelease = false;
+  bool _ytmSourceIsThumbnail = false;
+  String _ytmArtworkKind = 'unknown';
+  String _ytmRawIdentity = '';
+  String _ytmVideoCatalogRequest = '';
   bool get musicVideoHasPairedSongArtwork =>
       _ytmMatchedVideoToSongRelease && art != null;
 
@@ -744,18 +752,22 @@ class NowPlayingModel extends ChangeNotifier {
   static String _ytmKey(String value) => StreamTrackMetadata.normalizedKey(value);
 
   static String _ytmReleaseKey(String artistName, String songTitle) =>
-      'ytm_song_version_v3|${_ytmKey(artistName)}|${_ytmKey(songTitle)}';
+      'ytm_song_version_v4|${_ytmKey(artistName)}|${_ytmKey(songTitle)}';
 
   /// A live, credited Song-mode event is reliable evidence. Keep its exact
   /// release art independently of video thumbnails and catalog searches.
   void _rememberYtMusicSongRelease() {
     if (_sessionPlayerPackage != _ytMusicPackage ||
         !_ytmSourceHadArtistField || _ytmMatchedVideoToSongRelease ||
+        _ytmSourceIsThumbnail ||
         title.trim().isEmpty || artist.trim().isEmpty ||
         art == null || art!.flat || art!.bytes.isEmpty ||
         _validSessionArtworkTrack != '$title|$artist|$album') return;
     final track = _ytmKey(title);
-    if (album.trim().isNotEmpty && _ytmKey(album) == track) return;
+    // A self-titled single is legitimate when the player supplies
+    // release artwork. Only reject a repeated title for unknown provenance.
+    if (_ytmArtworkKind != 'releaseCandidate' &&
+        (album.trim().isEmpty || _ytmKey(album) == track)) return;
     final bytes = art!.bytes;
     final key = _ytmReleaseKey(artist, title);
     final hash = _imageFingerprint(bytes);
@@ -887,7 +899,8 @@ class NowPlayingModel extends ChangeNotifier {
   String _ytmLastPairDiagnostic = '';
 
   _YoutubeMusicSongRelease? _matchYtMusicArtistlessVideo(
-      String rawTitle, String rawArtist, String rawAlbum, int rawDurationMs) {
+      String rawTitle, String rawArtist, String rawAlbum, int rawDurationMs,
+      {required bool isThumbnail}) {
     final videoTitle = _ytmKey(rawTitle);
     if (videoTitle.isEmpty) return null;
     final now = DateTime.now();
@@ -914,9 +927,13 @@ class NowPlayingModel extends ChangeNotifier {
       // Only recover for an explicit artist-prefixed upload title or an
       // uncredited, upload-like event. A conflicting credited artist is not
       // accepted on a bare title match.
-      if (!artistPrefixed && (!untrustedArtist || !uploadStyleAlbum)) continue;
-      if (artistPrefixed && !untrustedArtist &&
-          rawArtistKey != artistKey && rawArtistKey != lead &&
+      final knownArtist = !untrustedArtist &&
+          (rawArtistKey == artistKey || rawArtistKey == lead);
+      // A confidently identified thumbnail allows a normal credited
+      // title/artist match too. It does not require an artistless upload.
+      if (!artistPrefixed && !(isThumbnail && knownArtist) &&
+          (!untrustedArtist || !uploadStyleAlbum)) continue;
+      if (artistPrefixed && !untrustedArtist && !knownArtist &&
           !uploadStyleAlbum) continue;
       final age = now.difference(item.observedAt);
       // Even an artist-prefixed match should be reasonably recent. A
@@ -926,7 +943,8 @@ class NowPlayingModel extends ChangeNotifier {
       final continuingPair = _ytmMatchedVideoToSongRelease &&
           _ytmKey(title) == titleKey && _ytmKey(artist) == artistKey;
       if (!continuingPair && (age.isNegative || age > (artistPrefixed
-          ? const Duration(hours: 6) : const Duration(seconds: 45)))) continue;
+          || (isThumbnail && knownArtist)
+          ? const Duration(days: 1) : const Duration(seconds: 45)))) continue;
       if (rawDurationMs > 0 && item.durationMs > 0) {
         final delta = (rawDurationMs - item.durationMs).abs();
         if (delta > math.max(45000, item.durationMs * .25)) continue;
@@ -1244,16 +1262,47 @@ class NowPlayingModel extends ChangeNotifier {
     sourceTrackTitle = rawTitle;
     sourceTrackArtist = rawArtist;
     final newDurationMs = (m['duration'] as num?)?.toInt() ?? 0;
-    final pairedMusicRelease = _sessionPlayerPackage == _ytMusicPackage
-        ? _matchYtMusicArtistlessVideo(
-            rawTitle, rawArtist, rawAlbum, newDurationMs)
+    final previousThumbnail = _ytmSourceIsThumbnail;
+    final previousPaired = _ytmMatchedVideoToSongRelease;
+    final previousRawIdentity = _ytmRawIdentity;
+    _ytmArtworkKind = m['youtubeArtworkKind']?.toString() ?? 'unknown';
+    final isYtm = _sessionPlayerPackage == _ytMusicPackage;
+    _ytmRawIdentity = isYtm
+        ? '${m['sourceMediaId']}|$rawTitle|$rawArtist|$rawAlbum|$newDurationMs'
+        : '';
+    final isUpload = _artistLooksLikeVideoUploader(rawArtist, rawTitle) &&
+        (rawAlbum.trim().isEmpty || _ytmKey(rawAlbum) == _ytmKey(rawTitle));
+    // When Android strips both URLs, a recent switch from a credited
+    // release to a different-duration, self-labelled video is additional
+    // evidence. Never classify a single based on its title or length alone.
+    final probableThumbnail = isYtm && _ytmArtworkKind == 'unknown' &&
+        (previousThumbnail && previousRawIdentity == _ytmRawIdentity ||
+         _ytMusicSongReleases.any((item) =>
+          _ytmKey(item.title) == _ytmKey(rawTitle) &&
+          _ytmKey(item.artist) == _ytmKey(rawArtist) &&
+          _ytmKey(item.album).isNotEmpty &&
+          _ytmKey(item.album) != _ytmKey(rawTitle) &&
+          _ytmKey(rawAlbum) == _ytmKey(rawTitle) &&
+          newDurationMs > 0 && item.durationMs > 0 &&
+          (newDurationMs - item.durationMs).abs() >= 3000 &&
+          DateTime.now().difference(item.observedAt) < const Duration(seconds: 45)));
+    final thumbnailEvidence = _ytmArtworkKind == 'thumbnail' || probableThumbnail;
+    final pairedMusicRelease = isYtm && _ytmArtworkKind != 'releaseCandidate'
+        ? _matchYtMusicArtistlessVideo(rawTitle, rawArtist, rawAlbum,
+            newDurationMs, isThumbnail: thumbnailEvidence)
         : null;
+    _ytmSourceIsThumbnail = isYtm &&
+        (thumbnailEvidence ||
+            (_ytmArtworkKind != 'releaseCandidate' &&
+                (isUpload || pairedMusicRelease != null)));
+    final artworkModeChanged = previousThumbnail != _ytmSourceIsThumbnail ||
+        (previousThumbnail && previousRawIdentity != _ytmRawIdentity) ||
+        previousPaired != (pairedMusicRelease != null);
     // Cache restoration may finish after the first video metadata event.
     // Retain only that pending event while waiting, then reprocess once.
     _ytmPendingArtistlessEvent = _sessionPlayerPackage == _ytMusicPackage &&
             pairedMusicRelease == null &&
-            _artistLooksLikeVideoUploader(rawArtist, rawTitle) &&
-            !_ytmReleasesLoaded
+            _ytmSourceIsThumbnail && !_ytmReleasesLoaded
         ? Map<String, dynamic>.from(m)
         : null;
     _ytmSourceHadArtistField =
@@ -1283,6 +1332,10 @@ class NowPlayingModel extends ChangeNotifier {
     title = sessionMetadata.title;
     artist = sessionMetadata.artist;
     album = sessionMetadata.album;
+    // Video uploads often repeat the song title in the album field.
+    // That is not a release title; allow only a real catalog release label.
+    if (_ytmSourceIsThumbnail && pairedMusicRelease == null &&
+        _ytmKey(album) == _ytmKey(title)) album = '';
     durationMs = (m['duration'] as num?)?.toInt() ?? 0;
     _posMs = (m['position'] as num?)?.toInt() ?? 0;
     _speed = (m['speed'] as num?)?.toDouble() ?? 1.0;
@@ -1305,6 +1358,7 @@ class NowPlayingModel extends ChangeNotifier {
       _catalogReleaseTitle = '';
       _releaseLookupTrack = '';
       _artToken++; // Invalidate lookups and decoding from the previous song.
+      _ytmVideoCatalogRequest = '';
       _validSessionArtworkTrack = '';
       _artRetryTimer?.cancel();
       _sessionVerificationTimer?.cancel();
@@ -1322,7 +1376,7 @@ class NowPlayingModel extends ChangeNotifier {
       _artClearTimer?.cancel();
       // Keep outgoing cover until new artwork arrives, avoiding standby flashes.
       // Restore an already decoded cover from another track on this album.
-      if (art == null && cacheAlbumKey.isNotEmpty) {
+      if (art == null && cacheAlbumKey.isNotEmpty && !_ytmSourceIsThumbnail) {
         final cached = _albumArtCache[cacheAlbumKey];
         if (cached != null) {
           artworkSource = 'Album memory cache';
@@ -1335,7 +1389,34 @@ class NowPlayingModel extends ChangeNotifier {
     // Video mode thumbnail must not replace that cover. This only applies to
     // a verified Song -> Video pairing; unrelated tracks still use their
     // own live MediaSession artwork.
-    final artBytes = pairedMusicRelease?.artwork ?? m['art'];
+    if (artworkModeChanged && !changed) {
+      // A Song/Video switch can preserve the display track key. Cancel
+      // pending thumbnail/catalog decodes without resetting playback.
+      _artToken++;
+      _validSessionArtworkTrack = '';
+      _ytmVideoCatalogRequest = '';
+      _lookupInFlight = '';
+      _artAttempts = 0;
+      _artRetryTimer?.cancel();
+    }
+    final unpairedThumbnail = _ytmSourceIsThumbnail && pairedMusicRelease == null;
+    if (unpairedThumbnail && (changed || artworkModeChanged)) {
+      _artToken++;
+      _artClearTimer?.cancel();
+      _sessionArtRetryTimer?.cancel();
+      _catalogReleaseTitle = '';
+      // Never show or save a known thumbnail as a release cover. Nor
+      // should old catalog cache entries silently substitute compilations.
+      art = null;
+      _latestSessionArtwork = null;
+      _validSessionArtworkTrack = '';
+      _albumArtCache.remove(cacheAlbumKey);
+      _needsArt = true;
+      artworkSource = 'None';
+      _albumArtPriorityPending = false;
+    }
+    final artBytes = pairedMusicRelease?.artwork ??
+        (unpairedThumbnail ? null : m['art']);
     if (pairedMusicRelease != null) {
       debugPrint('VYBE Music Video: restored original song metadata and '
           'album art for ' + pairedMusicRelease.artist + ' — ' +
@@ -1434,7 +1515,7 @@ class NowPlayingModel extends ChangeNotifier {
     // A prepared, already decoded cover is ready immediately when the
     // music app omits artwork. This never substitutes a catalog cover for
     // real media-session art supplied by Spotify/YouTube Music/etc.
-    if (changed &&
+    if (changed && !unpairedThumbnail &&
         ((artBytes is! Uint8List || artBytes.isEmpty) ||
          rejectedSessionImage)) {
       final prepared = _smartPrefetchedAlbums[_smartPrefetchKey(artist, title)];
@@ -1478,8 +1559,12 @@ class NowPlayingModel extends ChangeNotifier {
       // the cover cache/local index. Artist assets are secondary.
       unawaited(_lookupLocalFirst());
     }
-    if ((artBytes is! Uint8List || artBytes.isEmpty) && title.isNotEmpty)
+    if (unpairedThumbnail) {
+      sessionArtworkStatus = 'Video thumbnail bypassed ($_ytmArtworkKind)';
+      if (artLookupEnabled) unawaited(_lookupYtMusicVideoRelease());
+    } else if ((artBytes is! Uint8List || artBytes.isEmpty) && title.isNotEmpty) {
       _scheduleSessionArtRetry();
+    }
 
     if (changed) {
       _resetLyricsLookup();
@@ -1512,6 +1597,11 @@ class NowPlayingModel extends ChangeNotifier {
   void _clearAll() {
     sourceTrackTitle = '';
     sourceTrackArtist = '';
+    _ytmSourceIsThumbnail = false;
+    _ytmMatchedVideoToSongRelease = false;
+    _ytmArtworkKind = 'unknown';
+    _ytmRawIdentity = '';
+    _ytmVideoCatalogRequest = '';
     title = '';
     artist = '';
     album = '';
@@ -1607,6 +1697,10 @@ class NowPlayingModel extends ChangeNotifier {
   Future<void> _lookupLocalFirst() async {
     final token = _artToken;
     final track = _trackKey;
+    if (_ytmSourceIsThumbnail && !_ytmMatchedVideoToSongRelease) {
+      await _lookupYtMusicVideoRelease();
+      return;
+    }
     if (track.isEmpty || _localArtLookupTrack == track) return;
     _localArtLookupTrack = track;
     try {
@@ -1630,7 +1724,50 @@ class NowPlayingModel extends ChangeNotifier {
     }
   }
 
+  // One conservative fallback for all themes. Do not use old song-level
+  // cache entries or the Music Video theme's independent compilation lookup.
+  Future<void> _lookupYtMusicVideoRelease({bool force = false}) async {
+    if (_disposed || !artLookupEnabled || _linkReceiverActive ||
+        !_ytmSourceIsThumbnail || _ytmMatchedVideoToSongRelease ||
+        title.trim().isEmpty || artist.trim().isEmpty) return;
+    final key = _trackKey;
+    final request = '$key|$_ytmRawIdentity';
+    if (!force && _ytmVideoCatalogRequest == request) return;
+    _ytmVideoCatalogRequest = request;
+    final token = _artToken;
+    final songName = title;
+    final artistName = artist;
+    final albumName = album;
+    try {
+      final match = await fetchVideoReleaseArtwork(songName, artistName,
+          album: albumName);
+      if (match == null || _disposed || key != _trackKey ||
+          token != _artToken || request != _ytmVideoCatalogRequest ||
+          !_ytmSourceIsThumbnail || _ytmMatchedVideoToSongRelease) return;
+      final decoded = await ArtAssets.load(match.bytes);
+      if (decoded == null || decoded.flat || _disposed || key != _trackKey ||
+          token != _artToken || request != _ytmVideoCatalogRequest ||
+          !_ytmSourceIsThumbnail || _ytmMatchedVideoToSongRelease) return;
+      art = decoded;
+      _catalogReleaseTitle = match.releaseTitle;
+      _needsArt = false;
+      _albumArtPriorityPending = false;
+      _artClearTimer?.cancel();
+      artworkSource = 'Video release catalog (not player Song cover)';
+      artworkStatus = 'Matched non-compilation release';
+      artworkLookupState = 'Found and decoded';
+      artworkFailure = 'None';
+      notifyListeners();
+    } catch (error) {
+      debugPrint('VYBE: video release artwork unavailable: $error');
+    }
+  }
+
   Future<void> _lookupArt({bool force = false, bool verifySession = false}) async {
+    if (_ytmSourceIsThumbnail && !_ytmMatchedVideoToSongRelease) {
+      await _lookupYtMusicVideoRelease(force: force);
+      return;
+    }
     if (_linkReceiverActive || !artLookupEnabled || title.trim().isEmpty ||
         (!force && _validSessionArtworkTrack == _trackKey && art != null)) return;
     final token = _artToken;

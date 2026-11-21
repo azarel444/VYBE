@@ -111,8 +111,16 @@ class _ReleaseGroup {
   final String id;
   final String title;
   final List<String> releaseIds;
-  _ReleaseGroup(this.id, this.title, [List<String>? releaseIds])
+  final String primaryType;
+  final List<String> secondaryTypes;
+  _ReleaseGroup(this.id, this.title, [List<String>? releaseIds,
+      this.primaryType = '', this.secondaryTypes = const <String>[]])
       : releaseIds = releaseIds ?? <String>[];
+  bool get isOriginalReleaseCandidate =>
+      const {'Album', 'Single', 'EP'}.contains(primaryType) &&
+      !secondaryTypes.any((type) =>
+          const {'Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street',
+            'Interview', 'Spokenword', 'Audiobook', 'Demo'}.contains(type));
 }
 
 /// MusicBrainz keeps artist-credit as separate artists and join phrases,
@@ -172,7 +180,10 @@ List<_ReleaseGroup> _groupsFromReleases(dynamic releases) {
     final id = group['id']?.toString() ?? '';
     final title = group['title']?.toString().trim() ?? '';
     if (id.isEmpty || title.isEmpty) continue;
-    final entry = result.putIfAbsent(id, () => _ReleaseGroup(id, title));
+    final entry = result.putIfAbsent(id, () => _ReleaseGroup(id, title,
+        null, group['primary-type']?.toString() ?? '',
+        (group['secondary-types'] as List? ?? const [])
+            .map((value) => value.toString()).toList()));
     final releaseId = release['id']?.toString() ?? '';
     if (releaseId.isNotEmpty && !entry.releaseIds.contains(releaseId)) {
       entry.releaseIds.add(releaseId);
@@ -216,7 +227,10 @@ Future<List<_ReleaseGroup>> _albumReleaseGroups(
           !seen.add(id)) {
         continue;
       }
-      groups.add(_ReleaseGroup(id, name));
+      groups.add(_ReleaseGroup(id, name, null,
+          entry['primary-type']?.toString() ?? '',
+          (entry['secondary-types'] as List? ?? const [])
+              .map((value) => value.toString()).toList()));
     }
     if (groups.isNotEmpty) break;
   }
@@ -668,6 +682,29 @@ Future<ArtworkLookupResult?> fetchArtworkWithMatch(
 
   latestArtworkCatalogDiagnostic = exactMissDetail;
   return null;
+}
+
+/// Video thumbnails are not album covers. If the player has not exposed
+/// the actual Song release yet, require a uniquely identified non-compilation
+/// release from its exact artist/song recording, not merely any appearance.
+Future<ArtworkLookupResult?> fetchVideoReleaseArtwork(
+    String title, String artist, {String album = ''}) async {
+  if (_norm(artist).isEmpty || _norm(title).isEmpty) return null;
+  final groups = (await _recordingGroups(title, artist))
+      .where((group) => group.isOriginalReleaseCandidate).toList();
+  if (groups.isEmpty) return null;
+  final exactAlbum = groups.where((group) =>
+      _hasAlbumTag(album) && _norm(group.title) == _norm(album)).toList();
+  final exactSingle = groups.where((group) =>
+      group.primaryType == 'Single' &&
+      _norm(group.title) == _norm(title)).toList();
+  final candidates = exactAlbum.length == 1 ? exactAlbum
+      : exactSingle.length == 1 ? exactSingle
+      : groups.length == 1 ? groups : <_ReleaseGroup>[];
+  if (candidates.length != 1) return null;
+  final cover = await _coverForGroups(candidates);
+  return cover == null ? null :
+      ArtworkLookupResult(cover, releaseTitle: candidates.single.title);
 }
 
 /// Legacy byte-only API for callers that need an artwork image.

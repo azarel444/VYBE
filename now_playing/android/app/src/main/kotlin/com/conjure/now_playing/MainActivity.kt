@@ -1490,6 +1490,47 @@ open class MainActivity : FlutterActivity() {
         push(true)
     }
 
+    // MediaSession's ART/ALBUM_ART names alone do not identify thumbnails.
+    // Retain the URI associated with the selected bitmap, before resizing.
+    private fun youtubeArtworkKind(md: MediaMetadata?): String {
+        if (md == null) return "unknown"
+        val albumBitmap = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+        val artBitmap = md.getBitmap(MediaMetadata.METADATA_KEY_ART)
+        val albumUri = md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+        val artUri = md.getString(MediaMetadata.METADATA_KEY_ART_URI)
+        val selectedUri = if (albumBitmap != null) albumUri
+            else if (artBitmap != null) artUri else albumUri ?: artUri
+        fun kind(raw: String?): String {
+            if (raw.isNullOrBlank()) return "unknown"
+            return try {
+                val uri = Uri.parse(raw)
+                val host = uri.host?.lowercase() ?: ""
+                val segments = uri.pathSegments
+                when {
+                    (host == "ytimg.com" || host.endsWith(".ytimg.com") ||
+                     host == "img.youtube.com") &&
+                        segments.firstOrNull() in listOf("vi", "vi_webp", "an_webp") ->
+                        "thumbnail"
+                    (host == "lh3.googleusercontent.com" ||
+                     host == "lh3.google.com" || host == "lh5.googleusercontent.com") ->
+                        "releaseCandidate"
+                    else -> "unknown"
+                }
+            } catch (_: Exception) { "unknown" }
+        }
+        val selectedKind = kind(selectedUri)
+        if (selectedKind != "unknown") return selectedKind
+        // Other metadata URI fields may identify a thumbnail when the
+        // actual bitmap has no URI. Do not override a specific cover URI.
+        val clues = listOf(albumUri, artUri,
+            md.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)).map { kind(it) }
+        if ("thumbnail" in clues && "releaseCandidate" !in clues) return "thumbnail"
+        val bitmap = albumBitmap ?: artBitmap
+        if (bitmap != null && bitmap.height > 0 &&
+            bitmap.width.toDouble() / bitmap.height > 1.25) return "thumbnail"
+        return "unknown"
+    }
+
     private fun push(withMeta: Boolean) {
         val s = sink ?: return
         val c = controller
@@ -1527,7 +1568,17 @@ open class MainActivity : FlutterActivity() {
             "speed" to speed.toDouble(),
         )
 
-        val key = "$title|$artist|$album|$duration"
+        val youtube = c.packageName == "com.google.android.apps.youtube.music"
+        val artKind = if (youtube) youtubeArtworkKind(md) else "unknown"
+        val mediaId = md?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID) ?: ""
+        val sourceArtUri = md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: md?.getString(MediaMetadata.METADATA_KEY_ART_URI) ?: ""
+        if (youtube) {
+            map["youtubeArtworkKind"] = artKind
+            map["sourceMediaId"] = mediaId
+        }
+        val key = "$title|$artist|$album|$duration" +
+            if (youtube) "|$mediaId|$artKind|$sourceArtUri" else ""
         if (withMeta || key != lastTrackKey) {
             map["queueItems"] = currentCoverflowQueue(c, st, title, artist)
         }
