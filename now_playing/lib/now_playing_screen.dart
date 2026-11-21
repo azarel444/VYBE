@@ -940,7 +940,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     artist: model.artist,
                     album: model.displayAlbumTitle,
                     sourcePackage: model.sourcePlayerPackage,
+                    // Catalog art is for embedded video ONLY. When playback
+                    // falls back to music, use the same actual MediaSession
+                    // cover as the album-art background.
                     artwork: _musicVideoSleeveArtwork,
+                    fallbackArtwork: model.art?.bytes,
                     fanart: _fanartBytes,
                     clearLogo: settings.useArtistClearLogo ? _clearLogoBytes : null,
                     accent: _palette.a,

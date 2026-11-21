@@ -704,6 +704,9 @@ class NowPlayingModel extends ChangeNotifier {
     ).hasMatch(artist.trim());
   }
   Uint8List? _latestSessionArtwork;
+  // A decoded, non-placeholder image supplied by the CURRENT music player
+  // outranks every automatic recording/compilation catalog lookup.
+  String _validSessionArtworkTrack = '';
   bool _placeholderHashesLoaded = false;
 
   Future<void> _loadPlaceholderHashes() async {
@@ -731,6 +734,7 @@ class NowPlayingModel extends ChangeNotifier {
     _sessionVerificationTimer?.cancel();
     _artToken++;
     art = null;
+    _validSessionArtworkTrack = '';
     artworkSource = 'None';
     sessionArtworkStatus = 'Rejected manually marked placeholder';
     artworkStatus = 'Known player placeholder rejected';
@@ -1013,6 +1017,7 @@ class NowPlayingModel extends ChangeNotifier {
       _catalogReleaseTitle = '';
       _releaseLookupTrack = '';
       _artToken++; // Invalidate lookups and decoding from the previous song.
+      _validSessionArtworkTrack = '';
       _artRetryTimer?.cancel();
       _sessionVerificationTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
@@ -1070,24 +1075,21 @@ class NowPlayingModel extends ChangeNotifier {
                 _markedPlaceholders.contains(_imageFingerprint(artBytes))));
     if (artBytes is Uint8List && artBytes.isNotEmpty &&
         !rejectedSessionImage) {
-      // Capture the current source before updating diagnostics. Repeated
-      // media-session callbacks must not undo a verified song-specific cover.
-      final hasVerifiedSongCover = artworkSource == 'Exact song catalog match' &&
-          !changed && art != null;
+      // The active player's official cover ALWAYS wins over a previously
+      // looked-up recording or compilation cover. A MusicBrainz match does
+      // not prove it belongs to the same commercial release.
       sessionArtworkStatus = 'Received ${artBytes.length} bytes';
-      if (!hasVerifiedSongCover) {
-        artworkSource = 'Android media session';
-        artworkStatus = 'Android media session artwork';
-      }
+      artworkSource = 'Android media session';
+      artworkStatus = 'Android media session artwork';
       _artClearTimer?.cancel();
       _sessionArtRetryTimer?.cancel();
       _needsArt = false;
-      // A repeated media-session callback must not overwrite a verified
-      // song-specific upgrade for this same track. The original supplied
-      // image remains available as fallback on the next track or failed lookup.
-      if (!hasVerifiedSongCover &&
-          (art == null || !listEquals(art!.bytes, artBytes))) {
+      if (art == null || !listEquals(art!.bytes, artBytes)) {
         _setArt(artBytes);
+      } else {
+        // If the source image is the SAME as a previously displayed one,
+        // the player still confirms it as authoritative for this track.
+        _validSessionArtworkTrack = key;
       }
       // A valid media-session cover is authoritative, including YouTube Music.
       // Never replace it through an automatic catalog search. The explicit
@@ -1100,6 +1102,7 @@ class NowPlayingModel extends ChangeNotifier {
       if (changed || currentIsRejected) {
         _artToken++;
         art = null;
+        _validSessionArtworkTrack = '';
         artworkSource = 'None';
         _albumArtCache.remove(cacheAlbumKey);
         // Start local/catalog lookup after _trackKey has been updated.
@@ -1245,6 +1248,7 @@ class NowPlayingModel extends ChangeNotifier {
 
   Future<void> _findSongCoverUpgrade(String expectedTrack) async {
     if (!artLookupEnabled || _linkReceiverActive || expectedTrack != _trackKey ||
+        (_validSessionArtworkTrack == expectedTrack && art != null) ||
         title.trim().isEmpty || artist.trim().isEmpty) return;
     final requestedTitle = title;
     final requestedArtist = artist;
@@ -1255,9 +1259,11 @@ class NowPlayingModel extends ChangeNotifier {
     Uint8List? bytes = _artCache[songKey];
     bytes ??= await MediaCache.getArt(songKey);
     bytes ??= await fetchSongSpecificArtwork(requestedTitle, requestedArtist);
-    if (bytes == null || expectedTrack != _trackKey) return;
+    if (bytes == null || expectedTrack != _trackKey ||
+        (_validSessionArtworkTrack == expectedTrack && art != null)) return;
     final decoded = await ArtAssets.load(bytes);
-    if (decoded == null || decoded.flat || expectedTrack != _trackKey) return;
+    if (decoded == null || decoded.flat || expectedTrack != _trackKey ||
+        (_validSessionArtworkTrack == expectedTrack && art != null)) return;
     final current = art;
     if (current != null && listEquals(current.bytes, bytes)) return;
     ++_artToken;
@@ -1326,7 +1332,8 @@ class NowPlayingModel extends ChangeNotifier {
   }
 
   Future<void> _lookupArt({bool force = false, bool verifySession = false}) async {
-    if (_linkReceiverActive || !artLookupEnabled || title.trim().isEmpty) return;
+    if (_linkReceiverActive || !artLookupEnabled || title.trim().isEmpty ||
+        (!force && _validSessionArtworkTrack == _trackKey && art != null)) return;
     final token = _artToken;
     final track = _trackKey;
     final k = '${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}';
@@ -1370,10 +1377,12 @@ class NowPlayingModel extends ChangeNotifier {
               : 'Online catalog (Cover Art Archive or Fanart.tv)';
         }
       }
-      if (token != _artToken || track != _trackKey) return;
+      if (token != _artToken || track != _trackKey ||
+          (!force && _validSessionArtworkTrack == track && art != null)) return;
       if (bytes != null) {
         final decoded = await ArtAssets.load(bytes);
-        if (token != _artToken || track != _trackKey) return;
+        if (token != _artToken || track != _trackKey ||
+            (!force && _validSessionArtworkTrack == track && art != null)) return;
         if (decoded != null && !decoded.flat) {
           if (originalFallback) {
             _originalFallbackArtCache[k] = bytes;
@@ -1629,6 +1638,9 @@ class NowPlayingModel extends ChangeNotifier {
     if (art != null) {
       _albumArtPriorityPending = false;
       _rememberAlbumArt(bytes, albumCacheKey);
+    }
+    if (art != null && artworkSource == 'Android media session') {
+      _validSessionArtworkTrack = '$title|$artist|$album';
     }
     if (art == null && artLookupEnabled && title.isNotEmpty) {
       // Avoid blocking the media-session event while lookup runs.

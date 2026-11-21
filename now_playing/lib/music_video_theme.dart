@@ -21,7 +21,10 @@ class MusicVideoTheme extends StatefulWidget {
   final String artist;
   final String album;
   final String sourcePackage;
+  /// Catalog/release art, used only while an embedded music video is active.
   final Uint8List? artwork;
+  /// Original art from the music player for fallback/album-only playback.
+  final Uint8List? fallbackArtwork;
   final Uint8List? fanart;
   final Uint8List? clearLogo;
   final Color accent;
@@ -70,6 +73,7 @@ class MusicVideoTheme extends StatefulWidget {
     required this.onOpenCustomize,
     required this.onOpenSettings,
     this.artwork,
+    this.fallbackArtwork,
     this.fanart,
     this.clearLogo,
   });
@@ -1258,6 +1262,11 @@ document.head.appendChild(tag);
       final discTop = artTop + artSide * .075;
       // At 200%, artist logos can use the whole generously sized header.
       // The shared renderer still applies its existing 50–200% scale.
+      // Source-matched cover during audio-only fallback, catalog cover
+      // only while an actual music video is displayed.
+      final sleeveArtwork = _embedded
+          ? (widget.artwork ?? widget.fallbackArtwork)
+          : (widget.fallbackArtwork ?? widget.artwork);
       final logoScale = widget.artistLogoScale.clamp(.5, 2.0).toDouble();
       final logoWidth = portrait
           ? w * (.70 + .10 * logoScale)
@@ -1414,12 +1423,11 @@ document.head.appendChild(tag);
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
-                child: widget.artwork == null
-                    // Reuse the SAME VYBE cover placeholder as the other
-                    // themes, in portrait and landscape, including idle mode.
+                child: sleeveArtwork == null
+                    // Same VYBE branded cover as other themes when idle.
                     ? Image.asset('assets/vybe_album_placeholder.png',
                         fit: BoxFit.cover, filterQuality: FilterQuality.high)
-                    : Image.memory(widget.artwork!, fit: BoxFit.cover,
+                    : Image.memory(sleeveArtwork, fit: BoxFit.cover,
                         gaplessPlayback: true,
                         filterQuality: FilterQuality.high),
               ),
