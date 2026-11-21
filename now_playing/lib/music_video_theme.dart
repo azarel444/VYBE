@@ -1219,6 +1219,20 @@ document.head.appendChild(tag);
       final infoWidth = portrait ? w * .90 : w * .54;
       final infoLeft = portrait ? (w - infoWidth) * .5
           : w - w * .031 - infoWidth;
+      // Short landscape titles should sit directly over the center of the
+      // right-anchored album plaque, whose minimum width is 78% of the panel.
+      // Long titles keep the entire 54%-screen marquee width unchanged.
+      bool shortLandscapeTitle = false;
+      if (!portrait) {
+        final titleMeasure = TextPainter(
+          text: TextSpan(text: widget.title,
+            style: TextStyle(fontSize: h * .050)),
+          textDirection: Directionality.of(context),
+          maxLines: 1,
+        )..layout();
+        shortLandscapeTitle = titleMeasure.width < infoWidth * .76;
+        titleMeasure.dispose();
+      }
       final songHeight = portrait
           ? (h * .058).clamp(54.0, 94.0).toDouble()
           : (h * .070).clamp(27.0, 56.0).toDouble();
@@ -1441,8 +1455,11 @@ document.head.appendChild(tag);
               children: [
                 SizedBox(width: infoWidth,
                   height: portrait ? songHeight : h * .065,
-                  child: widget.buildTitle(portrait
-                      ? Alignment.center : Alignment.centerRight)),
+                  child: shortLandscapeTitle
+                    ? Align(alignment: Alignment.centerRight,
+                        child: SizedBox(width: infoWidth * .78,
+                          child: widget.buildTitle(Alignment.center)))
+                    : widget.buildTitle(Alignment.center)),
                 SizedBox(height: portrait ? infoGap : 4.0),
                 SizedBox(width: infoWidth,
                   height: portrait ? albumHeight : h * .060,
@@ -1754,11 +1771,11 @@ class MusicVideoThemePreview extends StatelessWidget {
             children: [
               SizedBox(height: songHeight, width: infoWidth,
                 child: Align(
-                  alignment: portrait ? Alignment.center : Alignment.centerRight,
+                  alignment: Alignment.center,
                   child: Text(
                     title.isEmpty ? 'MUSIC VIDEO' : title,
                     maxLines: 1, overflow: TextOverflow.ellipsis,
-                    textAlign: portrait ? TextAlign.center : TextAlign.right,
+                    textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white,
                       fontSize: portrait ? h * .033 : h * .05)))),
               SizedBox(height: infoGap),

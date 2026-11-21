@@ -7,6 +7,8 @@ import 'artist_fanart.dart';
 import 'artist_artwork_match.dart';
 import 'coverflow_queue.dart';
 import 'local_artwork.dart';
+import 'net.dart';
+import 'media_cache.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -69,6 +71,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Uint8List? _fanartBytes;
   Uint8List? _clearLogoBytes;
+  // Music Video needs an ACTUAL album/release cover. YT Music's MediaSession
+  // artwork is often just the video thumbnail; don't replace the normal
+  // artwork pipeline used by every other theme.
+  Uint8List? _musicVideoAlbumCover;
+  String _musicVideoAlbumCoverKey = '';
+  int _musicVideoAlbumCoverSerial = 0;
+
   bool _clearLogoIsLocal = false;
   String _clearLogoArtist = '';
   int _clearLogoRequest = 0;
@@ -272,6 +281,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _smartPrefetchGeneration++;
     _fanartRetryTimer?.cancel();
     _clearLogoRetryTimer?.cancel();
+    ++_musicVideoAlbumCoverSerial;
     _dirTimer?.cancel();
     _driveConnectArtTimer?.cancel();
     _noise?.dispose();
@@ -399,8 +409,83 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _checkTrack();
     _scheduleSmartPrefetch();
     _loadArtistArtAfterCover();
+    _requestMusicVideoAlbumCover();
     if (widget.driveHost) unawaited(_syncDriveConnectArt());
     setState(() {});
+  }
+
+  // A track-specific cache is deliberately separate from model.art and from
+  // its palette: the YouTube video may still provide the video thumbnail as
+  // session artwork, but only Music Video's sleeve should replace it.
+  String get _currentVideoAlbumKey =>
+      '${model.artist.trim().toLowerCase()}|' +
+      '${model.title.trim().toLowerCase()}|' +
+      model.album.trim().toLowerCase();
+
+  Uint8List? get _musicVideoSleeveArtwork {
+    if (model.sourcePlayerPackage !=
+        'com.google.android.apps.youtube.music') return model.art?.bytes;
+    if (_musicVideoAlbumCoverKey == _currentVideoAlbumKey &&
+        _musicVideoAlbumCover != null) return _musicVideoAlbumCover;
+    // Only use the MediaSession thumbnail after no actual cover is available.
+    // It remains a safe immediate fallback while the catalog is loading.
+    return model.art?.bytes;
+  }
+
+  void _requestMusicVideoAlbumCover() {
+    if (!mounted || widget.driveHost ||
+        settings.theme != AppSettings.tMusicVideo ||
+        !settings.artLookup || !model.active ||
+        model.sourcePlayerPackage !=
+            'com.google.android.apps.youtube.music' ||
+        model.artist.trim().isEmpty || model.title.trim().isEmpty) return;
+    final key = _currentVideoAlbumKey;
+    // Do not restart downloads on each MediaSession progress or metadata tick.
+    if (key == _musicVideoAlbumCoverKey) return;
+    _musicVideoAlbumCoverKey = key;
+    _musicVideoAlbumCover = null;
+    final serial = ++_musicVideoAlbumCoverSerial;
+    final artist = model.artist.trim();
+    final title = model.title.trim();
+    final album = model.album.trim();
+    unawaited(_resolveMusicVideoAlbumCover(
+        serial, key, artist, title, album));
+  }
+
+  Future<void> _resolveMusicVideoAlbumCover(int serial, String key,
+      String artist, String title, String album) async {
+    // Use only verified artist+album local art or an actual MusicBrainz /
+    // Cover Art Archive release. Do not reuse unverified YouTube thumbnails
+    // as if they were real album art.
+    final cacheKey = 'music_video_album_v1|$key';
+    Uint8List? bytes;
+    try {
+      bytes = await LocalArtwork.instance.albumArt(artist, album);
+      bytes ??= await MediaCache.getArt(cacheKey);
+      if (bytes == null) {
+        final result = await fetchArtworkWithMatch(
+            title, artist, album: album);
+        bytes = result?.bytes;
+      }
+      if (bytes == null || bytes.isEmpty ||
+          bytes.length > 6 * 1024 * 1024) return;
+      // The downloaded data must actually decode before being displayed.
+      final decoded = await ArtAssets.load(bytes);
+      if (decoded == null) return;
+      if (!mounted || serial != _musicVideoAlbumCoverSerial ||
+          key != _musicVideoAlbumCoverKey ||
+          settings.theme != AppSettings.tMusicVideo ||
+          model.sourcePlayerPackage !=
+              'com.google.android.apps.youtube.music' ||
+          key != _currentVideoAlbumKey) return;
+      setState(() => _musicVideoAlbumCover = bytes);
+      // Keep this in its own cache namespace: never poison the shared
+      // artist/song album cache with a possible music-video still.
+      unawaited(MediaCache.putArt(cacheKey, bytes));
+      debugPrint('Music Video: verified album-cover artwork for $artist — $title');
+    } catch (error) {
+      debugPrint('Music Video: release-cover lookup unavailable: $error');
+    }
   }
 
   /// Smart Prefetch uses real Android Up Next entries, never inferred
@@ -518,6 +603,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fxGovernor.enabled = settings.fxPerformanceMode == 0;
     if (!_fxGovernor.enabled) _fxTier = 2;
     model.setArtLookup(settings.artLookup);
+    if (settings.theme == AppSettings.tMusicVideo) {
+      _requestMusicVideoAlbumCover();
+    } else if (_musicVideoAlbumCoverKey.isNotEmpty) {
+      // A pending video-only lookup cannot complete into the wrong theme.
+      ++_musicVideoAlbumCoverSerial;
+      _musicVideoAlbumCoverKey = '';
+      _musicVideoAlbumCover = null;
+    }
     _scheduleSmartPrefetch();
     // The lyric-led Typo theme must request synced lyrics even when the
     // global lyrics toggle is off. The other themes retain the toggle.
@@ -847,7 +940,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     artist: model.artist,
                     album: model.displayAlbumTitle,
                     sourcePackage: model.sourcePlayerPackage,
-                    artwork: model.art?.bytes,
+                    artwork: _musicVideoSleeveArtwork,
                     fanart: _fanartBytes,
                     clearLogo: settings.useArtistClearLogo ? _clearLogoBytes : null,
                     accent: _palette.a,
