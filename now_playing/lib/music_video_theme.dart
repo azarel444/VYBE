@@ -101,6 +101,10 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
   bool _ready = false;
   bool _playWhenReady = false;
   bool _videoPlaying = false;
+  // Some head-unit WebViews paint YouTube's poster before playback is stable.
+  // Black out only the IFrame until video time is visibly advancing.
+  bool _videoStartupVerified = false;
+  DateTime? _continuousVideoPlaySince;
   bool _advancing = false;
   bool _pausedSource = false;
   bool _inCall = false;
@@ -234,6 +238,8 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
         _ready = false;
         _playWhenReady = false;
         _videoPlaying = false;
+        _videoStartupVerified = false;
+        _continuousVideoPlaySince = null;
         widget.onVideoPlaybackChanged(false);
         _videoId = '';
         _position = 0;
@@ -833,6 +839,8 @@ document.head.appendChild(tag);
       _ready = false;
       _playWhenReady = true;
       _videoPlaying = false;
+      _videoStartupVerified = false;
+      _continuousVideoPlaySince = null;
       _position = 0;
       _duration = 0;
       _scrubbing = false;
@@ -948,6 +956,8 @@ document.head.appendChild(tag);
     ++_embedSession;
     _playWhenReady = false;
     _videoPlaying = false;
+    _videoStartupVerified = false;
+    _continuousVideoPlaySince = null;
     widget.onVideoPlaybackChanged(false);
     await _send('window.vybeStop && window.vybeStop();');
     if (!mounted || token != _generation) return;
@@ -978,11 +988,13 @@ document.head.appendChild(tag);
             unawaited(_send('window.vybePause && window.vybePause();'));
           } else {
             _videoPlaying = true;
+            _continuousVideoPlaySince ??= DateTime.now();
             widget.onVideoPlaybackChanged(true);
             unawaited(_pauseSource());
           }
         } else {
           _videoPlaying = false;
+          if (!_videoStartupVerified) _continuousVideoPlaySince = null;
           widget.onVideoPlaybackChanged(false);
           if (detail == 'Ended' && !_advancing) unawaited(_advance());
         }
@@ -995,6 +1007,16 @@ document.head.appendChild(tag);
           final total = double.tryParse(parts[1]);
           setState(() {
             if (total != null && total.isFinite && total > 0) _duration = total;
+            // Hide initial YouTube preview art throughout brief startup
+            // buffering cycles, but reveal as soon as playback stays active
+            // and the video timeline advances. Never mask later rebuffering.
+            if (!_videoStartupVerified && _videoPlaying &&
+                current != null && current.isFinite && current >= .25 &&
+                _continuousVideoPlaySince != null &&
+                DateTime.now().difference(_continuousVideoPlaySince!) >=
+                    const Duration(milliseconds: 1300)) {
+              _videoStartupVerified = true;
+            }
             // Do not let late WebView progress overwrite the user's drag.
             if (!_scrubbing &&
                 DateTime.now().isAfter(_ignoreOldProgressUntil) &&
@@ -1396,6 +1418,11 @@ document.head.appendChild(tag);
               ),
             ),
           )),
+        // Hide only the embedded video's preplay poster/spinner on slow
+        // WebViews. Logo, sleeve, metadata and controls remain above black.
+        if (_embedded && !_videoStartupVerified)
+          const Positioned.fill(child: IgnorePointer(
+            child: ColoredBox(color: Colors.black))),
         // Customize Darkness affects artwork/fanart/animated fallback only;
         // video itself stays full brightness by default.
         if (!_embedded && widget.backgroundDarkness > .001)
