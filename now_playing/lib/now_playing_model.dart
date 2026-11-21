@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -720,6 +721,13 @@ class NowPlayingModel extends ChangeNotifier {
   // trusted album-side metadata/art and pair it back ONLY with matching
   // videos. Never infer an artist from unrelated video thumbnails.
   final List<_YoutubeMusicSongRelease> _ytMusicSongReleases = [];
+  static const String _ytmReleasePrefs = 'vybe_ytm_credited_song_releases_v3';
+  bool _ytmReleasesLoaded = false;
+  String _ytmLastPersistedKey = '';
+  int _ytmLastPersistedFingerprint = 0;
+  DateTime _ytmLastPersistedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<void> _ytmPersistChain = Future<void>.value();
+  Map<String, dynamic>? _ytmPendingArtistlessEvent;
   bool _ytmSourceHadArtistField = false;
   bool _ytmMatchedVideoToSongRelease = false;
   bool get musicVideoHasPairedSongArtwork =>
@@ -728,54 +736,177 @@ class NowPlayingModel extends ChangeNotifier {
   static String _ytmKey(String value) => value.toLowerCase()
       .replaceAll(RegExp(r'[^a-z0-9]'), '');
 
+  static String _ytmReleaseKey(String artistName, String songTitle) =>
+      'ytm_song_version_v3|${_ytmKey(artistName)}|${_ytmKey(songTitle)}';
+
+  /// A live, credited Song-mode event is reliable evidence. Keep its exact
+  /// release art independently of video thumbnails and catalog searches.
   void _rememberYtMusicSongRelease() {
     if (_sessionPlayerPackage != _ytMusicPackage ||
-        !_ytmSourceHadArtistField || title.trim().isEmpty ||
-        artist.trim().isEmpty || art == null || art!.flat ||
-        art!.bytes.isEmpty) return;
-    final key = _ytmKey(title);
-    final artBytes = art!.bytes;
-    // A video upload commonly repeats its own title as the album name.
-    // An audio-version album tag MAY be empty, however; its actual player
-    // artwork and credited artist are still useful for a later Video switch.
-    if (album.trim().isNotEmpty && _ytmKey(album) == key) return;
+        !_ytmSourceHadArtistField || _ytmMatchedVideoToSongRelease ||
+        title.trim().isEmpty || artist.trim().isEmpty ||
+        art == null || art!.flat || art!.bytes.isEmpty) return;
+    final track = _ytmKey(title);
+    if (album.trim().isNotEmpty && _ytmKey(album) == track) return;
+    final bytes = art!.bytes;
+    final key = _ytmReleaseKey(artist, title);
+    final hash = _imageFingerprint(bytes);
+    final now = DateTime.now();
     _ytMusicSongReleases.removeWhere((item) =>
-        _ytmKey(item.title) == key && _ytmKey(item.artist) == _ytmKey(artist));
+        _ytmReleaseKey(item.artist, item.title) == key);
     _ytMusicSongReleases.insert(0, _YoutubeMusicSongRelease(
-      title: title, artist: artist, album: album, artwork: artBytes,
-      durationMs: durationMs, observedAt: DateTime.now(),
+      title: title, artist: artist, album: album, artwork: bytes,
+      durationMs: durationMs, observedAt: now,
     ));
-    if (_ytMusicSongReleases.length > 10) {
-      _ytMusicSongReleases.removeRange(10, _ytMusicSongReleases.length);
+    if (_ytMusicSongReleases.length > 12) {
+      _ytMusicSongReleases.removeRange(12, _ytMusicSongReleases.length);
+    }
+    // A single decoding result should not cause a disk write every time the
+    // player publishes playback position. Refresh only when the release/art
+    // changed or when a long Song play needs a fresh switching timestamp.
+    if (_ytmLastPersistedKey == key &&
+        _ytmLastPersistedFingerprint == hash &&
+        now.difference(_ytmLastPersistedAt) < const Duration(minutes: 5)) {
+      return;
+    }
+    _ytmLastPersistedKey = key;
+    _ytmLastPersistedFingerprint = hash;
+    _ytmLastPersistedAt = now;
+    final song = _ytMusicSongReleases.first;
+    _ytmPersistChain = _ytmPersistChain.catchError((Object _) {}).then((_) =>
+        _persistYtMusicSongRelease(song, key));
+  }
+
+  Future<void> _persistYtMusicSongRelease(
+      _YoutubeMusicSongRelease song, String key) async {
+    try {
+      await MediaCache.putArt(key, song.artwork);
+      final prefs = await SharedPreferences.getInstance();
+      final previous = prefs.getStringList(_ytmReleasePrefs) ?? <String>[];
+      final updated = <String>[];
+      final encoded = jsonEncode({
+        'key': key, 'title': song.title, 'artist': song.artist,
+        'album': song.album, 'duration': song.durationMs,
+        'observed': song.observedAt.millisecondsSinceEpoch,
+      });
+      updated.add(encoded);
+      for (final old in previous) {
+        try {
+          final decoded = jsonDecode(old);
+          if (decoded is! Map || decoded['key'] == key) continue;
+          final seen = decoded['observed'];
+          if (seen is! int ||
+              DateTime.now().millisecondsSinceEpoch - seen >
+                  const Duration(days: 1).inMilliseconds) continue;
+          updated.add(old);
+          if (updated.length >= 12) break;
+        } catch (_) {}
+      }
+      await prefs.setStringList(_ytmReleasePrefs, updated);
+      debugPrint('VYBE Video: saved credited Song release: '
+          '${song.artist} — ${song.title}');
+    } catch (error) {
+      debugPrint('VYBE Video: credited Song cache unavailable: $error');
     }
   }
 
+  Future<void> _loadYtMusicSongReleases() async {
+    if (_ytmReleasesLoaded) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final records = prefs.getStringList(_ytmReleasePrefs) ?? <String>[];
+      for (final record in records) {
+        if (_disposed) return;
+        try {
+          final decoded = jsonDecode(record);
+          if (decoded is! Map) continue;
+          final key = decoded['key']?.toString() ?? '';
+          final titleValue = decoded['title']?.toString() ?? '';
+          final artistValue = decoded['artist']?.toString() ?? '';
+          final albumValue = decoded['album']?.toString() ?? '';
+          final observed = decoded['observed'];
+          if (observed is! int || titleValue.isEmpty ||
+              artistValue.isEmpty ||
+              key != _ytmReleaseKey(artistValue, titleValue) ||
+              DateTime.now().millisecondsSinceEpoch - observed >
+                  const Duration(days: 1).inMilliseconds) continue;
+          final bytes = await MediaCache.getArt(key);
+          if (bytes == null || bytes.isEmpty) continue;
+          // A recent live event always beats a stale stored version.
+          if (_ytMusicSongReleases.any((item) =>
+              _ytmReleaseKey(item.artist, item.title) == key)) continue;
+          _ytMusicSongReleases.add(_YoutubeMusicSongRelease(
+            title: titleValue, artist: artistValue, album: albumValue,
+            artwork: bytes,
+            durationMs: (decoded['duration'] as num?)?.toInt() ?? 0,
+            observedAt: DateTime.fromMillisecondsSinceEpoch(observed),
+          ));
+        } catch (_) {}
+      }
+      if (_ytMusicSongReleases.length > 12) {
+        _ytMusicSongReleases.removeRange(12, _ytMusicSongReleases.length);
+      }
+      debugPrint('VYBE Video: loaded ${_ytMusicSongReleases.length} '
+          'recent credited Song releases');
+    } catch (error) {
+      debugPrint('VYBE Video: could not restore Song history: $error');
+    } finally {
+      _ytmReleasesLoaded = true;
+      final pending = _ytmPendingArtistlessEvent;
+      _ytmPendingArtistlessEvent = null;
+      if (!_disposed && pending != null) {
+        // One-time retry if the video arrived before the cached song data
+        // loaded. Keep the event's original source identity.
+        final latestSource = _sessionPlayerPackage;
+        if (latestSource == _ytMusicPackage &&
+            pending['sourcePackage'] == latestSource &&
+            _ytmKey(pending['title']?.toString() ?? '') != '' &&
+            !_ytmMatchedVideoToSongRelease) {
+          _onEvent(pending);
+        }
+      }
+    }
+  }
+
+  bool _artistLooksLikeVideoUploader(String rawArtist, String rawTitle) {
+    final a = _ytmKey(rawArtist);
+    return a.isEmpty || a == _ytmKey(rawTitle) ||
+        const {'unknown', 'unknownartist', 'youtube', 'youtubemusic',
+          'variousartists', 'video'}.contains(a);
+  }
+
   _YoutubeMusicSongRelease? _matchYtMusicArtistlessVideo(
-      String rawTitle, String rawAlbum, int rawDurationMs) {
+      String rawTitle, String rawArtist, String rawAlbum, int rawDurationMs) {
     final videoTitle = _ytmKey(rawTitle);
     if (videoTitle.isEmpty) return null;
-    // An actual album supplied for the new video is meaningful metadata.
-    // Don't replace it using a previous unrelated track.
-    final albumKey = _ytmKey(rawAlbum);
-    if (albumKey.isNotEmpty && albumKey != videoTitle &&
-        albumKey != 'unknownalbum') return null;
     final now = DateTime.now();
+    final rawArtistKey = _ytmKey(rawArtist);
     for (final item in _ytMusicSongReleases) {
       final titleKey = _ytmKey(item.title);
       final artistKey = _ytmKey(item.artist);
       if (titleKey.isEmpty || artistKey.isEmpty) continue;
-      final prefixedTitle = videoTitle == artistKey + titleKey;
+      final creditedNames = item.artist.split(RegExp(r'\s*(?:,|&|\bfeat(?:uring)?\.?\s|\bft\.?\s)\s*',
+          caseSensitive: false));
+      final lead = _ytmKey(creditedNames.first);
+      final artistPrefixed =
+          videoTitle == artistKey + titleKey ||
+          (lead.length >= 4 && videoTitle == lead + titleKey);
       final sameTitle = videoTitle == titleKey;
-      if (!prefixedTitle && !sameTitle) continue;
-      // A bare same-title match only counts as a rapid Song/Video switch.
-      // Artist-prefixed titles identify the recording more specifically.
+      if (!artistPrefixed && !sameTitle) continue;
+      if (!_artistLooksLikeVideoUploader(rawArtist, rawTitle) &&
+          rawArtistKey != artistKey && rawArtistKey != lead) continue;
       final age = now.difference(item.observedAt);
-      if (age > (prefixedTitle
-          ? const Duration(hours: 2) : const Duration(seconds: 40))) continue;
+      // Even an artist-prefixed match should be reasonably recent. A
+      // completely unprefixed title needs a very recent Song-to-Video switch.
+      if (age.isNegative || age > (artistPrefixed
+          ? const Duration(hours: 6) : const Duration(seconds: 45))) continue;
       if (rawDurationMs > 0 && item.durationMs > 0) {
         final delta = (rawDurationMs - item.durationMs).abs();
-        if (delta > math.max(45000, item.durationMs * .20)) continue;
+        if (delta > math.max(45000, item.durationMs * .25)) continue;
       }
+      debugPrint('VYBE Video: restored Song release via ' +
+          (artistPrefixed ? 'artist-prefixed' : 'recent title-only') +
+          ' match; source album was "$rawAlbum"');
       return item;
     }
     return null;
@@ -887,6 +1018,7 @@ class NowPlayingModel extends ChangeNotifier {
       fft != null && DateTime.now().difference(_realAt).inMilliseconds < 1500;
 
   void start() {
+    unawaited(_loadYtMusicSongReleases());
     _sub = _events.receiveBroadcastStream().listen(_onEvent, onError: (_) {});
     _fftSub =
         _fftEvents.receiveBroadcastStream().listen(_onFft, onError: (_) {});
@@ -1073,11 +1205,20 @@ class NowPlayingModel extends ChangeNotifier {
     final rawArtist = (m['artist'] as String?) ?? '';
     final rawAlbum = (m['album'] as String?) ?? '';
     final newDurationMs = (m['duration'] as num?)?.toInt() ?? 0;
-    final pairedMusicRelease = _sessionPlayerPackage == _ytMusicPackage &&
-            rawArtist.trim().isEmpty
-        ? _matchYtMusicArtistlessVideo(rawTitle, rawAlbum, newDurationMs)
+    final pairedMusicRelease = _sessionPlayerPackage == _ytMusicPackage
+        ? _matchYtMusicArtistlessVideo(
+            rawTitle, rawArtist, rawAlbum, newDurationMs)
         : null;
-    _ytmSourceHadArtistField = rawArtist.trim().isNotEmpty;
+    // Cache restoration may finish after the first video metadata event.
+    // Retain only that pending event while waiting, then reprocess once.
+    _ytmPendingArtistlessEvent = _sessionPlayerPackage == _ytMusicPackage &&
+            pairedMusicRelease == null &&
+            _artistLooksLikeVideoUploader(rawArtist, rawTitle) &&
+            !_ytmReleasesLoaded
+        ? Map<String, dynamic>.from(m)
+        : null;
+    _ytmSourceHadArtistField =
+        !_artistLooksLikeVideoUploader(rawArtist, rawTitle);
     _ytmMatchedVideoToSongRelease = pairedMusicRelease != null &&
         pairedMusicRelease.artwork.isNotEmpty;
     final sessionMetadata = pairedMusicRelease != null
