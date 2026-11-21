@@ -1085,7 +1085,7 @@ class NowPlayingModel extends ChangeNotifier {
       _sessionArtRetryTimer?.cancel();
       _needsArt = false;
       if (art == null || !listEquals(art!.bytes, artBytes)) {
-        _setArt(artBytes);
+        _setArt(artBytes, fromMediaSession: true);
       } else {
         // If the source image is the SAME as a previously displayed one,
         // the player still confirms it as authoritative for this track.
@@ -1578,10 +1578,11 @@ class NowPlayingModel extends ChangeNotifier {
     if (on && title.isNotEmpty && art == null) _lookupArt();
   }
 
-  Future<void> _setArt(Uint8List bytes) async {
+  Future<void> _setArt(Uint8List bytes,
+      {bool fromMediaSession = false}) async {
     final token = ++_artToken;
     final albumCacheKey = _albumArtKey(artist, album);
-    final incomingFromMusicolet = artworkSource == 'Android media session' &&
+    final incomingFromMusicolet = fromMediaSession &&
         _sessionPlayerPackage == 'in.krosbits.musicolet';
     if (incomingFromMusicolet) {
       final hash = _imageFingerprint(bytes);
@@ -1639,8 +1640,12 @@ class NowPlayingModel extends ChangeNotifier {
       _albumArtPriorityPending = false;
       _rememberAlbumArt(bytes, albumCacheKey);
     }
-    if (art != null && artworkSource == 'Android media session') {
+    if (fromMediaSession && loaded != null && !loaded.flat && art != null) {
+      // A simultaneous background lookup may have changed the diagnostic
+      // source string while decoding. Keep origin explicit and authoritative.
       _validSessionArtworkTrack = '$title|$artist|$album';
+      artworkSource = 'Android media session';
+      artworkStatus = 'Android media session artwork';
     }
     if (art == null && artLookupEnabled && title.isNotEmpty) {
       // Avoid blocking the media-session event while lookup runs.
