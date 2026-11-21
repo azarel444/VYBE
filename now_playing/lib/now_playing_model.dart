@@ -16,6 +16,26 @@ import 'stream_track_metadata.dart';
 import 'musicolet_placeholder.dart';
 import 'coverflow_queue.dart';
 
+/// A music-release entry that YouTube Music itself previously supplied.
+/// These are not guessed from music-video thumbnails or catalog searches.
+class _YoutubeMusicSongRelease {
+  final String title;
+  final String artist;
+  final String album;
+  final Uint8List artwork;
+  final int durationMs;
+  final DateTime observedAt;
+
+  const _YoutubeMusicSongRelease({
+    required this.title,
+    required this.artist,
+    required this.album,
+    required this.artwork,
+    required this.durationMs,
+    required this.observedAt,
+  });
+}
+
 /// Talks to the Kotlin side (MainActivity) which listens to the active
 /// Android media session, whichever player app owns it.
 class NowPlayingModel extends ChangeNotifier {
@@ -694,6 +714,72 @@ class NowPlayingModel extends ChangeNotifier {
   String _sessionPlayerPackage = '';
   /// Original Android MediaSession package, never the embedded video player.
   String get sourcePlayerPackage => _sessionPlayerPackage;
+  static const String _ytMusicPackage = 'com.google.android.apps.youtube.music';
+  // YouTube Music Video mode sometimes supplies an upload title containing
+  // the artist name but leaves the artist and album fields empty. Remember
+  // trusted album-side metadata/art and pair it back ONLY with matching
+  // videos. Never infer an artist from unrelated video thumbnails.
+  final List<_YoutubeMusicSongRelease> _ytMusicSongReleases = [];
+  bool _ytmSourceHadArtistField = false;
+  bool _ytmMatchedVideoToSongRelease = false;
+  bool get musicVideoHasPairedSongArtwork =>
+      _ytmMatchedVideoToSongRelease && art != null;
+
+  static String _ytmKey(String value) => value.toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  void _rememberYtMusicSongRelease() {
+    if (_sessionPlayerPackage != _ytMusicPackage ||
+        !_ytmSourceHadArtistField || title.trim().isEmpty ||
+        artist.trim().isEmpty || art == null || art!.flat ||
+        art!.bytes.isEmpty) return;
+    final key = _ytmKey(title);
+    final artBytes = art!.bytes;
+    // A video upload commonly repeats its own title as the album name.
+    // An audio-version album tag MAY be empty, however; its actual player
+    // artwork and credited artist are still useful for a later Video switch.
+    if (album.trim().isNotEmpty && _ytmKey(album) == key) return;
+    _ytMusicSongReleases.removeWhere((item) =>
+        _ytmKey(item.title) == key && _ytmKey(item.artist) == _ytmKey(artist));
+    _ytMusicSongReleases.insert(0, _YoutubeMusicSongRelease(
+      title: title, artist: artist, album: album, artwork: artBytes,
+      durationMs: durationMs, observedAt: DateTime.now(),
+    ));
+    if (_ytMusicSongReleases.length > 10) {
+      _ytMusicSongReleases.removeRange(10, _ytMusicSongReleases.length);
+    }
+  }
+
+  _YoutubeMusicSongRelease? _matchYtMusicArtistlessVideo(
+      String rawTitle, String rawAlbum, int rawDurationMs) {
+    final videoTitle = _ytmKey(rawTitle);
+    if (videoTitle.isEmpty) return null;
+    // An actual album supplied for the new video is meaningful metadata.
+    // Don't replace it using a previous unrelated track.
+    final albumKey = _ytmKey(rawAlbum);
+    if (albumKey.isNotEmpty && albumKey != videoTitle &&
+        albumKey != 'unknownalbum') return null;
+    final now = DateTime.now();
+    for (final item in _ytMusicSongReleases) {
+      final titleKey = _ytmKey(item.title);
+      final artistKey = _ytmKey(item.artist);
+      if (titleKey.isEmpty || artistKey.isEmpty) continue;
+      final prefixedTitle = videoTitle == artistKey + titleKey;
+      final sameTitle = videoTitle == titleKey;
+      if (!prefixedTitle && !sameTitle) continue;
+      // A bare same-title match only counts as a rapid Song/Video switch.
+      // Artist-prefixed titles identify the recording more specifically.
+      final age = now.difference(item.observedAt);
+      if (age > (prefixedTitle
+          ? const Duration(hours: 2) : const Duration(seconds: 40))) continue;
+      if (rawDurationMs > 0 && item.durationMs > 0) {
+        final delta = (rawDurationMs - item.durationMs).abs();
+        if (delta > math.max(45000, item.durationMs * .20)) continue;
+      }
+      return item;
+    }
+    return null;
+  }
   /// Spotify represents an ad break as a track with an artist credit such
   /// as "Advertisement 2 of 3". This is not a real artist.
   bool get isSpotifyAdvertisement {
@@ -979,13 +1065,35 @@ class NowPlayingModel extends ChangeNotifier {
     active = true;
 
     playing = m['playing'] == true;
+    // Snapshot the music-side album cover before YouTube Music switches its
+    // MediaSession to an artistless Video version of the very same track.
+    _rememberYtMusicSongRelease();
     _sessionPlayerPackage = (m['sourcePackage'] as String?) ?? '';
-    final sessionMetadata = StreamTrackMetadata.resolve(
-      title: (m['title'] as String?) ?? '',
-      artist: (m['artist'] as String?) ?? '',
-      album: (m['album'] as String?) ?? '',
-      sourcePackage: (m['sourcePackage'] as String?) ?? '',
-    );
+    final rawTitle = (m['title'] as String?) ?? '';
+    final rawArtist = (m['artist'] as String?) ?? '';
+    final rawAlbum = (m['album'] as String?) ?? '';
+    final newDurationMs = (m['duration'] as num?)?.toInt() ?? 0;
+    final pairedMusicRelease = _sessionPlayerPackage == _ytMusicPackage &&
+            rawArtist.trim().isEmpty
+        ? _matchYtMusicArtistlessVideo(rawTitle, rawAlbum, newDurationMs)
+        : null;
+    _ytmSourceHadArtistField = rawArtist.trim().isNotEmpty;
+    _ytmMatchedVideoToSongRelease = pairedMusicRelease != null &&
+        pairedMusicRelease.artwork.isNotEmpty;
+    final sessionMetadata = pairedMusicRelease != null
+        ? StreamTrackMetadata(
+            title: pairedMusicRelease.title,
+            artist: pairedMusicRelease.artist,
+            album: pairedMusicRelease.album,
+            uploader: '',
+            corrected: true,
+          )
+        : StreamTrackMetadata.resolve(
+            title: rawTitle,
+            artist: rawArtist,
+            album: rawAlbum,
+            sourcePackage: _sessionPlayerPackage,
+          );
     // Resolve before computing the track key and initiating artwork, lyric,
     // album and VYBE Connect updates so every subsystem shares the same
     // corrected artist/title when an upload-style session is detected.
@@ -1043,7 +1151,16 @@ class NowPlayingModel extends ChangeNotifier {
       }
     }
 
-    final artBytes = m['art'];
+    // If Song mode supplied a real release cover, a matching artistless
+    // Video mode thumbnail must not replace that cover. This only applies to
+    // a verified Song -> Video pairing; unrelated tracks still use their
+    // own live MediaSession artwork.
+    final artBytes = pairedMusicRelease?.artwork ?? m['art'];
+    if (pairedMusicRelease != null) {
+      debugPrint('VYBE Music Video: restored original song metadata and '
+          'album art for ' + pairedMusicRelease.artist + ' — ' +
+          pairedMusicRelease.title);
+    }
     if (artBytes is Uint8List && artBytes.isNotEmpty) {
       _latestSessionArtwork = artBytes;
       if (!_placeholderHashesLoaded) {
@@ -1644,8 +1761,13 @@ class NowPlayingModel extends ChangeNotifier {
       // A simultaneous background lookup may have changed the diagnostic
       // source string while decoding. Keep origin explicit and authoritative.
       _validSessionArtworkTrack = '$title|$artist|$album';
-      artworkSource = 'Android media session';
-      artworkStatus = 'Android media session artwork';
+      artworkSource = _ytmMatchedVideoToSongRelease
+          ? 'YouTube Music original song album cover'
+          : 'Android media session';
+      artworkStatus = _ytmMatchedVideoToSongRelease
+          ? 'Paired original song cover for matching music video'
+          : 'Android media session artwork';
+      _rememberYtMusicSongRelease();
     }
     if (art == null && artLookupEnabled && title.isNotEmpty) {
       // Avoid blocking the media-session event while lookup runs.

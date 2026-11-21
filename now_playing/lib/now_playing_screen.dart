@@ -425,6 +425,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Uint8List? get _musicVideoSleeveArtwork {
     if (model.sourcePlayerPackage !=
         'com.google.android.apps.youtube.music') return model.art?.bytes;
+    // When YouTube Music switches from a credited Song release to a video
+    // upload without an artist field, use the REAL cover preserved from the
+    // matching Song version. Do not let a catalog/compilation lookup replace
+    // the exact cover the player itself originally supplied.
+    if (model.musicVideoHasPairedSongArtwork) return model.art?.bytes;
     if (_musicVideoAlbumCoverKey == _currentVideoAlbumKey &&
         _musicVideoAlbumCover != null) return _musicVideoAlbumCover;
     // Only use the MediaSession thumbnail after no actual cover is available.
