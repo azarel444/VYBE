@@ -1091,13 +1091,9 @@ document.head.appendChild(tag);
       // Fade to truly opaque black at both edges, but ease the alpha
       // gradually to zero so neither transition leaves a horizontal seam.
       final topFadeHeight = h * (portrait ? .265 : .205);
-      // Portrait: center the artwork, metadata and transport in separate
-      // non-overlapping rows. Landscape: center the art and metadata inside
-      // the left 60% while keeping transport on the lower right.
+      // Only portrait changes the placement; landscape sleeve stays anchored.
       final discRatio = .72;
-      final artSide = portrait
-          ? math.min(w * .38, h * .24)
-          : math.min(w * .25, h * .28);
+      final artSide = portrait ? math.min(w * .38, h * .24) : w * .285;
       final discSide = artSide * discRatio;
       final transportWidth = portrait ? math.min(w * .86, 560.0) : w * .52;
       final transportRight = portrait ? (w - transportWidth) * .5 : w * .032;
@@ -1108,9 +1104,11 @@ document.head.appendChild(tag);
       final iconSize = portrait ? 44.0 :
           (h * .061).clamp(40.0, 55.0).toDouble();
       final iconGap = portrait ? 9.0 : w * .015;
-      final infoWidth = portrait ? w * .90 : w * .58;
-      final infoLeft = portrait
-          ? (w - infoWidth) * .5 : (w * .60 - infoWidth) * .5;
+      // Song/album stay TOP RIGHT in landscape. Only the available text
+      // width increases leftwards so long names may occupy half the screen.
+      final infoWidth = portrait ? w * .90 : w * .54;
+      final infoLeft = portrait ? (w - infoWidth) * .5
+          : w - w * .031 - infoWidth;
       final songHeight = portrait
           ? (h * .058).clamp(54.0, 94.0).toDouble()
           : (h * .070).clamp(27.0, 56.0).toDouble();
@@ -1122,11 +1120,11 @@ document.head.appendChild(tag);
       final artGap = portrait ? 18.0 : 6.0;
       final footerGap = portrait ? 18.0 : 7.0;
       final artLeft = portrait
-          ? (w - (artSide + discSide * .5)) * .5
-          : (w * .60 - (artSide + discSide * .5)) * .5;
-      final artTop = math.max(
-          portrait ? h * .48 : h * .31,
-          transportTop - infoHeight - footerGap - artGap - artSide);
+          ? (w - (artSide + discSide * .5)) * .5 : w * .013;
+      final artTop = portrait
+          ? math.max(h * .48,
+              transportTop - infoHeight - footerGap - artGap - artSide)
+          : h * .747;
       final songTop = artTop + artSide + artGap;
       // Center of the real spinning record is at the sleeve's right edge.
       final discLeft = artLeft + artSide - discSide * .5;
@@ -1134,12 +1132,15 @@ document.head.appendChild(tag);
       // At 200%, artist logos can use the whole generously sized header.
       // The shared renderer still applies its existing 50–200% scale.
       final logoScale = widget.artistLogoScale.clamp(.5, 2.0).toDouble();
-      final logoWidth = w * (portrait
-          ? .70 + .10 * logoScale : .64 + .10 * logoScale);
-      final logoHeight = h * (portrait
-          ? .145 + .018 * logoScale : .205 + .025 * logoScale);
-      final logoLeft = (w - logoWidth) * .5;
-      final logoTop = portrait ? h * .026 : h * .016;
+      final logoWidth = portrait
+          ? w * (.70 + .10 * logoScale)
+          // LANDSCAPE ANCHOR UNCHANGED: expands rightward to reach the
+          // sleeve/half exposed record at a 200% size selection.
+          : w * (.185 + (.205 / 1.5) * (logoScale - .5));
+      final logoHeight = portrait
+          ? h * (.145 + .018 * logoScale) : h * .29;
+      final logoLeft = portrait ? (w - logoWidth) * .5 : w * .024;
+      final logoTop = portrait ? h * .026 : h * .045;
       // The bottom is fully black beginning at the sleeve, then eases upward
       // to transparent. A solid section avoids a translucent control footer.
       final bottomFadeStart = math.max(
@@ -1298,22 +1299,30 @@ document.head.appendChild(tag);
               // as every VYBE theme; a wide centered slot prevents its
               // 200% setting from being capped at a tiny 18%-width box.
               child: SizedBox.expand(
-                child: widget.buildArtist(Alignment.topCenter)),
+                child: widget.buildArtist(
+                    portrait ? Alignment.topCenter : Alignment.topLeft)),
             ),
           ),
         if (_showInfo)
           Positioned(
-            left: infoLeft, top: songTop, width: infoWidth,
-            height: infoHeight,
+            left: infoLeft,
+            top: portrait ? songTop : h * .049,
+            width: infoWidth,
+            height: portrait ? infoHeight : h * .17,
             child: IgnorePointer(child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: portrait
+                  ? CrossAxisAlignment.center : CrossAxisAlignment.end,
               children: [
-                SizedBox(width: infoWidth, height: songHeight,
-                  child: widget.buildTitle(Alignment.center)),
-                SizedBox(height: infoGap),
-                SizedBox(width: infoWidth, height: albumHeight,
-                  child: widget.buildAlbum(Alignment.center)),
+                SizedBox(width: infoWidth,
+                  height: portrait ? songHeight : h * .065,
+                  child: widget.buildTitle(portrait
+                      ? Alignment.center : Alignment.centerRight)),
+                SizedBox(height: portrait ? infoGap : 4.0),
+                SizedBox(width: infoWidth,
+                  height: portrait ? albumHeight : h * .060,
+                  child: widget.buildAlbum(portrait
+                      ? Alignment.center : Alignment.centerRight)),
               ],
             )),
           ),
@@ -1488,26 +1497,24 @@ class MusicVideoThemePreview extends StatelessWidget {
     builder: (context, box) {
       final w = box.maxWidth, h = box.maxHeight;
       final portrait = h > w * 1.1;
-      final side = portrait ? math.min(w * .38, h * .24) :
-          math.min(w * .25, h * .28);
+      final side = portrait ? math.min(w * .38, h * .24) : w * .285;
       final discSide = side * .72;
       final left = portrait
-          ? (w - (side + discSide * .5)) * .5
-          : (w * .60 - (side + discSide * .5)) * .5;
+          ? (w - (side + discSide * .5)) * .5 : w * .013;
       final controlsHeight = h * .084;
       final controlsTop = h - h * .035 - controlsHeight;
       final songHeight = portrait ? h * .058 : h * .070;
       final albumHeight = portrait ? h * .049 : h * .055;
       final infoGap = portrait ? h * .006 : h * .005;
-      final infoWidth = portrait ? w * .90 : w * .58;
+      final infoWidth = portrait ? w * .90 : w * .54;
       final infoLeft = portrait
-          ? (w - infoWidth) * .5 : (w * .60 - infoWidth) * .5;
+          ? (w - infoWidth) * .5 : w - w * .032 - infoWidth;
       final artGap = portrait ? h * .014 : h * .009;
-      final top = math.max(
-          portrait ? h * .48 : h * .31,
-          controlsTop - songHeight - albumHeight - infoGap -
-              artGap - h * .016 - side);
-      final songTop = top + side + artGap;
+      final top = portrait
+          ? math.max(h * .48, controlsTop - songHeight - albumHeight -
+              infoGap - artGap - h * .016 - side)
+          : h * .747;
+      final songTop = portrait ? top + side + artGap : h * .049;
       final fadeStart = math.max(h * (portrait ? .255 : .197),
           top - h * (portrait ? .295 : .225));
       final fadeHeight = math.max(1.0, top - fadeStart);
@@ -1587,16 +1594,20 @@ class MusicVideoThemePreview extends StatelessWidget {
             ),
           ),
         ),
-        Positioned(left: w * .08, right: w * .08,
-          top: portrait ? h * .026 : h * .016,
-          height: portrait ? h * .18 : h * .255,
-          child: Align(alignment: Alignment.topCenter,
+        Positioned(
+          left: portrait ? w * .08 : w * .024,
+          right: portrait ? w * .08 : null,
+          width: portrait ? null : w * .253,
+          top: portrait ? h * .026 : h * .045,
+          height: portrait ? h * .18 : h * .29,
+          child: Align(
+            alignment: portrait ? Alignment.topCenter : Alignment.topLeft,
             child: clearLogo != null
               ? Image.memory(clearLogo!, fit: BoxFit.contain,
-                  alignment: Alignment.topCenter)
+                  alignment: portrait ? Alignment.topCenter : Alignment.topLeft)
               : Text(artist.isEmpty ? 'VYBE' : artist.toUpperCase(),
                   maxLines: 2, overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
+                  textAlign: portrait ? TextAlign.center : TextAlign.left,
                   style: TextStyle(color: Colors.white,
                     fontFamily: 'VYBERiot',
                     fontWeight: FontWeight.w800,
@@ -1607,25 +1618,30 @@ class MusicVideoThemePreview extends StatelessWidget {
         Positioned(left: infoLeft, top: songTop,
           width: infoWidth,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: portrait
+                ? CrossAxisAlignment.center : CrossAxisAlignment.end,
             children: [
-              SizedBox(height: songHeight,
-                child: Center(child: Text(
-                  title.isEmpty ? 'MUSIC VIDEO' : title,
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white,
-                    fontSize: portrait ? h * .033 : h * .05)))),
+              SizedBox(height: songHeight, width: infoWidth,
+                child: Align(
+                  alignment: portrait ? Alignment.center : Alignment.centerRight,
+                  child: Text(
+                    title.isEmpty ? 'MUSIC VIDEO' : title,
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    textAlign: portrait ? TextAlign.center : TextAlign.right,
+                    style: TextStyle(color: Colors.white,
+                      fontSize: portrait ? h * .033 : h * .05)))),
               SizedBox(height: infoGap),
-              SizedBox(height: albumHeight,
-                child: Center(child: Text(
-                  album.isEmpty ? 'ALBUM' : album.toUpperCase(),
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white,
-                    fontSize: portrait ? h * .021 : h * .025,
-                    fontStyle: FontStyle.italic,
-                    letterSpacing: 1.4)))),
+              SizedBox(height: albumHeight, width: infoWidth,
+                child: Align(
+                  alignment: portrait ? Alignment.center : Alignment.centerRight,
+                  child: Text(
+                    album.isEmpty ? 'ALBUM' : album.toUpperCase(),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    textAlign: portrait ? TextAlign.center : TextAlign.right,
+                    style: TextStyle(color: Colors.white,
+                      fontSize: portrait ? h * .021 : h * .025,
+                      fontStyle: FontStyle.italic,
+                      letterSpacing: 1.4)))),
             ],
           )),
         Positioned(right: portrait ? w * .07 : w * .032,
