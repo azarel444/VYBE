@@ -78,7 +78,8 @@ class MusicVideoTheme extends StatefulWidget {
   State<MusicVideoTheme> createState() => _MusicVideoThemeState();
 }
 
-class _MusicVideoThemeState extends State<MusicVideoTheme> {
+class _MusicVideoThemeState extends State<MusicVideoTheme>
+    with WidgetsBindingObserver {
   static const _channel = MethodChannel('nowplaying/control');
   static const _origin = 'https://com.conjure.now_playing';
   static const _ytMusic = 'com.google.android.apps.youtube.music';
@@ -134,6 +135,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _sourcePackage = widget.sourcePackage;
     _title = widget.title;
     _artist = widget.artist;
@@ -162,6 +164,22 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     // Entering from an already playing YouTube Music video should not
     // require a second manual tap on VYBE's Play Music Video button.
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAutoStart());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted || _disposed ||
+        _embedded || _busy || _advancing || _inCall ||
+        _sourcePackage != _ytMusic) return;
+    // Returning after toggling Video in YouTube Music doesn't necessarily
+    // alter MediaSession title or playing state. Give the same song another
+    // chance without requiring the user to skip away and back.
+    _autoAttemptedTrack = '';
+    _videoRetryTimer?.cancel();
+    _videoMisses = 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _maybeAutoStart();
+    });
   }
 
   @override
@@ -1517,6 +1535,7 @@ document.head.appendChild(tag);
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _generation++;
     ++_embedSession;
     _callTimer?.cancel();
