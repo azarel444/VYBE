@@ -21,6 +21,8 @@ class MusicVideoTheme extends StatefulWidget {
   final String artist;
   final String album;
   final String sourcePackage;
+  final String sourceTrackTitle;
+  final String sourceTrackArtist;
   /// Catalog/release art, used only while an embedded music video is active.
   final Uint8List? artwork;
   /// Original art from the music player for fallback/album-only playback.
@@ -54,6 +56,8 @@ class MusicVideoTheme extends StatefulWidget {
     required this.artist,
     required this.album,
     required this.sourcePackage,
+    this.sourceTrackTitle = '',
+    this.sourceTrackArtist = '',
     required this.accent,
     required this.buildVinyl,
     required this.buildFallbackBackground,
@@ -199,11 +203,18 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
       _sourcePackage = incomingPackage;
     }
     final sourceResumed = !oldWidget.sourcePlaying && widget.sourcePlaying;
-    if (oldWidget.title != widget.title || oldWidget.artist != widget.artist) {
+    final sourceIdentityChanged = _sourcePackage == _ytMusic &&
+        oldWidget.sourceTrackTitle.isNotEmpty &&
+        widget.sourceTrackTitle.isNotEmpty &&
+        (oldWidget.sourceTrackTitle != widget.sourceTrackTitle ||
+         oldWidget.sourceTrackArtist != widget.sourceTrackArtist);
+    if (sourceIdentityChanged || oldWidget.title != widget.title ||
+        oldWidget.artist != widget.artist) {
       // Treat a changed MediaSession track as authoritative, even when the
       // change arrived during a Next request. The old implementation ignored
       // these events while _advancing and could remain on the old player.
-      final changed = _title != widget.title || _artist != widget.artist;
+      final changed = sourceIdentityChanged ||
+          _title != widget.title || _artist != widget.artist;
       if (changed) {
         ++_generation; // Cancel all in-flight lookups for the old track.
         ++_embedSession;
@@ -371,7 +382,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
     var normalized = _normalize(title);
     normalized = normalized.replaceFirst(
         RegExp(r'\s*[\(\[]\s*(?:official\s+)?(?:music\s+)?video\s*[\)\]]\s*$', caseSensitive: false), '');
-    return normalized.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return StreamTrackMetadata.normalizedKey(normalized);
   }
 
   static String _withoutKnownArtist(String title, String artist) {
@@ -419,6 +430,18 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
     final rawArtist = raw['artist']?.toString().trim() ?? '';
     final rawAlbum = raw['album']?.toString().trim() ?? '';
     if (rawTitle.isEmpty || _title.isEmpty) return false;
+    // Compare the active Android title to the unmodified MediaSession
+    // identity first. UI-only metadata repair must never stop playback.
+    // The internal track may be ahead of the widget during a skip, so
+    // use this shortcut only when they refer to the same displayed track.
+    if (_sourcePackage == _ytMusic && widget.sourcePackage == _ytMusic &&
+        _title == widget.title && _artist == widget.artist &&
+        widget.sourceTrackTitle.isNotEmpty &&
+        _normalize(rawTitle) == _normalize(widget.sourceTrackTitle) &&
+        (rawArtist.isEmpty || widget.sourceTrackArtist.isEmpty ||
+         _titleKey(rawArtist) == _titleKey(widget.sourceTrackArtist))) {
+      return true;
+    }
     final parsed = StreamTrackMetadata.resolve(
       title: rawTitle,
       artist: rawArtist,
@@ -1052,7 +1075,6 @@ document.head.appendChild(tag);
       }
       final nextArtist = snapshot?['artist']?.toString() ?? '';
       final nextAlbum = snapshot?['album']?.toString() ?? '';
-      if (nextArtist.trim().isEmpty) return;
       // The native player may still report the RAW upload title, while
       // the Flutter UI already has corrected artist/song metadata.
       final parsed = StreamTrackMetadata.resolve(

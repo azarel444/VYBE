@@ -16,8 +16,23 @@ class StreamTrackMetadata {
     required this.corrected,
   });
 
-  static String _normalized(String value) =>
-      value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  static String normalizedKey(String value) {
+    var folded = value.toLowerCase();
+    const groups = <String, String>{
+      'a': 'àáâãäåāăą', 'c': 'çćč', 'd': 'ďđð',
+      'e': 'èéêëēĕėęě', 'g': 'ğģ', 'i': 'ìíîïīįı',
+      'l': 'łĺľ', 'n': 'ñńň', 'o': 'òóôõöøōő',
+      'r': 'řŕ', 's': 'śšşș', 't': 'ťţț',
+      'u': 'ùúûüūůű', 'y': 'ýÿŷ', 'z': 'źżž',
+    };
+    for (final entry in groups.entries) {
+      folded = folded.replaceAll(RegExp('[${entry.value}]'), entry.key);
+    }
+    return folded.replaceAll('æ', 'ae').replaceAll('œ', 'oe')
+        .replaceAll('ß', 'ss').replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
+
+  static String _normalized(String value) => normalizedKey(value);
 
   static bool _isMissingAlbum(String album) {
     final normalized = _normalized(album);

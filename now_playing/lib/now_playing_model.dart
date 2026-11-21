@@ -717,6 +717,9 @@ class NowPlayingModel extends ChangeNotifier {
   String _sessionPlayerPackage = '';
   /// Original Android MediaSession package, never the embedded video player.
   String get sourcePlayerPackage => _sessionPlayerPackage;
+  // Keep the original MediaSession identity distinct from repaired UI tags.
+  String sourceTrackTitle = '';
+  String sourceTrackArtist = '';
   static const String _ytMusicPackage = 'com.google.android.apps.youtube.music';
   // YouTube Music Video mode sometimes supplies an upload title containing
   // the artist name but leaves the artist and album fields empty. Remember
@@ -738,21 +741,7 @@ class NowPlayingModel extends ChangeNotifier {
   // Fold accents BEFORE stripping punctuation. For example, YouTube's
   // credited "JAŸ-Z" and the upload prefix "Jay-Z" identify the same artist.
   // Removing the non-ASCII character instead would compare "jaz" to "jayz".
-  static String _ytmKey(String value) {
-    var folded = value.toLowerCase();
-    const groups = <String, String>{
-      'a': 'àáâãäåāăą', 'c': 'çćč', 'd': 'ďđð',
-      'e': 'èéêëēĕėęě', 'g': 'ğģ', 'i': 'ìíîïīįı',
-      'l': 'łĺľ', 'n': 'ñńň', 'o': 'òóôõöøōő',
-      'r': 'řŕ', 's': 'śšşș', 't': 'ťţț',
-      'u': 'ùúûüūůű', 'y': 'ýÿŷ', 'z': 'źżž',
-    };
-    for (final entry in groups.entries) {
-      folded = folded.replaceAll(RegExp('[${entry.value}]'), entry.key);
-    }
-    return folded.replaceAll('æ', 'ae').replaceAll('œ', 'oe')
-        .replaceAll('ß', 'ss').replaceAll(RegExp(r'[^a-z0-9]'), '');
-  }
+  static String _ytmKey(String value) => StreamTrackMetadata.normalizedKey(value);
 
   static String _ytmReleaseKey(String artistName, String songTitle) =>
       'ytm_song_version_v3|${_ytmKey(artistName)}|${_ytmKey(songTitle)}';
@@ -1252,6 +1241,8 @@ class NowPlayingModel extends ChangeNotifier {
     final rawTitle = (m['title'] as String?) ?? '';
     final rawArtist = (m['artist'] as String?) ?? '';
     final rawAlbum = (m['album'] as String?) ?? '';
+    sourceTrackTitle = rawTitle;
+    sourceTrackArtist = rawArtist;
     final newDurationMs = (m['duration'] as num?)?.toInt() ?? 0;
     final pairedMusicRelease = _sessionPlayerPackage == _ytMusicPackage
         ? _matchYtMusicArtistlessVideo(
@@ -1519,6 +1510,8 @@ class NowPlayingModel extends ChangeNotifier {
   }
 
   void _clearAll() {
+    sourceTrackTitle = '';
+    sourceTrackArtist = '';
     title = '';
     artist = '';
     album = '';

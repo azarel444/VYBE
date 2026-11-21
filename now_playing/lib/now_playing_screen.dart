@@ -945,6 +945,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     artist: model.artist,
                     album: model.displayAlbumTitle,
                     sourcePackage: model.sourcePlayerPackage,
+                    sourceTrackTitle: model.sourceTrackTitle,
+                    sourceTrackArtist: model.sourceTrackArtist,
                     // Catalog art is for embedded video ONLY. When playback
                     // falls back to music, use the same actual MediaSession
                     // cover as the album-art background.
