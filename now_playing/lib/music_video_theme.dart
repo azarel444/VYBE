@@ -122,6 +122,14 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
   Timer? _videoRetryTimer;
   String _videoRetryTrack = '';
   int _videoMisses = 0;
+  // Ignore late events from a previous YouTube iframe after a track switch.
+  int _embedSession = 0;
+  // Retry recovery for mode switches that do not alter artist/title metadata.
+  bool _recoveryProbeRunning = false;
+  String _recoveryTrack = '';
+  String _recoveryIdentity = '';
+  DateTime _lastRecoveryProbeAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastRecoveryAttemptAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -147,8 +155,10 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
           .setMediaPlaybackRequiresUserGesture(false));
     }
     unawaited(_loadOverlayChoices());
-    _callTimer = Timer.periodic(const Duration(milliseconds: 1100),
-        (_) => unawaited(_checkCall()));
+    _callTimer = Timer.periodic(const Duration(milliseconds: 1100), (_) {
+      unawaited(_checkCall());
+      unawaited(_checkVideoRecovery());
+    });
     // Entering from an already playing YouTube Music video should not
     // require a second manual tap on VYBE's Play Music Video button.
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAutoStart());
@@ -166,6 +176,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
         (_sourcePackage.isEmpty || !_embedded)) {
       _sourcePackage = incomingPackage;
     }
+    final sourceResumed = !oldWidget.sourcePlaying && widget.sourcePlaying;
     if (oldWidget.title != widget.title || oldWidget.artist != widget.artist) {
       // Treat a changed MediaSession track as authoritative, even when the
       // change arrived during a Next request. The old implementation ignored
@@ -173,6 +184,9 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
       final changed = _title != widget.title || _artist != widget.artist;
       if (changed) {
         ++_generation; // Cancel all in-flight lookups for the old track.
+        ++_embedSession;
+        _recoveryTrack = '';
+        _recoveryIdentity = '';
         _autoAttemptedTrack = '';
         _autoScheduledTrack = '';
         final hadVideo = _embedded;
@@ -203,6 +217,14 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
       _artist = widget.artist;
       _album = widget.album;
     }
+    // A source pause/resume may reflect a same-song switch from audio to
+    // video. Re-arm the song rather than preserving its exhausted attempt.
+    if (sourceResumed && !_embedded && _sourcePackage == _ytMusic) {
+      _autoAttemptedTrack = '';
+      _videoRetryTimer?.cancel();
+      _videoMisses = 0;
+      debugPrint('Music Video: source resumed; refreshing same song');
+    }
     _maybeAutoStart();
   }
 
@@ -228,8 +250,65 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
           key != _sourcePackage + '|' + _songKey ||
           _autoAttemptedTrack == key) return;
       _autoAttemptedTrack = key;
+      _lastRecoveryAttemptAt = DateTime.now();
       unawaited(_beginVideo());
     });
+  }
+
+  /// MediaSession recheck, not an internet lookup: YouTube Music can publish
+  /// a different video/queue ID without changing its displayed song title.
+  /// Don't leave that track locked out after four delayed retries.
+  Future<void> _checkVideoRecovery() async {
+    if (!mounted || _disposed || _recoveryProbeRunning || _inCall ||
+        _busy || _advancing || _embedded || _sourcePackage != _ytMusic ||
+        _title.isEmpty || _artist.isEmpty) return;
+    final key = _sourcePackage + '|' + _songKey;
+    if (_autoAttemptedTrack != key ||
+        (_videoRetryTimer?.isActive ?? false)) return;
+    final now = DateTime.now();
+    if (now.difference(_lastRecoveryProbeAt).inMilliseconds < 6500) return;
+    _lastRecoveryProbeAt = now;
+    _recoveryProbeRunning = true;
+    try {
+      final snapshot = await _channel.invokeMapMethod<String, dynamic>(
+          'integrationDiagnostics', {'service': 'youtube_music'});
+      if (!mounted || _disposed || _sourcePackage != _ytMusic ||
+          _embedded || _busy || _advancing || _inCall ||
+          key != _sourcePackage + '|' + _songKey ||
+          snapshot == null || snapshot['sessionFound'] != true) return;
+      final metadata = snapshot['metadata'];
+      if (metadata is! Map || !_matchesNativeTrack(metadata)) return;
+      final sourcePlaying = snapshot['playbackState'] == 3 ||
+          widget.sourcePlaying;
+      if (!sourcePlaying) return;
+      final probe = snapshot['videoProbe'];
+      final hints = probe is Map ? probe : const <String, dynamic>{};
+      // Never use position/time in this identity: those change each tick.
+      final identity = [
+        snapshot['activeQueueItemId'], metadata['mediaId'],
+        metadata['artUri'], metadata['displayIconUri'],
+        hints['activeQueueVideoId'], hints['activeMediaId'],
+        hints['activeMediaUri'],
+      ].map((value) => value?.toString() ?? '').join('|');
+      if (_recoveryTrack != key) {
+        _recoveryTrack = key;
+        _recoveryIdentity = identity;
+      }
+      final changed = identity != _recoveryIdentity;
+      final cooledDown = now.difference(_lastRecoveryAttemptAt).inSeconds >= 30;
+      if (!changed && !cooledDown) return;
+      _recoveryIdentity = identity;
+      _videoRetryTimer?.cancel();
+      _videoMisses = 0;
+      _autoAttemptedTrack = '';
+      debugPrint('Music Video: retry same song because ' +
+          (changed ? 'MediaSession identity changed' : 'recovery cooldown elapsed'));
+      _maybeAutoStart(sourceConfirmedPlaying: true);
+    } catch (error) {
+      debugPrint('Music Video: background recovery probe failed: $error');
+    } finally {
+      _recoveryProbeRunning = false;
+    }
   }
 
   String get _songKey =>
@@ -606,7 +685,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme> {
     } catch (_) {}
   }
 
-  String _iframe(String id) => '''
+  String _iframe(String id, int embedSession) => '''
 <!doctype html><html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
@@ -618,12 +697,13 @@ overflow:hidden;overscroll-behavior:none;background:#000}
 </style>
 </head><body><div id="player"></div><script>
 var vybePlayer=null;
+var vybeStopping=false;
 function vybeEvent(event,detail) {
- try { window.VybeVideo.postMessage(JSON.stringify({event:event,detail:String(detail)})); } catch(e){}
+ try { window.VybeVideo.postMessage(JSON.stringify({event:event,detail:String(detail),embedSession:$embedSession})); } catch(e){}
 }
 window.vybePlay=function(){if(vybePlayer)vybePlayer.playVideo();};
 window.vybePause=function(){if(vybePlayer)vybePlayer.pauseVideo();};
-window.vybeStop=function(){if(vybePlayer)vybePlayer.stopVideo();};
+window.vybeStop=function(){vybeStopping=true;if(vybePlayer)vybePlayer.stopVideo();};
 window.vybeSeek=function(seconds){
  if(vybePlayer && typeof vybePlayer.seekTo==='function'){
    vybePlayer.seekTo(Math.max(0,seconds),true);
@@ -639,6 +719,8 @@ function onYouTubeIframeAPIReady() {
    events:{
     onReady:function(){vybeEvent('ready','ok');},
     onStateChange:function(e){
+     // Explicitly stopping a prior video must not advance the playlist.
+     if(vybeStopping)return;
      var s={'-1':'Unstarted','0':'Ended','1':'Playing','2':'Paused','3':'Buffering','5':'Cued'};
      vybeEvent('state',s[e.data]||'Unknown');
     },
@@ -660,6 +742,7 @@ document.head.appendChild(tag);
 
   Future<void> _loadVideo(String id) async {
     if (!mounted) return;
+    final session = ++_embedSession;
     widget.onVideoPlaybackChanged(false);
     setState(() {
       _videoId = id;
@@ -674,9 +757,11 @@ document.head.appendChild(tag);
       _status = 'Loading verified music video…';
     });
     try {
-      await _web.loadHtmlString(_iframe(id), baseUrl: '$_origin/');
+      await _web.loadHtmlString(_iframe(id, session), baseUrl: '$_origin/');
     } catch (error) {
-      await _fallback('Could not open embedded video: ' + error.toString());
+      if (mounted && session == _embedSession) {
+        await _fallback('Could not open embedded video: ' + error.toString());
+      }
     }
   }
 
@@ -767,12 +852,13 @@ document.head.appendChild(tag);
 
   Future<void> _fallback(String reason) async {
     if (!mounted) return;
-    _generation++;
+    final token = ++_generation;
+    ++_embedSession;
     _playWhenReady = false;
     _videoPlaying = false;
     widget.onVideoPlaybackChanged(false);
     await _send('window.vybeStop && window.vybeStop();');
-    if (!mounted) return;
+    if (!mounted || token != _generation) return;
     setState(() {
       _embedded = false;
       _ready = false;
@@ -785,7 +871,7 @@ document.head.appendChild(tag);
     if (!mounted || !_embedded) return;
     try {
       final value = jsonDecode(raw);
-      if (value is! Map) return;
+      if (value is! Map || value['embedSession'] != _embedSession) return;
       final type = value['event']?.toString() ?? '';
       final detail = value['detail']?.toString() ?? '';
       if (type == 'ready') {
@@ -853,6 +939,7 @@ document.head.appendChild(tag);
     // race YouTube Music's audio focus and next-song metadata.
     final oldVideoId = _videoId;
     final oldVideoPlaying = _embedded && _videoPlaying;
+    ++_embedSession; // Suppress old iframe callbacks during skip.
     await _send('window.vybeStop && window.vybeStop();');
     widget.onVideoPlaybackChanged(false);
     if (!mounted || token != _generation) return;
@@ -1041,6 +1128,7 @@ document.head.appendChild(tag);
     if (mounted) {
       // A replacement link must replace the current iframe, not resume it.
       if (_embedded) {
+        ++_embedSession;
         await _send('window.vybeStop && window.vybeStop();');
         if (mounted) setState(() {
           _embedded = false;
@@ -1430,6 +1518,7 @@ document.head.appendChild(tag);
   void dispose() {
     _disposed = true;
     _generation++;
+    ++_embedSession;
     _callTimer?.cancel();
     _videoRetryTimer?.cancel();
     unawaited(_send('window.vybeStop && window.vybeStop();'));
