@@ -256,7 +256,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
   void _maybeAutoStart({bool sourceConfirmedPlaying = false}) {
     if (!mounted || _disposed || _sourcePackage != _ytMusic ||
         (!widget.sourcePlaying && !sourceConfirmedPlaying) ||
-        _title.isEmpty || _artist.isEmpty ||
+        _title.isEmpty ||
         _busy || _embedded || _advancing || _inCall) return;
     final key = _sourcePackage + '|' + _songKey;
     if (_autoAttemptedTrack == key || _autoScheduledTrack == key) return;
@@ -268,7 +268,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
       if (!mounted || _disposed || _embedded || _busy || _advancing ||
           _inCall || _sourcePackage != _ytMusic ||
           (!widget.sourcePlaying && !sourceConfirmedPlaying) ||
-          _artist.isEmpty || _title.isEmpty ||
+          _title.isEmpty ||
           key != _sourcePackage + '|' + _songKey ||
           _autoAttemptedTrack == key) return;
       _autoAttemptedTrack = key;
@@ -283,7 +283,7 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
   Future<void> _checkVideoRecovery() async {
     if (!mounted || _disposed || _recoveryProbeRunning || _inCall ||
         _busy || _advancing || _embedded || _sourcePackage != _ytMusic ||
-        _title.isEmpty || _artist.isEmpty) return;
+        _title.isEmpty) return;
     final key = _sourcePackage + '|' + _songKey;
     if (_autoAttemptedTrack != key ||
         (_videoRetryTimer?.isActive ?? false)) return;
@@ -363,10 +363,57 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
   static String _normalize(String s) =>
       s.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
-  /// The shared VYBE model repairs upload-style YT Music metadata such as
-  /// "Fat Joe - Watch The Sound" to artist="Fat Joe", title="Watch The
-  /// Sound". The native MediaSession still publishes the ORIGINAL title.
-  /// Both must resolve to the same song before we take over its audio/video.
+  // YouTube Music sometimes publishes a video's upload title as
+  // "Jay-Z In My Lifetime (Remix)" while the release title remains
+  // "In My Lifetime (Remix)". Punctuation and artist prefixes are safe
+  // metadata variations; remix/version words are NOT discarded.
+  static String _titleKey(String title) {
+    var normalized = _normalize(title);
+    normalized = normalized.replaceFirst(
+        RegExp(r'\s*[\(\[]\s*(?:official\s+)?(?:music\s+)?video\s*[\)\]]\s*$', caseSensitive: false), '');
+    return normalized.replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
+
+  static String _withoutKnownArtist(String title, String artist) {
+    final titleKey = _titleKey(title);
+    if (titleKey.isEmpty) return titleKey;
+    final rawArtist = _normalize(artist);
+    // Artist lists may vary between video and audio releases. Only remove a
+    // known credited artist prefix; never loosely match an arbitrary title.
+    final primary = rawArtist.split(RegExp(
+        r'\s*(?:,|&|\bfeat(?:uring)?\.?\s|\bft\.\s)\s*',
+        caseSensitive: false)).first.trim();
+    for (final prefix in {_titleKey(artist), _titleKey(primary)}) {
+      if (prefix.length < 3 || titleKey.length <= prefix.length + 3) continue;
+      if (titleKey.startsWith(prefix)) return titleKey.substring(prefix.length);
+    }
+    return titleKey;
+  }
+
+  bool _titlesMatch(String candidate, {String candidateArtist = ''}) {
+    final current = _titleKey(_title);
+    final found = _titleKey(candidate);
+    if (current.isEmpty || found.isEmpty) return false;
+    if (current == found) return true;
+    final currentWithoutArtist = _withoutKnownArtist(_title, _artist);
+    final candidateWithoutArtist = _withoutKnownArtist(candidate, _artist);
+    if (currentWithoutArtist == candidateWithoutArtist) return true;
+    if (candidateArtist.isNotEmpty) {
+      final currentWithoutCandidateArtist =
+          _withoutKnownArtist(_title, candidateArtist);
+      final foundWithoutCandidateArtist =
+          _withoutKnownArtist(candidate, candidateArtist);
+      if (currentWithoutCandidateArtist == foundWithoutCandidateArtist) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Only compare against the selected YouTube Music MediaSession. Its
+  /// metadata may change from a release title to an upload title without
+  /// becoming a different song. The underlying active session still has to
+  /// match; matching a queue entry's title alone is insufficient.
   bool _matchesNativeTrack(Map raw) {
     final rawTitle = raw['title']?.toString().trim() ?? '';
     final rawArtist = raw['artist']?.toString().trim() ?? '';
@@ -378,14 +425,14 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
       album: rawAlbum,
       sourcePackage: _ytMusic,
     );
-    final displayedTitle = _normalize(_title);
-    final displayedArtist = _normalize(_artist);
-    if (_normalize(parsed.title) == displayedTitle &&
-        (displayedArtist.isEmpty || _normalize(parsed.artist) == displayedArtist ||
-         rawArtist.isEmpty)) return true;
-    // A real catalog track can have upload-specific artist metadata while
-    // preserving the same exact track title in both Android and VYBE.
-    return _normalize(rawTitle) == displayedTitle;
+    final matches = _titlesMatch(parsed.title,
+            candidateArtist: parsed.artist) ||
+        _titlesMatch(rawTitle, candidateArtist: rawArtist);
+    if (!matches) {
+      debugPrint('Music Video: source metadata changed: '
+          '"$rawTitle" ($rawArtist), expected "$_title" ($_artist)');
+    }
+    return matches;
   }
 
   String _queueSongKey(String title, String artist) {
@@ -476,8 +523,8 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
       }
       return '';
     }
-    _rememberPublishedYoutubeQueue(snapshot);
-    final currentTitle = _normalize(_title);
+    // Use ONLY the active media session here. A previous queue entry with
+    // the same song title may refer to a completely different recording.
     // The active queue ID is tied to PlaybackState.activeQueueItemId:
     // it belongs to the currently playing track, even if descriptionTitle
     // is empty or differs from MediaMetadata's display title.
@@ -486,24 +533,20 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
       final activeId = _validId(probe['activeQueueVideoId']);
       if (activeId.isNotEmpty) return activeId;
     }
-    final fromQueue = _ambiguousQueueTitles.contains(currentTitle)
-        ? null : _publishedQueueVideoIds[currentTitle];
-    if (fromQueue != null && fromQueue.isNotEmpty) return fromQueue;
     for (final candidate in [
-      meta['mediaId'],
+      // YouTube Music Video mode can expose a DIFFERENT video thumbnail ID
+      // than the audio-only release mediaId.
       _idFromUri(meta['artUri']),
-      _idFromUri(meta['albumArtUri']),
       _idFromUri(meta['displayIconUri']),
+      _idFromUri(meta['albumArtUri']),
+      meta['mediaId'],
     ]) {
       final id = _validId(candidate);
       if (id.isNotEmpty) return id;
     }
     if (probe is Map &&
-        (_normalize(probe['descriptionTitle']?.toString() ?? '') ==
-            currentTitle ||
-         _queueSongKey(probe['descriptionTitle']?.toString() ?? '',
-              probe['descriptionSubtitle']?.toString() ?? '') ==
-            currentTitle)) {
+        _titlesMatch(probe['descriptionTitle']?.toString() ?? '',
+          candidateArtist: probe['descriptionSubtitle']?.toString() ?? '')) {
       for (final candidate in [
         probe['activeMediaId'],
         _idFromUri(probe['activeMediaUri']),
@@ -516,14 +559,15 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
   }
 
   Future<String> _findVideo() async {
-    if (_title.isEmpty || _artist.isEmpty) return '';
+    if (_title.isEmpty) return '';
     final song = _songKey;
     final prefs = await SharedPreferences.getInstance();
+    final manuallyLinked = _validId(prefs.getString('manual|$song'));
+    if (manuallyLinked.isNotEmpty) return manuallyLinked;
     // Start with known, previous-queue IDs when the source just skipped.
     // The next song's notification metadata is sometimes published ahead
     // of its queue artwork, leading to a false permanent "no video" result.
     if (_sourcePackage == _ytMusic) {
-      final queueTitle = _normalize(_title);
       for (var scan = 0; scan < 4; scan++) {
         if (!mounted || _disposed || _songKey != song ||
             _sourcePackage != _ytMusic) return '';
@@ -531,17 +575,10 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
           final snapshot = await _channel.invokeMapMethod<String, dynamic>(
               'integrationDiagnostics', {'service': 'youtube_music'});
           if (snapshot != null && snapshot['sessionFound'] == true) {
-            // This collects the active playlist's exact published IDs even
-            // if the new MediaMetadata title has not caught up yet.
-            _rememberPublishedYoutubeQueue(snapshot);
+            // Never persist an untested video ID: Song and Video modes can
+            // legitimately have different videos/identifiers for one title.
             final id = _verifiedYoutubeMusicId(snapshot);
-            if (id.isNotEmpty) {
-              await prefs.setString(song, id);
-              return id;
-            }
-            final fromQueue = _ambiguousQueueTitles.contains(queueTitle)
-                ? null : _publishedQueueVideoIds[queueTitle];
-            if (fromQueue != null && fromQueue.isNotEmpty) return fromQueue;
+            if (id.isNotEmpty) return id;
           }
         } catch (error) {
           debugPrint('Music Video: YTM session probe failed: $error');
@@ -550,9 +587,8 @@ class _MusicVideoThemeState extends State<MusicVideoTheme>
           await Future<void>.delayed(const Duration(milliseconds: 525));
         }
       }
-      final saved = _validId(prefs.getString(song));
-      if (saved.isNotEmpty) return saved;
-      debugPrint('Music Video: YTM published no usable video ID for $_artist — $_title');
+      debugPrint('Music Video: current YouTube Music session published '
+          'no verifiable video ID for $_artist — $_title');
       return '';
     }
 
@@ -829,7 +865,7 @@ document.head.appendChild(tag);
   }
 
   Future<void> _beginVideo() async {
-    if (_busy || _advancing || _inCall || _title.isEmpty || _artist.isEmpty) return;
+    if (_busy || _advancing || _inCall || _title.isEmpty) return;
     if (_embedded && _ready) {
       if (await _pauseSource()) {
         await _send('window.vybePlay && window.vybePlay();');
@@ -1146,6 +1182,7 @@ document.head.appendChild(tag);
       return;
     }
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('manual|$_songKey', id);
     await prefs.setString(_songKey, id);
     if (mounted) {
       // A replacement link must replace the current iframe, not resume it.
@@ -1288,13 +1325,6 @@ document.head.appendChild(tag);
       final bottomFadeEnd = math.max(
           bottomFadeStart + 1.0, progressBottomY).clamp(0.0, h).toDouble();
       final bottomFadeHeight = bottomFadeEnd - bottomFadeStart;
-      // The existing bottom gradient is painted UNDER the album sleeve.
-      // Portrait's enlarged sleeve covers it. Add a separate inexpensive
-      // alpha gradient ON the image so the track and buttons remain readable
-      // without moving them or altering landscape.
-      final portraitCoverFadeHeight = portrait
-          ? math.max(1.0, math.min(artSide, progressBottomY - artTop))
-          : 0.0;
       final duration = _embedded ? _duration
           : widget.sourceDurationMs / 1000.0;
       final position = _embedded ? _position
@@ -1359,26 +1389,28 @@ document.head.appendChild(tag);
         ),
         // Transparent at record/album top, smoothly transitions through
         // black levels, and reaches full black at the progress track bottom.
-        Positioned(left: 0, right: 0, top: bottomFadeStart,
-          height: bottomFadeHeight,
-          child: const IgnorePointer(child: DecoratedBox(
-            decoration: BoxDecoration(gradient: LinearGradient(
-              begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              stops: [0, .08, .20, .36, .53, .68, .81, .91, 1],
-              colors: [
-                Color(0x00000000), Color(0x00000000),
-                Color(0x0D000000), Color(0x35000000),
-                Color(0x78000000), Color(0xB8000000),
-                Color(0xE8000000), Color(0xFA000000),
-                Color(0xFF000000),
-              ],
+        // Landscape unchanged. Its gradient must remain behind the
+        // lower-left record and album sleeve.
+        if (!portrait) ...[
+          Positioned(left: 0, right: 0, top: bottomFadeStart,
+            height: bottomFadeHeight,
+            child: const IgnorePointer(child: DecoratedBox(
+              decoration: BoxDecoration(gradient: LinearGradient(
+                begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                stops: [0, .08, .20, .36, .53, .68, .81, .91, 1],
+                colors: [
+                  Color(0x00000000), Color(0x00000000),
+                  Color(0x0D000000), Color(0x35000000),
+                  Color(0x78000000), Color(0xB8000000),
+                  Color(0xE8000000), Color(0xFA000000),
+                  Color(0xFF000000),
+                ],
+              )),
             )),
-          )),
-        ),
-        // Start the solid region at the BOTTOM of the progress line,
-        // never at the top of the album art or record.
-        Positioned(left: 0, right: 0, top: bottomFadeEnd, bottom: 0,
-          child: const IgnorePointer(child: ColoredBox(color: Colors.black))),
+          ),
+          Positioned(left: 0, right: 0, top: bottomFadeEnd, bottom: 0,
+            child: const IgnorePointer(child: ColoredBox(color: Colors.black))),
+        ],
         // One consistent gesture surface across the ENTIRE video/fanart
         // area, not an impossible-to-discover invisible hotspot at the top.
         // The sleeve and transport controls are painted AFTER this surface,
@@ -1430,53 +1462,39 @@ document.head.appendChild(tag);
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
-                child: Stack(fit: StackFit.expand, children: [
-                  sleeveArtwork == null
-                      // Same VYBE branded cover as other themes when idle.
-                      ? Image.asset('assets/vybe_album_placeholder.png',
-                          fit: BoxFit.cover, filterQuality: FilterQuality.high)
-                      : Image.memory(sleeveArtwork, fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                          filterQuality: FilterQuality.high),
-                  if (portrait) ...[
-                    // Black through a smooth alpha ramp: it has the same
-                    // darkening behavior as multiplying by black, without a
-                    // costly framebuffer blend pass on low-end head units.
-                    // Start just below the artwork's top border; fade to
-                    // near-black beneath the existing progress track.
-                    Positioned(left: 0, right: 0, top: 0,
-                      height: portraitCoverFadeHeight,
-                      child: const IgnorePointer(child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            stops: [0, .10, .23, .40, .58, .74, .89, 1],
-                            colors: [
-                              Color(0x00000000),
-                              Color(0x00000000),
-                              Color(0x10000000),
-                              Color(0x38000000),
-                              Color(0x78000000),
-                              Color(0xB9000000),
-                              Color(0xE9000000),
-                              Color(0xFF000000),
-                            ],
-                          ),
-                        ),
-                      )),
-                    ),
-                    // Only BELOW the progress track is solid black.
-                    if (portraitCoverFadeHeight < artSide)
-                      Positioned(left: 0, right: 0,
-                        top: portraitCoverFadeHeight, bottom: 0,
-                        child: const IgnorePointer(
-                          child: ColoredBox(color: Colors.black))),
-                  ],
-                ]),
+                child: sleeveArtwork == null
+                    ? Image.asset('assets/vybe_album_placeholder.png',
+                        fit: BoxFit.cover, filterQuality: FilterQuality.high)
+                    : Image.memory(sleeveArtwork, fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        filterQuality: FilterQuality.high),
               ),
             )),
           ),
+        ],
+        // PORTRAIT ONLY: an edge-to-edge black shadow is painted AFTER the
+        // album/background and BEFORE the metadata and transport controls.
+        // Painting this inside the square sleeve clipped the fade at its
+        // border and left the rest of the screen bright.
+        if (portrait) ...[
+          Positioned(left: 0, right: 0, top: bottomFadeStart,
+            height: bottomFadeHeight,
+            child: const IgnorePointer(child: DecoratedBox(
+              decoration: BoxDecoration(gradient: LinearGradient(
+                begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                stops: [0, .08, .20, .36, .53, .68, .81, .91, 1],
+                colors: [
+                  Color(0x00000000), Color(0x00000000),
+                  Color(0x0D000000), Color(0x35000000),
+                  Color(0x78000000), Color(0xB8000000),
+                  Color(0xE8000000), Color(0xFA000000),
+                  Color(0xFF000000),
+                ],
+              )),
+            )),
+          ),
+          Positioned(left: 0, right: 0, top: bottomFadeEnd, bottom: 0,
+            child: const IgnorePointer(child: ColoredBox(color: Colors.black))),
         ],
         if (_showLogo)
           Positioned(
@@ -1738,6 +1756,8 @@ class MusicVideoThemePreview extends StatelessWidget {
                 Color(0x08000000), Color(0x00000000),
               ]))),
         ),
+        // Preserve the original landscape background shadow.
+        if (!portrait) ...[
         Positioned(top: fadeStart, left: 0, right: 0, height: fadeHeight,
           child: const DecoratedBox(decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -1753,6 +1773,7 @@ class MusicVideoThemePreview extends StatelessWidget {
         ),
         Positioned(top: fadeEnd, bottom: 0, left: 0, right: 0,
           child: const ColoredBox(color: Colors.black)),
+        ],
 
         Positioned(
           left: left - side * .20, top: top - side * .21,
@@ -1796,6 +1817,26 @@ class MusicVideoThemePreview extends StatelessWidget {
             ),
           ),
         ),
+        // Portrait theme-library preview: global shadow sits ABOVE both the
+        // cover art and the animated/artwork background, not inside the sleeve.
+        if (portrait) ...[
+          Positioned(top: fadeStart, left: 0, right: 0, height: fadeHeight,
+            child: const IgnorePointer(child: DecoratedBox(
+              decoration: BoxDecoration(gradient: LinearGradient(
+                begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                stops: [0, .08, .20, .36, .53, .68, .81, .91, 1],
+                colors: [
+                  Color(0x00000000), Color(0x00000000),
+                  Color(0x0D000000), Color(0x35000000),
+                  Color(0x78000000), Color(0xB8000000),
+                  Color(0xE8000000), Color(0xFA000000),
+                  Color(0xFF000000),
+                ],
+              )))),
+          ),
+          Positioned(top: fadeEnd, bottom: 0, left: 0, right: 0,
+            child: const IgnorePointer(child: ColoredBox(color: Colors.black))),
+        ],
         Positioned(
           left: portrait ? w * .08 : w * .024,
           right: portrait ? w * .08 : null,
