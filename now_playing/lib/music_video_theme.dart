@@ -45,6 +45,7 @@ class MusicVideoTheme extends StatefulWidget {
   final bool sourcePlaying;
   final Future<void> Function(int) onSeekSource;
   final Future<void> Function() onSourcePlayPause;
+  final Future<void> Function()? onCaptureSourceArtwork;
   final VoidCallback onOpenThemes;
   final VoidCallback onToggleUtilityMenu;
   final VoidCallback onOpenCustomize;
@@ -72,6 +73,7 @@ class MusicVideoTheme extends StatefulWidget {
     required this.sourcePlaying,
     required this.onSeekSource,
     required this.onSourcePlayPause,
+    this.onCaptureSourceArtwork,
     required this.onOpenThemes,
     required this.onToggleUtilityMenu,
     required this.onOpenCustomize,
@@ -912,6 +914,15 @@ document.head.appendChild(tag);
       await _resumeSource();
       _retryUnmatchedYoutubeMusicVideo('video ID pending');
       return;
+    }
+    // Capture the Song release while the source MediaSession still owns
+    // playback. Never allow artwork work to hold up or block a valid video.
+    if (_sourcePackage == _ytMusic && widget.onCaptureSourceArtwork != null) {
+      try {
+        await widget.onCaptureSourceArtwork!()
+            .timeout(const Duration(milliseconds: 400));
+      } catch (_) {}
+      if (!mounted || token != _generation) return;
     }
     // A valid video ID is not a completed handoff. The source pause
     // can reject temporarily while its media session is changing tracks.

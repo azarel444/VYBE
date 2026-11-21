@@ -721,6 +721,7 @@ open class MainActivity : FlutterActivity() {
                 // app, not the possibly changed global MediaSession controller.
                 "musicVideoSourceSnapshot" -> result.success(musicVideoSourceSnapshot(
                     call.argument<String>("package") ?: ""))
+                "captureYoutubeSongArtwork" -> result.success(captureYoutubeSongArtwork())
                 "musicVideoOpenSource" -> result.success(
                     musicVideoOpenSource(call.argument<String>("package") ?: ""))
                 "musicVideoSourceControl" -> result.success(musicVideoSourceControl(
@@ -1490,6 +1491,56 @@ open class MainActivity : FlutterActivity() {
         push(true)
     }
 
+    // Artwork kind is a clue, NOT a reason to hide the source image.
+    // Inspect the URI associated with the bitmap extractArt actually picks.
+    private fun youtubeArtworkKind(md: MediaMetadata?): String {
+        if (md == null) return "unknown"
+        val albumUri = md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+        val artUri = md.getString(MediaMetadata.METADATA_KEY_ART_URI)
+        val selectedUri = when {
+            md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) != null -> albumUri
+            md.getBitmap(MediaMetadata.METADATA_KEY_ART) != null -> artUri
+            else -> albumUri ?: artUri
+        } ?: return "unknown"
+        return try {
+            val uri = Uri.parse(selectedUri)
+            val host = uri.host?.lowercase() ?: ""
+            when {
+                (host == "ytimg.com" || host.endsWith(".ytimg.com") ||
+                    host == "img.youtube.com") &&
+                    uri.pathSegments.firstOrNull() in listOf("vi", "vi_webp", "an_webp") ->
+                    "thumbnail"
+                host == "lh3.googleusercontent.com" ||
+                    host == "lh5.googleusercontent.com" -> "releaseCandidate"
+                else -> "unknown"
+            }
+        } catch (_: Exception) { "unknown" }
+    }
+
+    // Read the source directly BEFORE VYBE pauses it to start its own video.
+    // No transport command or mode switch is sent. Capture the exact bytes
+    // and tags from one native snapshot, not a later metadata callback.
+    private fun captureYoutubeSongArtwork(): Map<String, Any?> {
+        val source = musicVideoSession("com.google.android.apps.youtube.music")
+            ?: return emptyMap()
+        val md = source.metadata ?: return emptyMap()
+        val kind = youtubeArtworkKind(md)
+        val title = md.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+        val artist = md.getString(MediaMetadata.METADATA_KEY_ARTIST)
+            ?: md.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: ""
+        val album = md.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+        return mapOf(
+            "title" to title, "artist" to artist, "album" to album,
+            "duration" to md.getLong(MediaMetadata.METADATA_KEY_DURATION),
+            "sourceMediaId" to (md.getString(MediaMetadata.METADATA_KEY_MEDIA_ID) ?: ""),
+            "youtubeArtworkKind" to kind,
+            "art" to if (kind == "thumbnail") null else extractArt(md),
+            "customActions" to (source.playbackState?.customActions?.map {
+                mapOf("id" to it.action, "name" to it.name.toString())
+            } ?: emptyList<Map<String, String>>())
+        )
+    }
+
     private fun push(withMeta: Boolean) {
         val s = sink ?: return
         val c = controller
@@ -1527,7 +1578,16 @@ open class MainActivity : FlutterActivity() {
             "speed" to speed.toDouble(),
         )
 
-        val key = "$title|$artist|$album|$duration"
+        val youtube = c.packageName == "com.google.android.apps.youtube.music"
+        val kind = if (youtube) youtubeArtworkKind(md) else "unknown"
+        val mediaId = md?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID) ?: ""
+        if (youtube) {
+            map["youtubeArtworkKind"] = kind
+            map["sourceMediaId"] = mediaId
+        }
+        // Song/Video changes can retain the same display title.
+        val key = "$title|$artist|$album|$duration" +
+            (if (youtube) "|$mediaId|$kind" else "")
         if (withMeta || key != lastTrackKey) {
             map["queueItems"] = currentCoverflowQueue(c, st, title, artist)
         }

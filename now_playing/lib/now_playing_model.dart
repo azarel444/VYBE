@@ -694,6 +694,7 @@ class NowPlayingModel extends ChangeNotifier {
       'Source: $artworkSource\nLookup: $artworkLookupState\n'
       'Status: $artworkStatus\nFailure: $artworkFailure\n'
       'Cover displayed: ${art != null && !art!.flat}\n'
+      'YouTube Music capture: $_ytmCaptureDiagnostic\n'
       'YouTube Music pairing: $_ytmPairStatus\n'
       '$_ytmLastPairDiagnostic';
   Timer? _idleTimer;
@@ -726,7 +727,7 @@ class NowPlayingModel extends ChangeNotifier {
   // trusted album-side metadata/art and pair it back ONLY with matching
   // videos. Never infer an artist from unrelated video thumbnails.
   final List<_YoutubeMusicSongRelease> _ytMusicSongReleases = [];
-  static const String _ytmReleasePrefs = 'vybe_ytm_credited_song_releases_v3';
+  static const String _ytmReleasePrefs = 'vybe_ytm_credited_song_releases_v5';
   bool _ytmReleasesLoaded = false;
   String _ytmLastPersistedKey = '';
   int _ytmLastPersistedFingerprint = 0;
@@ -735,6 +736,9 @@ class NowPlayingModel extends ChangeNotifier {
   Map<String, dynamic>? _ytmPendingArtistlessEvent;
   bool _ytmSourceHadArtistField = false;
   bool _ytmMatchedVideoToSongRelease = false;
+  String _ytmArtworkKind = 'unknown';
+  String _ytmSourceMediaId = '';
+  String _ytmCaptureDiagnostic = 'Not captured';
   bool get musicVideoHasPairedSongArtwork =>
       _ytmMatchedVideoToSongRelease && art != null;
 
@@ -744,27 +748,82 @@ class NowPlayingModel extends ChangeNotifier {
   static String _ytmKey(String value) => StreamTrackMetadata.normalizedKey(value);
 
   static String _ytmReleaseKey(String artistName, String songTitle) =>
-      'ytm_song_version_v3|${_ytmKey(artistName)}|${_ytmKey(songTitle)}';
+      'ytm_song_version_v5|${_ytmKey(artistName)}|${_ytmKey(songTitle)}';
 
   /// A live, credited Song-mode event is reliable evidence. Keep its exact
   /// release art independently of video thumbnails and catalog searches.
   void _rememberYtMusicSongRelease() {
     if (_sessionPlayerPackage != _ytMusicPackage ||
         !_ytmSourceHadArtistField || _ytmMatchedVideoToSongRelease ||
+        _ytmArtworkKind == 'thumbnail' ||
         title.trim().isEmpty || artist.trim().isEmpty ||
         art == null || art!.flat || art!.bytes.isEmpty ||
         _validSessionArtworkTrack != '$title|$artist|$album') return;
-    final track = _ytmKey(title);
-    if (album.trim().isNotEmpty && _ytmKey(album) == track) return;
-    final bytes = art!.bytes;
-    final key = _ytmReleaseKey(artist, title);
+    if (!_canRememberSongRelease(title, artist, album, _ytmArtworkKind)) return;
+    _recordYtMusicSongRelease(title, artist, album, art!.bytes, durationMs);
+  }
+
+  bool _canRememberSongRelease(String song, String credit, String release,
+      String kind) {
+    if (kind == 'thumbnail' || song.trim().isEmpty ||
+        _artistLooksLikeVideoUploader(credit, song)) return false;
+    // A self-titled single is valid with a release-art URL. If the URL
+    // is absent, don't put an ambiguous upload image in the Song cache.
+    return kind == 'releaseCandidate' ||
+        (release.trim().isNotEmpty && _ytmKey(release) != _ytmKey(song) &&
+         !const {'unknown','unknownalbum','albumunknown','na'}
+            .contains(_ytmKey(release)));
+  }
+
+  // Called before the video handoff, while the source still owns playback.
+  // Cache directly, even if the Flutter image decode hasn't completed.
+  // No network search or source-mode command is issued.
+  Future<void> captureYoutubeSongArtwork() async {
+    if (_disposed || _sessionPlayerPackage != _ytMusicPackage) return;
+    final rawTitle = sourceTrackTitle;
+    final rawArtist = sourceTrackArtist;
+    try {
+      final snapshot = await _control.invokeMapMethod<String, dynamic>(
+          'captureYoutubeSongArtwork');
+      if (_disposed || snapshot == null ||
+          _sessionPlayerPackage != _ytMusicPackage ||
+          sourceTrackTitle != rawTitle || sourceTrackArtist != rawArtist ||
+          _ytmKey(snapshot['title']?.toString() ?? '') != _ytmKey(rawTitle) ||
+          _ytmKey(snapshot['artist']?.toString() ?? '') != _ytmKey(rawArtist)) {
+        return;
+      }
+      final song = snapshot['title']?.toString() ?? '';
+      final credit = snapshot['artist']?.toString() ?? '';
+      final release = snapshot['album']?.toString() ?? '';
+      final kind = snapshot['youtubeArtworkKind']?.toString() ?? 'unknown';
+      final bytes = snapshot['art'];
+      final actions = snapshot['customActions'];
+      _ytmCaptureDiagnostic = 'Source art: $kind; actions: $actions';
+      if (!_canRememberSongRelease(song, credit, release, kind) ||
+          bytes is! Uint8List || bytes.isEmpty) return;
+      final decoded = await ArtAssets.load(bytes);
+      if (_disposed || decoded == null || decoded.flat ||
+          _markedPlaceholders.contains(_imageFingerprint(bytes))) return;
+      // The snapshot's bytes and tags are captured together. Saving them
+      // remains safe even if the next track arrived during image decoding.
+      _recordYtMusicSongRelease(song, credit, release, bytes,
+          (snapshot['duration'] as num?)?.toInt() ?? 0);
+      _ytmCaptureDiagnostic = 'Captured Song cover: $credit — $song; actions: $actions';
+    } catch (error) {
+      _ytmCaptureDiagnostic = 'Source artwork capture unavailable: $error';
+    }
+  }
+
+  void _recordYtMusicSongRelease(String songTitle, String songArtist,
+      String songAlbum, Uint8List bytes, int songDuration) {
+    final key = _ytmReleaseKey(songArtist, songTitle);
     final hash = _imageFingerprint(bytes);
     final now = DateTime.now();
     _ytMusicSongReleases.removeWhere((item) =>
         _ytmReleaseKey(item.artist, item.title) == key);
     _ytMusicSongReleases.insert(0, _YoutubeMusicSongRelease(
-      title: title, artist: artist, album: album, artwork: bytes,
-      durationMs: durationMs, observedAt: now,
+      title: songTitle, artist: songArtist, album: songAlbum, artwork: bytes,
+      durationMs: songDuration, observedAt: now,
     ));
     if (_ytMusicSongReleases.length > 12) {
       _ytMusicSongReleases.removeRange(12, _ytMusicSongReleases.length);
@@ -868,7 +927,10 @@ class NowPlayingModel extends ChangeNotifier {
         final latestSource = _sessionPlayerPackage;
         if (latestSource == _ytMusicPackage &&
             pending['sourcePackage'] == latestSource &&
-            _ytmKey(pending['title']?.toString() ?? '') != '' &&
+            _ytmKey(pending['title']?.toString() ?? '') ==
+                _ytmKey(sourceTrackTitle) &&
+            _ytmKey(pending['artist']?.toString() ?? '') ==
+                _ytmKey(sourceTrackArtist) &&
             !_ytmMatchedVideoToSongRelease) {
           _onEvent(pending);
         }
@@ -887,7 +949,8 @@ class NowPlayingModel extends ChangeNotifier {
   String _ytmLastPairDiagnostic = '';
 
   _YoutubeMusicSongRelease? _matchYtMusicArtistlessVideo(
-      String rawTitle, String rawArtist, String rawAlbum, int rawDurationMs) {
+      String rawTitle, String rawArtist, String rawAlbum, int rawDurationMs,
+      {required bool knownThumbnail, required bool sameTrackTransition}) {
     final videoTitle = _ytmKey(rawTitle);
     if (videoTitle.isEmpty) return null;
     final now = DateTime.now();
@@ -914,9 +977,22 @@ class NowPlayingModel extends ChangeNotifier {
       // Only recover for an explicit artist-prefixed upload title or an
       // uncredited, upload-like event. A conflicting credited artist is not
       // accepted on a bare title match.
-      if (!artistPrefixed && (!untrustedArtist || !uploadStyleAlbum)) continue;
-      if (artistPrefixed && !untrustedArtist &&
-          rawArtistKey != artistKey && rawArtistKey != lead &&
+      final knownArtist = !untrustedArtist &&
+          (rawArtistKey == artistKey || rawArtistKey == lead);
+      final durationChanged = rawDurationMs > 0 && item.durationMs > 0 &&
+          (rawDurationMs - item.durationMs).abs() >= 2000;
+      final recent = now.difference(item.observedAt) < const Duration(seconds: 45);
+      // Credited videos need not be artistless. If we lack a thumbnail
+      // URL, require a recent corresponding Song release, video-like
+      // album tags, and a changed source identity/duration.
+      final creditedVideo = knownArtist &&
+          (knownThumbnail || (sameTrackTransition && uploadStyleAlbum &&
+              durationChanged && recent) ||
+           (_ytmMatchedVideoToSongRelease && uploadStyleAlbum &&
+              _ytmKey(title) == titleKey && _ytmKey(artist) == artistKey));
+      if (!artistPrefixed && !creditedVideo &&
+          (!untrustedArtist || !uploadStyleAlbum)) continue;
+      if (artistPrefixed && !untrustedArtist && !knownArtist &&
           !uploadStyleAlbum) continue;
       final age = now.difference(item.observedAt);
       // Even an artist-prefixed match should be reasonably recent. A
@@ -926,7 +1002,8 @@ class NowPlayingModel extends ChangeNotifier {
       final continuingPair = _ytmMatchedVideoToSongRelease &&
           _ytmKey(title) == titleKey && _ytmKey(artist) == artistKey;
       if (!continuingPair && (age.isNegative || age > (artistPrefixed
-          ? const Duration(hours: 6) : const Duration(seconds: 45)))) continue;
+          || (knownThumbnail && knownArtist)
+          ? const Duration(days: 1) : const Duration(seconds: 45)))) continue;
       if (rawDurationMs > 0 && item.durationMs > 0) {
         final delta = (rawDurationMs - item.durationMs).abs();
         if (delta > math.max(45000, item.durationMs * .25)) continue;
@@ -941,6 +1018,7 @@ class NowPlayingModel extends ChangeNotifier {
         '${_ytmKey(item.artist)}+${_ytmKey(item.title)}').join(', ');
     final diagnostic = 'Raw title: $rawTitle | Raw artist: $rawArtist | '
         'Raw album: $rawAlbum | Duration: $rawDurationMs | $_ytmPairStatus | '
+        'Artwork kind: $_ytmArtworkKind | '
         'Normalized title: $videoTitle | Saved keys: $savedKeys';
     if (diagnostic != _ytmLastPairDiagnostic) {
       _ytmLastPairDiagnostic = diagnostic;
@@ -1241,18 +1319,33 @@ class NowPlayingModel extends ChangeNotifier {
     final rawTitle = (m['title'] as String?) ?? '';
     final rawArtist = (m['artist'] as String?) ?? '';
     final rawAlbum = (m['album'] as String?) ?? '';
+    final newDurationMs = (m['duration'] as num?)?.toInt() ?? 0;
+    final previousMediaId = _ytmSourceMediaId;
+    final incomingMediaId = m['sourceMediaId']?.toString() ?? '';
+    final sameRawTrack = _ytmKey(sourceTrackTitle) == _ytmKey(rawTitle) &&
+        _ytmKey(sourceTrackArtist) == _ytmKey(rawArtist);
+    final sameTrackTransition = sameRawTrack &&
+        ((previousMediaId.isNotEmpty && incomingMediaId.isNotEmpty &&
+          previousMediaId != incomingMediaId) ||
+         (newDurationMs > 0 && durationMs > 0 &&
+          (newDurationMs - durationMs).abs() >= 2000));
     sourceTrackTitle = rawTitle;
     sourceTrackArtist = rawArtist;
-    final newDurationMs = (m['duration'] as num?)?.toInt() ?? 0;
-    final pairedMusicRelease = _sessionPlayerPackage == _ytMusicPackage
+    _ytmSourceMediaId = incomingMediaId;
+    _ytmArtworkKind = m['youtubeArtworkKind']?.toString() ?? 'unknown';
+    final pairedMusicRelease = _sessionPlayerPackage == _ytMusicPackage &&
+            _ytmArtworkKind != 'releaseCandidate'
         ? _matchYtMusicArtistlessVideo(
-            rawTitle, rawArtist, rawAlbum, newDurationMs)
+            rawTitle, rawArtist, rawAlbum, newDurationMs,
+            knownThumbnail: _ytmArtworkKind == 'thumbnail',
+            sameTrackTransition: sameTrackTransition)
         : null;
     // Cache restoration may finish after the first video metadata event.
     // Retain only that pending event while waiting, then reprocess once.
     _ytmPendingArtistlessEvent = _sessionPlayerPackage == _ytMusicPackage &&
             pairedMusicRelease == null &&
-            _artistLooksLikeVideoUploader(rawArtist, rawTitle) &&
+            (_ytmArtworkKind == 'thumbnail' ||
+             _artistLooksLikeVideoUploader(rawArtist, rawTitle)) &&
             !_ytmReleasesLoaded
         ? Map<String, dynamic>.from(m)
         : null;
@@ -1512,6 +1605,9 @@ class NowPlayingModel extends ChangeNotifier {
   void _clearAll() {
     sourceTrackTitle = '';
     sourceTrackArtist = '';
+    _ytmArtworkKind = 'unknown';
+    _ytmSourceMediaId = '';
+    _ytmMatchedVideoToSongRelease = false;
     title = '';
     artist = '';
     album = '';
