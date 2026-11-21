@@ -851,6 +851,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     clearLogo: settings.useArtistClearLogo ? _clearLogoBytes : null,
                     accent: _palette.a,
                     buildVinyl: _vinyl,
+                    // Share the VYBE typography, ClearLogo, and fallback renderers.
+                    buildArtist: (a) => _metadataText(_VybeTextRole.artist, a),
+                    buildTitle: (a) => _metadataText(_VybeTextRole.title, a),
+                    buildAlbum: (a) => _metadataText(_VybeTextRole.album, a),
+                    buildFallbackBackground: _musicVideoFallbackBackground,
+                    backgroundDarkness: settings.bgOverlay,
                     onVideoPlaybackChanged: (playing) {
                       _musicVideoIsPlaying = playing;
                     },
@@ -909,6 +915,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     scale: settings.fxSize['VHS'] ?? 1.0,
                     child: Stack(fit: StackFit.expand,
                       children: _vhsOverlay(fx, heavy)),
+                  ),
+                ),
+              ),
+            // Music Video's independent VHS intensity starts at OFF (0).
+            // Skip every VHS layer when zero; only draw overlays on demand.
+            if (!widget.driveHost &&
+                settings.theme == AppSettings.tMusicVideo &&
+                settings.musicVideoVhs > 0.0)
+              IgnorePointer(
+                child: FxComposite(
+                  mode: settings.fxBlendMode['VHS'] ?? 0,
+                  opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: _vhsOverlay(settings.musicVideoVhs,
+                        !settings.performance && settings.fxPerformanceMode == 0),
                   ),
                 ),
               ),
@@ -1518,8 +1540,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     ),
   );
 
+  /// Only build fallback visuals when the Music Video embed is unavailable.
+  /// Preserve album/fanart motion and source, plus all photo filters.
+  Widget _musicVideoFallbackBackground() {
+    if (settings.backgroundSource == 1) {
+      return ColorFiltered(
+        colorFilter: _contrastFilter(settings.bgContrast),
+        child: ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(
+            sigmaX: settings.bgBlur, sigmaY: settings.bgBlur,
+            tileMode: TileMode.clamp),
+          child: _premiumAnimatedBackground(settings.templateBackgroundMotion),
+        ),
+      );
+    }
+    final photo = _fanartBytes != null &&
+        (settings.backgroundSource == 6 ||
+         (settings.backgroundSource == 0 && settings.fanartMode == 1));
+    final background = _albumBackdrop();
+    // Album already has contrast; fanart needs it added here.
+    return photo
+        ? ColorFiltered(colorFilter: _contrastFilter(settings.bgContrast),
+            child: background)
+        : background;
+  }
+
   Widget _background() {
-    // The video theme draws its own carefully dimmed fanart/cover fallback.
+    // The video theme owns its fallback so it can avoid rendering under video.
     // Do not render a second animated, blurred backdrop underneath WebView:
     // this is unnecessary GPU work on the ATOTO A5L.
     if (!widget.driveHost && settings.theme == AppSettings.tMusicVideo) {

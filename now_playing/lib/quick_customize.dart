@@ -199,6 +199,12 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
       _compactSlider('Logo size', s.artistLogoScale, .5, 2,
         (s.artistLogoScale * 100).round().toString() + '%',
         (v) => s.artistLogoScale = v),
+      // The Music Video VHS layer is opt-in; zero adds no overlay or GPU cost.
+      if (s.theme == AppSettings.tMusicVideo)
+        _compactSlider('VHS effect', s.musicVideoVhs, 0, 1,
+          s.musicVideoVhs == 0 ? 'Off' :
+            (s.musicVideoVhs * 100).round().toString() + '%',
+          (v) => s.musicVideoVhs = v),
       if (fanartPhotoControls)
         _compactSlider('Fanart dim', s.cinematicDarkness, 0, 1,
           (s.cinematicDarkness * 100).round().toString() + '%',

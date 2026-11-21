@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,6 +27,12 @@ class MusicVideoTheme extends StatefulWidget {
   final Color accent;
   /// Reuse the real, spinning Record Cut renderer. Never draw a fake vinyl.
   final Widget Function(double diameter) buildVinyl;
+  /// Reuse the shared VYBE appearance and typography renderers.
+  final Widget Function() buildFallbackBackground;
+  final Widget Function(Alignment alignment) buildArtist;
+  final Widget Function(Alignment alignment) buildTitle;
+  final Widget Function(Alignment alignment) buildAlbum;
+  final double backgroundDarkness;
   final ValueChanged<bool> onVideoPlaybackChanged;
   final int sourcePositionMs;
   final int sourceDurationMs;
@@ -47,6 +52,11 @@ class MusicVideoTheme extends StatefulWidget {
     required this.sourcePackage,
     required this.accent,
     required this.buildVinyl,
+    required this.buildFallbackBackground,
+    required this.buildArtist,
+    required this.buildTitle,
+    required this.buildAlbum,
+    required this.backgroundDarkness,
     required this.onVideoPlaybackChanged,
     required this.sourcePositionMs,
     required this.sourceDurationMs,
@@ -1047,29 +1057,9 @@ document.head.appendChild(tag);
     return (time ~/ 60).toString() + ':' + (time % 60).toString().padLeft(2, '0');
   }
 
-  /// If no video matches, fanart is the full-screen visual—not a stalled
-  /// YouTube "press play" screen. Preserve its detail when artist fanart
-  /// exists; soften only a scaled-up album cover fallback.
-  Widget _videoBackdrop() {
-    final fanart = widget.fanart;
-    final cover = widget.artwork;
-    return Stack(fit: StackFit.expand, children: [
-      if (fanart != null)
-        Image.memory(fanart, fit: BoxFit.cover,
-            gaplessPlayback: true, filterQuality: FilterQuality.medium)
-      else if (cover != null)
-        ImageFiltered(imageFilter: ui.ImageFilter.blur(sigmaX: 13, sigmaY: 13),
-          child: Transform.scale(scale: 1.12,
-            child: Image.memory(cover, fit: BoxFit.cover,
-              gaplessPlayback: true)))
-      else
-        const DecoratedBox(decoration: BoxDecoration(
-          gradient: LinearGradient(begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF14121D), Color(0xFF090B10), Colors.black]))),
-      const ColoredBox(color: Color(0x38000000)),
-    ]);
-  }
+  /// Only construct the backdrop when the embedded video is not present.
+  /// Its filters, motion, and source selection remain live in Customize.
+  Widget _videoBackdrop() => widget.buildFallbackBackground();
 
   Widget _ringTransport(IconData icon, VoidCallback? onTap,
       double diameter, String tooltip) {
@@ -1105,22 +1095,27 @@ document.head.appendChild(tag);
       // Landscape anchors follow the supplied 1536x864 reference:
       // artwork x=1.3%, y=74.7%, width=28.5%; record peeks out behind it
       // to the right. Transport is x=44.8%..96.8%, y≈92%.
-      final artSide = portrait ? w * .63 : w * .285;
-      final artLeft = portrait ? w * .035 : w * .013;
-      final artTop = portrait ? h * .69 : h * .747;
+      // Shrink and center portrait artwork, reserving a separate control row.
+      // Preserve the approved landscape sleeve/transport composition.
+      final artSide = portrait ? math.min(w * .38, h * .24) : w * .285;
       final discSide = artSide * .72;
-      // Place the vinyl's CENTER exactly on the sleeve's right edge.
-      // Its left half stays hidden under the art; the exposed half
-      // matches the Muzine sleeve treatment from the reference.
+      final transportWidth = portrait ? math.min(w * .86, 560.0) : w * .52;
+      final transportRight = portrait ? (w - transportWidth) * .5 : w * .032;
+      final transportBottom = portrait ? h * .035 : h * .038;
+      final transportHeight = portrait ? 68.0 :
+          (h * .084).clamp(62.0, 76.0).toDouble();
+      final artLeft = portrait
+          ? (w - (artSide + discSide * .5)) * .5 : w * .013;
+      final artTop = portrait
+          ? math.max(h * .50, h - transportBottom - transportHeight -
+              h * .035 - artSide)
+          : h * .747;
+      // The real vinyl is half exposed to the right of the sleeve.
       final discLeft = artLeft + artSide - discSide * .5;
       final discTop = artTop + artSide * .075;
-      final transportWidth = portrait ? w * .94 : w * .52;
-      final transportRight = portrait ? w * .03 : w * .032;
-      final transportBottom = portrait ? h * .035 : h * .038;
-      final transportHeight = portrait ? 68.0 : (h * .084).clamp(62.0, 76.0).toDouble();
-      final iconSize = portrait ? 39.0
-          : (h * .061).clamp(40.0, 55.0).toDouble();
-      final iconGap = portrait ? 7.0 : w * .015;
+      final iconSize = portrait ? 44.0 :
+          (h * .061).clamp(40.0, 55.0).toDouble();
+      final iconGap = portrait ? 9.0 : w * .015;
       final trackThickness = portrait ? 5.0 : 8.0;
       final blackFromBottom = transportBottom + transportHeight * .5 -
           trackThickness * .5;
@@ -1141,7 +1136,8 @@ document.head.appendChild(tag);
       return ClipRect(child: Stack(fit: StackFit.expand, children: [
         // Keep existing artist imagery as a safe fallback while a verified
         // video is not available. Never display an empty, black-only theme.
-        _videoBackdrop(),
+        if (!_embedded) _videoBackdrop()
+        else const ColoredBox(color: Colors.black),
         if (_embedded)
           Positioned.fill(child: ClipRect(
             child: OverflowBox(
@@ -1164,6 +1160,12 @@ document.head.appendChild(tag);
               ),
             ),
           )),
+        // Customize Darkness affects artwork/fanart/animated fallback only;
+        // video itself stays full brightness by default.
+        if (!_embedded && widget.backgroundDarkness > .001)
+          Positioned.fill(child: IgnorePointer(child: ColoredBox(
+            color: Colors.black.withOpacity(
+              widget.backgroundDarkness.clamp(0.0, 1.0))))),
         // Independent cinematic fades: TOP becomes transparent at the end
         // of the title/album band (~17% of screen height). BOTTOM transitions
         // from clear video into SOLID BLACK before the transport row.
@@ -1267,22 +1269,10 @@ document.head.appendChild(tag);
               onTap: widget.onToggleUtilityMenu,
               onLongPress: widget.onOpenCustomize,
               onDoubleTap: widget.onOpenSettings,
-              child: Align(alignment: Alignment.topLeft,
-                child: widget.clearLogo != null
-                  ? Image.memory(widget.clearLogo!,
-                      fit: BoxFit.contain,
-                      alignment: Alignment.topLeft,
-                      gaplessPlayback: true)
-                  : Text(_artist.toUpperCase(),
-                      maxLines: 2, overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: Colors.white,
-                        fontSize: portrait ? w * .060 : w * .030,
-                        fontWeight: FontWeight.w800,
-                        fontStyle: FontStyle.italic,
-                        shadows: const [
-                          Shadow(color: Colors.black, blurRadius: 12),
-                        ])),
-              ),
+              // Shared VYBE ClearLogo/RIOT artist renderer, including the
+              // existing logo-size control and fixed custom letter spacing.
+              child: SizedBox.expand(
+                child: widget.buildArtist(Alignment.topLeft)),
             ),
           ),
         if (_showInfo)
@@ -1292,28 +1282,15 @@ document.head.appendChild(tag);
             width: infoWidth,
             child: IgnorePointer(child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(_title, textAlign: TextAlign.right,
-                  maxLines: 2, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.white,
-                    fontSize: portrait ? w * .055 : (w * .020).clamp(18.0, 32.0).toDouble(),
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: .05,
-                    shadows: const [
-                      Shadow(color: Color(0xDD000000), blurRadius: 10),
-                    ])),
-                if (_album.isNotEmpty &&
-                    _normalize(_album) != _normalize(_title)) ...[
-                  const SizedBox(height: 10),
-                  Text(_album, textAlign: TextAlign.right,
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.white,
-                      fontSize: portrait ? w * .038 : (w * .015).clamp(13.0, 24.0).toDouble(),
-                      letterSpacing: .08,
-                      shadows: const [
-                        Shadow(color: Color(0xDD000000), blurRadius: 10),
-                      ])),
-                ],
+                SizedBox(width: infoWidth,
+                  height: portrait ? h * .070 : h * .065,
+                  child: widget.buildTitle(Alignment.centerRight)),
+                SizedBox(height: portrait ? 6.0 : 4.0),
+                SizedBox(width: infoWidth,
+                  height: portrait ? h * .052 : h * .060,
+                  child: widget.buildAlbum(Alignment.centerRight)),
               ],
             )),
           ),
@@ -1488,10 +1465,10 @@ class MusicVideoThemePreview extends StatelessWidget {
     builder: (context, box) {
       final w = box.maxWidth, h = box.maxHeight;
       final portrait = h > w * 1.1;
-      final side = portrait ? w * .63 : w * .285;
-      final left = portrait ? w * .035 : w * .013;
-      final top = portrait ? h * .69 : h * .747;
+      final side = portrait ? math.min(w * .38, h * .24) : w * .285;
       final discSide = side * .72;
+      final left = portrait ? (w - (side + discSide * .5)) * .5 : w * .013;
+      final top = portrait ? math.max(h * .50, h * .846 - side) : h * .747;
       return ClipRect(child: Stack(fit: StackFit.expand, children: [
         // A static fanart approximation for the theme gallery. Never start
         // YouTube/WebView simply by browsing the theme preview.
@@ -1511,7 +1488,7 @@ class MusicVideoThemePreview extends StatelessWidget {
             ),
           )),
         ),
-        Positioned(left: left + side * .80, top: top + side * .075,
+        Positioned(left: left + side - discSide * .5, top: top + side * .075,
           width: discSide, height: discSide,
           child: Container(
             decoration: BoxDecoration(
@@ -1551,6 +1528,7 @@ class MusicVideoThemePreview extends StatelessWidget {
               : Text(artist.isEmpty ? 'VYBE' : artist.toUpperCase(),
                   maxLines: 2, overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: Colors.white,
+                    fontFamily: 'VYBERiot',
                     fontWeight: FontWeight.w800,
                     fontStyle: FontStyle.italic,
                     fontSize: portrait ? w * .047 : w * .022)),
@@ -1573,8 +1551,9 @@ class MusicVideoThemePreview extends StatelessWidget {
                     fontSize: portrait ? w * .030 : w * .014)),
             ],
           )),
-        Positioned(right: w * .032, bottom: h * .038,
-          width: portrait ? w * .94 : w * .52,
+        Positioned(right: portrait ? w * .07 : w * .032,
+          bottom: portrait ? h * .035 : h * .038,
+          width: portrait ? w * .86 : w * .52,
           height: h * .084,
           child: Row(children: [
             Icon(Icons.arrow_circle_left_outlined,

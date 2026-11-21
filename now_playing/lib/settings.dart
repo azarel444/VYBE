@@ -165,6 +165,8 @@ class AppSettings extends ChangeNotifier {
   int barCount = 96;
   int accent = 0;
   double vhsEffects = 0.7; // VHS look strength 0 .. 1
+  // Dedicated Music Video effect: independent of global VHS, OFF by default.
+  double musicVideoVhs = 0.0;
   int clubBlendMode = 0; // 0 Normal, 1 Add, 2 Screen, 3 Lighten, 4 Overlay, 5 Soft light, 6 Difference, 7 Exclusion, 8 Color dodge, 9 Hard light
   int backgroundSource = 0; // 0 artwork, 1 palette, 2 club, 3 album + club, 4 laser tunnel, 5 album + tunnel
   bool animatedTemplateBackground = false; // alternative to blurred album art
@@ -309,6 +311,7 @@ class AppSettings extends ChangeNotifier {
     'kParticles': kParticles,
     'kMotion': kMotion,
     'vhsEffects': vhsEffects,
+    'musicVideoVhs': musicVideoVhs,
     'useVybePalette': useVybePalette,
     'vhsVaporwave': vhsVaporwave,
     'fxGlow': fxGlow,
@@ -397,6 +400,7 @@ class AppSettings extends ChangeNotifier {
     kParticles = number('kParticles', 1.0, 0.0, 1.0);
     kMotion = number('kMotion', 1.0, 0.0, 1.0);
     vhsEffects = number('vhsEffects', 0.7, 0.0, 1.0);
+    musicVideoVhs = number('musicVideoVhs', 0.0, 0.0, 1.0);
     useVybePalette = flag('useVybePalette', false);
     vhsVaporwave = flag('vhsVaporwave', false);
     fxGlow = flag('fxGlow', false);
@@ -632,6 +636,8 @@ class AppSettings extends ChangeNotifier {
     // Older versions had one slider; start the VHS one at that value.
     vhsEffects =
         (p.getDouble('vhsEffects') ?? oldFx).clamp(0.0, 1.0).toDouble();
+    musicVideoVhs = (p.getDouble('musicVideoVhs') ?? 0.0)
+        .clamp(0.0, 1.0).toDouble();
     double k(String key, double def) =>
         (p.getDouble(key) ?? def).clamp(0.0, 1.0).toDouble();
     kGlow = k('kGlow', oldFx);
@@ -813,6 +819,7 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('kParticles', kParticles);
     await p.setDouble('kMotion', kMotion);
     await p.setDouble('vhsEffects', vhsEffects);
+    await p.setDouble('musicVideoVhs', musicVideoVhs);
     await p.setBool('animatedTemplateBackground', backgroundSource == 1);
     await p.setInt('backgroundSource', backgroundSource);
     await p.setInt('clubBlendMode', clubBlendMode);
