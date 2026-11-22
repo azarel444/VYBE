@@ -45,8 +45,12 @@ void main() {
   vec2 p = uv * vec2(u_size.x / max(u_size.y, 1.0), 1.0) / max(0.5, u_effectSize);
   float a = wave(p, t);
   float b = wave(p.yx * 1.21 + vec2(1.7, 0.8), t * 0.83);
-  vec2 displacement = vec2(a, b) * (0.006 + bass * 0.009) * strength;
   float mode = floor(u_mode + 0.5);
+  // Distortion modes author their own displacement. Atmospheric FX must
+  // not inherit liquid ripples unrelated to their selected behavior.
+  vec2 displacement = mode < 3.5
+      ? vec2(a, b) * (0.006 + bass * 0.009) * strength
+      : vec2(0.0);
   float glassHighlight = 0.0;
   vec3 illumination = vec3(0.0);
   vec2 d = uv - vec2(0.5);
@@ -259,8 +263,10 @@ void main() {
   }
   vec2 sampleUv = clamp(uv + displacement, vec2(0.002), vec2(0.998));
   // RGB separation follows actual displaced pixels, never painted borders.
-  float fringe = (mode > 1.5 && mode < 2.5 ? 0.006 : 0.0013)
-      * strength + 0.001 * bass * strength;
+  float fringe = mode > 1.5 && mode < 2.5
+      ? (0.006 + 0.001 * bass) * strength
+      : mode < 3.5 ? (0.0013 + 0.001 * bass) * strength
+      : mode > 5.5 && mode < 6.5 ? 0.0016 * strength : 0.0;
   vec2 shift = normalize(displacement + vec2(0.0001)) * fringe;
   vec4 base = texture(u_texture, sampleUv);
   float red = texture(u_texture, clamp(sampleUv + shift, vec2(0.002), vec2(0.998))).r;

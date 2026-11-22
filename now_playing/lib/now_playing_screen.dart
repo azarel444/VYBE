@@ -797,7 +797,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Video playback owns its visuals. Global shaders and spectrum FX
             // behind the WebView would be invisible but still cost frame time.
             if (heavy && settings.theme != AppSettings.tMusicVideo)
-              _shaderFxLayer(),
+              ..._shaderFxLayers(),
             if (heavy && settings.theme != AppSettings.tMusicVideo)
               ..._extraFx(),
             if (vhs && settings.theme != AppSettings.tMusicVideo)
@@ -806,7 +806,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               child: Transform.scale(scale: settings.fxSize['VHS'] ?? 1.0,
                 child: Stack(fit: StackFit.expand, children: _vhsBackdrop(fx)))),
             if (settings.bgEffects && settings.particles && heavy &&
-                settings.theme != AppSettings.tMusicVideo)
+                settings.theme != AppSettings.tMusicVideo && !_gpuFxActive)
               IgnorePointer(
                 child: Transform.scale(
                   scale: settings.fxSize['Floating Particles'] ?? 1.0,
@@ -2356,39 +2356,90 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
 
-  Widget _shaderFxLayer() {
-    int mode = -1;
-    String name = '';
-    for (final candidate in const <String>[
+  /// All compatible image effects now run as individual, stackable
+  /// full-screen Impeller backdrop passes. Each pass samples the pixels
+  /// produced by the previous pass, instead of painting symbolic strokes.
+  /// In Compatibility mode the existing Canvas effects remain available.
+  bool get _gpuFxActive =>
+      ui.ImageFilter.isShaderFilterSupported &&
+      !settings.performance &&
+      settings.fxPerformanceMode != 1 &&
+      (settings.fxPerformanceMode == 2 || _fxTier > 0);
+
+  List<Widget> _shaderFxLayers() {
+    if (!_gpuFxActive) return const <Widget>[];
+    const names = <String>[
       'Liquid Refraction', 'Vortex Tunnel', 'Prism Shards',
-      'Holographic Interference',
-    ]) {
-      if (settings.extraFx[candidate] ?? false) {
-        name = candidate;
-        mode = candidate == 'Liquid Refraction' ? 0
-          : candidate == 'Vortex Tunnel' ? 1
-          : candidate == 'Prism Shards' ? 2 : 3;
-        break;
-      }
+      'Holographic Interference', 'Bass Shockwave', 'Aurora Curtains',
+      'Electric Arcs', 'Light Trails', 'Morphing Wireframe',
+      'Particle Currents', 'Water Shimmer', 'Beat Ripples',
+      'Moving Bokeh', 'Aurora Sweep', 'Light Rays', 'Nebula Haze',
+      'Perspective Grid', 'Twinkling Stars', 'Floating Particles',
+      'Cover Bloom',
+    ];
+    final enabled = <bool>[
+      settings.extraFx['Liquid Refraction'] ?? false,
+      settings.extraFx['Vortex Tunnel'] ?? false,
+      settings.extraFx['Prism Shards'] ?? false,
+      settings.extraFx['Holographic Interference'] ?? false,
+      settings.extraFx['Bass Shockwave'] ?? false,
+      settings.extraFx['Aurora Curtains'] ?? false,
+      settings.extraFx['Electric Arcs'] ?? false,
+      settings.extraFx['Light Trails'] ?? false,
+      settings.extraFx['Morphing Wireframe'] ?? false,
+      settings.extraFx['Particle Currents'] ?? false,
+      settings.fxWater, settings.fxRipples, settings.fxGlow,
+      settings.fxSweep, settings.fxRays, settings.fxNebula,
+      settings.fxGrid, settings.fxStars,
+      settings.bgEffects && settings.particles,
+      settings.fxBloom,
+    ];
+    final intensity = <double>[
+      for (final n in names.take(10)) settings.extraStrength[n] ?? 0.8,
+      settings.kWater, settings.kRipples, settings.kGlow,
+      settings.kSweep, settings.kRays, settings.kNebula,
+      settings.kGrid, settings.kStars,
+      settings.kParticles, settings.kBloom,
+    ];
+    final tier = settings.fxPerformanceMode == 2 ? 2 : _fxTier;
+    final limit = tier <= 1 ? 5 : names.length;
+    final pulseAge = ripples.starts.isEmpty ? 99.0 :
+        (_time - ripples.starts.last).clamp(0.0, 99.0).toDouble();
+    final fx = <Widget>[];
+    for (var i = 0; i < names.length && fx.length < limit; i++) {
+      if (!enabled[i] || intensity[i] <= 0) continue;
+      // Coverflow draws its shockwave on the correct plane between rear
+      // sleeves and central cover. Keep the depth-anchored one intact.
+      if (settings.theme == AppSettings.tCoverflow && i == 4) continue;
+      // Coverflow owns a specialized album-outline bloom.
+      if (settings.theme == AppSettings.tCoverflow && i == 19) continue;
+      final name = names[i];
+      final strength = (intensity[i] * (tier == 1 ? .70 : 1.0))
+          .clamp(0.0, 1.0).toDouble();
+      final blend = const <int>[
+        0, 1, 1, 2, 3, 4, 3, 1, 2, 5, 5, 6, 6, 7, 7, 7, 7,
+        0, 0, 0, 0, 0, 2, 0
+      ][(settings.fxBlendMode[name] ?? 0).clamp(0, 23)];
+      fx.add(IgnorePointer(child: AnimatedBuilder(
+        animation: _tick,
+        builder: (context, _) => RefractionShaderLayer(
+          key: ValueKey('gpu-fx-$name'),
+          time: fxClock.t,
+          bass: model.playing ? fxClock.bass : 0,
+          pulseAge: pulseAge,
+          mode: i,
+          strength: strength,
+          blendMode: blend,
+          blendOpacity: settings.fxBlendOpacity[name] ?? 1.0,
+          effectSize: settings.fxSize[name] ?? 1.0,
+          colorA: _palette.a,
+          colorB: _palette.b,
+          colorC: _palette.c,
+          child: const SizedBox.expand(),
+        ),
+      )));
     }
-    if (mode < 0 || !ui.ImageFilter.isShaderFilterSupported) {
-      return const SizedBox.shrink();
-    }
-    final tier = settings.fxPerformanceMode == 2 ? 2 : settings.fxPerformanceMode == 1 ? 0 : _fxTier;
-    if (tier == 0) return const SizedBox.shrink();
-    final intensity = (settings.extraStrength[name] ?? 0.8) *
-      (tier == 1 ? 0.45 : 1.0);
-    return IgnorePointer(child: AnimatedBuilder(
-      animation: _tick,
-      builder: (context, _) => RefractionShaderLayer(
-        time: fxClock.t, bass: fxClock.bass,
-        strength: intensity, mode: mode,
-        blendMode: const [0, 1, 1, 2, 3, 4, 3, 1, 2, 5, 5, 6, 6, 7, 7, 7, 7, 0, 0, 0, 0, 0, 2, 0][(settings.fxBlendMode[name] ?? 0).clamp(0, 23)],
-        blendOpacity: settings.fxBlendOpacity[name] ?? 1.0,
-        effectSize: settings.fxSize[name] ?? 1.0,
-        child: const SizedBox.expand(),
-      ),
-    ));
+    return fx;
   }
 
   /// The optional effects, each switched on or off in settings.
@@ -2435,10 +2486,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
         if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
             (albumFx ? i == 1 : (!coverflow || i != 1)) &&
-            // Distortion-only FX are rendered by the GPU backdrop shader.
-            // Never draw their old decorative strokes or polygon outlines.
-            !(ui.ImageFilter.isShaderFilterSupported &&
-              (i == 0 || i == 3 || i == 5 || i == 9)))
+            // GPU path renders all ten with real image processing.
+            // Coverflow retains the depth-anchored shockwave painter.
+            (!_gpuFxActive || (coverflow && i == 1)))
           layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             artKey: i == 1 ? _artKey : null,
             layerKey: i == 1 ? _shockLayerKey : null,
@@ -2446,24 +2496,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: i == 1 ? _shockLayerKey : null),
-      if (ambientFx && settings.fxNebula)
+      if (ambientFx && settings.fxNebula && !_gpuFxActive)
         layer('Nebula Haze', AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),
-      if (ambientFx && settings.fxGrid)
+      if (ambientFx && settings.fxGrid && !_gpuFxActive)
         layer('Perspective Grid', AtmospherePainter(mode: 1, clock: fxClock, palette: p,
             k: settings.kGrid, repaint: _tick)),
-      if (ambientFx && settings.fxStars)
+      if (ambientFx && settings.fxStars && !_gpuFxActive)
         layer('Twinkling Stars', AtmospherePainter(mode: 2, clock: fxClock, palette: p,
             k: settings.kStars, repaint: _tick)),
-      if (ambientFx && settings.fxGlow)
+      if (ambientFx && settings.fxGlow && !_gpuFxActive)
         layer('Moving Bokeh', GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow,
             effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0, repaint: _tick)),
-      if (ambientFx && settings.fxSweep)
+      if (ambientFx && settings.fxSweep && !_gpuFxActive)
         layer('Aurora Sweep', SweepPainter(
             clock: fxClock, palette: p, k: settings.kSweep,
             effectSize: settings.fxSize['Aurora Sweep'] ?? 1.0, repaint: _tick)),
-      if ((albumFx || !coverflow) && settings.fxRays)
+      if ((albumFx || !coverflow) && settings.fxRays && !_gpuFxActive)
         layer('Light Rays', RaysPainter(
             clock: fxClock,
             artKey: _artKey,
@@ -2473,7 +2523,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             k: settings.kRays,
             topOrigin: settings.theme == AppSettings.tTypo,
             repaint: _tick), layerKey: _raysLayerKey),
-      if ((albumFx || !coverflow) && settings.fxRipples)
+      if ((albumFx || !coverflow) && settings.fxRipples && !_gpuFxActive)
         layer('Beat Ripples', RipplesPainter(
             state: ripples,
             clock: fxClock,
@@ -2483,7 +2533,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             palette: p,
             k: settings.kRipples,
             repaint: _tick), layerKey: _ripplesLayerKey),
-      if (ambientFx && settings.fxWater)
+      if (ambientFx && settings.fxWater && !_gpuFxActive)
         layer('Water Shimmer', WaterPainter(
             clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),
     ];

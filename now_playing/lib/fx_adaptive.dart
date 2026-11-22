@@ -18,11 +18,12 @@ class FxAdaptiveGovernor {
 
   void _onTimings(List<ui.FrameTiming> frames) {
     if (!enabled) return;
-    // A 30 fps app has ~33ms per frame; raster times above 28ms risk jank.
+    // Target 60fps (~16.7 ms/frame) when the display can sustain it.
+    // Real frame timings, not device brand, determine when to scale FX.
     for (final f in frames) {
       _samples++;
-      if (f.rasterDuration.inMicroseconds > 28000 ||
-          f.buildDuration.inMicroseconds > 28000) _slow++;
+      if (f.rasterDuration.inMicroseconds > 16000 ||
+          f.buildDuration.inMicroseconds > 16000) _slow++;
     }
     if (_samples < 150) return;
     final ratio = _slow / _samples;
