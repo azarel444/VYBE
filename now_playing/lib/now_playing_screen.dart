@@ -2542,7 +2542,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (ambientFx && settings.fxGlow && !_gpuFxActive)
         layer('Moving Bokeh', GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow,
-            effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0, repaint: _tick)),
+            effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0,
+            origin: fxOrigin, repaint: _tick)),
       if (ambientFx && settings.fxSweep && !_gpuFxActive)
         layer('Aurora Sweep', SweepPainter(
             clock: fxClock, palette: p, k: settings.kSweep,
