@@ -15,6 +15,7 @@ uniform float u_pulseAge; // Time since last REAL FFT bass onset, 99 = none.
 uniform vec3 u_colorA;
 uniform vec3 u_colorB;
 uniform vec3 u_colorC;
+uniform vec2 u_origin; // Artwork center in normalized screen coordinates.
 out vec4 fragColor;
 
 float hash21(vec2 p) {
@@ -46,22 +47,44 @@ void main() {
   float a = wave(p, t);
   float b = wave(p.yx * 1.21 + vec2(1.7, 0.8), t * 0.83);
   float mode = floor(u_mode + 0.5);
-  // Distortion modes author their own displacement. Atmospheric FX must
-  // not inherit liquid ripples unrelated to their selected behavior.
-  vec2 displacement = mode < 3.5
+  // Only liquid refraction uses the shared wave. Other modes must have
+  // independent displacement fields or they all look like wavy water.
+  vec2 displacement = mode < 0.5
       ? vec2(a, b) * (0.006 + bass * 0.009) * strength
       : vec2(0.0);
   float glassHighlight = 0.0;
   vec3 illumination = vec3(0.0);
-  vec2 d = uv - vec2(0.5);
+  vec2 origin = clamp(u_origin, vec2(-0.15), vec2(1.15));
+#ifdef IMPELLER_TARGET_OPENGLES
+  origin.y = 1.0 - origin.y;
+#endif
+  // Aspect-correct radial space makes rings and trails circular in pixels.
+  vec2 aspect = vec2(u_size.x / max(u_size.y, 1.0), 1.0);
+  vec2 d = (uv - origin) * aspect;
   float radius = length(d);
-  vec2 radial = d / max(radius, 0.001);
+  vec2 radial = d / max(radius, 0.001) / aspect;
+  float theta = atan(d.y, d.x);
   if (mode > 0.5 && mode < 1.5) {
-    vec2 d = uv - vec2(0.5);
-    float r = length(d);
-    float angle = (0.13 + 0.11 * bass) * strength * exp(-r * 2.4)
-      * sin(t * 0.40 + r * 13.0);
-    displacement += vec2(-d.y, d.x) * angle;
+    // Actual rotational image mapping, accelerated near the artwork.
+    // The scene spirals into a dark perspective tunnel, not a sine wobble.
+    float proximity = exp(-radius * 1.85 / max(u_effectSize, 0.5));
+    float twist = (1.55 + bass * .55) * strength * proximity *
+        (0.83 + 0.17 * sin(t * 0.37));
+    float spin = t * 0.78;
+    float cs = cos(twist), sn = sin(twist);
+    vec2 rotated = vec2(cs*d.x - sn*d.y, sn*d.x + cs*d.y);
+    float depthPull = 1.0 - (0.34 + 0.10 * bass) * strength * proximity;
+    displacement += (rotated * depthPull - d) / aspect;
+    // The spinning luminous arms and receding concentric tunnel are
+    // visible even where the underlying photograph has little detail.
+    float spiral = pow(max(0.0,
+        sin(theta * 4.0 + 16.0 * log(radius + 0.075) + spin * 2.0)), 12.0);
+    float ring = pow(max(0.0,
+        cos(26.0 * log(radius + 0.10) + spin * 2.3)), 22.0);
+    float visibility = smoothstep(.08, .22, radius) *
+        (1.0 - smoothstep(.75, 1.35, radius));
+    illumination += fxColor(.5 + .35 * sin(theta + spin)) *
+        (spiral * .58 + ring * .23) * visibility;
   } else if (mode > 1.5 && mode < 2.5) {
     // Sparse, irregular floating refractive shards, each with a unique size,
     // depth, velocity and rotation. No tiled cells or painted geometry.
@@ -120,44 +143,65 @@ void main() {
     illumination += mix(u_colorA, u_colorC, uv.x) *
         curtain * (.13 + bass * .14);
   } else if (mode > 5.5 && mode < 6.5) {
-    // Electric Arcs: the stroke carries local specular illumination and
-    // warps artwork pixels as if heated/ionized, not just a painted zigzag.
-    for (int i = 0; i < 5; i++) {
+    // Lightning bolts branch radially from the artwork; jagged and
+    // intermittent rather than another set of horizontal sine lines.
+    for (int i = 0; i < 7; i++) {
       float fi = float(i);
-      float py = .14 + fi * .18 +
-          .052 * sin(uv.x * 25.0 + t * (3.1 + fi * .13) + fi * 6.0) +
-          .021 * sin(uv.x * 113.0 - t * 6.5 + fi * 9.0);
-      float core = gauss(uv.y - py, .0025);
-      float halo = gauss(uv.y - py, .018);
-      float flicker = .4 + .6 * pow(abs(sin(t * 4.3 + fi * 8.7)), 1.5);
-      float electric = (core + .29 * halo) * flicker;
-      illumination += (fxColor(fi / 5.0) * .48 +
-          vec3(.57) * core) * electric;
-      displacement.y += (uv.y - py) * halo * .19 * strength * flicker;
+      float direction = fi * 2.399963 + .22 * sin(t*.27+fi*1.9)
+          + .05 * sin(radius*82.0 + floor(t*13.0)+fi*7.1)
+          + .025 * sin(radius*183.0 - floor(t*21.0)+fi*13.7);
+      float lateral = atan(sin(theta-direction),cos(theta-direction))*radius;
+      float reach = smoothstep(.08,.25,radius) *
+          (1.0-smoothstep(.75,1.40,radius));
+      float flash = .22 + .78 * pow(max(0.0,
+          sin(t*4.9+fi*3.7)), 7.0);
+      float core = gauss(lateral,.0045) * reach * flash;
+      float halo = gauss(lateral,.035) * reach * flash;
+      illumination += (fxColor(fi/7.0)*.9+vec3(.55)*core) *
+          (core*.90+halo*.34);
+      displacement += radial * halo * .012 * strength;
     }
   } else if (mode > 6.5 && mode < 7.5) {
-    // Light Trails: bright moving cores with image-space lens displacement.
-    for (int i = 0; i < 6; i++) {
+    // True artwork-emitted moving trails: a glowing tail, crisp hot
+    // filament and traveling tip. No full-width oscillating lines.
+    for (int i = 0; i < 9; i++) {
       float fi = float(i);
-      float y = .10 + fi * .155 +
-          .095 * sin(uv.x * 8.5 + fi * .87 + t * (.65 + fi * .07));
-      float head = fract(t * (.08 + fi * .012) + fi * .137);
-      float span = fract(head - uv.x + 1.0);
-      float tail = exp(-span * 5.6) * (1.0 - smoothstep(.68, 1.0, span));
-      float trail = gauss(uv.y - y, .012) * tail;
-      illumination += fxColor(fi / 6.0) * trail * (.24 + .26 * bass);
-      displacement.y += (uv.y - y) * gauss(uv.y - y, .034) * tail * .14 * strength;
+      float direction = fi * 2.399963 + sin(t*.19+fi*1.7)*.19;
+      float curve = direction + radius*.95 +
+          .23*sin(radius*6.0-t*.62+fi*.8);
+      float sideways = atan(sin(theta-curve),cos(theta-curve))*radius;
+      float head = .16 + fract(t*(.19+fi*.013)+fi*.173) * 1.16;
+      float behind = head - radius;
+      float life = smoothstep(.03,.20,radius) *
+          (1.0-smoothstep(1.15,1.60,radius));
+      float tail = smoothstep(-.025,.045,behind) *
+          exp(-max(behind,0.0)*2.3) * life;
+      float core = gauss(sideways,.008) * tail;
+      float halo = gauss(sideways,.065) * tail;
+      float tip = gauss(radius-head,.034) *
+          gauss(sideways,.028) * life;
+      vec3 light = fxColor(fract(fi*.29));
+      illumination += light * (halo*.64+core*1.05+tip*2.15) *
+          (1.0 + bass*.6);
+      // Slight local lens heat shimmer, confined to the trail itself.
+      displacement += radial * (core+tip)*.013*strength;
     }
   } else if (mode > 7.5 && mode < 8.5) {
-    // Morphing Wireframe: a living refractive mesh, not static outlines.
-    vec2 q = p * 8.0;
-    q.x += .35 * sin(q.y * .7 + t * .58);
-    q.y += .3 * cos(q.x * .7 - t * .52);
-    vec2 warp = vec2(sin(q.y * 1.3 + t), cos(q.x * 1.1 - t));
-    displacement += warp * .017 * strength;
-    float gx = gauss(fract(q.x) - .5, .042);
-    float gy = gauss(fract(q.y) - .5, .042);
-    illumination += fxColor(.53) * max(gx, gy) * .12;
+    // Concentric polar wireframe with a slowly morphing projected grid.
+    // Its geometry is distinct from fluid/aurora oscillations.
+    float angleCells = theta * 12.0 / 6.283185;
+    float ringCells = radius * 15.0;
+    float px = angleCells + .24*sin(radius*9.0-t*.67);
+    float py = ringCells + .35*cos(theta*5.0+t*.43);
+    float radialLine = gauss(fract(px)-.5,.054);
+    float hoopLine = gauss(fract(py)-.5,.054);
+    float mesh = max(radialLine,hoopLine) *
+        smoothstep(.06,.20,radius) *
+        (1.0-smoothstep(1.0,1.7,radius));
+    illumination += fxColor(.56) * mesh * .34;
+    displacement += radial * sin(py*6.283185) * .009 * strength;
+    displacement += vec2(-radial.y,radial.x) *
+        cos(px*6.283185) * .009 * strength;
   } else if (mode > 8.5 && mode < 9.5) {
     // Particle Currents: moving micro-lenses warp source and cast glints.
     vec2 flow = vec2(sin(p.y * 8.0 + t * .55), cos(p.x * 9.0 - t * .41));
@@ -188,17 +232,30 @@ void main() {
       illumination += fxColor(.45) * ring * .18;
     }
   } else if (mode > 11.5 && mode < 12.5) {
-    // Moving Bokeh: glassy lenslets plus authentic light bleed.
-    for (int i = 0; i < 9; i++) {
+    // Photographic defocus: filled soft aperture discs, layered diffusion
+    // and a broad light bleed. No outlined ellipses or popping rings.
+    // Each light drifts smoothly outward from the hidden album source.
+    for (int i = 0; i < 16; i++) {
       float fi = float(i);
       float seed = hash21(vec2(fi, 5.7));
-      vec2 center = fract(vec2(seed * 7.3, fi * .174 + seed) +
-          vec2(sin(t * .08 + fi)*.075, t * (.012 + seed * .009)));
-      vec2 q = (uv - center) * vec2(1.0, 1.15);
-      float lens = gauss(length(q), .065 + seed * .045);
-      float edge = gauss(length(q) - (.06 + seed*.04), .010);
-      illumination += fxColor(fi / 9.0) * (lens * .065 + edge * .12);
-      displacement += q * lens * .045 * strength;
+      float seed2 = hash21(vec2(fi, 22.1));
+      float age = fract(t * (.009 + seed*.007) + seed2);
+      float direction = fi*2.399963 + sin(fi*1.3+t*.095)*.20;
+      float travel = mix(.025, 1.28, age);
+      vec2 spot = origin +
+          vec2(cos(direction),sin(direction))*travel/aspect;
+      float dist = length((uv-spot)*aspect);
+      float aperture = mix(.025,.115,seed) * max(.55,u_effectSize);
+      float life = smoothstep(0.0,.17,age) *
+          (1.0-smoothstep(.82,1.0,age));
+      float disc = 1.0-smoothstep(aperture*.38,aperture*1.13,dist);
+      float soft = gauss(dist,aperture*.98);
+      float spill = gauss(dist,aperture*2.5);
+      float twinkle = .88+.12*sin(t*.7+fi);
+      vec3 light = mix(fxColor(fract(fi*.33)),vec3(1.0),.26);
+      illumination += light * life * twinkle *
+          (disc*.20 + soft*.32 + spill*.13);
+      displacement += (uv-spot)*soft*.014*strength*life;
     }
   } else if (mode > 12.5 && mode < 13.5) {
     // Aurora Sweep: translucent moving fold bends underlying imagery.
