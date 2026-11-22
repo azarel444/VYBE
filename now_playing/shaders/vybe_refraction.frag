@@ -203,18 +203,21 @@ void main() {
     displacement += vec2(-radial.y,radial.x) *
         cos(px*6.283185) * .009 * strength;
   } else if (mode > 8.5 && mode < 9.5) {
-    // Particle Currents: moving micro-lenses warp source and cast glints.
-    vec2 flow = vec2(sin(p.y * 8.0 + t * .55), cos(p.x * 9.0 - t * .41));
-    displacement += flow * .008 * strength;
-    for (int i = 0; i < 12; i++) {
+    // Particle currents swirl out from the selected album with unique
+    // trajectories rather than a screen-wide generic sinusoidal warp.
+    for (int i = 0; i < 15; i++) {
       float fi = float(i);
       float seed = hash21(vec2(fi, 8.1));
-      vec2 center = fract(vec2(seed * 13.7, fi * .618) +
-          vec2(t * (.023 + seed * .019), t * (.011 + seed * .014)));
-      float dist = length((uv - center) * vec2(1.0, 1.3));
-      float lens = gauss(dist, .016 + seed * .012);
-      illumination += fxColor(fract(fi * .38)) * lens * .31;
-      displacement += (uv - center) * lens * .09 * strength;
+      float age = fract(t * (.018 + seed*.014) + fi*.193);
+      float angle = fi*2.399963 + .65*age + .13*sin(t*.2+fi);
+      float travel = .03+age*1.34;
+      vec2 center = origin + vec2(cos(angle),sin(angle))*travel/aspect;
+      vec2 dv = (uv-center)*aspect;
+      float fade = smoothstep(0.0,.16,age) *
+          (1.0-smoothstep(.86,1.0,age));
+      float lens = gauss(length(dv),.016+seed*.022)*fade;
+      illumination += fxColor(fract(fi*.38)) * lens * .58;
+      displacement += dv/aspect * lens * .16 * strength;
     }
   } else if (mode > 9.5 && mode < 10.5) {
     // Water Shimmer: surface-normal refraction with a moving caustic.
@@ -278,13 +281,14 @@ void main() {
     displacement += vec2(n, sin(n*3.7+t*.21)) * .007 * strength;
     illumination += fxColor(.5+.3*n) * pow(max(0.0,n*.5+.5), 3.0) * .13;
   } else if (mode > 15.5 && mode < 16.5) {
-    // Perspective Grid: projected geometry catches highlights.
-    float depth = 1.0 / max(.13, uv.y + .10);
-    float gx = sin((uv.x-.5) * depth * 26.0 + sin(t*.10));
+    // Perspective vanishing point is behind the active album, not fixed
+    // at the middle of the display on every theme.
+    float depth = 1.0 / max(.11, abs(uv.y-origin.y) + .11);
+    float gx = sin((uv.x-origin.x) * depth * 26.0 + sin(t*.10));
     float gy = sin(depth * 11.0 - t * 1.25);
     float grid = max(pow(max(0.0,gx),36.0), pow(max(0.0,gy),36.0));
-    float ground = smoothstep(.30,.91,uv.y);
-    illumination += fxColor(.62) * grid * ground * .18;
+    float ground = smoothstep(origin.y,origin.y+.5,uv.y);
+    illumination += fxColor(.62) * grid * ground * .28;
     displacement.y += gy * ground * .003 * strength;
   } else if (mode > 16.5 && mode < 17.5) {
     // Twinkling Stars: star lens glints with restrained chromatic sparkle.
@@ -298,15 +302,21 @@ void main() {
     illumination += vec3(.64,.77,1.0) * star * .62;
     displacement += (local-point) * star * .004 * strength;
   } else if (mode > 17.5 && mode < 18.5) {
-    // Floating Particles: individually phased luminous refractive droplets.
-    for (int i = 0; i < 14; i++) {
+    // Particles emerge from the album, spreading into the background.
+    for (int i = 0; i < 18; i++) {
       float fi = float(i);
       float seed = hash21(vec2(fi,12.3));
-      vec2 center = fract(vec2(fi*.618+seed,t*(.014+seed*.014)+fi*.217));
-      vec2 dv = uv-center;
-      float lens = gauss(length(dv),.009+seed*.016);
-      illumination += fxColor(fract(fi*.24)) * lens * .33;
-      displacement += dv * lens * .18 * strength;
+      float age = fract(t*(.013+seed*.013)+fi*.217);
+      float direction = fi*2.399963 + .18*sin(t*.27+fi);
+      float travel = .035 + age*1.26;
+      vec2 center = origin +
+          vec2(cos(direction),sin(direction))*travel/aspect;
+      vec2 dv = (uv-center)*aspect;
+      float fade = smoothstep(0.0,.13,age) *
+          (1.0-smoothstep(.86,1.0,age));
+      float lens = gauss(length(dv),.009+seed*.016)*fade;
+      illumination += fxColor(fract(fi*.24)) * lens * .55;
+      displacement += dv/aspect * lens * .18 * strength;
     }
   } else if (mode > 19.5 && mode < 20.5) {
     // VHS: analogue tape tracking physically displaces and chromatically
