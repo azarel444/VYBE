@@ -26,7 +26,7 @@ final _effects = <_FxSpec>[
   _FxSpec('Nebula Haze', 'Soft animated clouds', (s)=>s.fxNebula,(s,v)=>s.fxNebula=v,(s)=>s.kNebula,(s,v)=>s.kNebula=v),
   _FxSpec('Perspective Grid', 'Receding grid lines', (s)=>s.fxGrid,(s,v)=>s.fxGrid=v,(s)=>s.kGrid,(s,v)=>s.kGrid=v),
   _FxSpec('Twinkling Stars', 'Subtle star field', (s)=>s.fxStars,(s,v)=>s.fxStars=v,(s)=>s.kStars,(s,v)=>s.kStars=v),
-  _FxSpec('Moving Bokeh', 'Soft drifting out-of-focus lights', (s)=>s.fxGlow,(s,v)=>s.fxGlow=v,(s)=>s.kGlow,(s,v)=>s.kGlow=v),
+  _FxSpec('Moving Bokeh', 'Filled photographic defocus lights drifting from the album', (s)=>s.fxGlow,(s,v)=>s.fxGlow=v,(s)=>s.kGlow,(s,v)=>s.kGlow=v),
   _FxSpec('Aurora Sweep', 'Flowing ribbons of light', (s)=>s.fxSweep,(s,v)=>s.fxSweep=v,(s)=>s.kSweep,(s,v)=>s.kSweep=v),
   _FxSpec('Light Rays', 'Radiating beams of light', (s)=>s.fxRays,(s,v)=>s.fxRays=v,(s)=>s.kRays,(s,v)=>s.kRays=v),
   _FxSpec('Beat Ripples', 'Expanding concentric rings', (s)=>s.fxRipples,(s,v)=>s.fxRipples=v,(s)=>s.kRipples,(s,v)=>s.kRipples=v),
@@ -35,10 +35,10 @@ final _effects = <_FxSpec>[
   _FxSpec('Liquid Refraction', 'Animated liquid refraction', (s)=>s.extraFx['Liquid Refraction'] ?? false, (s,v)=>s.extraFx['Liquid Refraction']=v, (s)=>s.extraStrength['Liquid Refraction'] ?? 0.8, (s,v)=>s.extraStrength['Liquid Refraction']=v),
   _FxSpec('Bass Shockwave', 'Animated bass shockwave', (s)=>s.extraFx['Bass Shockwave'] ?? false, (s,v)=>s.extraFx['Bass Shockwave']=v, (s)=>s.extraStrength['Bass Shockwave'] ?? 0.8, (s,v)=>s.extraStrength['Bass Shockwave']=v),
   _FxSpec('Aurora Curtains', 'Animated aurora curtains', (s)=>s.extraFx['Aurora Curtains'] ?? false, (s,v)=>s.extraFx['Aurora Curtains']=v, (s)=>s.extraStrength['Aurora Curtains'] ?? 0.8, (s,v)=>s.extraStrength['Aurora Curtains']=v),
-  _FxSpec('Vortex Tunnel', 'Animated vortex tunnel', (s)=>s.extraFx['Vortex Tunnel'] ?? false, (s,v)=>s.extraFx['Vortex Tunnel']=v, (s)=>s.extraStrength['Vortex Tunnel'] ?? 0.8, (s,v)=>s.extraStrength['Vortex Tunnel']=v),
+  _FxSpec('Vortex Tunnel', 'Spinning perspective tunnel that pulls artwork inward', (s)=>s.extraFx['Vortex Tunnel'] ?? false, (s,v)=>s.extraFx['Vortex Tunnel']=v, (s)=>s.extraStrength['Vortex Tunnel'] ?? 0.8, (s,v)=>s.extraStrength['Vortex Tunnel']=v),
   _FxSpec('Electric Arcs', 'Animated electric arcs', (s)=>s.extraFx['Electric Arcs'] ?? false, (s,v)=>s.extraFx['Electric Arcs']=v, (s)=>s.extraStrength['Electric Arcs'] ?? 0.8, (s,v)=>s.extraStrength['Electric Arcs']=v),
   _FxSpec('Prism Shards', 'Animated prism shards', (s)=>s.extraFx['Prism Shards'] ?? false, (s,v)=>s.extraFx['Prism Shards']=v, (s)=>s.extraStrength['Prism Shards'] ?? 0.8, (s,v)=>s.extraStrength['Prism Shards']=v),
-  _FxSpec('Light Trails', 'Animated light trails', (s)=>s.extraFx['Light Trails'] ?? false, (s,v)=>s.extraFx['Light Trails']=v, (s)=>s.extraStrength['Light Trails'] ?? 0.8, (s,v)=>s.extraStrength['Light Trails']=v),
+  _FxSpec('Light Trails', 'Luminous curved streaks and moving light tips', (s)=>s.extraFx['Light Trails'] ?? false, (s,v)=>s.extraFx['Light Trails']=v, (s)=>s.extraStrength['Light Trails'] ?? 0.8, (s,v)=>s.extraStrength['Light Trails']=v),
   _FxSpec('Morphing Wireframe', 'Animated morphing wireframe', (s)=>s.extraFx['Morphing Wireframe'] ?? false, (s,v)=>s.extraFx['Morphing Wireframe']=v, (s)=>s.extraStrength['Morphing Wireframe'] ?? 0.8, (s,v)=>s.extraStrength['Morphing Wireframe']=v),
   _FxSpec('Particle Currents', 'Animated particle currents', (s)=>s.extraFx['Particle Currents'] ?? false, (s,v)=>s.extraFx['Particle Currents']=v, (s)=>s.extraStrength['Particle Currents'] ?? 0.8, (s,v)=>s.extraStrength['Particle Currents']=v),
   _FxSpec('Holographic Interference', 'Animated holographic interference', (s)=>s.extraFx['Holographic Interference'] ?? false, (s,v)=>s.extraFx['Holographic Interference']=v, (s)=>s.extraStrength['Holographic Interference'] ?? 0.8, (s,v)=>s.extraStrength['Holographic Interference']=v),
@@ -322,10 +322,27 @@ class _FxPainter extends CustomPainter {
         for(var i=0;i<32;i++) { final o=Offset(rand.nextDouble()*size.width,rand.nextDouble()*size.height);
           canvas.drawCircle(o,effect==5?1.1:1.3+rand.nextDouble()*3,Paint()..color=(i.isEven?cyan:pink).withOpacity(.25+rand.nextDouble()*.65)); }
         break;
-      case 3: // nebula
-      case 6: // glow
+      case 3: // nebula — a diffuse cloud, not a hard disc
         for(var i=0;i<4;i++) { final pos=Offset(size.width*(.2+i*.2),size.height*(.35+(i.isEven ? 0.25 : -0.1)));
           canvas.drawCircle(pos,scale*.48,Paint()..shader=RadialGradient(colors:[(i.isEven?cyan:pink).withOpacity(.35),Colors.transparent]).createShader(Rect.fromCircle(center:pos,radius:scale*.48))); }
+        break;
+      case 6: // bokeh — filled defocus discs with a soft luminous halo
+        for(var i=0;i<11;i++) {
+          final angle=i*2.399963;
+          final dist=scale*(.08+(i%5)*.12);
+          final pos=c+Offset(math.cos(angle),math.sin(angle))*dist;
+          final radius=scale*(.055+(i%4)*.033);
+          final color=i.isEven?cyan:pink;
+          canvas.drawCircle(pos,radius*2.2,Paint()..shader=RadialGradient(
+            colors:[color.withOpacity(.22),color.withOpacity(.06),
+              Colors.transparent],stops:const [0,.4,1]).createShader(
+            Rect.fromCircle(center:pos,radius:radius*2.2)));
+          canvas.drawCircle(pos,radius,Paint()..shader=RadialGradient(
+            colors:[Colors.white.withOpacity(.28),color.withOpacity(.38),
+              color.withOpacity(.12),Colors.transparent],
+            stops:const [0,.36,.75,1]).createShader(
+            Rect.fromCircle(center:pos,radius:radius)));
+        }
         break;
       case 4: // grid
         final horizon=size.height*.37;
