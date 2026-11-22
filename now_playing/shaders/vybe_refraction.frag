@@ -251,6 +251,16 @@ void main() {
       illumination += fxColor(fract(fi*.24)) * lens * .33;
       displacement += dv * lens * .18 * strength;
     }
+  } else if (mode > 19.5 && mode < 20.5) {
+    // VHS: analogue tape tracking physically displaces and chromatically
+    // separates the scene, rather than drawing colored overlay stripes.
+    float stripe = floor(uv.y * 84.0);
+    float tracking = step(.965, hash21(vec2(floor(t*2.9), stripe*.13)));
+    float wobble = sin(uv.y*93.0+t*6.7)*.0018 +
+        sin(uv.y*271.0-t*11.0)*.0007;
+    displacement.x += (wobble + tracking*.028) * strength;
+    illumination += vec3(.025,.018,.032) *
+        sin(uv.y*u_size.y*2.1) * .75;
   } else if (mode > 18.5 && mode < 19.5) {
     // Cover Bloom: sample source highlights across a small pixel footprint.
     vec2 texel = vec2(2.0) / max(u_size,vec2(1.0));
@@ -266,7 +276,8 @@ void main() {
   float fringe = mode > 1.5 && mode < 2.5
       ? (0.006 + 0.001 * bass) * strength
       : mode < 3.5 ? (0.0013 + 0.001 * bass) * strength
-      : mode > 5.5 && mode < 6.5 ? 0.0016 * strength : 0.0;
+      : mode > 5.5 && mode < 6.5 ? 0.0016 * strength
+      : mode > 19.5 ? .0034 * strength : 0.0;
   vec2 shift = normalize(displacement + vec2(0.0001)) * fringe;
   vec4 base = texture(u_texture, sampleUv);
   float red = texture(u_texture, clamp(sampleUv + shift, vec2(0.002), vec2(0.998))).r;
@@ -278,6 +289,13 @@ void main() {
   // The GPU effects illuminate and distort the scene's actual sample.
   // Premultiply against backdrop alpha so transparent regions remain intact.
   rgb += illumination * strength * base.a;
+  if (mode > 19.5) {
+    // Analog grain, soft scanline attenuation and restrained chroma shift.
+    float scan = .92 + .08 * sin(uv.y * u_size.y * 2.2);
+    float grain = hash21(floor(uv * u_size * .45) + floor(t * 17.0));
+    rgb = rgb * mix(1.0, scan, strength) +
+        vec3(grain-.5) * .075 * strength * base.a;
+  }
   // Highlights respond to gradients in the displacement field, not a static overlay.
   float crest = pow(max(0.0, 1.0 - abs(a - b)), 12.0);
   // Caustics belong to fluid refraction only; other distortion modes should

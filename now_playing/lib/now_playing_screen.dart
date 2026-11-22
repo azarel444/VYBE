@@ -800,7 +800,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               ..._shaderFxLayers(),
             if (heavy && settings.theme != AppSettings.tMusicVideo)
               ..._extraFx(),
-            if (vhs && settings.theme != AppSettings.tMusicVideo)
+            if (vhs && !_gpuFxActive &&
+                settings.theme != AppSettings.tMusicVideo)
               FxComposite(mode: settings.fxBlendMode['VHS'] ?? 0,
               opacity: settings.fxBlendOpacity['VHS'] ?? 1.0,
               child: Transform.scale(scale: settings.fxSize['VHS'] ?? 1.0,
@@ -912,7 +913,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 );
               }),
             // These sit on top of everything, so they must not catch touches.
-            if (vhs && settings.theme != AppSettings.tMusicVideo)
+            if (vhs && !_gpuFxActive &&
+                settings.theme != AppSettings.tMusicVideo)
               IgnorePointer(
                 child: FxComposite(
                   mode: settings.fxBlendMode['VHS'] ?? 0,
@@ -2375,7 +2377,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       'Particle Currents', 'Water Shimmer', 'Beat Ripples',
       'Moving Bokeh', 'Aurora Sweep', 'Light Rays', 'Nebula Haze',
       'Perspective Grid', 'Twinkling Stars', 'Floating Particles',
-      'Cover Bloom',
+      'Cover Bloom', 'VHS',
     ];
     final enabled = <bool>[
       settings.extraFx['Liquid Refraction'] ?? false,
@@ -2392,19 +2394,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       settings.fxSweep, settings.fxRays, settings.fxNebula,
       settings.fxGrid, settings.fxStars,
       settings.bgEffects && settings.particles,
-      settings.fxBloom,
+      settings.fxBloom, settings.fxVhs,
     ];
     final intensity = <double>[
       for (final n in names.take(10)) settings.extraStrength[n] ?? 0.8,
       settings.kWater, settings.kRipples, settings.kGlow,
       settings.kSweep, settings.kRays, settings.kNebula,
       settings.kGrid, settings.kStars,
-      settings.kParticles, settings.kBloom,
+      settings.kParticles, settings.kBloom, settings.vhsEffects,
     ];
     final tier = settings.fxPerformanceMode == 2 ? 2 : _fxTier;
     final limit = tier <= 1 ? 5 : names.length;
-    final pulseAge = ripples.starts.isEmpty ? 99.0 :
-        (_time - ripples.starts.last).clamp(0.0, 99.0).toDouble();
     final fx = <Widget>[];
     for (var i = 0; i < names.length && fx.length < limit; i++) {
       if (!enabled[i] || intensity[i] <= 0) continue;
@@ -2426,7 +2426,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           key: ValueKey('gpu-fx-$name'),
           time: fxClock.t,
           bass: model.playing ? fxClock.bass : 0,
-          pulseAge: pulseAge,
+          // Recompute on each animation tick; do not capture a stale onset.
+          pulseAge: ripples.starts.isEmpty ? 99.0 :
+              (_time - ripples.starts.last).clamp(0.0, 99.0).toDouble(),
           mode: i,
           strength: strength,
           blendMode: blend,
