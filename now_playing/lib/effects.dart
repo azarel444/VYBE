@@ -375,7 +375,7 @@ class GlowPainter extends CustomPainter {
           math.min((1-phase)/.18,1.0)).clamp(0.0,1.0);
       if(life<=0)continue;
       final color=palette.colors[i%3];
-      final opacity=(k*life*(depth==0?.53:depth==1?.30:.18)*
+      final opacity=(k*life*(depth == 0 ? 0.53 : depth == 1 ? 0.30 : 0.18)*
           (.86+.14*math.sin(t*.54+seed))).clamp(0.0,1.0).toDouble();
       // Filled center, feathered aperture and broad atmospheric spill.
       canvas.drawCircle(pos,radius*2.2,Paint()..shader=ui.Gradient.radial(
