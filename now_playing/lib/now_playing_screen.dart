@@ -2485,11 +2485,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // then receding sleeves, then album-emitted FX, then central sleeve.
     // Split without duplicating a GlobalKey or a painter.
     final albumFx = coverflow && coverflowDepthOnly;
-    final ambientFx = !coverflowDepthOnly;
+    // Every visual emitter in Coverflow belongs between receding sleeves
+    // and the front cover, not underneath all the sleeve geometry.
+    final emissionPlane = !coverflow || albumFx;
     // The Coverflow sleeve's perspective center is at ~52% screen height.
     // Pin artwork-emitted effects there even on the initial frame before
     // its GlobalKey is laid out, rather than spawning at the left fallback.
     final fxOrigin = _currentFxOrigin();
+    // Most canvas layers are scaled around the screen center. Invert that
+    // transform so their emitted geometry still lands behind the real cover.
+    Offset localOrigin(String name) {
+      final full = name == 'Aurora Sweep' || name == 'Moving Bokeh';
+      final scale = full ? 1.0 : (1.18 *
+          (settings.fxSize[name] ?? 1.0)).clamp(.4, 4.0).toDouble();
+      return Offset(.5 + (fxOrigin.dx - .5) / scale,
+          .5 + (fxOrigin.dy - .5) / scale);
+    }
     Widget layer(String name, CustomPainter painter, {GlobalKey? layerKey}) {
       final blend = settings.fxBlendMode[name] ?? 0;
       final opacity = settings.fxBlendOpacity[name] ?? 1.0;
@@ -2519,32 +2530,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final layers = <Widget>[
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
         if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
-            (albumFx ? i == 1 : (!coverflow || i != 1)) &&
+            emissionPlane &&
             // GPU path renders all ten with real image processing.
             // Coverflow retains the depth-anchored shockwave painter.
             (!_gpuFxActive || (coverflow && i == 1)))
           layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             artKey: i == 1 ? _artKey : null,
             layerKey: i == 1 ? _shockLayerKey : null,
-            pinnedOrigin: fxOrigin,
+            pinnedOrigin: localOrigin(AppSettings.extraFxNames[i]),
             bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: i == 1 ? _shockLayerKey : null),
-      if (ambientFx && settings.fxNebula && !_gpuFxActive)
+      if (emissionPlane && settings.fxNebula && !_gpuFxActive)
         layer('Nebula Haze', AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),
-      if (ambientFx && settings.fxGrid && !_gpuFxActive)
+      if (emissionPlane && settings.fxGrid && !_gpuFxActive)
         layer('Perspective Grid', AtmospherePainter(mode: 1, clock: fxClock, palette: p,
             k: settings.kGrid, repaint: _tick)),
-      if (ambientFx && settings.fxStars && !_gpuFxActive)
+      if (emissionPlane && settings.fxStars && !_gpuFxActive)
         layer('Twinkling Stars', AtmospherePainter(mode: 2, clock: fxClock, palette: p,
             k: settings.kStars, repaint: _tick)),
-      if (ambientFx && settings.fxGlow && !_gpuFxActive)
+      if (emissionPlane && settings.fxGlow && !_gpuFxActive)
         layer('Moving Bokeh', GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow,
             effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0,
             origin: fxOrigin, repaint: _tick)),
-      if (ambientFx && settings.fxSweep && !_gpuFxActive)
+      if (emissionPlane && settings.fxSweep && !_gpuFxActive)
         layer('Aurora Sweep', SweepPainter(
             clock: fxClock, palette: p, k: settings.kSweep,
             effectSize: settings.fxSize['Aurora Sweep'] ?? 1.0, repaint: _tick)),
@@ -2553,7 +2564,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             clock: fxClock,
             artKey: _artKey,
             layerKey: _raysLayerKey,
-            pinnedOrigin: fxOrigin,
+            pinnedOrigin: localOrigin('Light Rays'),
             palette: p,
             k: settings.kRays,
             topOrigin: false, // artwork-origin even in Typo
@@ -2564,11 +2575,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             clock: fxClock,
             artKey: _artKey,
             layerKey: _ripplesLayerKey,
-            pinnedOrigin: fxOrigin,
+            pinnedOrigin: localOrigin('Beat Ripples'),
             palette: p,
             k: settings.kRipples,
             repaint: _tick), layerKey: _ripplesLayerKey),
-      if (ambientFx && settings.fxWater && !_gpuFxActive)
+      if (emissionPlane && settings.fxWater && !_gpuFxActive)
         layer('Water Shimmer', WaterPainter(
             clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),
     ];
