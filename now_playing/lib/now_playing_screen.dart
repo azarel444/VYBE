@@ -621,7 +621,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   void _onTick(Duration elapsed) {
     var dt = (elapsed - _last).inMicroseconds / 1e6;
-    if (dt < 0.029) return; // cap at about 30 fps to go easy on weak units
+    if (dt < 0.014) return; // target 60 fps on capable Android displays; adaptive GPU FX handles slower hardware
     _last = elapsed;
     dt = dt.clamp(0.0, 0.1).toDouble();
     _time += dt;
@@ -1726,22 +1726,72 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         duration: const Duration(milliseconds: 800), child: child)));
   }
 
-  /// Slow pan and zoom. The blurred image is cached, so this only moves a
-  /// finished layer around.
+  /// GPU-composited motion applied to the decoded artwork or fanart layer,
+  /// never to metadata or transport controls. Motion selections are per-theme.
+  /// Overscan prevents exposed edges even with rotation/perspective movement.
   Widget _drift(Widget child) {
     return AnimatedBuilder(
-      // A zero speed means no notifier updates and no useless GPU motion.
       animation: _artworkMotionPhase,
       child: child,
       builder: (context, c) {
         final size = MediaQuery.sizeOf(context);
-        // This is a slow, continuous pan with safe overscan on all sides.
-        // Do not multiply elapsed time by speed: speed edits must not jump.
-        final dx = math.sin(_artworkMotionPhase.value * 0.16) * size.width * 0.085;
-        final dy = math.cos(_artworkMotionPhase.value * 0.12) * size.height * 0.075;
-        return Transform.translate(
-          offset: Offset(dx, dy),
-          child: Transform.scale(scale: 1.28, child: c),
+        final phase = _artworkMotionPhase.value;
+        final intensity = (settings.bgEffects
+            ? settings.kMotion.clamp(0.0, 1.0) : 0.0).toDouble();
+        double dx = 0, dy = 0, scale = 1.0, rotation = 0;
+        double rotateX = 0, rotateY = 0;
+        switch (settings.artworkMotionType) {
+          case 1: // Ken Burns: drifting push/pull, not a continuous zoom.
+            final push = (math.sin(phase * .17) + 1.0) * .5;
+            scale = 1.17 + .16 * intensity * push;
+            dx = math.sin(phase * .12) * size.width * .022 * intensity;
+            dy = math.cos(phase * .10) * size.height * .022 * intensity;
+            break;
+          case 2: // Orbit: a smooth elliptical camera path.
+            scale = 1.28;
+            dx = math.cos(phase * .15) * size.width * .09 * intensity;
+            dy = math.sin(phase * .15) * size.height * .078 * intensity;
+            break;
+          case 3: // Pendulum: gentle physical rocking with spatial drift.
+            scale = 1.32;
+            rotation = math.sin(phase * .19) * .035 * intensity;
+            dx = math.sin(phase * .19) * size.width * .046 * intensity;
+            dy = math.cos(phase * .11) * size.height * .025 * intensity;
+            break;
+          case 4: // Horizontal pan across a large, overscanned photo.
+            scale = 1.30;
+            dx = math.sin(phase * .14) * size.width * .11 * intensity;
+            dy = math.sin(phase * .08) * size.height * .018 * intensity;
+            break;
+          case 5: // Breathing zoom. No hard cut at the scale extrema.
+            scale = 1.15 + .18 * intensity *
+                (.5 + .5 * math.sin(phase * .27));
+            dx = math.sin(phase * .10) * size.width * .012 * intensity;
+            dy = math.cos(phase * .10) * size.height * .012 * intensity;
+            break;
+          case 6: // Parallax: perspective tilt on an overscanned GPU layer.
+            scale = 1.32;
+            dx = math.sin(phase * .12) * size.width * .045 * intensity;
+            dy = math.cos(phase * .15) * size.height * .03 * intensity;
+            rotateX = math.cos(phase * .17) * .055 * intensity;
+            rotateY = math.sin(phase * .14) * .070 * intensity;
+            break;
+          default: // Classic drift retains the existing look exactly at 100%.
+            scale = 1.28;
+            dx = math.sin(phase * .16) * size.width * .085 * intensity;
+            dy = math.cos(phase * .12) * size.height * .075 * intensity;
+        }
+        final matrix = Matrix4.identity()
+          ..setEntry(3, 2, .0005)
+          ..translate(dx, dy)
+          ..rotateX(rotateX)
+          ..rotateY(rotateY)
+          ..rotateZ(rotation)
+          ..scale(scale);
+        return Transform(
+          alignment: Alignment.center,
+          transform: matrix,
+          child: c,
         );
       },
     );

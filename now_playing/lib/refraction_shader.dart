@@ -1,8 +1,9 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
-/// Impeller-only true backdrop refraction. Falls back to existing canvas FX on
-/// Skia / older head units. Never captures the UI or changes the source art.
+/// Stackable Impeller scene-processing pass: each instance reads the GPU
+/// backdrop and transforms its actual pixels, leaving foreground UI sharp.
+/// Unsupported devices keep the legacy canvas FX. WebView video is excluded.
 class RefractionShaderLayer extends StatefulWidget {
   final double time;
   final double bass;
@@ -11,10 +12,19 @@ class RefractionShaderLayer extends StatefulWidget {
   final int blendMode;
   final double blendOpacity;
   final double effectSize;
+  final double pulseAge;
+  final Color colorA;
+  final Color colorB;
+  final Color colorC;
   final Widget child;
   const RefractionShaderLayer({super.key, required this.time, required this.bass,
     required this.strength, required this.mode,
-    required this.blendMode, required this.blendOpacity, required this.effectSize, required this.child});
+    required this.blendMode, required this.blendOpacity, required this.effectSize,
+    this.pulseAge = 99.0,
+    this.colorA = const Color(0xFF00E5FF),
+    this.colorB = const Color(0xFFFF36A8),
+    this.colorC = const Color(0xFF665CFF),
+    required this.child});
 
   @override
   State<RefractionShaderLayer> createState() => _RefractionShaderLayerState();
@@ -52,6 +62,16 @@ class _RefractionShaderLayerState extends State<RefractionShaderLayer> {
     shader.setFloat(6, widget.blendMode.toDouble());
     shader.setFloat(7, widget.blendOpacity);
     shader.setFloat(8, widget.effectSize);
+    shader.setFloat(9, widget.pulseAge);
+    shader.setFloat(10, widget.colorA.red / 255.0);
+    shader.setFloat(11, widget.colorA.green / 255.0);
+    shader.setFloat(12, widget.colorA.blue / 255.0);
+    shader.setFloat(13, widget.colorB.red / 255.0);
+    shader.setFloat(14, widget.colorB.green / 255.0);
+    shader.setFloat(15, widget.colorB.blue / 255.0);
+    shader.setFloat(16, widget.colorC.red / 255.0);
+    shader.setFloat(17, widget.colorC.green / 255.0);
+    shader.setFloat(18, widget.colorC.blue / 255.0);
     return ClipRect(child: BackdropFilter(
       filter: ui.ImageFilter.shader(shader),
       child: widget.child,

@@ -21,7 +21,7 @@ class _FxSpec {
 
 final _effects = <_FxSpec>[
   _FxSpec('VHS', 'Scanlines, grain and color separation', (s) => s.fxVhs, (s,v) => s.fxVhs=v, (s)=>s.vhsEffects,(s,v)=>s.vhsEffects=v),
-  _FxSpec('Background Motion', 'Drift and beat pulse', (s)=>s.bgEffects,(s,v)=>s.bgEffects=v,(s)=>s.kMotion,(s,v)=>s.kMotion=v),
+  _FxSpec('Background Motion', 'Selectable GPU artwork and fanart motion', (s)=>s.bgEffects,(s,v)=>s.bgEffects=v,(s)=>s.kMotion,(s,v)=>s.kMotion=v),
   _FxSpec('Floating Particles', 'Glowing drifting particles', (s)=>s.particles,(s,v)=>s.particles=v,(s)=>s.kParticles,(s,v)=>s.kParticles=v),
   _FxSpec('Nebula Haze', 'Soft animated clouds', (s)=>s.fxNebula,(s,v)=>s.fxNebula=v,(s)=>s.kNebula,(s,v)=>s.kNebula=v),
   _FxSpec('Perspective Grid', 'Receding grid lines', (s)=>s.fxGrid,(s,v)=>s.fxGrid=v,(s)=>s.kGrid,(s,v)=>s.kGrid=v),
@@ -137,6 +137,30 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
               Slider(value: fx.intensity(widget.settings).clamp(0.0,1.0).toDouble(), activeColor: _cyan,
                 onChanged: (v)=>widget.settings.update(()=>fx.setIntensity(widget.settings,v),persist:false),
                 onChangeEnd: (_)=>widget.settings.save()),
+              if (fx.name == 'Background Motion') ...[
+                const SizedBox(height: 12),
+                const Text('Artwork motion type',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                DropdownButton<int>(
+                  isExpanded: true,
+                  value: widget.settings.artworkMotionType,
+                  items: const [
+                    DropdownMenuItem(value: 0, child: Text('Classic Drift — slow diagonal floating')),
+                    DropdownMenuItem(value: 1, child: Text('Ken Burns — cinematic push and pull')),
+                    DropdownMenuItem(value: 2, child: Text('Orbit — smooth elliptical motion')),
+                    DropdownMenuItem(value: 3, child: Text('Pendulum — gentle rotation')),
+                    DropdownMenuItem(value: 4, child: Text('Horizontal Pan — side-to-side travel')),
+                    DropdownMenuItem(value: 5, child: Text('Breathing — slow pulsing zoom')),
+                    DropdownMenuItem(value: 6, child: Text('Parallax — layered perspective tilt')),
+                  ],
+                  onChanged: (v) { if (v != null) widget.settings.update(
+                      () => widget.settings.artworkMotionType = v); },
+                ),
+                const Text('Applies to artwork and fanart backgrounds in the current theme. Motion speed remains in Customize.',
+                    style: TextStyle(fontSize: 12, color: Colors.white70)),
+                const SizedBox(height: 12),
+              ],
               const SizedBox(height: 8),
               const Text('Transfer / blend mode'),
               DropdownButton<int>(
@@ -183,7 +207,7 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
         final count = _current.where((v)=>v).length;
         return CustomScrollView(slivers: [
           SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(16,12,16,8), child: Column(crossAxisAlignment: CrossAxisAlignment.start,children: [
-            const Text('Layer effects over your album-art background', style: TextStyle(color: Colors.white70)),
+            const Text('GPU image effects and atmospheric layers for your artwork background', style: TextStyle(color: Colors.white70)),
             const SizedBox(height: 8),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -200,7 +224,7 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
               decoration: const InputDecoration(labelText: 'FX performance mode', isDense: true),
               items: const [
                 DropdownMenuItem(value: 0, child: Text('Auto — adaptive quality')),
-                DropdownMenuItem(value: 1, child: Text('Performance — canvas-first')),
+                DropdownMenuItem(value: 1, child: Text('Compatibility — reduced shader budget')),
                 DropdownMenuItem(value: 2, child: Text('Maximum visuals — no auto downgrade')),
               ],
               onChanged: (v) { if (v != null) widget.settings.update(() => widget.settings.fxPerformanceMode = v); },

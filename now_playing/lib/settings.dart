@@ -130,7 +130,10 @@ class AppSettings extends ChangeNotifier {
   double cinematicDarkness = 0.0;
   double cinematicBlur = 0.0;
   double cinematicContrast = 1.0;
-  double cinematicAnimationSpeed = 1.0; // shared album-art and fanart drift speed (0..3)
+  double cinematicAnimationSpeed = 1.0; // shared album-art and fanart motion speed (0..3)
+  // Per-theme artwork/fanart motion. 0 classic drift, 1 Ken Burns,
+  // 2 orbit, 3 pendulum, 4 horizontal pan, 5 breathing, 6 parallax.
+  int artworkMotionType = 0;
   String fanartApiKey = '';
   String fanartProjectKey = bundledFanartProjectKey;
   double sensitivity = 0.5; // Fixed visualizer gain (no user control).
@@ -289,6 +292,7 @@ class AppSettings extends ChangeNotifier {
     'cinematicBlur': cinematicBlur,
     'cinematicContrast': cinematicContrast,
     'cinematicAnimationSpeed': cinematicAnimationSpeed,
+    'artworkMotionType': artworkMotionType,
     'clubBlendMode': clubBlendMode,
     'templateBackgroundMotion': templateBackgroundMotion,
     'bgOverlay': bgOverlay,
@@ -377,6 +381,7 @@ class AppSettings extends ChangeNotifier {
     cinematicContrast = number('cinematicContrast', 1.0, 1.0, 2.0);
     cinematicAnimationSpeed =
         number('cinematicAnimationSpeed', 1.0, 0.0, 3.0);
+    artworkMotionType = integer('artworkMotionType', 0, 0, 6);
     clubBlendMode = integer('clubBlendMode', 0, 0, 9);
     templateBackgroundMotion =
         number('templateBackgroundMotion', 0.65, 0.0, 1.0);
@@ -603,6 +608,7 @@ class AppSettings extends ChangeNotifier {
     cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
     cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
     cinematicAnimationSpeed = (p.getDouble('cinematicAnimationSpeed') ?? 1.0).clamp(0.0, 3.0).toDouble();
+    artworkMotionType = (p.getInt('artworkMotionType') ?? 0).clamp(0, 6).toInt();
     // Ignore stale locally saved keys. All beta builds use the bundled key.
     fanartApiKey = '';
     fanartProjectKey = bundledFanartProjectKey;
@@ -804,6 +810,7 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('cinematicBlur', cinematicBlur);
     await p.setDouble('cinematicContrast', cinematicContrast);
     await p.setDouble('cinematicAnimationSpeed', cinematicAnimationSpeed);
+    await p.setInt('artworkMotionType', artworkMotionType);
     await p.setDouble('sensitivity', 0.5);
     await p.setInt('vizStyle', vizStyle);
     await p.setInt('focusedPortraitStyle', focusedPortraitStyle);
