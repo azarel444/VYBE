@@ -916,8 +916,10 @@ class ExpandedFxPainter extends CustomPainter {
     final w = size.width, h = size.height, t = clock.t;
     final center = pinnedOrigin != null
         ? Offset(w * pinnedOrigin!.dx, h * pinnedOrigin!.dy)
-        : artKey == null ? null
+        // FX gallery previews intentionally have no live album widget.
+        : artKey == null ? Offset(w * .5, h * .5)
             : _artCenter(artKey!, size, layerKey: layerKey);
+    // Live Now Playing always supplies artKey: never guess when absent.
     if (center == null) return;
     final bright = palette.a.withOpacity((.72 * k).clamp(0.0, 1.0));
     final second = palette.b.withOpacity((.68 * k).clamp(0.0, 1.0));
