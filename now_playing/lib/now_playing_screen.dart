@@ -4853,7 +4853,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             )),
           )),
         ),
-      if (settings.backgroundSource != 1 && settings.backgroundSource != 6) _orbitGhost(w, h, narrow),
+      if (settings.backgroundSource != 1 && settings.backgroundSource != 6)
+        _orbitGhost(w, h, narrow),
+      // Portrait Orbit's black floor gradually rises behind the rings.
+      // Draw BEFORE the orbit group, keeping the record and lighting sharp.
+      if (narrow)
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .62,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [
+                Color(0xE6000000),
+                Color(0xA6000000),
+                Color(0x58000000),
+                Color(0x00000000),
+              ],
+              stops: [0.0, .32, .68, 1.0],
+            )),
+          )),
+        ),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.

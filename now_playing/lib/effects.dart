@@ -507,7 +507,7 @@ class RaysPainter extends CustomPainter {
     const count = 10;
     const bands = 6;
     for (var i = 0; i < count; i++) {
-      final angle = clock.t * .065 + i * 2 * math.pi / count
+      final angle = clock.t * .38 + i * 2 * math.pi / count
           + .07 * math.sin(clock.t * .31 + i * 1.4);
       final halfWidth = (0.07 + .055 * sizeControl) *
           (0.9 + .12 * math.sin(clock.t * .24 + i * 2.0));

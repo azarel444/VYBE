@@ -283,8 +283,10 @@ void main() {
     // Size controls *both* beam spread and beam reach (0.5..2.5).
     float raySize = clamp(u_effectSize, 0.5, 2.5);
     float rayAngle = atan(d.y, d.x);
-    float rotation = sin(t * .19) * .18;
-    float beamPhase = rayAngle * 10.0 + rotation;
+    // Rotate continuously around the artwork, rather than oscillating
+    // by barely one degree as the last version did.
+    float rotation = t * 3.8 + sin(t * .19) * .12;
+    float beamPhase = rayAngle * 10.0 - rotation;
     float blade = max(0.0, cos(beamPhase));
     float core = pow(blade, 25.0 / raySize);
     float halo = pow(blade, 5.5 / sqrt(raySize));
