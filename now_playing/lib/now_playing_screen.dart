@@ -816,25 +816,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               child: Transform.scale(scale: settings.fxSize['VHS'] ?? 1.0,
                 child: Stack(fit: StackFit.expand, children: _vhsBackdrop(fx)))),
             if (settings.bgEffects && settings.particles && heavy &&
-                settings.theme != AppSettings.tMusicVideo && !_gpuFxActive)
-              IgnorePointer(
-                child: Transform.scale(
-                  scale: settings.fxSize['Floating Particles'] ?? 1.0,
-                  child: RepaintBoundary(
-                  child: CustomPaint(
-                    key: _particlesLayerKey,
-                    painter: _FxBlendPainter(ParticlesPainter(
-                        field: particles,
-                        palette: _palette,
-                        k: settings.kParticles,
-                        artKey: _artKey,
-                        layerKey: _particlesLayerKey,
-                        repaint: _tick),
-                        settings.fxBlendMode['Floating Particles'] ?? 0,
-                        settings.fxBlendOpacity['Floating Particles'] ?? 1.0),
-                  ),
-                )),
-              ),
+                settings.theme != AppSettings.tMusicVideo &&
+                settings.theme != AppSettings.tCoverflow && !_gpuFxActive)
+              _floatingParticleLayer(),
             if (!model.accessGranted)
               _accessPrompt()
             else
@@ -2047,6 +2031,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ? <Widget>[
               ..._shaderFxLayers(),
               ..._extraFx(coverflowDepthOnly: true),
+              // Same depth as all other artwork-emitted FX.
+              if (settings.bgEffects && settings.particles && !_gpuFxActive)
+                _floatingParticleLayer(),
             ]
           : const <Widget>[],
       performanceMode: _fxTier <= 1,
@@ -2504,6 +2491,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     return fx;
   }
+
+  /// Full-canvas particles share the same artwork-centered source and
+  /// become part of Coverflow's special mid-depth stage when applicable.
+  Widget _floatingParticleLayer() => IgnorePointer(
+    child: Transform.scale(
+      scale: settings.fxSize['Floating Particles'] ?? 1.0,
+      child: RepaintBoundary(
+        child: CustomPaint(
+          key: _particlesLayerKey,
+          painter: _FxBlendPainter(ParticlesPainter(
+              field: particles, palette: _palette, k: settings.kParticles,
+              artKey: _artKey, layerKey: _particlesLayerKey,
+              repaint: _tick),
+              settings.fxBlendMode['Floating Particles'] ?? 0,
+              settings.fxBlendOpacity['Floating Particles'] ?? 1.0),
+        ),
+      ),
+    ),
+  );
 
   /// The optional effects, each switched on or off in settings.
   List<Widget> _extraFx({bool coverflowDepthOnly = false}) {
