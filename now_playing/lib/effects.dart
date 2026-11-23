@@ -39,11 +39,15 @@ class ParticlesPainter extends CustomPainter {
   final ParticleField field;
   final ArtPalette palette;
   final double k;
+  final GlobalKey? artKey;
+  final GlobalKey? layerKey;
 
   ParticlesPainter({
     required this.field,
     required this.palette,
     this.k = 1.0,
+    this.artKey,
+    this.layerKey,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -51,19 +55,30 @@ class ParticlesPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final p = Paint();
     final t = field.t;
+    // Real artwork origin is resolved during paint, *after* layout.
+    final source = artKey == null ? null
+        : _artCenter(artKey!, size, layerKey: layerKey);
+    if (artKey != null && source == null) return;
+    final reach = math.sqrt(
+        size.width * size.width + size.height * size.height);
     for (int i = 0; i < ParticleField.n; i++) {
-      final yy = (field.y[i] - t * field.s[i]) % 1.0;
-      final xx =
-          (field.x[i] + 0.015 * math.sin(t * 1.3 + field.ph[i])) * size.width;
-      final py = yy * size.height;
-      final edge = math.sin(yy * math.pi);
+      final phase = (field.y[i] + t * field.s[i]) % 1.0;
+      final angle = field.ph[i] +
+          0.18 * math.sin(t * 0.3 + field.x[i] * 9.0);
+      final pos = source == null
+          ? Offset(
+              (field.x[i] + .015 * math.sin(t * 1.3 + field.ph[i])) * size.width,
+              ((field.y[i] - t * field.s[i]) % 1.0) * size.height)
+          : source + Offset(math.cos(angle), math.sin(angle)) *
+              (phase * reach * 0.9);
+      final fade = math.sin(phase * math.pi).clamp(0.0, 1.0).toDouble();
       final tw = 0.5 + 0.5 * math.sin(t * 2.0 + field.ph[i] * 3.0);
-      final alpha = _a((0.25 + 0.30 * tw) * edge * k);
+      final alpha = _a((0.25 + 0.30 * tw) * fade * k);
       final c = palette.at(field.x[i]);
       p.color = c.withOpacity(alpha * 0.25);
-      canvas.drawCircle(Offset(xx, py), field.r[i] * 3.2, p);
+      canvas.drawCircle(pos, field.r[i] * 3.2, p);
       p.color = c.withOpacity(alpha);
-      canvas.drawCircle(Offset(xx, py), field.r[i], p);
+      canvas.drawCircle(pos, field.r[i], p);
     }
   }
 
@@ -325,17 +340,15 @@ RenderBox? _artBox(GlobalKey key) {
   return null;
 }
 
-Offset _artCenter(GlobalKey key, Size size, {GlobalKey? layerKey}) {
+Offset? _artCenter(GlobalKey key, Size size, {GlobalKey? layerKey}) {
   final box = _artBox(key);
-  if (box == null) return Offset(size.width * 0.25, size.height / 2);
-  final globalCenter = box.localToGlobal(box.size.center(Offset.zero));
-  // The FX canvas is overscanned/scaled independently of the artwork.
-  // Convert from screen space into the actual painter's local coordinates.
   final layer = layerKey?.currentContext?.findRenderObject();
-  if (layer is RenderBox && layer.attached && layer.hasSize) {
-    return layer.globalToLocal(globalCenter);
-  }
-  return globalCenter;
+  // Never guess screen center or reuse global coordinates as layer-local
+  // coordinates. If either render box is missing, wait for actual layout.
+  if (box == null || layer is! RenderBox ||
+      !layer.attached || !layer.hasSize) return null;
+  final globalCenter = box.localToGlobal(box.size.center(Offset.zero));
+  return layer.globalToLocal(globalCenter);
 }
 
 /// Soft photographic bokeh with genuine filled defocus and light bleed.
@@ -346,6 +359,8 @@ class GlowPainter extends CustomPainter {
   final double k;
   final double effectSize;
   final Offset origin;
+  final GlobalKey? artKey;
+  final GlobalKey? layerKey;
 
   GlowPainter({
     required this.clock,
@@ -353,6 +368,8 @@ class GlowPainter extends CustomPainter {
     required this.k,
     this.effectSize = 1.0,
     this.origin = const Offset(.5,.5),
+    this.artKey,
+    this.layerKey,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -361,7 +378,10 @@ class GlowPainter extends CustomPainter {
     final t = clock.t;
     final scale = effectSize.clamp(.35, 2.5);
     final shortest = math.min(size.width, size.height);
-    final source = Offset(size.width*origin.dx,size.height*origin.dy);
+    final source = artKey == null
+        ? Offset(size.width*origin.dx,size.height*origin.dy)
+        : _artCenter(artKey!, size, layerKey: layerKey);
+    if (source == null) return; // An art-less frame must not emit from center.
     for (var i=0;i<25;i++) {
       final seed=i*2.399963;
       final phase=((t*(.009+(i%7)*.0015)+i*.277)%1.0);
@@ -480,6 +500,7 @@ class RaysPainter extends CustomPainter {
             ? Offset(size.width * pinnedOrigin!.dx,
                 size.height * pinnedOrigin!.dy)
             : _artCenter(artKey, size, layerKey: layerKey);
+    if (c == null) return;
     final reach = math.sqrt(size.width * size.width + size.height * size.height);
     final intensity = _a((0.46 + 0.36 * clock.bass) * k);
     final cols = palette.colors;
@@ -650,6 +671,7 @@ class RipplesPainter extends CustomPainter {
         ? Offset(size.width * pinnedOrigin!.dx,
             size.height * pinnedOrigin!.dy)
         : _artCenter(artKey, size, layerKey: layerKey);
+    if (c == null) return;
     final box = _artBox(artKey);
     final baseR = box != null ? box.size.shortestSide / 2
         : size.shortestSide * .26;
@@ -892,9 +914,11 @@ class ExpandedFxPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (k <= 0) return;
     final w = size.width, h = size.height, t = clock.t;
-    final center = pinnedOrigin == null
-        ? Offset(w * .5, h * .5)
-        : Offset(w * pinnedOrigin!.dx, h * pinnedOrigin!.dy);
+    final center = pinnedOrigin != null
+        ? Offset(w * pinnedOrigin!.dx, h * pinnedOrigin!.dy)
+        : artKey == null ? null
+            : _artCenter(artKey!, size, layerKey: layerKey);
+    if (center == null) return;
     final bright = palette.a.withOpacity((.72 * k).clamp(0.0, 1.0));
     final second = palette.b.withOpacity((.68 * k).clamp(0.0, 1.0));
     final stroke = Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5..color = bright;
@@ -921,10 +945,7 @@ class ExpandedFxPainter extends CustomPainter {
         }
         break;
       case 1: // Bass shockwave: energy-responsive expanding rings
-        final shockCenter = pinnedOrigin != null
-            ? Offset(w * pinnedOrigin!.dx, h * pinnedOrigin!.dy)
-            : artKey == null ? center
-                : _artCenter(artKey!, size, layerKey: layerKey);
+        final shockCenter = center;
         for (final onset in (bassOnsets?.starts ?? const <double>[])) {
           final f = (t - onset) / 0.85;
           if (f < 0 || f > 1) continue;
