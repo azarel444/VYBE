@@ -162,29 +162,39 @@ void main() {
       displacement += radial * halo * .012 * strength;
     }
   } else if (mode > 6.5 && mode < 7.5) {
-    // True artwork-emitted moving trails: a glowing tail, crisp hot
-    // filament and traveling tip. No full-width oscillating lines.
+    // Light Trails have overlapping life cycles. After the bright head
+    // travels away, the previous trail remains in place, thins and fades.
+    // Continuing the prior generation across the modulo boundary prevents
+    // the whole streak abruptly disappearing and restarting.
     for (int i = 0; i < 9; i++) {
       float fi = float(i);
       float direction = fi * 2.399963 + sin(t*.19+fi*1.7)*.19;
       float curve = direction + radius*.95 +
           .23*sin(radius*6.0-t*.62+fi*.8);
       float sideways = atan(sin(theta-curve),cos(theta-curve))*radius;
-      float head = .16 + fract(t*(.19+fi*.013)+fi*.173) * 1.16;
-      float behind = head - radius;
+      float phase = fract(t*(.19+fi*.013)+fi*.173);
       float life = smoothstep(.03,.20,radius) *
           (1.0-smoothstep(1.15,1.60,radius));
-      float tail = smoothstep(-.025,.045,behind) *
-          exp(-max(behind,0.0)*2.3) * life;
-      float core = gauss(sideways,.008) * tail;
-      float halo = gauss(sideways,.065) * tail;
-      float tip = gauss(radius-head,.034) *
-          gauss(sideways,.028) * life;
       vec3 light = fxColor(fract(fi*.29));
-      illumination += light * (halo*.64+core*1.05+tip*2.15) *
-          (1.0 + bass*.6);
-      // Slight local lens heat shimmer, confined to the trail itself.
-      displacement += radial * (core+tip)*.013*strength;
+      for (int generation = 0; generation < 2; generation++) {
+        // generation=1 keeps the last trail alive beyond the head reset.
+        float age = phase + float(generation);
+        float head = .16 + age * 1.16;
+        float fadeIn = smoothstep(.0,.22,age);
+        float fadeOut = 1.0 - smoothstep(1.05,1.90,age);
+        float envelope = fadeIn * fadeOut;
+        float behind = head - radius;
+        // The far tail decays progressively as the light travels away.
+        float tail = smoothstep(-.025,.045,behind) *
+            exp(-max(behind,0.0)*2.3) * life * envelope;
+        float core = gauss(sideways,.008) * tail;
+        float halo = gauss(sideways,.065) * tail;
+        float tip = gauss(radius-head,.034) *
+            gauss(sideways,.028) * life * envelope;
+        illumination += light * (halo*.64+core*1.05+tip*2.15) *
+            (1.0 + bass*.6);
+        displacement += radial * (core+tip)*.013*strength;
+      }
     }
   } else if (mode > 7.5 && mode < 8.5) {
     // Concentric polar wireframe with a slowly morphing projected grid.
