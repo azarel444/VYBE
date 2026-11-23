@@ -467,7 +467,8 @@ class SweepPainter extends CustomPainter {
       old.palette != palette || old.k != k || old.effectSize != effectSize;
 }
 
-/// Light rays fanning out from behind the art, brighter on bass.
+/// Album-emitted Light Rays: luminous beam cores plus wide feathered spill.
+/// Size controls both beam length and spread, never scales a clipped widget.
 class RaysPainter extends CustomPainter {
   final FxClock clock;
   final GlobalKey artKey;
@@ -475,9 +476,7 @@ class RaysPainter extends CustomPainter {
   final Offset? pinnedOrigin;
   final ArtPalette palette;
   final double k;
-
-  /// Fans the beams down from the top center of the screen instead of from
-  /// behind the cover (used by the Typo theme).
+  final double effectSize;
   final bool topOrigin;
 
   RaysPainter({
@@ -487,125 +486,128 @@ class RaysPainter extends CustomPainter {
     this.pinnedOrigin,
     required this.palette,
     required this.k,
+    this.effectSize = 1.0,
     this.topOrigin = false,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Coverflow supplies its projected center explicitly. The regular
-    // GlobalKey lookup remains for all other themes.
-    final c = topOrigin ? Offset(size.width / 2, 0)
+    if (k <= 0 || size.isEmpty) return;
+    final c = topOrigin ? Offset(size.width * .5, 0)
         : pinnedOrigin != null
             ? Offset(size.width * pinnedOrigin!.dx,
                 size.height * pinnedOrigin!.dy)
             : _artCenter(artKey, size, layerKey: layerKey);
     if (c == null) return;
-    final reach = math.sqrt(size.width * size.width + size.height * size.height);
-    final intensity = _a((0.46 + 0.36 * clock.bass) * k);
-    final cols = palette.colors;
-    final rot = clock.t * 0.05;
-    const n = 9;
-    // Feather each beam across its angular width. Multiple translucent wedges
-    // make the edges fade naturally without the hard triangular silhouette.
-    // The radial shader also fades each ray toward its distant end.
-    const bands = 8;
-    for (int i = 0; i < n; i++) {
-      final ang = topOrigin
-          ? math.pi / 2 +
-              (i - (n - 1) / 2) * (math.pi * 0.86 / (n - 1)) +
-              0.12 * math.sin(clock.t * 0.15 + i * 0.7)
-          : rot + i * 2 * math.pi / n;
-      final half = 0.145 + 0.045 * math.sin(clock.t * 0.4 + i);
-      final color = cols[i % 3];
-      for (int j = 0; j < bands; j++) {
-        final inner = half * j / bands;
-        final outer = half * (j + 1) / bands;
-        // Gaussian-ish falloff: bright center, transparent at beam edges.
-        final falloff = math.pow(1.0 - (j + 0.5) / bands, 1.25).toDouble();
-        final paint = Paint()
-          ..shader = ui.Gradient.radial(c, reach * 0.9, [
-            color.withOpacity((intensity * falloff * 0.58).clamp(0.0, 1.0)),
-            color.withOpacity((intensity * falloff * 0.32).clamp(0.0, 1.0)),
+    final sizeControl = effectSize.clamp(0.5, 2.5).toDouble();
+    final reach = math.sqrt(size.width * size.width + size.height * size.height)
+        * (0.40 + 0.45 * sizeControl);
+    final strength = _a(k * (0.86 + 0.14 * clock.bass));
+    const count = 10;
+    const bands = 6;
+    for (var i = 0; i < count; i++) {
+      final angle = clock.t * .065 + i * 2 * math.pi / count
+          + .07 * math.sin(clock.t * .31 + i * 1.4);
+      final halfWidth = (0.07 + .055 * sizeControl) *
+          (0.9 + .12 * math.sin(clock.t * .24 + i * 2.0));
+      final color = palette.colors[i % 3];
+      // Multiple nested wedges are softer near the outside and create a
+      // much brighter luminous beam close to the source.
+      for (var band = bands - 1; band >= 0; band--) {
+        final portion = (band + 1) / bands;
+        final outerHalfWidth = halfWidth * portion;
+        final intensity = math.pow(1.0 - band / (bands + 1), 1.1).toDouble();
+        final alpha = _a(strength * intensity);
+        final wedge = Path()
+          ..moveTo(c.dx, c.dy)
+          ..lineTo(c.dx + reach * math.cos(angle - outerHalfWidth),
+              c.dy + reach * math.sin(angle - outerHalfWidth))
+          ..lineTo(c.dx + reach * math.cos(angle + outerHalfWidth),
+              c.dy + reach * math.sin(angle + outerHalfWidth))
+          ..close();
+        canvas.drawPath(wedge, Paint()..shader = ui.Gradient.radial(
+          c, reach,
+          [
+            color.withOpacity(_a(alpha * .68)),
+            color.withOpacity(_a(alpha * .36)),
+            color.withOpacity(_a(alpha * .16)),
             color.withOpacity(0),
-          ], const [0.0, 0.48, 1.0]);
-        for (final side in [-1.0, 1.0]) {
-          final a0 = ang + side * inner;
-          final a1 = ang + side * outer;
-          final path = Path()
-            ..moveTo(c.dx, c.dy)
-            ..lineTo(c.dx + reach * math.cos(a0), c.dy + reach * math.sin(a0))
-            ..lineTo(c.dx + reach * math.cos(a1), c.dy + reach * math.sin(a1))
-            ..close();
-          canvas.drawPath(path, paint);
-        }
+          ],
+          const [0.0, 0.28, 0.69, 1.0],
+        ));
       }
     }
   }
 
   @override
   bool shouldRepaint(RaysPainter old) =>
-      old.palette != palette || old.k != k || old.topOrigin != topOrigin;
+      old.palette != palette || old.k != k ||
+      old.effectSize != effectSize || old.topOrigin != topOrigin;
 }
 
 /// Timestamped kick-like low-frequency onsets from ACTUAL Android FFT.
 /// No simulated beat clock, repeated frame sampling, or free-running pulses.
 class RippleState {
+  // Shared event stream for Beat Pulse, Beat Ripples, and Bass Shockwave.
+  // Only new Android FFT frames can add events; the synthetic visualizer
+  // never generates a kick.
   final List<double> starts = [];
   int _lastFftFrame = -1;
-  double _lowFloor = 0;
-  double _lastLow = 0;
-  double _lastMid = 0;
-  double _riseFloor = 0;
-  double _lastBeat = -10;
+  double _lowFloor = 0.0;
+  double _lastLow = 0.0;
+  double _lastMid = 0.0;
+  double _riseFloor = 0.0;
+  double _lastBeat = -10.0;
   bool _primed = false;
 
   void _reset() {
     _primed = false;
     _lastFftFrame = -1;
-    _lowFloor = 0;
-    _lastLow = 0;
-    _lastMid = 0;
-    _riseFloor = 0;
+    _lowFloor = 0.0;
+    _lastLow = 0.0;
+    _lastMid = 0.0;
+    _riseFloor = 0.0;
+    _lastBeat = -10.0;
     starts.clear();
   }
 
-  /// Each incoming 96-band FFT represents one audio observation. The prior
-  /// implementation averaged bands 0..7 of the SMOOTHED visualizer, which
-  /// were almost all the same very-low FFT bin. That missed kicks whose main
-  /// energy is higher (about 60-200 Hz), and confused visualizer animation
-  /// with fresh audio transients.
+  /// A short kick-only impulse: quick attack followed by natural decay.
+  /// Zero between detected attacks; no free-running or simulated pulse.
+  double pulseAt(double now) {
+    if (starts.isEmpty) return 0.0;
+    final age = now - starts.last;
+    if (age < 0 || age >= 0.27) return 0.0;
+    final attack = (age / .012).clamp(0.0, 1.0).toDouble();
+    final decay = math.pow(1.0 - age / .27, 2.3).toDouble();
+    return (attack * decay).clamp(0.0, 1.0).toDouble();
+  }
+
   void update(double now, Uint8List? fft, int fftFrame, bool playing) {
-    starts.removeWhere((s) => now - s > 1.45);
+    starts.removeWhere((start) => now - start > 1.45);
     if (!playing || fft == null || fft.length < 96) {
       _reset();
       return;
     }
-    // Flutter paints at ~30 fps but Android FFT updates independently.
-    // Re-evaluating one stale sample at every render frame creates fake
-    // rising edges. One detector update per genuine FFT packet, only.
     if (_lastFftFrame == fftFrame) return;
     _lastFftFrame = fftFrame;
 
-    // The source bins are logarithmic (Kotlin's Visualizer mapping).
-    // This window reaches kick fundamentals and upper-bass punch instead
-    // of only the near-DC/sub-bass bins used by the old 0..7 average.
-    var lowSum = 0.0, lowWeight = 0.0;
-    for (var i = 2; i < 30; i++) {
-      final weight = i < 22 ? 1.0 : 0.55;
+    // Android sends 96 logarithmically spaced, un-smoothed bands.
+    // Use the low-frequency punch, with an upper-bass shoulder. Compare
+    // its rise to midrange attacks to reject snare/voice/mix transients.
+    var lowSum = 0.0;
+    var weightSum = 0.0;
+    for (var i = 5; i < 30; i++) {
+      final weight = i < 23 ? 1.0 : 0.45;
       lowSum += (fft[i] / 255.0) * weight;
-      lowWeight += weight;
+      weightSum += weight;
     }
-    final low = lowSum / lowWeight;
-
-    // Compare with midrange onsets to avoid emitting a new ring for every
-    // snare/hi-hat or broad full-mix loudness jump.
+    final low = lowSum / weightSum;
     var midSum = 0.0;
     for (var i = 32; i < 60; i++) {
       midSum += fft[i] / 255.0;
     }
     final mid = midSum / 28.0;
-
     if (!_primed) {
       _primed = true;
       _lowFloor = low;
@@ -616,25 +618,22 @@ class RippleState {
 
     final lowRise = math.max(0.0, low - _lastLow);
     final midRise = math.max(0.0, mid - _lastMid);
-    // An adaptive slow energy floor detects impacts even if the song's
-    // absolute bass level is naturally high or low. A transient/flux floor
-    // rejects jitter from compressed, sustained bass notes.
-    final riseGate = math.max(0.023, _riseFloor * 1.8);
-    final floorGate = math.max(0.024, _lowFloor * 0.065);
-    final kickLike = low >= mid * 0.58 || lowRise > midRise * 0.85;
-    final hit = low > 0.09 &&
+    final riseGate = math.max(0.029, _riseFloor * 2.25);
+    final energyGate = math.max(0.028, _lowFloor * 0.11);
+    final lowDominant = low >= mid * 0.79 &&
+        lowRise >= midRise * 1.12 + 0.006;
+    final hit = low >= 0.105 &&
         lowRise >= riseGate &&
-        low > _lowFloor + floorGate &&
-        kickLike &&
-        now - _lastBeat >= 0.21;
+        low >= _lowFloor + energyGate &&
+        lowDominant &&
+        now - _lastBeat >= 0.22;
 
-    // Update reference AFTER testing: the new impact must be measured
-    // against earlier energy, not against a baseline already pulled upward.
-    _lowFloor += (low - _lowFloor) * 0.07;
-    _riseFloor += (lowRise - _riseFloor) * 0.12;
+    // Follow the musical bed slowly, without letting the candidate kick
+    // shift its own detection threshold before testing it.
+    _lowFloor += (low - _lowFloor) * 0.055;
+    _riseFloor += (lowRise - _riseFloor) * 0.10;
     _lastLow = low;
     _lastMid = mid;
-
     if (hit) {
       _lastBeat = now;
       starts.add(now);

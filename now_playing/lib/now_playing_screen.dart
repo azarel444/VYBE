@@ -638,17 +638,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           settings.cinematicAnimationSpeed.clamp(0.0, 3.0);
     }
 
+    // Visualizer bars may simulate if Android denies audio capture.
+    // Lighting/Beat Pulse MUST NOT use that fake bass or random beat clock.
     sim.update(dt, model.playing, real: model.realActive ? model.fft : null);
-    final bass = sim.bass;
-    particles.t += dt * (0.25 + 1.2 * bass);
-    grid.scroll += dt * (0.12 + 0.9 * bass);
-    _stepGlitch();
-    fxClock.t = _time;
-    fxClock.bass = bass;
-    // Only real, fresh Android FFT packets may trigger Beat Ripples.
-    // The smoothed/simulated visualizer bass is intentionally excluded.
     ripples.update(_time, model.realActive ? model.fft : null,
         model.fftFrame, model.playing);
+    final kickPulse = ripples.pulseAt(_time);
+    particles.t += dt * (0.25 + 1.2 * kickPulse);
+    grid.scroll += dt * (0.12 + 0.9 * kickPulse);
+    _stepGlitch();
+    fxClock.t = _time;
+    fxClock.bass = kickPulse;
 
     // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.
@@ -1514,6 +1514,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Active premium scenes with stable selection IDs. Rave was retired:
   /// preserve Neon Club's ID (19) instead of shifting all saved choices.
+  // Shared real-FFT kick impulse. When audio capture is unavailable,
+  // Beat Pulse is still rather than synthesizing a phantom drum.
+  double get _kickPulse => model.playing && model.realActive
+      ? ripples.pulseAt(_time) : 0.0;
+
   Widget _premiumAnimatedBackground(double motion) {
     const sceneAssets = <String>[
       'shaders/golden_hour.frag',
@@ -1540,9 +1545,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       time: _time,
       motion: motion,
       palette: settings.animationUseAlbumColors ? albumPalette : scenePalettes[sceneIndex],
-      bass: sim.bass,
-      // Read the live bass on every shader repaint, not a stale build-time value.
-      bassSample: () => model.playing ? sim.bass : 0.0,
+      bass: _kickPulse,
+      // Read real kick transients at each GPU repaint, not smoothed or
+      // simulated visualizer bass at the last widget rebuild.
+      bassSample: () => _kickPulse,
       lightOrigin: sceneIndex == 0 ? _goldenHourLightOrigin() : null,
       shaderAsset: sceneAssets[sceneIndex],
     ));
@@ -1556,7 +1562,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     builder: (context, _) => CustomPaint(
       painter: _EdgyStandbyPainter(
         time: _time,
-        bass: sim.bass,
+        bass: _kickPulse,
         motion: settings.templateBackgroundMotion,
       ),
       child: const SizedBox.expand(),
@@ -2530,7 +2536,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     Offset? localOrigin(String name) {
       if (!coverflow) return null;
       const fxOrigin = Offset(.50, .52);
-      final full = name == 'Aurora Sweep' || name == 'Moving Bokeh';
+      final full = name == 'Aurora Sweep' ||
+          name == 'Moving Bokeh' || name == 'Light Rays';
       final scale = full ? 1.0 : (1.18 *
           (settings.fxSize[name] ?? 1.0)).clamp(.4, 4.0).toDouble();
       return Offset(.5 + (fxOrigin.dx - .5) / scale,
@@ -2542,7 +2549,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final size = settings.fxSize[name] ?? 1.0;
       // Keep the FX canvas full-screen. Scaling the widget itself exposes
       // its rectangular bounds when Size drops below 100%.
-      final fullCanvas = name == 'Aurora Sweep' || name == 'Moving Bokeh';
+      final fullCanvas = name == 'Aurora Sweep' ||
+          name == 'Moving Bokeh' || name == 'Light Rays';
       return IgnorePointer(child: fullCanvas
         ? RepaintBoundary(child: CustomPaint(
             key: layerKey,
@@ -2603,6 +2611,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             pinnedOrigin: localOrigin('Light Rays'),
             palette: p,
             k: settings.kRays,
+            effectSize: settings.fxSize['Light Rays'] ?? 1.0,
             topOrigin: false, // artwork-origin even in Typo
             repaint: _tick), layerKey: _raysLayerKey),
       if ((albumFx || !coverflow) && settings.fxRipples && !_gpuFxActive)
@@ -3626,22 +3635,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Full-height edge fades are siblings of the visualizer bars, not
   // overflowing children of a narrow edge box. This prevents hard seams
   // where the shadow was clipped at the edge-bar widget boundary.
-  Widget _focusedEdgeShadows(double edge) => Positioned.fill(
-    child: IgnorePointer(child: Stack(clipBehavior: Clip.none, fit: StackFit.expand, children: [
-      Positioned(left: 0, top: -12, bottom: -12, width: edge * 2.8,
-        child: const DecoratedBox(decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerLeft, end: Alignment.centerRight,
-            colors: [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
-            stops: [0.0, .45, 1.0])))),
-      Positioned(right: 0, top: -12, bottom: -12, width: edge * 2.8,
-        child: const DecoratedBox(decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerRight, end: Alignment.centerLeft,
-            colors: [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
-            stops: [0.0, .45, 1.0])))),
-    ])),
-  );
+  Widget _focusedEdgeShadows(double edge) {
+    // Overscan beyond the physical screen bounds on BOTH edges.
+    // No safe-area/padding inset or visible gutter may interrupt the
+    // full-height fade behind Focused's edge-to-edge visualizer.
+    final bleed = math.max(20.0, edge * .34).toDouble();
+    return Positioned.fill(child: IgnorePointer(
+      child: Stack(clipBehavior: Clip.none, fit: StackFit.expand, children: [
+        Positioned(left: -bleed, top: -bleed, bottom: -bleed,
+          width: edge * 3.2 + bleed,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft, end: Alignment.centerRight,
+              colors: [Color(0xFF000000), Color(0xE6000000),
+                  Color(0x99000000), Color(0x00000000)],
+              stops: [0.0, .22, .53, 1.0])))),
+        Positioned(right: -bleed, top: -bleed, bottom: -bleed,
+          width: edge * 3.2 + bleed,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerRight, end: Alignment.centerLeft,
+              colors: [Color(0xFF000000), Color(0xE6000000),
+                  Color(0x99000000), Color(0x00000000)],
+              stops: [0.0, .22, .53, 1.0])))),
+      ]),
+    ));
+  }
 
   Widget _edgeBars(double edge, {required bool leftEdge}) {
     return SizedBox(

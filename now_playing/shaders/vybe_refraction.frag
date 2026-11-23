@@ -278,12 +278,27 @@ void main() {
     displacement += vec2(field, sin(field * 3.1 + t*.31)) * .012 * strength;
     illumination += mix(u_colorB,u_colorA,uv.y) * light * .22;
   } else if (mode > 13.5 && mode < 14.5) {
-    // Light Rays: screen-space scattering and nearby pixel warping.
-    float angle = atan(d.y,d.x);
-    float spoke = pow(max(0.0, sin(angle * 9.0 + sin(t*.22)*1.5)), 18.0);
-    float reach = (1.0 - smoothstep(.08,.70,radius));
-    illumination += fxColor(.32 + .15*sin(t*.14)) * spoke * reach * .33;
-    displacement += radial * spoke * reach * .014 * strength;
+    // Album-emitted Light Rays: wide luminous scattering with a bright
+    // filament and soft, long-distance feathered volumetric spill.
+    // Size controls *both* beam spread and beam reach (0.5..2.5).
+    float raySize = clamp(u_effectSize, 0.5, 2.5);
+    float rayAngle = atan(d.y, d.x);
+    float rotation = sin(t * .19) * .18;
+    float beamPhase = rayAngle * 10.0 + rotation;
+    float blade = max(0.0, cos(beamPhase));
+    float core = pow(blade, 25.0 / raySize);
+    float halo = pow(blade, 5.5 / sqrt(raySize));
+    float scatter = pow(blade, 1.65);
+    float beamLength = .36 + raySize * .48;
+    float reach = 1.0 - smoothstep(beamLength * .27, beamLength, radius);
+    float softStart = smoothstep(.015, .13, radius);
+    // Colored luminous cores remain visible over bright fanart.
+    // Low-level bass adds only a subtle extra kick; light remains steady.
+    float energy = reach * softStart *
+        (core * 1.40 + halo * 1.04 + scatter * .48);
+    illumination += fxColor(.32 + .15 * sin(t * .14)) *
+        energy * (1.0 + .12 * bass);
+    displacement += radial * core * reach * .010 * strength;
   } else if (mode > 14.5 && mode < 15.5) {
     // Nebula Haze: soft volumetric turbulence alters light and pixels.
     float n = sin(p.x * 5.3 + t * .13 + sin(p.y*3.7)) *
@@ -393,10 +408,15 @@ void main() {
   else if (bm == 5) treated = min(vec3(1.0), original / max(vec3(0.035), 1.0 - rgb));
   else if (bm == 6) treated = abs(original - rgb);
   else if (bm == 7) treated = mix(rgb, rgb.gbr, 0.55);
-  float blend = clamp(u_blendOpacity, 0.0, 1.0);
-  if (bm == 0) blend = 0.0;
-  // For prism, limit treatment to shard regions, not the entire screen.
-  if (mode > 1.5 && mode < 2.5) blend *= clamp(length(displacement) * 32.0, 0.0, 1.0);
-  rgb = mix(rgb, treated, blend);
+  // Blend opacity is the visibility of the *entire* FX pass even in
+  // Normal mode. Previously bm==0 disabled this control completely.
+  float effectOpacity = clamp(u_blendOpacity, 0.0, 1.0);
+  float transferAmount = bm == 0 ? 0.0 : 1.0;
+  // Prism's alternate blending stays bounded to its refracted regions.
+  if (mode > 1.5 && mode < 2.5) {
+    transferAmount *= clamp(length(displacement) * 32.0, 0.0, 1.0);
+  }
+  vec3 result = mix(rgb, treated, transferAmount);
+  rgb = mix(original, result, effectOpacity);
   fragColor = vec4(clamp(rgb, vec3(0.0), vec3(base.a)), base.a);
 }
