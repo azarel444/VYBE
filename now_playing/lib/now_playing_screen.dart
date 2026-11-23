@@ -3463,6 +3463,86 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  /// A two-pixel seamless accent, sampled from the current album colors.
+  /// The illuminated edge stays flush against the art/visualizer seam.
+  Widget _edgeAlbumAccent({required bool vertical, bool reversed = false}) {
+    final colors = model.art?.palette ?? _lastArtPalette ?? _palette;
+    return IgnorePointer(child: DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: vertical ? Alignment.topCenter : Alignment.centerLeft,
+          end: vertical ? Alignment.bottomCenter : Alignment.centerRight,
+          colors: [colors.a, colors.b, colors.c],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colors.b.withOpacity(.34),
+            blurRadius: 10,
+            spreadRadius: 0.5,
+            offset: vertical
+                ? Offset(reversed ? -3 : 3, 0)
+                : const Offset(0, 3),
+          ),
+        ],
+      ),
+    ));
+  }
+
+  /// Soft dark depth under the visualizer, directly away from the colorful
+  /// album-art seam. A restrained album-color falloff adds continuity while
+  /// keeping the animated bars clearly readable.
+  Widget _edgeVisualizerShadow({
+    required bool vertical,
+    bool reversed = false,
+  }) {
+    final colors = model.art?.palette ?? _lastArtPalette ?? _palette;
+    final start = vertical
+        ? (reversed ? Alignment.centerRight : Alignment.centerLeft)
+        : Alignment.topCenter;
+    final end = vertical
+        ? (reversed ? Alignment.centerLeft : Alignment.centerRight)
+        : Alignment.bottomCenter;
+    return IgnorePointer(child: Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(child: DecoratedBox(
+          decoration: BoxDecoration(gradient: LinearGradient(
+            begin: start, end: end,
+            colors: [
+              Colors.black.withOpacity(.85),
+              Colors.black.withOpacity(.62),
+              Colors.black.withOpacity(.22),
+              Colors.transparent,
+            ],
+            stops: const [0.0, .16, .62, 1.0],
+          )),
+        )),
+        Positioned.fill(child: ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (bounds) => LinearGradient(
+            begin: start, end: end,
+            colors: const [
+              Colors.white, Color(0x77FFFFFF), Colors.transparent,
+            ],
+            stops: const [0.0, .30, 1.0],
+          ).createShader(bounds),
+          child: DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: vertical ? Alignment.topCenter : Alignment.centerLeft,
+              end: vertical
+                  ? Alignment.bottomCenter : Alignment.centerRight,
+              colors: [
+                colors.a.withOpacity(.19),
+                colors.b.withOpacity(.15),
+                colors.c.withOpacity(.19),
+              ],
+            ),
+          )),
+        )),
+      ],
+    ));
+  }
+
   /// Cover on the left half of the screen, edge to edge. A vertical
   /// visualizer runs along the cover's edge, and the song info and lyrics
   /// are right-aligned in the space to the right of it.
@@ -3471,14 +3551,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final artPanel = SizedBox(
       width: w * 0.5,
       height: h,
-      child: _edgeArt(w * 0.5, h),
+      child: Stack(fit: StackFit.expand, clipBehavior: Clip.none, children: [
+        _edgeArt(w * 0.5, h),
+        Positioned(
+          left: swapped ? 0 : null,
+          right: swapped ? null : 0,
+          top: 0, bottom: 0, width: 2.0,
+          child: _edgeAlbumAccent(vertical: true, reversed: swapped),
+        ),
+      ]),
     );
-    // The bars stay against the inner edge of the artwork. Their direction
-    // and gradient must mirror when the panels exchange sides.
+    // Shade starts precisely at the album edge, underneath the visualizer,
+    // and mirrors when the two panels are swapped.
     final barsPanel = SizedBox(
       width: w * 0.09,
       height: h,
-      child: _edgeBars(w * 0.09, leftEdge: !swapped),
+      child: Stack(fit: StackFit.expand, children: [
+        _edgeVisualizerShadow(vertical: true, reversed: swapped),
+        _edgeBars(w * 0.09, leftEdge: !swapped),
+      ]),
     );
     final textAlign = Alignment.center;
     final infoPanel = Expanded(
@@ -3520,27 +3611,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _edgeNarrow(double w, double h) {
     return Column(
       children: [
-        SizedBox(width: w, height: h * 0.5, child: _edgeArt(w, h * 0.5)),
-        // The bars hang straight down from the bottom edge of the cover.
+        SizedBox(
+          width: w, height: h * 0.5,
+          child: Stack(fit: StackFit.expand, clipBehavior: Clip.none, children: [
+            _edgeArt(w, h * 0.5),
+            Positioned(left: 0, right: 0, bottom: 0, height: 2.0,
+              child: _edgeAlbumAccent(vertical: false)),
+          ]),
+        ),
+        // Portrait mirrors the landscape seam: a full-width colored line
+        // and a dark shadow travelling down beneath the spectrum bars.
         if (settings.visualizer)
           SizedBox(
             width: w,
             height: h * 0.08,
-            child: _downShade(
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: DownBarsPainter(
-                    sim: sim,
-                    palette: _palette,
+            child: Stack(fit: StackFit.expand, children: [
+              _edgeVisualizerShadow(vertical: false),
+              RepaintBoundary(child: CustomPaint(
+                painter: DownBarsPainter(
+                  sim: sim,
+                  palette: _palette,
                   style: settings.diagonalWaveStyle,
-                    count: settings.barCount,
-                    gain: settings.sensitivity,
-                    repaint: _tick,
-                  ),
+                  count: settings.barCount,
+                  gain: settings.sensitivity,
+                  repaint: _tick,
                 ),
-              ),
-              h * 0.08,
-            ),
+              )),
+            ]),
           ),
         Expanded(
           child: Padding(
