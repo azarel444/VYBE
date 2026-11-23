@@ -802,11 +802,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               color: Colors.black.withOpacity(((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial) && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
             // Video playback owns its visuals. Global shaders and spectrum FX
             // behind the WebView would be invisible but still cost frame time.
-            // Coverflow places the GPU passes between the receding covers
-            // and the selected album, not underneath the whole scene.
-            if (heavy && settings.theme != AppSettings.tMusicVideo &&
-                settings.theme != AppSettings.tCoverflow)
-              ..._shaderFxLayers(),
+            // Coverflow background-image FX must process only the fanart
+            // BEFORE any of the projected album sleeves are painted.
+            // Emitted light/particles take the dedicated mid-depth stage.
+            if (heavy && settings.theme != AppSettings.tMusicVideo)
+              ..._shaderFxLayers(
+                coverflowBackdropOnly:
+                    settings.theme == AppSettings.tCoverflow),
             if (heavy && settings.theme != AppSettings.tMusicVideo)
               ..._extraFx(),
             if (vhs && !_gpuFxActive &&
@@ -2048,13 +2050,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ? _edgeBars(w * .08, leftEdge: true) : null,
       rightVisualizer: settings.visualizer
           ? _edgeBars(w * .08, leftEdge: false) : null,
-      // Exactly one FX instance: the global stack excludes Coverflow's
-      // album-emitted FX, and this mid-depth stage owns them instead.
+      // Only album-emitted FX appear above the SIDE sleeves.
+      // Image refraction, ambient distortion, and perspective effects
+      // already ran on the fanart BELOW all sleeves in the root stack.
       depthFx: heavy
           ? <Widget>[
-              ..._shaderFxLayers(),
+              ..._shaderFxLayers(coverflowMidOnly: true),
               ..._extraFx(coverflowDepthOnly: true),
-              // Same depth as all other artwork-emitted FX.
               if (settings.bgEffects && settings.particles && !_gpuFxActive)
                 _floatingParticleLayer(),
             ]
@@ -2434,7 +2436,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return null;
   }
 
-  List<Widget> _shaderFxLayers() {
+  // Exactly one layer for each Coverflow FX. Refraction and atmospheric
+  // treatment belongs behind ALL albums; luminous/particle emitters,
+  // rays and kick-driven pulses belong in front of the side albums
+  // but behind the focused central cover. Never duplicate an effect.
+  static const Set<String> _coverflowMidFxNames = <String>{
+    'Bass Shockwave', 'Electric Arcs', 'Light Trails',
+    'Particle Currents', 'Beat Ripples', 'Moving Bokeh',
+    'Light Rays', 'Twinkling Stars', 'Floating Particles',
+  };
+
+  List<Widget> _shaderFxLayers({
+    bool coverflowBackdropOnly = false,
+    bool coverflowMidOnly = false,
+  }) {
+    assert(!(coverflowBackdropOnly && coverflowMidOnly));
     if (!_gpuFxActive) return const <Widget>[];
     const names = <String>[
       'Liquid Refraction', 'Vortex Tunnel', 'Prism Shards',
@@ -2472,14 +2488,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final tier = settings.fxPerformanceMode == 2 ? 2 : _fxTier;
     final limit = tier <= 1 ? 5 : names.length;
     final fx = <Widget>[];
-    for (var i = 0; i < names.length && fx.length < limit; i++) {
+    var budgeted = 0;
+    for (var i = 0; i < names.length; i++) {
       if (!enabled[i] || intensity[i] <= 0) continue;
-      // Coverflow draws its shockwave on the correct plane between rear
-      // sleeves and central cover. Keep the depth-anchored one intact.
-      if (settings.theme == AppSettings.tCoverflow && i == 4) continue;
-      // Coverflow owns a specialized album-outline bloom.
-      if (settings.theme == AppSettings.tCoverflow && i == 19) continue;
+      // Coverflow's shockwave and bloom use dedicated central-art layers.
+      if (settings.theme == AppSettings.tCoverflow && (i == 4 || i == 19)) {
+        continue;
+      }
+      // Count every enabled FX before plane selection, so splitting into
+      // two calls does NOT double the performance budget or selections.
+      if (budgeted >= limit) break;
+      budgeted++;
       final name = names[i];
+      if (settings.theme == AppSettings.tCoverflow) {
+        final mid = _coverflowMidFxNames.contains(name);
+        if (coverflowBackdropOnly && mid) continue;
+        if (coverflowMidOnly && !mid) continue;
+      }
       final strength = (intensity[i] * (tier == 1 ? .70 : 1.0))
           .clamp(0.0, 1.0).toDouble();
       final blend = const <int>[
@@ -2538,13 +2563,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   List<Widget> _extraFx({bool coverflowDepthOnly = false}) {
     final p = _palette;
     final coverflow = settings.theme == AppSettings.tCoverflow;
-    // Coverflow is a three-plane composite: background and ambient FX,
-    // then receding sleeves, then album-emitted FX, then central sleeve.
-    // Split without duplicating a GlobalKey or a painter.
-    final albumFx = coverflow && coverflowDepthOnly;
-    // Every visual emitter in Coverflow belongs between receding sleeves
-    // and the front cover, not underneath all the sleeve geometry.
-    final emissionPlane = !coverflow || albumFx;
+    // Root scene = background FX; Coverflow depthFx = emitted FX.
+    // On all other themes these run in the normal shared FX stack.
+    bool inPlane(String name) {
+      if (!coverflow) return true;
+      final middle = _coverflowMidFxNames.contains(name);
+      return coverflowDepthOnly ? middle : !middle;
+    }
     // The Coverflow sleeve's perspective center is at ~52% screen height.
     // Pin artwork-emitted effects there even on the initial frame before
     // its GlobalKey is laid out, rather than spawning at the left fallback.
@@ -2590,10 +2615,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final layers = <Widget>[
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
         if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
-            emissionPlane &&
+            inPlane(AppSettings.extraFxNames[i]) &&
             // GPU path renders all ten with real image processing.
             // Coverflow retains the depth-anchored shockwave painter.
-            (!_gpuFxActive || (coverflow && i == 1)))
+            (!_gpuFxActive || (coverflow && i == 1 && coverflowDepthOnly)))
           layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             artKey: _artKey,
             layerKey: _expandedFxLayerKeys[i],
@@ -2601,26 +2626,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: _expandedFxLayerKeys[i]),
-      if (emissionPlane && settings.fxNebula && !_gpuFxActive)
+      if (inPlane('Nebula Haze') && settings.fxNebula && !_gpuFxActive)
         layer('Nebula Haze', AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),
-      if (emissionPlane && settings.fxGrid && !_gpuFxActive)
+      if (inPlane('Perspective Grid') && settings.fxGrid && !_gpuFxActive)
         layer('Perspective Grid', AtmospherePainter(mode: 1, clock: fxClock, palette: p,
             k: settings.kGrid, repaint: _tick)),
-      if (emissionPlane && settings.fxStars && !_gpuFxActive)
+      if (inPlane('Twinkling Stars') && settings.fxStars && !_gpuFxActive)
         layer('Twinkling Stars', AtmospherePainter(mode: 2, clock: fxClock, palette: p,
             k: settings.kStars, repaint: _tick)),
-      if (emissionPlane && settings.fxGlow && !_gpuFxActive)
+      if (inPlane('Moving Bokeh') && settings.fxGlow && !_gpuFxActive)
         layer('Moving Bokeh', GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow,
             effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0,
             artKey: _artKey, layerKey: _bokehLayerKey, repaint: _tick),
             layerKey: _bokehLayerKey),
-      if (emissionPlane && settings.fxSweep && !_gpuFxActive)
+      if (inPlane('Aurora Sweep') && settings.fxSweep && !_gpuFxActive)
         layer('Aurora Sweep', SweepPainter(
             clock: fxClock, palette: p, k: settings.kSweep,
             effectSize: settings.fxSize['Aurora Sweep'] ?? 1.0, repaint: _tick)),
-      if ((albumFx || !coverflow) && settings.fxRays && !_gpuFxActive)
+      if (inPlane('Light Rays') && settings.fxRays && !_gpuFxActive)
         layer('Light Rays', RaysPainter(
             clock: fxClock,
             artKey: _artKey,
@@ -2631,7 +2656,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             effectSize: settings.fxSize['Light Rays'] ?? 1.0,
             topOrigin: false, // artwork-origin even in Typo
             repaint: _tick), layerKey: _raysLayerKey),
-      if ((albumFx || !coverflow) && settings.fxRipples && !_gpuFxActive)
+      if (inPlane('Beat Ripples') && settings.fxRipples && !_gpuFxActive)
         layer('Beat Ripples', RipplesPainter(
             state: ripples,
             clock: fxClock,
@@ -2641,7 +2666,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             palette: p,
             k: settings.kRipples,
             repaint: _tick), layerKey: _ripplesLayerKey),
-      if (emissionPlane && settings.fxWater && !_gpuFxActive)
+      if (inPlane('Water Shimmer') && settings.fxWater && !_gpuFxActive)
         layer('Water Shimmer', WaterPainter(
             clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),
     ];
@@ -3701,9 +3726,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// Diagonal's cover-side backdrop is deliberately more recessed than the
   /// full-screen blur. Keep this separate from Record Cut's grayscale filter.
   static const _diagonalGrayDark = ColorFilter.matrix(<double>[
-    .0765, .2575, .0260, 0, 0,
-    .0765, .2575, .0260, 0, 0,
-    .0765, .2575, .0260, 0, 0,
+    // Twenty-five percent darker than the previous grayscale panel.
+    // The full-color sleeve, fanart, and white diagonal edge stay intact.
+    .0574, .1931, .0195, 0, 0,
+    .0574, .1931, .0195, 0, 0,
+    .0574, .1931, .0195, 0, 0,
     0, 0, 0, 1, 0,
   ]);
 
