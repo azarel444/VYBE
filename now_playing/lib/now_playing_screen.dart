@@ -4523,51 +4523,64 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // area above and the area below. The song info fills the lower part.
       final s = math.min(w * 0.76, h * 0.36).toDouble();
       final mid = (a + b) / 2;
+      // Separate the artist/logo header from the title and album. Anchor
+      // both groups to the ACTUAL cover extents so the layout adapts to
+      // different portrait aspect ratios without overlapping the artwork.
+      final coverTop = mid.dy - s / 2;
+      final coverBottom = mid.dy + s / 2;
+      final artistTop = h * .025;
+      final artistHeight = math.max(h * .08,
+          coverTop - artistTop - h * .025).toDouble();
+      final titleTop = math.max(coverBottom + h * .015, h * .605)
+          .clamp(0.0, h * .72).toDouble();
       return Stack(
         fit: StackFit.expand,
         children: [
           gray,
-          Positioned(left: 0, right: 0, bottom: 0, height: h * 0.18, child: _diagonalBottomFade()),
+          Positioned(left: 0, right: 0, bottom: 0, height: h * 0.18,
+            child: _diagonalBottomFade()),
           bars,
           line,
+          // Artist name or clearlogo belongs ABOVE the cover, not in the
+          // lower song-information group.
           Positioned(
-              left: mid.dx - s / 2, top: mid.dy - s / 2, child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
-            child: _front(s, false),
-          )),
+            left: w * .035, right: w * .035,
+            top: artistTop, height: artistHeight,
+            child: Center(child: SizedBox(
+              width: w * .93,
+              child: _metadataText(_VybeTextRole.artist, Alignment.center),
+            )),
+          ),
           Positioned(
-            left: w * 0.04,
-            right: w * 0.04,
-            top: h * 0.575,
-            bottom: h * 0.105,
-            child: Center(
-              child: SizedBox(
-                  width: w * 0.92,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    // Pass the full text-panel width to SongTitleMarquee.
-                    // Without stretch it receives an unbounded constraint
-                    // and clips long titles prematurely.
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _artist(h * 0.073, Alignment.center, false),
-                      SizedBox(height: h * 0.009),
-                      _title(h * 0.037, Alignment.center, false),
-                                            if (_hasLyrics) ...[
-                        SizedBox(height: _lyricGap(h)),
-                        _lyricBlock(h * 0.75, Alignment.center, vhs: false),
-                      ],
-                    ],
-                  ),
-                ),
+            left: mid.dx - s / 2, top: coverTop,
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(
+                  counterFlipText ? -1 : 1, 1, 1),
+              child: _front(s, false),
             ),
           ),
-          if (_showAlbumLabel)
-            Positioned(
-              left: w * .10, right: w * .10, bottom: h * .045,
-              child: Center(child: _shaded(_metadataText(_VybeTextRole.album, Alignment.center))),
+          // Pull title and album UP immediately beneath the artwork.
+          // Song title uses the full width before starting its fade-scroll.
+          Positioned(
+            left: w * .045, right: w * .045,
+            top: titleTop, bottom: h * .04,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _metadataText(_VybeTextRole.title, Alignment.center),
+                if (_showAlbumLabel) ...[
+                  SizedBox(height: h * .012),
+                  _metadataText(_VybeTextRole.album, Alignment.center),
+                ],
+                if (_hasLyrics) ...[
+                  SizedBox(height: _lyricGap(h)),
+                  _lyricBlock(h * .75, Alignment.center, vhs: false),
+                ],
+              ],
             ),
+          ),
         ],
       );
     }
