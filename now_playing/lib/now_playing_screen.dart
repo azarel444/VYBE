@@ -121,6 +121,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   final ripples = RippleState();
   final _artKey = GlobalKey(); // lets rings and rays find the cover
   final _fxViewportKey = GlobalKey(); // coordinate space for every shader pass
+  final _bokehLayerKey = GlobalKey();
+  final _particlesLayerKey = GlobalKey();
+  final _expandedFxLayerKeys = List<GlobalKey>.generate(
+      AppSettings.extraFxNames.length, (_) => GlobalKey());
   final _raysLayerKey = GlobalKey();
   final _ripplesLayerKey = GlobalKey();
   final _shockLayerKey = GlobalKey();
@@ -818,10 +822,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   scale: settings.fxSize['Floating Particles'] ?? 1.0,
                   child: RepaintBoundary(
                   child: CustomPaint(
+                    key: _particlesLayerKey,
                     painter: _FxBlendPainter(ParticlesPainter(
                         field: particles,
                         palette: _palette,
                         k: settings.kParticles,
+                        artKey: _artKey,
+                        layerKey: _particlesLayerKey,
                         repaint: _tick),
                         settings.fxBlendMode['Floating Particles'] ?? 0,
                         settings.fxBlendOpacity['Floating Particles'] ?? 1.0),
@@ -2277,7 +2284,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         left: sleeveCenterX - sleeveSize * .5,
         top: sleeveCenterY - sleeveSize * .5,
         width: sleeveSize, height: sleeveSize,
-        child: GestureDetector(onTap: _openPlayer, child: readable(sleeve))),
+        // Muzine's sleeve does not use _front; it needs its own FX anchor.
+        child: GestureDetector(
+          key: _artKey,
+          behavior: HitTestBehavior.opaque,
+          onTap: _openPlayer,
+          child: readable(sleeve))),
     ]);
     return flipped ? Transform(alignment: Alignment.center,
         transform: Matrix4.diagonal3Values(-1, 1, 1), child: composition)
@@ -2378,10 +2390,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       settings.fxPerformanceMode != 1 &&
       (settings.fxPerformanceMode == 2 || _fxTier > 0);
 
-  /// Emits all spatial FX from the actual on-screen artwork, not the screen
-  /// midpoint. Coverflow deliberately uses its original projected origin.
-  /// Compute on animation ticks so layout and orientation can settle first.
-  Offset _currentFxOrigin() {
+  /// Resolve the real visible album/sleeve after layout in viewport space.
+  /// If there is no measured anchor, do not emit FX at screen center.
+  /// Coverflow keeps its approved stage projection.
+  Offset? _currentFxOrigin() {
     if (settings.theme == AppSettings.tCoverflow) {
       return const Offset(.50, .52);
     }
@@ -2397,7 +2409,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         (local.dy / viewport.size.height).clamp(-.15, 1.15).toDouble(),
       );
     }
-    return const Offset(.5, .5);
+    // Typo deliberately replaces the cover with lyrics. Its full-screen
+    // album background is the artwork, so its center is valid here.
+    if (settings.theme == AppSettings.tTypo && _hasLyrics) {
+      return const Offset(.5, .5);
+    }
+    return null;
   }
 
   List<Widget> _shaderFxLayers() {
@@ -2454,7 +2471,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ][(settings.fxBlendMode[name] ?? 0).clamp(0, 23)];
       fx.add(IgnorePointer(child: AnimatedBuilder(
         animation: _tick,
-        builder: (context, _) => RefractionShaderLayer(
+        builder: (context, _) {
+          final origin = _currentFxOrigin();
+          if (origin == null) return const SizedBox.expand();
+          return RefractionShaderLayer(
           key: ValueKey('gpu-fx-$name'),
           time: fxClock.t,
           bass: model.playing ? fxClock.bass : 0,
@@ -2466,12 +2486,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           blendMode: blend,
           blendOpacity: settings.fxBlendOpacity[name] ?? 1.0,
           effectSize: settings.fxSize[name] ?? 1.0,
-          origin: _currentFxOrigin(),
+          origin: origin,
           colorA: _palette.a,
           colorB: _palette.b,
           colorC: _palette.c,
           child: const SizedBox.expand(),
-        ),
+        );
+        },
       )));
     }
     return fx;
@@ -2491,10 +2512,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // The Coverflow sleeve's perspective center is at ~52% screen height.
     // Pin artwork-emitted effects there even on the initial frame before
     // its GlobalKey is laid out, rather than spawning at the left fallback.
-    final fxOrigin = _currentFxOrigin();
-    // Most canvas layers are scaled around the screen center. Invert that
-    // transform so their emitted geometry still lands behind the real cover.
-    Offset localOrigin(String name) {
+    // For ordinary themes, painters resolve render boxes each paint.
+    // Only Coverflow has an authored stage origin that must remain pinned.
+    Offset? localOrigin(String name) {
+      if (!coverflow) return null;
+      const fxOrigin = Offset(.50, .52);
       final full = name == 'Aurora Sweep' || name == 'Moving Bokeh';
       final scale = full ? 1.0 : (1.18 *
           (settings.fxSize[name] ?? 1.0)).clamp(.4, 4.0).toDouble();
@@ -2535,12 +2557,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             // Coverflow retains the depth-anchored shockwave painter.
             (!_gpuFxActive || (coverflow && i == 1)))
           layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
-            artKey: i == 1 ? _artKey : null,
-            layerKey: i == 1 ? _shockLayerKey : null,
+            artKey: _artKey,
+            layerKey: _expandedFxLayerKeys[i],
             pinnedOrigin: localOrigin(AppSettings.extraFxNames[i]),
             bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
-            layerKey: i == 1 ? _shockLayerKey : null),
+            layerKey: _expandedFxLayerKeys[i]),
       if (emissionPlane && settings.fxNebula && !_gpuFxActive)
         layer('Nebula Haze', AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),
@@ -2554,7 +2576,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         layer('Moving Bokeh', GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow,
             effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0,
-            origin: fxOrigin, repaint: _tick)),
+            artKey: _artKey, layerKey: _bokehLayerKey, repaint: _tick),
+            layerKey: _bokehLayerKey),
       if (emissionPlane && settings.fxSweep && !_gpuFxActive)
         layer('Aurora Sweep', SweepPainter(
             clock: fxClock, palette: p, k: settings.kSweep,
@@ -3279,6 +3302,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // background control toggle. Avoid _front's pulse/bloom and crossfade layers.
   Widget _driveArtwork(double size) {
     return GestureDetector(
+      key: _artKey,
       behavior: HitTestBehavior.opaque,
       onTap: _openPlayer,
       child: _driveArtworkVisual(size),
