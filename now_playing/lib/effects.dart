@@ -1071,39 +1071,68 @@ class ExpandedFxPainter extends CustomPainter {
           }
         }
         break;
-      case 6: // Hot moving light tips and luminous curved tails.
-        // Draw in artwork-centered polar space, not horizontal waves.
+      case 6: // Persistent luminous trails with a fading afterglow.
+        // The outgoing tail survives the next light's start: no disappearing
+        // full-length path when a moving tip wraps its animation cycle.
         final reach = math.sqrt(w*w+h*h) * .82;
+        double smooth(double a, double b, double v) {
+          final x = ((v-a)/(b-a)).clamp(0.0,1.0).toDouble();
+          return x*x*(3-2*x);
+        }
         for (var i=0; i<11; i++) {
-          final progress = (t*(.17+i*.008)+i*.19)%1.0;
-          final headRadius=reach*(.10+progress*.94);
-          final path=Path();
-          Offset head=center;
-          for (var j=0;j<=72;j++) {
-            final f=j/72.0;
-            final radius=headRadius*f;
-            final angle=i*2.399963 + radius/reach*1.04 +
-                .22*math.sin(radius/reach*5.9-t*.62+i*.8);
-            final point=center+Offset(math.cos(angle),math.sin(angle))*radius;
-            if (j==0) {path.moveTo(point.dx,point.dy);}
-            else {path.lineTo(point.dx,point.dy);}
-            head=point;
-          }
+          final phase = (t*(.17+i*.008)+i*.19)%1.0;
           final c=palette.at(i/11);
-          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
-            ..strokeWidth=25..color=c.withOpacity(.26*k)
-            ..maskFilter=const MaskFilter.blur(BlurStyle.normal,21));
-          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
-            ..strokeWidth=7..color=c.withOpacity(.57*k)
-            ..maskFilter=const MaskFilter.blur(BlurStyle.normal,7));
-          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
-            ..strokeWidth=2..color=
-                Color.lerp(c,Colors.white,.7)!.withOpacity(.86*k));
-          canvas.drawCircle(head,26,Paint()..shader=ui.Gradient.radial(
-            head,26,[c.withOpacity(.65*k),c.withOpacity(.20*k),
-            c.withOpacity(0)],[0,.35,1]));
-          canvas.drawCircle(head,2.8,Paint()
-            ..color=Colors.white.withOpacity(.97*k));
+          // Draw the prior generation first, then the current bright head.
+          for (var gen=1;gen>=0;gen--) {
+            final age=phase+gen;
+            final fade=(smooth(0,.22,age) *
+                (1-smooth(1.05,1.90,age))).clamp(0.0,1.0).toDouble();
+            if(fade<.003) continue;
+            final headRadius=reach*(.10+age*.94);
+            final path=Path();
+            Offset head=center;
+            for (var j=0;j<=84;j++) {
+              final fraction=j/84.0;
+              final radius=headRadius*fraction;
+              final angle=i*2.399963 + radius/reach*1.04 +
+                  .22*math.sin(radius/reach*5.9-t*.62+i*.8);
+              final point=center+
+                  Offset(math.cos(angle),math.sin(angle))*radius;
+              if(j==0){path.moveTo(point.dx,point.dy);}
+              else {path.lineTo(point.dx,point.dy);}
+              head=point;
+            }
+            // Bright at the tip, progressively transparent behind it.
+            // The radial gradient also dims the old on-screen tail as its
+            // invisible head continues outward beyond the viewport.
+            ui.Shader tailShader(double alpha) => ui.Gradient.radial(
+              center,headRadius,[
+                c.withOpacity(0),
+                c.withOpacity(alpha*.06),
+                c.withOpacity(alpha*.25),
+                c.withOpacity(alpha*.62),
+                c.withOpacity(alpha),
+              ],const [0,.16,.48,.79,1]);
+            canvas.drawPath(path,Paint()
+              ..style=PaintingStyle.stroke..strokeWidth=25
+              ..shader=tailShader(.34*k*fade)
+              ..maskFilter=const MaskFilter.blur(BlurStyle.normal,21));
+            canvas.drawPath(path,Paint()
+              ..style=PaintingStyle.stroke..strokeWidth=7
+              ..shader=tailShader(.68*k*fade)
+              ..maskFilter=const MaskFilter.blur(BlurStyle.normal,7));
+            canvas.drawPath(path,Paint()
+              ..style=PaintingStyle.stroke..strokeWidth=2
+              ..shader=tailShader(.92*k*fade));
+            canvas.drawCircle(head,26,Paint()..shader=ui.Gradient.radial(
+              head,26,[
+                c.withOpacity(.65*k*fade),
+                c.withOpacity(.20*k*fade),
+                c.withOpacity(0),
+              ],const [0,.35,1]));
+            canvas.drawCircle(head,2.8,Paint()
+              ..color=Colors.white.withOpacity(.97*k*fade));
+          }
         }
         break;
       case 7: // Polar morphing wireframe, projected from album center.
