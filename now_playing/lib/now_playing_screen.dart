@@ -4011,7 +4011,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         child: ClipOval(child: Stack(fit: StackFit.expand, children: [
           inner,
-          const ColoredBox(color: Color(0xA6000000)),
+          // Reduce the remaining grayscale inset luminance by ~25%:
+          // (1 - 0xBC/255) / (1 - 0xA6/255) = 0.75.
+          const ColoredBox(color: Color(0xBC000000)),
         ])),
       ),
     );
@@ -6930,29 +6932,57 @@ class _RecordCurveShadowPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.isEmpty || depth <= 0) return;
     final center = Offset(size.width / 2, size.height / 2);
     final radius = math.min(size.width, size.height) / 2;
-    final shadowDepth = math.min(depth, radius * 0.28);
-    final steps = math.max(12, (shadowDepth / 2).ceil());
-    for (var i = 0; i < steps; i++) {
-      final t = i / steps;
-      final opacity = 0.36 * math.pow(1 - t, 2).toDouble();
-      final rr = radius - t * shadowDepth - 0.75;
-      final rect = Rect.fromCircle(center: center, radius: rr);
-      // Flutter's drawArc angles start at the right and run clockwise.
-      // Narrowing the arc at greater depths keeps the shadow localized.
-      final arcSpan = span * (1 - 0.18 * t);
-      canvas.drawArc(
-        rect,
-        centerAngle - arcSpan,
-        arcSpan * 2,
-        false,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = shadowDepth / steps + 1.5
-          ..color = Colors.black.withOpacity(opacity),
-      );
-    }
+    final shadowDepth = math.min(depth, radius * .28);
+    final inner = ((radius - shadowDepth) / radius).clamp(0.0, 1.0)
+        .toDouble();
+
+    // A smooth continuous radial gradient avoids the stacked drawArc
+    // stroke caps that previously left a visible vertical hard edge.
+    // Mask it with an angularly feathered sweep, so the localized inner
+    // shadow melts away before reaching the end of the record cutout.
+    final bounds = Offset.zero & size;
+    canvas.saveLayer(bounds, Paint());
+    canvas.drawCircle(center, radius,
+      Paint()..shader = ui.Gradient.radial(center, radius, [
+        Colors.transparent,
+        Colors.transparent,
+        const Color(0x3A000000),
+        const Color(0x9E000000),
+        const Color(0xB0000000),
+        Colors.transparent,
+      ], [
+        0.0,
+        math.max(0.0, inner - .04),
+        (inner + (1 - inner) * .26),
+        (inner + (1 - inner) * .65),
+        .97,
+        1.0,
+      ]),
+    );
+    final arcSpan = math.min(span, math.pi * .98);
+    final featherFraction = (0.14 / (2 * arcSpan)).clamp(.05, .22)
+        .toDouble();
+    // Sweep mask fades completely to zero at both arc endpoints, avoiding
+    // the vertical edge even when the ellipse is cropped by the screen.
+    canvas.drawRect(bounds, Paint()
+      ..shader = SweepGradient(
+        startAngle: centerAngle - arcSpan,
+        endAngle: centerAngle + arcSpan,
+        tileMode: TileMode.clamp,
+        colors: const [
+          Colors.transparent, Colors.white,
+          Colors.white, Colors.transparent,
+        ],
+        stops: [
+          0.0, featherFraction,
+          1.0 - featherFraction, 1.0,
+        ],
+      ).createShader(bounds)
+      ..blendMode = BlendMode.dstIn);
+    canvas.restore();
   }
 
   @override
@@ -6961,7 +6991,6 @@ class _RecordCurveShadowPainter extends CustomPainter {
       oldDelegate.span != span ||
       oldDelegate.depth != depth;
 }
-
 
 // Isolate each painter before compositing it with the underlying scene.
 // Normal at full opacity avoids the expensive saveLayer on entry-level GPUs.
