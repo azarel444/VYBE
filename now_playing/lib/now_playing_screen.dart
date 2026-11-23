@@ -916,6 +916,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     fit: StackFit.expand,
                     children: [
                       layout,
+                      // When Typo shows lyrics in place of a front cover, the
+                      // full-bleed album background is the artwork. Give it
+                      // an exact centered anchor for both GPU and Canvas FX.
+                      if (settings.theme == AppSettings.tTypo && _hasLyrics)
+                        Positioned.fill(child: IgnorePointer(
+                          child: Center(child: SizedBox(
+                            key: _artKey, width: 1, height: 1)))),
                       // Clock is displayed only with the popup controls.
                       if (vhs && !widget.driveHost && settings.theme != 4 &&
                           settings.theme != AppSettings.tMusicVideo)
