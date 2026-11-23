@@ -4537,15 +4537,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             child: _front(s, false),
           )),
           Positioned(
-            left: w * 0.08,
-            right: w * 0.08,
+            left: w * 0.04,
+            right: w * 0.04,
             top: h * 0.575,
             bottom: h * 0.105,
             child: Center(
               child: SizedBox(
-                  width: w * 0.84,
+                  width: w * 0.92,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    // Pass the full text-panel width to SongTitleMarquee.
+                    // Without stretch it receives an unbounded constraint
+                    // and clips long titles prematurely.
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _artist(h * 0.073, Alignment.center, false),
                       SizedBox(height: h * 0.009),
@@ -4569,13 +4573,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
 
     final s = math.min(w * 0.37, h * 0.8).toDouble();
-    // The info starts to the right of the tallest bars, so they never touch.
+    // The label/title panel should fill the available open side.
+    // The former fixed visualizer clearance shoved the whole information
+    // column toward the right edge, leaving a large unused gap.
+    // Bound the upper-edge clearance but use the wider lower-area space
+    // for centered song information, without covering the front sleeve.
     final infoTop = h * 0.36;
     final root = math.max(0.0, infoTop - normal.dy * barMax).toDouble();
     final lineX = a.dx + (b.dx - a.dx) * (root - a.dy) / (b.dy - a.dy);
-    final infoLeft = math.max(w * 0.47,
-            lineX + (settings.visualizer ? normal.dx * barMax : 0.0) + w * 0.035)
-        .toDouble();
+    final upperClearance = lineX +
+        (settings.visualizer ? normal.dx * barMax : 0.0) + w * 0.012;
+    final infoLeft = math.max(w * 0.44,
+        math.min(upperClearance, w * 0.49)).toDouble();
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -4590,7 +4599,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           )),
         Positioned(
           left: infoLeft,
-          right: w * 0.05,
+          right: w * 0.025,
           top: infoTop,
           bottom: h * 0.07,
           child: Transform(
@@ -4598,7 +4607,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
             child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
+            // Force title/artist/album to inherit the entire available
+            // width. The marquee only pans after genuinely filling it.
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _artist(h * 0.090, Alignment.center, false),
               SizedBox(height: h * 0.012),
