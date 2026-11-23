@@ -1670,16 +1670,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if ((settings.backgroundSource == 6 ||
         (settings.backgroundSource == 0 && settings.fanartMode == 1)) &&
         _fanartBytes != null) {
+      // Keep artist photography sharp when the popup says "Off".
+      final fanartBlur = (settings.bgBlur - 6.0)
+          .clamp(0.0, 12.0).toDouble();
+      final fanartImage = Image.memory(_fanartBytes!,
+          fit: BoxFit.cover, gaplessPlayback: true,
+          filterQuality: FilterQuality.high);
       Widget fanart = Stack(fit: StackFit.expand, children: [
-        // Fanart was unblurred before this setting. Keep that original look
-        // at the default value while allowing additional softening.
-        ImageFiltered(
+        fanartBlur == 0 ? fanartImage : ImageFiltered(
           imageFilter: ui.ImageFilter.blur(
-            sigmaX: (settings.bgBlur - 6.0).clamp(0.0, 12.0).toDouble(),
-            sigmaY: (settings.bgBlur - 6.0).clamp(0.0, 12.0).toDouble(),
+            sigmaX: fanartBlur, sigmaY: fanartBlur,
             tileMode: TileMode.clamp),
-          child: Image.memory(_fanartBytes!, fit: BoxFit.cover, gaplessPlayback: true,
-            filterQuality: FilterQuality.low),
+          child: fanartImage,
         ),
         // Independent fanart darkness for themes using artist photos.
         ColoredBox(color: Colors.black.withOpacity(
@@ -1702,18 +1704,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // A playing song with no cover still uses the same blurred-artwork
     // structure as a song with album art. The idle animation belongs to
     // the actual no-playback state, handled in _background().
+    // True zero has no ImageFilter at all: the original cover is sharp.
+    final albumBackdropImage = usingVybePlaceholder
+        ? Image.asset('assets/vybe_album_placeholder.png',
+            fit: BoxFit.cover, filterQuality: FilterQuality.high)
+        : _albumBackgroundImage(art!);
+    final albumBlur = settings.bgBlur.clamp(0.0, 18.0).toDouble();
     Widget blurred = RepaintBoundary(
       child: ColorFiltered(
         colorFilter: _contrastFilter(settings.bgContrast),
-        child: ImageFiltered(
-          imageFilter: ui.ImageFilter.blur(
-              sigmaX: settings.bgBlur, sigmaY: settings.bgBlur,
-              tileMode: TileMode.clamp),
-          child: usingVybePlaceholder
-              ? Image.asset('assets/vybe_album_placeholder.png',
-                  fit: BoxFit.cover, filterQuality: FilterQuality.high)
-              : _albumBackgroundImage(art!),
-        ),
+        child: albumBlur == 0
+            ? albumBackdropImage
+            : ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(
+                    sigmaX: albumBlur, sigmaY: albumBlur,
+                    tileMode: TileMode.clamp),
+                child: albumBackdropImage,
+              ),
       ),
     );
     // Keep the same transform when paused; only the shared phase stops.
@@ -1843,17 +1850,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 ? Image.asset('assets/vybe_album_placeholder.png',
                     fit: BoxFit.cover)
                 : _cinematicAnimatedFallback();
-    final image = hasImage
+    // Album and fanart have separate popup values. Previously album art
+    // always added 6 to the blur, making zero impossible to reach.
+    final cinematicActualBlur = showFanart
+        ? settings.cinematicBlur
+        : settings.cinematicAlbumBlur;
+    final correctedImage = ColorFiltered(
+      colorFilter: _contrastFilter(settings.cinematicContrast),
+      child: background,
+    );
+    final image = hasImage && cinematicActualBlur > 0
         ? ImageFiltered(
             imageFilter: ui.ImageFilter.blur(
-              sigmaX: settings.cinematicBlur + (useAlbum ? 6.0 : 0.0),
-              sigmaY: settings.cinematicBlur + (useAlbum ? 6.0 : 0.0)),
-            child: ColorFiltered(
-              colorFilter: _contrastFilter(settings.cinematicContrast),
-              child: background))
-        : ColorFiltered(
-            colorFilter: _contrastFilter(settings.cinematicContrast),
-            child: background);
+              sigmaX: cinematicActualBlur,
+              sigmaY: cinematicActualBlur,
+              tileMode: TileMode.clamp),
+            child: correctedImage)
+        : correctedImage;
     // In BigFan/Muzine, move the chosen fanart OR album background without
     // moving the sleeve, vinyl or metadata. Placeholder images stay still.
     final movingImage = showFanart || useAlbum
@@ -1880,11 +1893,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 'cinematic-template:${settings.cinematicPalette}'),
             child: movingImage))),
       ),
-      // A blurred copy of the artwork, masked to the outer edges.
-      // The middle stays sharp and the blur fades inward smoothly.
-      // Coverflow must never add the artificial side-edge blur.
-      // Preserve this cinematic vignette only for its original themes.
-      if (hasImage && settings.theme != AppSettings.tCoverflow)
+      // Edge vignette follows album blur, too: its old fixed sigma=24
+      // prevented a truly sharp album even when the main blur was zero.
+      // Fanart retains its established cinematic side softening.
+      if (hasImage && settings.theme != AppSettings.tCoverflow &&
+          (showFanart || settings.cinematicAlbumBlur > 0))
         Positioned.fill(
           top: fanartTop,
           child: ClipRect(child: IgnorePointer(child: ShaderMask(
@@ -1897,7 +1910,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 Colors.transparent, Colors.transparent, Colors.white],
             ).createShader(bounds),
             child: ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              imageFilter: ui.ImageFilter.blur(
+                sigmaX: showFanart ? 24.0
+                    : (settings.cinematicAlbumBlur * 4.0).clamp(0.0, 24.0).toDouble(),
+                sigmaY: showFanart ? 24.0
+                    : (settings.cinematicAlbumBlur * 4.0).clamp(0.0, 24.0).toDouble()),
               child: SizedBox.expand(child: showFanart
                   ? Image.memory(fanart, fit: BoxFit.cover,
                       alignment: Alignment.topCenter, gaplessPlayback: true)
