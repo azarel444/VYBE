@@ -38,6 +38,7 @@ import 'coverflow_theme.dart';
 import 'music_video_theme.dart';
 import 'music_video_vhs.dart';
 import 'riot_fixed_spacing.dart';
+import 'riot_approved_spacing.dart';
 import 'riot_spacing_store.dart';
 import 'riot_spacing_editor.dart';
 import 'laser_tunnel_background.dart';
@@ -5638,8 +5639,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final original = _riotIsLetter(previous) && _riotIsLetter(character)
         ? _riotDefaultPairOverlap(previous, character, fontSize, glyphWidth)
         : 0.0;
-    return original - (riotFixedPairOffsets[previous + character] ?? 0.0) * fontSize
-        - RiotSpacingStore.instance.deltaFor(previous + character) * fontSize;
+    final pair = previous + character;
+    // Original hand-tuned pairs + approved new corrections + any later
+    // residual editor adjustment. Shared by both width and rendered positions.
+    return original - ((riotFixedPairOffsets[pair] ?? 0.0)
+        + (riotApprovedPairOffsets[pair] ?? 0.0)
+        + RiotSpacingStore.instance.deltaFor(pair)) * fontSize;
   }
 
   double _riotDefaultPairOverlap(String previous, String character,

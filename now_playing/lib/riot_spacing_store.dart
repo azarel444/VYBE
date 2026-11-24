@@ -4,13 +4,17 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'riot_approved_spacing.dart';
+
 /// Riot-only, editable optical corrections. NEVER modifies the bundled
 /// TTF, artwork cache, or general VYBE settings. All values are em units.
-/// The v1 pair-only settings are read for backwards compatibility.
+/// The v1/v2 pair settings are migrated to deltas from the baked baseline,
+/// so older saved corrections are NEVER applied twice after an update.
 class RiotSpacingStore extends ChangeNotifier {
   RiotSpacingStore._();
   static final RiotSpacingStore instance = RiotSpacingStore._();
-  static const String _key = 'vybe_riot_spacing_overrides_v2';
+  static const String _key = 'vybe_riot_spacing_overrides_v3';
+  static const String _priorKey = 'vybe_riot_spacing_overrides_v2';
   static const String _oldKey = 'vybe_riot_spacing_overrides_v1';
 
   final Map<String, double> _pairs = <String, double>{};
@@ -49,15 +53,22 @@ class RiotSpacingStore extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final current = prefs.getString(_key);
+      final previous = prefs.getString(_priorKey);
       final legacy = prefs.getString(_oldKey);
-      // The editor can be opened while the async load is running.
-      // Never overwrite adjustments the user just made.
+      // The editor may be opened before storage finishes loading: never
+      // clobber a newly edited pair with a delayed read.
       if (!_edited) {
         if (current != null && current.isNotEmpty) {
           importJson(current, persist: false);
-        } else if (legacy != null && legacy.isNotEmpty) {
-          importJson(legacy, persist: false);
-          _scheduleSave();
+        } else {
+          final old = previous != null && previous.isNotEmpty ? previous : legacy;
+          if (old != null && old.isNotEmpty) {
+            // v1/v2 values were applied on top of the old factory kerning;
+            // importing them as residuals neutralizes the newly baked
+            // approved defaults for exactly those pairs the user changed.
+            importJson(old, persist: false);
+            _scheduleSave();
+          }
         }
       }
     } catch (error) {
@@ -115,7 +126,7 @@ class RiotSpacingStore extends ChangeNotifier {
         Map.fromEntries(input.entries.toList()
             ..sort((a, b) => a.key.compareTo(b.key)));
     return const JsonEncoder.withIndent('  ').convert({
-      'version': 2,
+      'version': 3,
       'description': 'VYBE Riot corrections (em); negative = closer/left/up',
       'pairs': sorted(_pairs),
       'horizontal': sorted(_x),
@@ -149,6 +160,21 @@ class RiotSpacingStore extends ChangeNotifier {
     }
 
     final nextPairs = decode(decoded['pairs'], true);
+    // Old exports contain total edits from the pre-bake renderer. Current
+    // exports store residual adjustments from the approved defaults. This
+    // also safely handles pasting a user's v2 JSON after upgrading.
+    final version = decoded['version'];
+    if (version is num && version.toInt() < 3) {
+      for (final key in nextPairs.keys.toList()) {
+        final baked = riotApprovedPairOffsets[key] ?? 0;
+        final difference = _clamp(nextPairs[key]! - baked);
+        if (difference.abs() < .005) {
+          nextPairs.remove(key);
+        } else {
+          nextPairs[key] = difference;
+        }
+      }
+    }
     final nextX = decode(decoded['horizontal'], false);
     final nextY = decode(decoded['vertical'], false);
     final nextAfter = decode(decoded['after'], false);

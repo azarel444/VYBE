@@ -116,7 +116,7 @@ class _RiotSpacingEditorState extends State<RiotSpacingEditor> {
     children: [
       Row(children: [
         Expanded(child: Text(label, style: const TextStyle(fontSize: 15))),
-        Text(value.abs() < .005 ? 'Original' :
+        Text(value.abs() < .005 ? 'Built-in default' :
           (value > 0 ? '+' : '') + value.toStringAsFixed(2) + ' em',
           style: const TextStyle(color: Colors.white70)),
       ]),
@@ -164,7 +164,7 @@ class _RiotSpacingEditorState extends State<RiotSpacingEditor> {
       builder: (ctx) => AlertDialog(
         title: const Text('Reset all Riot spacing corrections?'),
         content: const Text('All custom pair and individual glyph adjustments will be removed. '
-            'The original VYBE kerning stays unchanged. Export JSON '
+            'The built-in Riot kerning stays unchanged. Export JSON '
             'first if you want to keep a backup.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false),
@@ -204,7 +204,8 @@ class _RiotSpacingEditorState extends State<RiotSpacingEditor> {
                 const Text('Edit any Riot letter, number, punctuation mark or symbol. '
                     'Choose adjacent pairs or shift an individual character. '
                     'This uses the live VYBE renderer in every theme and saves '
-                    'automatically without modifying the original font file.',
+                    'automatically without modifying the original font file. '
+                    'The 65 approved pair corrections are now built in.',
                   style: TextStyle(color: Colors.white70)),
                 const SizedBox(height: 12),
                 TextField(
