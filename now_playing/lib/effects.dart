@@ -331,6 +331,9 @@ class GridPainter extends CustomPainter {
 class FxClock {
   double t = 0; // seconds
   double bass = 0; // 0..1
+  // Integrated Light Rays animation time. Changing speed doesn't make
+  // the rays jump to another angle; zero holds their current direction.
+  double rayPhase = 0;
 }
 
 /// Finds the album art on screen so rings and rays can start from it.
@@ -507,10 +510,10 @@ class RaysPainter extends CustomPainter {
     const count = 10;
     const bands = 6;
     for (var i = 0; i < count; i++) {
-      final angle = clock.t * .38 + i * 2 * math.pi / count
-          + .07 * math.sin(clock.t * .31 + i * 1.4);
+      final angle = clock.rayPhase * .38 + i * 2 * math.pi / count
+          + .07 * math.sin(clock.rayPhase * .31 + i * 1.4);
       final halfWidth = (0.07 + .055 * sizeControl) *
-          (0.9 + .12 * math.sin(clock.t * .24 + i * 2.0));
+          (0.9 + .12 * math.sin(clock.rayPhase * .24 + i * 2.0));
       final color = palette.colors[i % 3];
       // Multiple nested wedges are softer near the outside and create a
       // much brighter luminous beam close to the source.

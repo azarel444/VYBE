@@ -137,6 +137,28 @@ class _FxLibraryScreenState extends State<FxLibraryScreen> {
               Slider(value: fx.intensity(widget.settings).clamp(0.0,1.0).toDouble(), activeColor: _cyan,
                 onChanged: (v)=>widget.settings.update(()=>fx.setIntensity(widget.settings,v),persist:false),
                 onChangeEnd: (_)=>widget.settings.save()),
+              if (fx.name == 'Light Rays') ...[
+                const SizedBox(height: 12),
+                Text(widget.settings.rayRotationSpeed == 0
+                    ? 'Rotation speed Off'
+                    : 'Rotation speed ${widget.settings.rayRotationSpeed.toStringAsFixed(2)}×'),
+                Slider(
+                  value: widget.settings.rayRotationSpeed.clamp(0.0, 2.0).toDouble(),
+                  min: 0,
+                  max: 2,
+                  divisions: 40,
+                  activeColor: _cyan,
+                  onChanged: (v) => widget.settings.update(
+                      () => widget.settings.rayRotationSpeed = v,
+                      persist: false),
+                  onChangeEnd: (_) => widget.settings.save(),
+                ),
+                const Text(
+                  'Controls how quickly the rays rotate around the album. '
+                  'Zero holds them stationary; intensity and size are separate.',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+              ],
               if (fx.name == 'Background Motion') ...[
                 const SizedBox(height: 12),
                 const Text('Artwork motion type',

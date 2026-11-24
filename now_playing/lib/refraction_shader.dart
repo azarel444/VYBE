@@ -12,6 +12,7 @@ class RefractionShaderLayer extends StatefulWidget {
   final int blendMode;
   final double blendOpacity;
   final double effectSize;
+  final double rayPhase;
   final double pulseAge;
   final Offset origin; // Projected album-art center on the FX viewport.
   final Color colorA;
@@ -21,6 +22,7 @@ class RefractionShaderLayer extends StatefulWidget {
   const RefractionShaderLayer({super.key, required this.time, required this.bass,
     required this.strength, required this.mode,
     required this.blendMode, required this.blendOpacity, required this.effectSize,
+    this.rayPhase = 0.0,
     this.pulseAge = 99.0,
     this.origin = const Offset(0.5, 0.5),
     this.colorA = const Color(0xFF00E5FF),
@@ -76,6 +78,7 @@ class _RefractionShaderLayerState extends State<RefractionShaderLayer> {
     shader.setFloat(18, widget.colorC.blue / 255.0);
     shader.setFloat(19, widget.origin.dx);
     shader.setFloat(20, widget.origin.dy);
+    shader.setFloat(21, widget.rayPhase);
     return ClipRect(child: BackdropFilter(
       filter: ui.ImageFilter.shader(shader),
       child: widget.child,

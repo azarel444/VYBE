@@ -16,6 +16,7 @@ uniform vec3 u_colorA;
 uniform vec3 u_colorB;
 uniform vec3 u_colorC;
 uniform vec2 u_origin; // Artwork center in normalized screen coordinates.
+uniform float u_rayPhase; // Integrated Light Rays time (stops at speed zero).
 out vec4 fragColor;
 
 float hash21(vec2 p) {
@@ -285,7 +286,9 @@ void main() {
     float rayAngle = atan(d.y, d.x);
     // Rotate continuously around the artwork, rather than oscillating
     // by barely one degree as the last version did.
-    float rotation = t * 3.8 + sin(t * .19) * .12;
+    // Integrated phase changes smoothly when the user's speed slider moves.
+    // Speed zero holds the beam positions, without disabling illumination.
+    float rotation = u_rayPhase * 3.8 + sin(u_rayPhase * .19) * .12;
     float beamPhase = rayAngle * 10.0 - rotation;
     float blade = max(0.0, cos(beamPhase));
     float core = pow(blade, 25.0 / raySize);

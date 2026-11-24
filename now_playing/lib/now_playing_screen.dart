@@ -649,6 +649,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _stepGlitch();
     fxClock.t = _time;
     fxClock.bass = kickPulse;
+    // Accumulate ray rotation independently of playback and the other FX.
+    // This keeps its angle continuous when the speed slider changes,
+    // and holds the beams in place at 0 rather than resetting their angle.
+    fxClock.rayPhase += dt *
+        settings.rayRotationSpeed.clamp(0.0, 2.0).toDouble();
 
     // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.
@@ -2528,6 +2533,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           blendMode: blend,
           blendOpacity: settings.fxBlendOpacity[name] ?? 1.0,
           effectSize: settings.fxSize[name] ?? 1.0,
+          rayPhase: fxClock.rayPhase,
           origin: origin,
           colorA: _palette.a,
           colorB: _palette.b,

@@ -189,6 +189,9 @@ class AppSettings extends ChangeNotifier {
   double kGlow = 0.7;
   double kSweep = 0.7;
   double kRays = 0.7;
+  // Light Rays only. 1.0 = old fast rotation (~17 s/turn);
+  // default 0.35 = gentle ~47 s/turn; 0 pauses rotation.
+  double rayRotationSpeed = 0.35;
   double kRipples = 0.7;
   double kWater = 0.7;
   double kBloom = 0.7;
@@ -311,6 +314,7 @@ class AppSettings extends ChangeNotifier {
     'kGlow': kGlow,
     'kSweep': kSweep,
     'kRays': kRays,
+    'rayRotationSpeed': rayRotationSpeed,
     'kRipples': kRipples,
     'kWater': kWater,
     'kBloom': kBloom,
@@ -405,6 +409,7 @@ class AppSettings extends ChangeNotifier {
     kGlow = number('kGlow', 0.7, 0.0, 1.0);
     kSweep = number('kSweep', 0.7, 0.0, 1.0);
     kRays = number('kRays', 0.7, 0.0, 1.0);
+    rayRotationSpeed = number('rayRotationSpeed', 0.35, 0.0, 2.0);
     kRipples = number('kRipples', 0.7, 0.0, 1.0);
     kWater = number('kWater', 0.7, 0.0, 1.0);
     kBloom = number('kBloom', 0.7, 0.0, 1.0);
@@ -657,6 +662,8 @@ class AppSettings extends ChangeNotifier {
     kGlow = k('kGlow', oldFx);
     kSweep = k('kSweep', oldFx);
     kRays = k('kRays', oldFx);
+    rayRotationSpeed = (p.getDouble('rayRotationSpeed') ?? 0.35)
+        .clamp(0.0, 2.0).toDouble();
     kRipples = k('kRipples', oldFx);
     kWater = k('kWater', oldFx);
     kBloom = k('kBloom', oldFx);
@@ -829,6 +836,7 @@ class AppSettings extends ChangeNotifier {
     await p.setDouble('kGlow', kGlow);
     await p.setDouble('kSweep', kSweep);
     await p.setDouble('kRays', kRays);
+    await p.setDouble('rayRotationSpeed', rayRotationSpeed);
     await p.setDouble('kRipples', kRipples);
     await p.setDouble('kWater', kWater);
     await p.setDouble('kBloom', kBloom);
