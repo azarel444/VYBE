@@ -638,17 +638,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           settings.cinematicAnimationSpeed.clamp(0.0, 3.0);
     }
 
+    // Visualizer bars may simulate if Android denies audio capture.
+    // Lighting/Beat Pulse MUST NOT use that fake bass or random beat clock.
     sim.update(dt, model.playing, real: model.realActive ? model.fft : null);
-    final bass = sim.bass;
-    particles.t += dt * (0.25 + 1.2 * bass);
-    grid.scroll += dt * (0.12 + 0.9 * bass);
-    _stepGlitch();
-    fxClock.t = _time;
-    fxClock.bass = bass;
-    // Only real, fresh Android FFT packets may trigger Beat Ripples.
-    // The smoothed/simulated visualizer bass is intentionally excluded.
     ripples.update(_time, model.realActive ? model.fft : null,
         model.fftFrame, model.playing);
+    final kickPulse = ripples.pulseAt(_time);
+    particles.t += dt * (0.25 + 1.2 * kickPulse);
+    grid.scroll += dt * (0.12 + 0.9 * kickPulse);
+    _stepGlitch();
+    fxClock.t = _time;
+    fxClock.bass = kickPulse;
 
     // Record Cut and Drive: 33 1/3 rpm is one turn every 1.8 seconds. It speeds up
     // over about 0.75 s, slows over about 1.5 s, and keeps its angle.
@@ -802,11 +802,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               color: Colors.black.withOpacity(((settings.theme == AppSettings.tCinematic || settings.theme == AppSettings.tEditorial) && !widget.driveHost ? 0.0 : settings.bgOverlay).clamp(0.0, 1.0))))),
             // Video playback owns its visuals. Global shaders and spectrum FX
             // behind the WebView would be invisible but still cost frame time.
-            // Coverflow places the GPU passes between the receding covers
-            // and the selected album, not underneath the whole scene.
-            if (heavy && settings.theme != AppSettings.tMusicVideo &&
-                settings.theme != AppSettings.tCoverflow)
-              ..._shaderFxLayers(),
+            // Coverflow background-image FX must process only the fanart
+            // BEFORE any of the projected album sleeves are painted.
+            // Emitted light/particles take the dedicated mid-depth stage.
+            if (heavy && settings.theme != AppSettings.tMusicVideo)
+              ..._shaderFxLayers(
+                coverflowBackdropOnly:
+                    settings.theme == AppSettings.tCoverflow),
             if (heavy && settings.theme != AppSettings.tMusicVideo)
               ..._extraFx(),
             if (vhs && !_gpuFxActive &&
@@ -1514,6 +1516,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   /// Active premium scenes with stable selection IDs. Rave was retired:
   /// preserve Neon Club's ID (19) instead of shifting all saved choices.
+  // Shared real-FFT kick impulse. When audio capture is unavailable,
+  // Beat Pulse is still rather than synthesizing a phantom drum.
+  double get _kickPulse => model.playing && model.realActive
+      ? ripples.pulseAt(_time) : 0.0;
+
   Widget _premiumAnimatedBackground(double motion) {
     const sceneAssets = <String>[
       'shaders/golden_hour.frag',
@@ -1540,9 +1547,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       time: _time,
       motion: motion,
       palette: settings.animationUseAlbumColors ? albumPalette : scenePalettes[sceneIndex],
-      bass: sim.bass,
-      // Read the live bass on every shader repaint, not a stale build-time value.
-      bassSample: () => model.playing ? sim.bass : 0.0,
+      bass: _kickPulse,
+      // Read real kick transients at each GPU repaint, not smoothed or
+      // simulated visualizer bass at the last widget rebuild.
+      bassSample: () => _kickPulse,
       lightOrigin: sceneIndex == 0 ? _goldenHourLightOrigin() : null,
       shaderAsset: sceneAssets[sceneIndex],
     ));
@@ -1556,7 +1564,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     builder: (context, _) => CustomPaint(
       painter: _EdgyStandbyPainter(
         time: _time,
-        bass: sim.bass,
+        bass: _kickPulse,
         motion: settings.templateBackgroundMotion,
       ),
       child: const SizedBox.expand(),
@@ -1664,16 +1672,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if ((settings.backgroundSource == 6 ||
         (settings.backgroundSource == 0 && settings.fanartMode == 1)) &&
         _fanartBytes != null) {
+      // Keep artist photography sharp when the popup says "Off".
+      final fanartBlur = (settings.bgBlur - 6.0)
+          .clamp(0.0, 12.0).toDouble();
+      final fanartImage = Image.memory(_fanartBytes!,
+          fit: BoxFit.cover, gaplessPlayback: true,
+          filterQuality: FilterQuality.high);
       Widget fanart = Stack(fit: StackFit.expand, children: [
-        // Fanart was unblurred before this setting. Keep that original look
-        // at the default value while allowing additional softening.
-        ImageFiltered(
+        fanartBlur == 0 ? fanartImage : ImageFiltered(
           imageFilter: ui.ImageFilter.blur(
-            sigmaX: (settings.bgBlur - 6.0).clamp(0.0, 12.0).toDouble(),
-            sigmaY: (settings.bgBlur - 6.0).clamp(0.0, 12.0).toDouble(),
+            sigmaX: fanartBlur, sigmaY: fanartBlur,
             tileMode: TileMode.clamp),
-          child: Image.memory(_fanartBytes!, fit: BoxFit.cover, gaplessPlayback: true,
-            filterQuality: FilterQuality.low),
+          child: fanartImage,
         ),
         // Independent fanart darkness for themes using artist photos.
         ColoredBox(color: Colors.black.withOpacity(
@@ -1696,18 +1706,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     // A playing song with no cover still uses the same blurred-artwork
     // structure as a song with album art. The idle animation belongs to
     // the actual no-playback state, handled in _background().
+    // True zero has no ImageFilter at all: the original cover is sharp.
+    final albumBackdropImage = usingVybePlaceholder
+        ? Image.asset('assets/vybe_album_placeholder.png',
+            fit: BoxFit.cover, filterQuality: FilterQuality.high)
+        : _albumBackgroundImage(art!);
+    final albumBlur = settings.bgBlur.clamp(0.0, 18.0).toDouble();
     Widget blurred = RepaintBoundary(
       child: ColorFiltered(
         colorFilter: _contrastFilter(settings.bgContrast),
-        child: ImageFiltered(
-          imageFilter: ui.ImageFilter.blur(
-              sigmaX: settings.bgBlur, sigmaY: settings.bgBlur,
-              tileMode: TileMode.clamp),
-          child: usingVybePlaceholder
-              ? Image.asset('assets/vybe_album_placeholder.png',
-                  fit: BoxFit.cover, filterQuality: FilterQuality.high)
-              : _albumBackgroundImage(art!),
-        ),
+        child: albumBlur == 0
+            ? albumBackdropImage
+            : ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(
+                    sigmaX: albumBlur, sigmaY: albumBlur,
+                    tileMode: TileMode.clamp),
+                child: albumBackdropImage,
+              ),
       ),
     );
     // Keep the same transform when paused; only the shared phase stops.
@@ -1837,17 +1852,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 ? Image.asset('assets/vybe_album_placeholder.png',
                     fit: BoxFit.cover)
                 : _cinematicAnimatedFallback();
-    final image = hasImage
+    // Album and fanart have separate popup values. Previously album art
+    // always added 6 to the blur, making zero impossible to reach.
+    final cinematicActualBlur = showFanart
+        ? settings.cinematicBlur
+        : settings.cinematicAlbumBlur;
+    final correctedImage = ColorFiltered(
+      colorFilter: _contrastFilter(settings.cinematicContrast),
+      child: background,
+    );
+    final image = hasImage && cinematicActualBlur > 0
         ? ImageFiltered(
             imageFilter: ui.ImageFilter.blur(
-              sigmaX: settings.cinematicBlur + (useAlbum ? 6.0 : 0.0),
-              sigmaY: settings.cinematicBlur + (useAlbum ? 6.0 : 0.0)),
-            child: ColorFiltered(
-              colorFilter: _contrastFilter(settings.cinematicContrast),
-              child: background))
-        : ColorFiltered(
-            colorFilter: _contrastFilter(settings.cinematicContrast),
-            child: background);
+              sigmaX: cinematicActualBlur,
+              sigmaY: cinematicActualBlur,
+              tileMode: TileMode.clamp),
+            child: correctedImage)
+        : correctedImage;
     // In BigFan/Muzine, move the chosen fanart OR album background without
     // moving the sleeve, vinyl or metadata. Placeholder images stay still.
     final movingImage = showFanart || useAlbum
@@ -1874,11 +1895,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 'cinematic-template:${settings.cinematicPalette}'),
             child: movingImage))),
       ),
-      // A blurred copy of the artwork, masked to the outer edges.
-      // The middle stays sharp and the blur fades inward smoothly.
-      // Coverflow must never add the artificial side-edge blur.
-      // Preserve this cinematic vignette only for its original themes.
-      if (hasImage && settings.theme != AppSettings.tCoverflow)
+      // Edge vignette follows album blur, too: its old fixed sigma=24
+      // prevented a truly sharp album even when the main blur was zero.
+      // Fanart retains its established cinematic side softening.
+      if (hasImage && settings.theme != AppSettings.tCoverflow &&
+          (showFanart || settings.cinematicAlbumBlur > 0))
         Positioned.fill(
           top: fanartTop,
           child: ClipRect(child: IgnorePointer(child: ShaderMask(
@@ -1891,7 +1912,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 Colors.transparent, Colors.transparent, Colors.white],
             ).createShader(bounds),
             child: ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              imageFilter: ui.ImageFilter.blur(
+                sigmaX: showFanart ? 24.0
+                    : (settings.cinematicAlbumBlur * 4.0).clamp(0.0, 24.0).toDouble(),
+                sigmaY: showFanart ? 24.0
+                    : (settings.cinematicAlbumBlur * 4.0).clamp(0.0, 24.0).toDouble()),
               child: SizedBox.expand(child: showFanart
                   ? Image.memory(fanart, fit: BoxFit.cover,
                       alignment: Alignment.topCenter, gaplessPlayback: true)
@@ -2025,13 +2050,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ? _edgeBars(w * .08, leftEdge: true) : null,
       rightVisualizer: settings.visualizer
           ? _edgeBars(w * .08, leftEdge: false) : null,
-      // Exactly one FX instance: the global stack excludes Coverflow's
-      // album-emitted FX, and this mid-depth stage owns them instead.
+      // Only album-emitted FX appear above the SIDE sleeves.
+      // Image refraction, ambient distortion, and perspective effects
+      // already ran on the fanart BELOW all sleeves in the root stack.
       depthFx: heavy
           ? <Widget>[
-              ..._shaderFxLayers(),
+              ..._shaderFxLayers(coverflowMidOnly: true),
               ..._extraFx(coverflowDepthOnly: true),
-              // Same depth as all other artwork-emitted FX.
               if (settings.bgEffects && settings.particles && !_gpuFxActive)
                 _floatingParticleLayer(),
             ]
@@ -2411,7 +2436,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     return null;
   }
 
-  List<Widget> _shaderFxLayers() {
+  // Exactly one layer for each Coverflow FX. Refraction and atmospheric
+  // treatment belongs behind ALL albums; luminous/particle emitters,
+  // rays and kick-driven pulses belong in front of the side albums
+  // but behind the focused central cover. Never duplicate an effect.
+  static const Set<String> _coverflowMidFxNames = <String>{
+    'Bass Shockwave', 'Electric Arcs', 'Light Trails',
+    'Particle Currents', 'Beat Ripples', 'Moving Bokeh',
+    'Light Rays', 'Twinkling Stars', 'Floating Particles',
+  };
+
+  List<Widget> _shaderFxLayers({
+    bool coverflowBackdropOnly = false,
+    bool coverflowMidOnly = false,
+  }) {
+    assert(!(coverflowBackdropOnly && coverflowMidOnly));
     if (!_gpuFxActive) return const <Widget>[];
     const names = <String>[
       'Liquid Refraction', 'Vortex Tunnel', 'Prism Shards',
@@ -2449,14 +2488,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final tier = settings.fxPerformanceMode == 2 ? 2 : _fxTier;
     final limit = tier <= 1 ? 5 : names.length;
     final fx = <Widget>[];
-    for (var i = 0; i < names.length && fx.length < limit; i++) {
+    var budgeted = 0;
+    for (var i = 0; i < names.length; i++) {
       if (!enabled[i] || intensity[i] <= 0) continue;
-      // Coverflow draws its shockwave on the correct plane between rear
-      // sleeves and central cover. Keep the depth-anchored one intact.
-      if (settings.theme == AppSettings.tCoverflow && i == 4) continue;
-      // Coverflow owns a specialized album-outline bloom.
-      if (settings.theme == AppSettings.tCoverflow && i == 19) continue;
+      // Coverflow's shockwave and bloom use dedicated central-art layers.
+      if (settings.theme == AppSettings.tCoverflow && (i == 4 || i == 19)) {
+        continue;
+      }
+      // Count every enabled FX before plane selection, so splitting into
+      // two calls does NOT double the performance budget or selections.
+      if (budgeted >= limit) break;
+      budgeted++;
       final name = names[i];
+      if (settings.theme == AppSettings.tCoverflow) {
+        final mid = _coverflowMidFxNames.contains(name);
+        if (coverflowBackdropOnly && mid) continue;
+        if (coverflowMidOnly && !mid) continue;
+      }
       final strength = (intensity[i] * (tier == 1 ? .70 : 1.0))
           .clamp(0.0, 1.0).toDouble();
       final blend = const <int>[
@@ -2515,13 +2563,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   List<Widget> _extraFx({bool coverflowDepthOnly = false}) {
     final p = _palette;
     final coverflow = settings.theme == AppSettings.tCoverflow;
-    // Coverflow is a three-plane composite: background and ambient FX,
-    // then receding sleeves, then album-emitted FX, then central sleeve.
-    // Split without duplicating a GlobalKey or a painter.
-    final albumFx = coverflow && coverflowDepthOnly;
-    // Every visual emitter in Coverflow belongs between receding sleeves
-    // and the front cover, not underneath all the sleeve geometry.
-    final emissionPlane = !coverflow || albumFx;
+    // Root scene = background FX; Coverflow depthFx = emitted FX.
+    // On all other themes these run in the normal shared FX stack.
+    bool inPlane(String name) {
+      if (!coverflow) return true;
+      final middle = _coverflowMidFxNames.contains(name);
+      return coverflowDepthOnly ? middle : !middle;
+    }
     // The Coverflow sleeve's perspective center is at ~52% screen height.
     // Pin artwork-emitted effects there even on the initial frame before
     // its GlobalKey is laid out, rather than spawning at the left fallback.
@@ -2530,7 +2578,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     Offset? localOrigin(String name) {
       if (!coverflow) return null;
       const fxOrigin = Offset(.50, .52);
-      final full = name == 'Aurora Sweep' || name == 'Moving Bokeh';
+      final full = name == 'Aurora Sweep' ||
+          name == 'Moving Bokeh' || name == 'Light Rays';
       final scale = full ? 1.0 : (1.18 *
           (settings.fxSize[name] ?? 1.0)).clamp(.4, 4.0).toDouble();
       return Offset(.5 + (fxOrigin.dx - .5) / scale,
@@ -2542,7 +2591,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final size = settings.fxSize[name] ?? 1.0;
       // Keep the FX canvas full-screen. Scaling the widget itself exposes
       // its rectangular bounds when Size drops below 100%.
-      final fullCanvas = name == 'Aurora Sweep' || name == 'Moving Bokeh';
+      final fullCanvas = name == 'Aurora Sweep' ||
+          name == 'Moving Bokeh' || name == 'Light Rays';
       return IgnorePointer(child: fullCanvas
         ? RepaintBoundary(child: CustomPaint(
             key: layerKey,
@@ -2565,10 +2615,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final layers = <Widget>[
       for (var i = 0; i < AppSettings.extraFxNames.length; i++)
         if ((settings.extraFx[AppSettings.extraFxNames[i]] ?? false) &&
-            emissionPlane &&
+            inPlane(AppSettings.extraFxNames[i]) &&
             // GPU path renders all ten with real image processing.
             // Coverflow retains the depth-anchored shockwave painter.
-            (!_gpuFxActive || (coverflow && i == 1)))
+            (!_gpuFxActive || (coverflow && i == 1 && coverflowDepthOnly)))
           layer(AppSettings.extraFxNames[i], ExpandedFxPainter(mode: i, clock: fxClock, palette: p,
             artKey: _artKey,
             layerKey: _expandedFxLayerKeys[i],
@@ -2576,26 +2626,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             bassOnsets: i == 1 ? ripples : null,
             k: settings.extraStrength[AppSettings.extraFxNames[i]] ?? 0.8, repaint: _tick),
             layerKey: _expandedFxLayerKeys[i]),
-      if (emissionPlane && settings.fxNebula && !_gpuFxActive)
+      if (inPlane('Nebula Haze') && settings.fxNebula && !_gpuFxActive)
         layer('Nebula Haze', AtmospherePainter(mode: 0, clock: fxClock, palette: p,
             k: settings.kNebula, repaint: _tick)),
-      if (emissionPlane && settings.fxGrid && !_gpuFxActive)
+      if (inPlane('Perspective Grid') && settings.fxGrid && !_gpuFxActive)
         layer('Perspective Grid', AtmospherePainter(mode: 1, clock: fxClock, palette: p,
             k: settings.kGrid, repaint: _tick)),
-      if (emissionPlane && settings.fxStars && !_gpuFxActive)
+      if (inPlane('Twinkling Stars') && settings.fxStars && !_gpuFxActive)
         layer('Twinkling Stars', AtmospherePainter(mode: 2, clock: fxClock, palette: p,
             k: settings.kStars, repaint: _tick)),
-      if (emissionPlane && settings.fxGlow && !_gpuFxActive)
+      if (inPlane('Moving Bokeh') && settings.fxGlow && !_gpuFxActive)
         layer('Moving Bokeh', GlowPainter(
             clock: fxClock, palette: p, k: settings.kGlow,
             effectSize: settings.fxSize['Moving Bokeh'] ?? 1.0,
             artKey: _artKey, layerKey: _bokehLayerKey, repaint: _tick),
             layerKey: _bokehLayerKey),
-      if (emissionPlane && settings.fxSweep && !_gpuFxActive)
+      if (inPlane('Aurora Sweep') && settings.fxSweep && !_gpuFxActive)
         layer('Aurora Sweep', SweepPainter(
             clock: fxClock, palette: p, k: settings.kSweep,
             effectSize: settings.fxSize['Aurora Sweep'] ?? 1.0, repaint: _tick)),
-      if ((albumFx || !coverflow) && settings.fxRays && !_gpuFxActive)
+      if (inPlane('Light Rays') && settings.fxRays && !_gpuFxActive)
         layer('Light Rays', RaysPainter(
             clock: fxClock,
             artKey: _artKey,
@@ -2603,9 +2653,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             pinnedOrigin: localOrigin('Light Rays'),
             palette: p,
             k: settings.kRays,
+            effectSize: settings.fxSize['Light Rays'] ?? 1.0,
             topOrigin: false, // artwork-origin even in Typo
             repaint: _tick), layerKey: _raysLayerKey),
-      if ((albumFx || !coverflow) && settings.fxRipples && !_gpuFxActive)
+      if (inPlane('Beat Ripples') && settings.fxRipples && !_gpuFxActive)
         layer('Beat Ripples', RipplesPainter(
             state: ripples,
             clock: fxClock,
@@ -2615,7 +2666,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             palette: p,
             k: settings.kRipples,
             repaint: _tick), layerKey: _ripplesLayerKey),
-      if (emissionPlane && settings.fxWater && !_gpuFxActive)
+      if (inPlane('Water Shimmer') && settings.fxWater && !_gpuFxActive)
         layer('Water Shimmer', WaterPainter(
             clock: fxClock, palette: p, k: settings.kWater, repaint: _tick)),
     ];
@@ -3454,6 +3505,86 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  /// A two-pixel seamless accent, sampled from the current album colors.
+  /// The illuminated edge stays flush against the art/visualizer seam.
+  Widget _edgeAlbumAccent({required bool vertical, bool reversed = false}) {
+    final colors = model.art?.palette ?? _lastArtPalette ?? _palette;
+    return IgnorePointer(child: DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: vertical ? Alignment.topCenter : Alignment.centerLeft,
+          end: vertical ? Alignment.bottomCenter : Alignment.centerRight,
+          colors: [colors.a, colors.b, colors.c],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colors.b.withOpacity(.34),
+            blurRadius: 10,
+            spreadRadius: 0.5,
+            offset: vertical
+                ? Offset(reversed ? -3 : 3, 0)
+                : const Offset(0, 3),
+          ),
+        ],
+      ),
+    ));
+  }
+
+  /// Soft dark depth under the visualizer, directly away from the colorful
+  /// album-art seam. A restrained album-color falloff adds continuity while
+  /// keeping the animated bars clearly readable.
+  Widget _edgeVisualizerShadow({
+    required bool vertical,
+    bool reversed = false,
+  }) {
+    final colors = model.art?.palette ?? _lastArtPalette ?? _palette;
+    final start = vertical
+        ? (reversed ? Alignment.centerRight : Alignment.centerLeft)
+        : Alignment.topCenter;
+    final end = vertical
+        ? (reversed ? Alignment.centerLeft : Alignment.centerRight)
+        : Alignment.bottomCenter;
+    return IgnorePointer(child: Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(child: DecoratedBox(
+          decoration: BoxDecoration(gradient: LinearGradient(
+            begin: start, end: end,
+            colors: [
+              Colors.black.withOpacity(.85),
+              Colors.black.withOpacity(.62),
+              Colors.black.withOpacity(.22),
+              Colors.transparent,
+            ],
+            stops: const [0.0, .16, .62, 1.0],
+          )),
+        )),
+        Positioned.fill(child: ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (bounds) => LinearGradient(
+            begin: start, end: end,
+            colors: const [
+              Colors.white, Color(0x77FFFFFF), Colors.transparent,
+            ],
+            stops: const [0.0, .30, 1.0],
+          ).createShader(bounds),
+          child: DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: vertical ? Alignment.topCenter : Alignment.centerLeft,
+              end: vertical
+                  ? Alignment.bottomCenter : Alignment.centerRight,
+              colors: [
+                colors.a.withOpacity(.19),
+                colors.b.withOpacity(.15),
+                colors.c.withOpacity(.19),
+              ],
+            ),
+          )),
+        )),
+      ],
+    ));
+  }
+
   /// Cover on the left half of the screen, edge to edge. A vertical
   /// visualizer runs along the cover's edge, and the song info and lyrics
   /// are right-aligned in the space to the right of it.
@@ -3462,14 +3593,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final artPanel = SizedBox(
       width: w * 0.5,
       height: h,
-      child: _edgeArt(w * 0.5, h),
+      child: Stack(fit: StackFit.expand, clipBehavior: Clip.none, children: [
+        _edgeArt(w * 0.5, h),
+        Positioned(
+          left: swapped ? 0 : null,
+          right: swapped ? null : 0,
+          top: 0, bottom: 0, width: 2.0,
+          child: _edgeAlbumAccent(vertical: true, reversed: swapped),
+        ),
+      ]),
     );
-    // The bars stay against the inner edge of the artwork. Their direction
-    // and gradient must mirror when the panels exchange sides.
+    // Shade starts precisely at the album edge, underneath the visualizer,
+    // and mirrors when the two panels are swapped.
     final barsPanel = SizedBox(
       width: w * 0.09,
       height: h,
-      child: _edgeBars(w * 0.09, leftEdge: !swapped),
+      child: Stack(fit: StackFit.expand, children: [
+        _edgeVisualizerShadow(vertical: true, reversed: swapped),
+        _edgeBars(w * 0.09, leftEdge: !swapped),
+      ]),
     );
     final textAlign = Alignment.center;
     final infoPanel = Expanded(
@@ -3511,27 +3653,33 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _edgeNarrow(double w, double h) {
     return Column(
       children: [
-        SizedBox(width: w, height: h * 0.5, child: _edgeArt(w, h * 0.5)),
-        // The bars hang straight down from the bottom edge of the cover.
+        SizedBox(
+          width: w, height: h * 0.5,
+          child: Stack(fit: StackFit.expand, clipBehavior: Clip.none, children: [
+            _edgeArt(w, h * 0.5),
+            Positioned(left: 0, right: 0, bottom: 0, height: 2.0,
+              child: _edgeAlbumAccent(vertical: false)),
+          ]),
+        ),
+        // Portrait mirrors the landscape seam: a full-width colored line
+        // and a dark shadow travelling down beneath the spectrum bars.
         if (settings.visualizer)
           SizedBox(
             width: w,
             height: h * 0.08,
-            child: _downShade(
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: DownBarsPainter(
-                    sim: sim,
-                    palette: _palette,
+            child: Stack(fit: StackFit.expand, children: [
+              _edgeVisualizerShadow(vertical: false),
+              RepaintBoundary(child: CustomPaint(
+                painter: DownBarsPainter(
+                  sim: sim,
+                  palette: _palette,
                   style: settings.diagonalWaveStyle,
-                    count: settings.barCount,
-                    gain: settings.sensitivity,
-                    repaint: _tick,
-                  ),
+                  count: settings.barCount,
+                  gain: settings.sensitivity,
+                  repaint: _tick,
                 ),
-              ),
-              h * 0.08,
-            ),
+              )),
+            ]),
           ),
         Expanded(
           child: Padding(
@@ -3578,9 +3726,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// Diagonal's cover-side backdrop is deliberately more recessed than the
   /// full-screen blur. Keep this separate from Record Cut's grayscale filter.
   static const _diagonalGrayDark = ColorFilter.matrix(<double>[
-    .0765, .2575, .0260, 0, 0,
-    .0765, .2575, .0260, 0, 0,
-    .0765, .2575, .0260, 0, 0,
+    // Twenty-five percent darker than the previous grayscale panel.
+    // The full-color sleeve, fanart, and white diagonal edge stay intact.
+    .0574, .1931, .0195, 0, 0,
+    .0574, .1931, .0195, 0, 0,
+    .0574, .1931, .0195, 0, 0,
     0, 0, 0, 1, 0,
   ]);
 
@@ -3626,22 +3776,32 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Full-height edge fades are siblings of the visualizer bars, not
   // overflowing children of a narrow edge box. This prevents hard seams
   // where the shadow was clipped at the edge-bar widget boundary.
-  Widget _focusedEdgeShadows(double edge) => Positioned.fill(
-    child: IgnorePointer(child: Stack(clipBehavior: Clip.none, fit: StackFit.expand, children: [
-      Positioned(left: 0, top: -12, bottom: -12, width: edge * 2.8,
-        child: const DecoratedBox(decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerLeft, end: Alignment.centerRight,
-            colors: [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
-            stops: [0.0, .45, 1.0])))),
-      Positioned(right: 0, top: -12, bottom: -12, width: edge * 2.8,
-        child: const DecoratedBox(decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerRight, end: Alignment.centerLeft,
-            colors: [Color(0xE6000000), Color(0x99000000), Color(0x00000000)],
-            stops: [0.0, .45, 1.0])))),
-    ])),
-  );
+  Widget _focusedEdgeShadows(double edge) {
+    // Overscan beyond the physical screen bounds on BOTH edges.
+    // No safe-area/padding inset or visible gutter may interrupt the
+    // full-height fade behind Focused's edge-to-edge visualizer.
+    final bleed = math.max(20.0, edge * .34).toDouble();
+    return Positioned.fill(child: IgnorePointer(
+      child: Stack(clipBehavior: Clip.none, fit: StackFit.expand, children: [
+        Positioned(left: -bleed, top: -bleed, bottom: -bleed,
+          width: edge * 3.2 + bleed,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft, end: Alignment.centerRight,
+              colors: [Color(0xFF000000), Color(0xE6000000),
+                  Color(0x99000000), Color(0x00000000)],
+              stops: [0.0, .22, .53, 1.0])))),
+        Positioned(right: -bleed, top: -bleed, bottom: -bleed,
+          width: edge * 3.2 + bleed,
+          child: const DecoratedBox(decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerRight, end: Alignment.centerLeft,
+              colors: [Color(0xFF000000), Color(0xE6000000),
+                  Color(0x99000000), Color(0x00000000)],
+              stops: [0.0, .22, .53, 1.0])))),
+      ]),
+    ));
+  }
 
   Widget _edgeBars(double edge, {required bool leftEdge}) {
     return SizedBox(
@@ -3895,7 +4055,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ),
         child: ClipOval(child: Stack(fit: StackFit.expand, children: [
           inner,
-          const ColoredBox(color: Color(0xA6000000)),
+          // Reduce the remaining grayscale inset luminance by ~25%:
+          // (1 - 0xBC/255) / (1 - 0xA6/255) = 0.75.
+          const ColoredBox(color: Color(0xBC000000)),
         ])),
       ),
     );
@@ -4407,59 +4569,81 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       // area above and the area below. The song info fills the lower part.
       final s = math.min(w * 0.76, h * 0.36).toDouble();
       final mid = (a + b) / 2;
+      // Separate the artist/logo header from the title and album. Anchor
+      // both groups to the ACTUAL cover extents so the layout adapts to
+      // different portrait aspect ratios without overlapping the artwork.
+      final coverTop = mid.dy - s / 2;
+      final coverBottom = mid.dy + s / 2;
+      final artistTop = h * .025;
+      final artistHeight = math.max(h * .08,
+          coverTop - artistTop - h * .025).toDouble();
+      final titleTop = math.max(coverBottom + h * .015, h * .605)
+          .clamp(0.0, h * .72).toDouble();
       return Stack(
         fit: StackFit.expand,
         children: [
           gray,
-          Positioned(left: 0, right: 0, bottom: 0, height: h * 0.18, child: _diagonalBottomFade()),
+          Positioned(left: 0, right: 0, bottom: 0, height: h * 0.18,
+            child: _diagonalBottomFade()),
           bars,
           line,
+          // Artist name or clearlogo belongs ABOVE the cover, not in the
+          // lower song-information group.
           Positioned(
-              left: mid.dx - s / 2, top: mid.dy - s / 2, child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
-            child: _front(s, false),
-          )),
+            left: w * .035, right: w * .035,
+            top: artistTop, height: artistHeight,
+            child: Center(child: SizedBox(
+              width: w * .93,
+              child: _metadataText(_VybeTextRole.artist, Alignment.center),
+            )),
+          ),
           Positioned(
-            left: w * 0.08,
-            right: w * 0.08,
-            top: h * 0.575,
-            bottom: h * 0.105,
-            child: Center(
-              child: SizedBox(
-                  width: w * 0.84,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _artist(h * 0.073, Alignment.center, false),
-                      SizedBox(height: h * 0.009),
-                      _title(h * 0.037, Alignment.center, false),
-                                            if (_hasLyrics) ...[
-                        SizedBox(height: _lyricGap(h)),
-                        _lyricBlock(h * 0.75, Alignment.center, vhs: false),
-                      ],
-                    ],
-                  ),
-                ),
+            left: mid.dx - s / 2, top: coverTop,
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(
+                  counterFlipText ? -1 : 1, 1, 1),
+              child: _front(s, false),
             ),
           ),
-          if (_showAlbumLabel)
-            Positioned(
-              left: w * .10, right: w * .10, bottom: h * .045,
-              child: Center(child: _shaded(_metadataText(_VybeTextRole.album, Alignment.center))),
+          // Pull title and album UP immediately beneath the artwork.
+          // Song title uses the full width before starting its fade-scroll.
+          Positioned(
+            left: w * .045, right: w * .045,
+            top: titleTop, bottom: h * .04,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _metadataText(_VybeTextRole.title, Alignment.center),
+                if (_showAlbumLabel) ...[
+                  SizedBox(height: h * .012),
+                  _metadataText(_VybeTextRole.album, Alignment.center),
+                ],
+                if (_hasLyrics) ...[
+                  SizedBox(height: _lyricGap(h)),
+                  _lyricBlock(h * .75, Alignment.center, vhs: false),
+                ],
+              ],
             ),
+          ),
         ],
       );
     }
 
     final s = math.min(w * 0.37, h * 0.8).toDouble();
-    // The info starts to the right of the tallest bars, so they never touch.
+    // The label/title panel should fill the available open side.
+    // The former fixed visualizer clearance shoved the whole information
+    // column toward the right edge, leaving a large unused gap.
+    // Bound the upper-edge clearance but use the wider lower-area space
+    // for centered song information, without covering the front sleeve.
     final infoTop = h * 0.36;
     final root = math.max(0.0, infoTop - normal.dy * barMax).toDouble();
     final lineX = a.dx + (b.dx - a.dx) * (root - a.dy) / (b.dy - a.dy);
-    final infoLeft = math.max(w * 0.47,
-            lineX + (settings.visualizer ? normal.dx * barMax : 0.0) + w * 0.035)
-        .toDouble();
+    final upperClearance = lineX +
+        (settings.visualizer ? normal.dx * barMax : 0.0) + w * 0.012;
+    final infoLeft = math.max(w * 0.44,
+        math.min(upperClearance, w * 0.49)).toDouble();
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -4474,7 +4658,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           )),
         Positioned(
           left: infoLeft,
-          right: w * 0.05,
+          right: w * 0.025,
           top: infoTop,
           bottom: h * 0.07,
           child: Transform(
@@ -4482,7 +4666,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             transform: Matrix4.diagonal3Values(counterFlipText ? -1 : 1, 1, 1),
             child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
+            // Force title/artist/album to inherit the entire available
+            // width. The marquee only pans after genuinely filling it.
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _artist(h * 0.090, Alignment.center, false),
               SizedBox(height: h * 0.012),
@@ -4667,7 +4853,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             )),
           )),
         ),
-      if (settings.backgroundSource != 1 && settings.backgroundSource != 6) _orbitGhost(w, h, narrow),
+      if (settings.backgroundSource != 1 && settings.backgroundSource != 6)
+        _orbitGhost(w, h, narrow),
+      // Portrait Orbit's black floor gradually rises behind the rings.
+      // Draw BEFORE the orbit group, keeping the record and lighting sharp.
+      if (narrow)
+        Positioned(left: 0, right: 0, bottom: 0, height: h * .62,
+          child: const IgnorePointer(child: DecoratedBox(
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [
+                Color(0xE6000000),
+                Color(0xA6000000),
+                Color(0x58000000),
+                Color(0x00000000),
+              ],
+              stops: [0.0, .32, .68, 1.0],
+            )),
+          )),
+        ),
       // Light Rays are an optional FX-library effect, not an intrinsic
       // Orbit theme layer. The shared _extraFx() pipeline draws them only
       // when settings.fxRays is enabled. Orbit keeps its signature rings.
@@ -6790,29 +6995,57 @@ class _RecordCurveShadowPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.isEmpty || depth <= 0) return;
     final center = Offset(size.width / 2, size.height / 2);
     final radius = math.min(size.width, size.height) / 2;
-    final shadowDepth = math.min(depth, radius * 0.28);
-    final steps = math.max(12, (shadowDepth / 2).ceil());
-    for (var i = 0; i < steps; i++) {
-      final t = i / steps;
-      final opacity = 0.36 * math.pow(1 - t, 2).toDouble();
-      final rr = radius - t * shadowDepth - 0.75;
-      final rect = Rect.fromCircle(center: center, radius: rr);
-      // Flutter's drawArc angles start at the right and run clockwise.
-      // Narrowing the arc at greater depths keeps the shadow localized.
-      final arcSpan = span * (1 - 0.18 * t);
-      canvas.drawArc(
-        rect,
-        centerAngle - arcSpan,
-        arcSpan * 2,
-        false,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = shadowDepth / steps + 1.5
-          ..color = Colors.black.withOpacity(opacity),
-      );
-    }
+    final shadowDepth = math.min(depth, radius * .28);
+    final inner = ((radius - shadowDepth) / radius).clamp(0.0, 1.0)
+        .toDouble();
+
+    // A smooth continuous radial gradient avoids the stacked drawArc
+    // stroke caps that previously left a visible vertical hard edge.
+    // Mask it with an angularly feathered sweep, so the localized inner
+    // shadow melts away before reaching the end of the record cutout.
+    final bounds = Offset.zero & size;
+    canvas.saveLayer(bounds, Paint());
+    canvas.drawCircle(center, radius,
+      Paint()..shader = ui.Gradient.radial(center, radius, [
+        Colors.transparent,
+        Colors.transparent,
+        const Color(0x3A000000),
+        const Color(0x9E000000),
+        const Color(0xB0000000),
+        Colors.transparent,
+      ], [
+        0.0,
+        math.max(0.0, inner - .04),
+        (inner + (1 - inner) * .26),
+        (inner + (1 - inner) * .65),
+        .97,
+        1.0,
+      ]),
+    );
+    final arcSpan = math.min(span, math.pi * .98);
+    final featherFraction = (0.14 / (2 * arcSpan)).clamp(.05, .22)
+        .toDouble();
+    // Sweep mask fades completely to zero at both arc endpoints, avoiding
+    // the vertical edge even when the ellipse is cropped by the screen.
+    canvas.drawRect(bounds, Paint()
+      ..shader = SweepGradient(
+        startAngle: centerAngle - arcSpan,
+        endAngle: centerAngle + arcSpan,
+        tileMode: TileMode.clamp,
+        colors: const [
+          Colors.transparent, Colors.white,
+          Colors.white, Colors.transparent,
+        ],
+        stops: [
+          0.0, featherFraction,
+          1.0 - featherFraction, 1.0,
+        ],
+      ).createShader(bounds)
+      ..blendMode = BlendMode.dstIn);
+    canvas.restore();
   }
 
   @override
@@ -6821,7 +7054,6 @@ class _RecordCurveShadowPainter extends CustomPainter {
       oldDelegate.span != span ||
       oldDelegate.depth != depth;
 }
-
 
 // Isolate each painter before compositing it with the underlying scene.
 // Normal at full opacity avoids the expensive saveLayer on entry-level GPUs.

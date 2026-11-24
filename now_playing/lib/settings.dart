@@ -128,7 +128,8 @@ class AppSettings extends ChangeNotifier {
   ];
   int cinematicPalette = 15;
   double cinematicDarkness = 0.0;
-  double cinematicBlur = 0.0;
+  double cinematicBlur = 0.0; // Fanart blur; photos remain sharp by default.
+  double cinematicAlbumBlur = 6.0; // Album backdrop: 6 matches prior visual; 0 = no blur.
   double cinematicContrast = 1.0;
   double cinematicAnimationSpeed = 1.0; // shared album-art and fanart motion speed (0..3)
   // Per-theme artwork/fanart motion. 0 classic drift, 1 Ken Burns,
@@ -290,6 +291,7 @@ class AppSettings extends ChangeNotifier {
     'cinematicPalette': cinematicPalette,
     'cinematicDarkness': cinematicDarkness,
     'cinematicBlur': cinematicBlur,
+    'cinematicAlbumBlur': cinematicAlbumBlur,
     'cinematicContrast': cinematicContrast,
     'cinematicAnimationSpeed': cinematicAnimationSpeed,
     'artworkMotionType': artworkMotionType,
@@ -378,6 +380,10 @@ class AppSettings extends ChangeNotifier {
     if (!premiumSceneIds.contains(cinematicPalette)) cinematicPalette = 15;
     cinematicDarkness = number('cinematicDarkness', 0.0, 0.0, 1.0);
     cinematicBlur = number('cinematicBlur', 0.0, 0.0, 18.0);
+    // Preserve the old album rendering's effective blur of 6 while
+    // finally allowing a true zero. Prior cinematicBlur settings were
+    // independent fanart softness and should not modify album sharpness.
+    cinematicAlbumBlur = number('cinematicAlbumBlur', 6.0, 0.0, 18.0);
     cinematicContrast = number('cinematicContrast', 1.0, 1.0, 2.0);
     cinematicAnimationSpeed =
         number('cinematicAnimationSpeed', 1.0, 0.0, 3.0);
@@ -606,6 +612,8 @@ class AppSettings extends ChangeNotifier {
     if (!premiumSceneIds.contains(cinematicPalette)) cinematicPalette = 15;
     cinematicDarkness = (p.getDouble('cinematicDarkness') ?? 0.0).clamp(0.0, 1.0).toDouble();
     cinematicBlur = (p.getDouble('cinematicBlur') ?? 0.0).clamp(0.0, 18.0).toDouble();
+    cinematicAlbumBlur = (p.getDouble('cinematicAlbumBlur') ?? 6.0)
+        .clamp(0.0, 18.0).toDouble();
     cinematicContrast = (p.getDouble('cinematicContrast') ?? 1.0).clamp(1.0, 2.0).toDouble();
     cinematicAnimationSpeed = (p.getDouble('cinematicAnimationSpeed') ?? 1.0).clamp(0.0, 3.0).toDouble();
     artworkMotionType = (p.getInt('artworkMotionType') ?? 0).clamp(0, 6).toInt();
@@ -808,6 +816,7 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('cinematicPalette', cinematicPalette);
     await p.setDouble('cinematicDarkness', cinematicDarkness);
     await p.setDouble('cinematicBlur', cinematicBlur);
+    await p.setDouble('cinematicAlbumBlur', cinematicAlbumBlur);
     await p.setDouble('cinematicContrast', cinematicContrast);
     await p.setDouble('cinematicAnimationSpeed', cinematicAnimationSpeed);
     await p.setInt('artworkMotionType', artworkMotionType);

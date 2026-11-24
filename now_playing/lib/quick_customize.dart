@@ -168,25 +168,33 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
   @override
   Widget build(BuildContext context) {
     final fanartPhotoControls = _fanartTheme || _usingFanart;
-    final blur = _fanartTheme ? s.cinematicBlur
-        : _usingFanart ? (s.bgBlur - 6).clamp(0.0, 12.0).toDouble() : s.bgBlur;
-    final blurMax = _usingFanart && !_fanartTheme ? 12.0 : 18.0;
+    final blur = _usingFanart
+        ? (s.bgBlur - 6).clamp(0.0, 12.0).toDouble()
+        : s.bgBlur;
+    final blurMax = _usingFanart ? 12.0 : 18.0;
     final contrast = _fanartTheme ? s.cinematicContrast : s.bgContrast;
 
     final sliders = <Widget>[
       _compactSlider('Darkness', s.bgOverlay, 0, 1,
         (s.bgOverlay * 100).round().toString() + '%',
         (v) => s.bgOverlay = v),
-      _compactSlider('Blur', blur, 0, blurMax, blur.round().toString(),
-        (v) {
-          if (_fanartTheme) {
-            s.cinematicBlur = v;
-          } else if (_usingFanart) {
-            s.bgBlur = v + 6;
-          } else {
-            s.bgBlur = v;
-          }
-        }),
+      // Album fallback formerly had 6 points of blur permanently added
+      // after the slider. Show the real effective value (default 6), and
+      // allow exactly zero to render the original sharp cover.
+      if (_fanartTheme) ...[
+        _compactSlider('Album blur', s.cinematicAlbumBlur, 0, 18,
+          s.cinematicAlbumBlur == 0
+              ? 'Off' : s.cinematicAlbumBlur.round().toString(),
+          (v) => s.cinematicAlbumBlur = v),
+        // Fanart retains its separate original, sharp-by-default setting.
+        _compactSlider('Fanart blur', s.cinematicBlur, 0, 18,
+          s.cinematicBlur == 0
+              ? 'Off' : s.cinematicBlur.round().toString(),
+          (v) => s.cinematicBlur = v),
+      ] else
+        _compactSlider('Blur', blur, 0, blurMax,
+          blur == 0 ? 'Off' : blur.round().toString(),
+          (v) => s.bgBlur = _usingFanart ? v + 6 : v),
       _compactSlider('Contrast', contrast, 1, 2,
         (contrast * 100).round().toString() + '%',
         (v) {

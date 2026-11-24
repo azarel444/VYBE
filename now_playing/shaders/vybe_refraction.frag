@@ -162,29 +162,39 @@ void main() {
       displacement += radial * halo * .012 * strength;
     }
   } else if (mode > 6.5 && mode < 7.5) {
-    // True artwork-emitted moving trails: a glowing tail, crisp hot
-    // filament and traveling tip. No full-width oscillating lines.
+    // Light Trails have overlapping life cycles. After the bright head
+    // travels away, the previous trail remains in place, thins and fades.
+    // Continuing the prior generation across the modulo boundary prevents
+    // the whole streak abruptly disappearing and restarting.
     for (int i = 0; i < 9; i++) {
       float fi = float(i);
       float direction = fi * 2.399963 + sin(t*.19+fi*1.7)*.19;
       float curve = direction + radius*.95 +
           .23*sin(radius*6.0-t*.62+fi*.8);
       float sideways = atan(sin(theta-curve),cos(theta-curve))*radius;
-      float head = .16 + fract(t*(.19+fi*.013)+fi*.173) * 1.16;
-      float behind = head - radius;
+      float phase = fract(t*(.19+fi*.013)+fi*.173);
       float life = smoothstep(.03,.20,radius) *
           (1.0-smoothstep(1.15,1.60,radius));
-      float tail = smoothstep(-.025,.045,behind) *
-          exp(-max(behind,0.0)*2.3) * life;
-      float core = gauss(sideways,.008) * tail;
-      float halo = gauss(sideways,.065) * tail;
-      float tip = gauss(radius-head,.034) *
-          gauss(sideways,.028) * life;
       vec3 light = fxColor(fract(fi*.29));
-      illumination += light * (halo*.64+core*1.05+tip*2.15) *
-          (1.0 + bass*.6);
-      // Slight local lens heat shimmer, confined to the trail itself.
-      displacement += radial * (core+tip)*.013*strength;
+      for (int generation = 0; generation < 2; generation++) {
+        // generation=1 keeps the last trail alive beyond the head reset.
+        float age = phase + float(generation);
+        float head = .16 + age * 1.16;
+        float fadeIn = smoothstep(.0,.22,age);
+        float fadeOut = 1.0 - smoothstep(1.05,1.90,age);
+        float envelope = fadeIn * fadeOut;
+        float behind = head - radius;
+        // The far tail decays progressively as the light travels away.
+        float tail = smoothstep(-.025,.045,behind) *
+            exp(-max(behind,0.0)*2.3) * life * envelope;
+        float core = gauss(sideways,.008) * tail;
+        float halo = gauss(sideways,.065) * tail;
+        float tip = gauss(radius-head,.034) *
+            gauss(sideways,.028) * life * envelope;
+        illumination += light * (halo*.64+core*1.05+tip*2.15) *
+            (1.0 + bass*.6);
+        displacement += radial * (core+tip)*.013*strength;
+      }
     }
   } else if (mode > 7.5 && mode < 8.5) {
     // Concentric polar wireframe with a slowly morphing projected grid.
@@ -268,12 +278,29 @@ void main() {
     displacement += vec2(field, sin(field * 3.1 + t*.31)) * .012 * strength;
     illumination += mix(u_colorB,u_colorA,uv.y) * light * .22;
   } else if (mode > 13.5 && mode < 14.5) {
-    // Light Rays: screen-space scattering and nearby pixel warping.
-    float angle = atan(d.y,d.x);
-    float spoke = pow(max(0.0, sin(angle * 9.0 + sin(t*.22)*1.5)), 18.0);
-    float reach = (1.0 - smoothstep(.08,.70,radius));
-    illumination += fxColor(.32 + .15*sin(t*.14)) * spoke * reach * .33;
-    displacement += radial * spoke * reach * .014 * strength;
+    // Album-emitted Light Rays: wide luminous scattering with a bright
+    // filament and soft, long-distance feathered volumetric spill.
+    // Size controls *both* beam spread and beam reach (0.5..2.5).
+    float raySize = clamp(u_effectSize, 0.5, 2.5);
+    float rayAngle = atan(d.y, d.x);
+    // Rotate continuously around the artwork, rather than oscillating
+    // by barely one degree as the last version did.
+    float rotation = t * 3.8 + sin(t * .19) * .12;
+    float beamPhase = rayAngle * 10.0 - rotation;
+    float blade = max(0.0, cos(beamPhase));
+    float core = pow(blade, 25.0 / raySize);
+    float halo = pow(blade, 5.5 / sqrt(raySize));
+    float scatter = pow(blade, 1.65);
+    float beamLength = .36 + raySize * .48;
+    float reach = 1.0 - smoothstep(beamLength * .27, beamLength, radius);
+    float softStart = smoothstep(.015, .13, radius);
+    // Colored luminous cores remain visible over bright fanart.
+    // Low-level bass adds only a subtle extra kick; light remains steady.
+    float energy = reach * softStart *
+        (core * 1.40 + halo * 1.04 + scatter * .48);
+    illumination += fxColor(.32 + .15 * sin(t * .14)) *
+        energy * (1.0 + .12 * bass);
+    displacement += radial * core * reach * .010 * strength;
   } else if (mode > 14.5 && mode < 15.5) {
     // Nebula Haze: soft volumetric turbulence alters light and pixels.
     float n = sin(p.x * 5.3 + t * .13 + sin(p.y*3.7)) *
@@ -383,10 +410,15 @@ void main() {
   else if (bm == 5) treated = min(vec3(1.0), original / max(vec3(0.035), 1.0 - rgb));
   else if (bm == 6) treated = abs(original - rgb);
   else if (bm == 7) treated = mix(rgb, rgb.gbr, 0.55);
-  float blend = clamp(u_blendOpacity, 0.0, 1.0);
-  if (bm == 0) blend = 0.0;
-  // For prism, limit treatment to shard regions, not the entire screen.
-  if (mode > 1.5 && mode < 2.5) blend *= clamp(length(displacement) * 32.0, 0.0, 1.0);
-  rgb = mix(rgb, treated, blend);
+  // Blend opacity is the visibility of the *entire* FX pass even in
+  // Normal mode. Previously bm==0 disabled this control completely.
+  float effectOpacity = clamp(u_blendOpacity, 0.0, 1.0);
+  float transferAmount = bm == 0 ? 0.0 : 1.0;
+  // Prism's alternate blending stays bounded to its refracted regions.
+  if (mode > 1.5 && mode < 2.5) {
+    transferAmount *= clamp(length(displacement) * 32.0, 0.0, 1.0);
+  }
+  vec3 result = mix(rgb, treated, transferAmount);
+  rgb = mix(original, result, effectOpacity);
   fragColor = vec4(clamp(rgb, vec3(0.0), vec3(base.a)), base.a);
 }
