@@ -311,6 +311,75 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                     );
                   }),
                   const Divider(height: 14, color: Colors.white24),
+                  const Text('ARTIST LOGO FX',
+                    style: TextStyle(fontSize: 12,
+                      fontWeight: FontWeight.w700, letterSpacing: 1.3,
+                      color: Color(0xFFFF6BB5))),
+                  Row(children: [
+                    const SizedBox(width: 98,
+                      child: Text('Riot finish', style: TextStyle(fontSize: 13))),
+                    Expanded(child: DropdownButton<int>(
+                      value: s.artistLogoFx,
+                      isExpanded: true,
+                      dropdownColor: const Color(0xFF1B1F2D),
+                      items: [
+                        for (var i=0; i<AppSettings.artistLogoFxNames.length; i++)
+                          DropdownMenuItem<int>(
+                            value: i,
+                            child: Text(AppSettings.artistLogoFxNames[i],
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 14))),
+                      ],
+                      onChanged: (i) {
+                        if (i == null) return;
+                        s.update(() {
+                          s.artistLogoFx = i;
+                          // Show the synthetic Riot logo rather than the
+                          // downloaded clearlogo while comparing treatments.
+                          if (i > 0) s.useArtistClearLogo = false;
+                        });
+                      },
+                    )),
+                  ]),
+                  if (s.artistLogoFx > 0) ...[
+                    LayoutBuilder(builder: (context, bounds) {
+                      final cell = bounds.maxWidth >= 570
+                          ? (bounds.maxWidth - 10) / 2
+                          : bounds.maxWidth;
+                      return Wrap(spacing: 10, children: [
+                        SizedBox(width: cell, child: _compactSlider(
+                          'Relief depth', s.artistLogoDepth, 0, 1,
+                          '${(s.artistLogoDepth * 100).round()}%',
+                          (v) => s.artistLogoDepth = v)),
+                        SizedBox(width: cell, child: _compactSlider(
+                          'Edge light', s.artistLogoEdge, 0, 1,
+                          '${(s.artistLogoEdge * 100).round()}%',
+                          (v) => s.artistLogoEdge = v)),
+                        SizedBox(width: cell, child: _compactSlider(
+                          'Light speed', s.artistLogoMotion, 0, 2,
+                          s.artistLogoMotion == 0 ? 'Off' :
+                              '${s.artistLogoMotion.toStringAsFixed(2)}x',
+                          (v) => s.artistLogoMotion = v)),
+                      ]);
+                    }),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Bass-reactive highlights',
+                        style: TextStyle(fontSize: 13)),
+                      subtitle: const Text('Uses real audio FFT onsets',
+                        style: TextStyle(fontSize: 11)),
+                      value: s.artistLogoBeat,
+                      onChanged: (v) => s.update(() => s.artistLogoBeat = v),
+                    ),
+                  ],
+                  const Text(
+                    'Selecting an FX finish turns Clearlogo off so the '
+                    'generated Riot wordmark is visible. Turn Clearlogo back '
+                    'on below to restore downloaded artist logos.',
+                    style: TextStyle(color: Colors.white54, fontSize: 11)),
+                  const Divider(height: 14, color: Colors.white24),
                   Wrap(spacing: 10, runSpacing: 2,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [

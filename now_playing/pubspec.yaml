@@ -33,6 +33,7 @@ flutter:
     - assets/coverflow_floor_portrait.png
     - assets/theme_previews/
   shaders:
+    - shaders/artist_logo.frag
     - shaders/vybe_refraction.frag
     - shaders/golden_hour.frag
     - shaders/neon_ribbons.frag

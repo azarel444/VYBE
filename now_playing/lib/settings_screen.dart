@@ -520,6 +520,39 @@ class SettingsScreen extends StatelessWidget {
           'placement. Original font and artwork stay unchanged.',
           'Open editor', onOpenRiotEditor!),
       ],
+      _section('Artist Logo FX'),
+      const Text('GPU surface materials for the generated Riot name. '
+          'These effects do not alter downloaded clearlogos or the Riot font. '
+          'Each visual theme remembers its own finish.'),
+      _choices('Riot wordmark material',
+        AppSettings.artistLogoFxNames, s.artistLogoFx,
+        (i) => s.update(() {
+          s.artistLogoFx = i;
+          if (i > 0) s.useArtistClearLogo = false;
+        })),
+      if (s.artistLogoFx > 0) ...[
+        _slider('Relief / emboss depth',
+          '${(s.artistLogoDepth * 100).round()}%',
+          s.artistLogoDepth, 0, 1,
+          (v) => s.update(() => s.artistLogoDepth = v, persist: false),
+          s.save),
+        _slider('Colored edge lighting',
+          '${(s.artistLogoEdge * 100).round()}%',
+          s.artistLogoEdge, 0, 1,
+          (v) => s.update(() => s.artistLogoEdge = v, persist: false),
+          s.save),
+        _slider('Moving reflections',
+          s.artistLogoMotion == 0 ? 'Off' :
+              '${s.artistLogoMotion.toStringAsFixed(2)}x',
+          s.artistLogoMotion, 0, 2,
+          (v) => s.update(() => s.artistLogoMotion = v, persist: false),
+          s.save),
+        _switch('Bass-reactive logo lighting',
+          'Modulate subtle highlights with real FFT bass transients',
+          s.artistLogoBeat, (v) => s.update(() => s.artistLogoBeat = v)),
+      ],
+      const Text('Selecting a material hides downloaded clearlogos for '
+          'testing. You can re-enable Clearlogo from Quick Customize.'),
       _section('Backgrounds & visual effects'),
       const Text('Choose a theme in the Theme Library on the playback controls. Use Customize for the most common adjustments; these advanced visual settings remain available here.'),
       // Scene selection and both speed sliders live in Quick Customize.

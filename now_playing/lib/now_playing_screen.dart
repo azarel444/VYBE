@@ -41,6 +41,7 @@ import 'riot_fixed_spacing.dart';
 import 'riot_approved_spacing.dart';
 import 'riot_spacing_store.dart';
 import 'riot_spacing_editor.dart';
+import 'artist_logo_shader.dart';
 import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
 
@@ -103,6 +104,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   late final Ticker _ticker;
   Duration _last = Duration.zero;
   double _time = 0;
+  double _artistLogoPhase = 0; // integrated, continuous when speed changes
   final _artworkMotionPhase = ValueNotifier<double>(0);
   double _slowAcc = 0;
 
@@ -523,6 +525,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   void _onSettings() {
     if (!mounted) return;
+    // A material change adds/removes padding around the synthetic logo.
+    // Recompute wrap/marquee measurements so no old widths are reused.
+    _artistWidthCache.clear();
     if (model.visualizerEnabled != settings.visualizer) {
       model.setVisualizer(settings.visualizer);
     }
@@ -636,6 +641,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _last = elapsed;
     dt = dt.clamp(0.0, 0.1).toDouble();
     _time += dt;
+    if (settings.artistLogoMotion > 0) {
+      _artistLogoPhase +=
+          dt * settings.artistLogoMotion.clamp(0.0, 2.0).toDouble();
+    }
     // A shared clock keeps album-art and fanart motion identical. Integrate
     // the speed rather than multiplying elapsed time: dragging the slider
     // must never jump the photo to a different position.
@@ -735,7 +744,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         initialText: model.active && model.artist.trim().isNotEmpty
             ? model.artist : 'A.B, C 2026',
         previewBuilder: (text, size) => _artistText(
-          size, letteringOverride: text, color: Colors.white),
+          size, letteringOverride: text, color: Colors.white,
+          logoTreatment: false),
       ),
     ));
   }
@@ -5854,7 +5864,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _riotWordGap(String previous, String next, double fontSize) =>
       fontSize * (previous == 'Y' && next == 'S' ? .11 : .22);
 
-  Widget _artistText(double size, {Color? color, String? letteringOverride}) {
+  Widget _artistText(double size, {Color? color, String? letteringOverride,
+      bool logoTreatment = true}) {
     final lettering = (letteringOverride ?? _artistStr).toUpperCase();
     final fontSize = size * 1.45;
     final style = TextStyle(
@@ -5923,7 +5934,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     final leftInset = -minX;
     final totalWidth = math.max(x, maxX) - minX;
-    return Transform(
+    final wordmark = Transform(
       alignment: Alignment.center,
       transform: Matrix4.skewX(-.16),
       child: SizedBox(
@@ -5939,6 +5950,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   softWrap: false, style: glyphStyles[i]),
             ),
         ]),
+      ),
+    );
+    if (!logoTreatment || settings.artistLogoFx == 0 || !model.active) {
+      return wordmark;
+    }
+    // The GPU reads this entire composited wordmark as one alpha mask,
+    // not separately illuminated characters. Padding preserves room for
+    // silhouette contour lighting, emboss shadow and outer neon spill.
+    return ArtistLogoShaderLayer(
+      repaint: _tick,
+      clock: () => _artistLogoPhase,
+      bass: () => settings.artistLogoBeat && model.realActive
+          ? ripples.pulseAt(_time) : 0.0,
+      treatment: settings.artistLogoFx,
+      depth: settings.artistLogoDepth,
+      edge: settings.artistLogoEdge,
+      accent: _artistNeonPalette.a,
+      secondary: _artistNeonPalette.b,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: wordmark,
       ),
     );
   }
@@ -6014,8 +6046,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     final measured = math.max(x, maxX) - minX;
     if (_artistWidthCache.length > 256) _artistWidthCache.clear();
-    _artistWidthCache[key] = measured;
-    return measured;
+    // FX adds a ten-pixel margin on either side of the processed mask.
+    // Keep measuring and painting in exact agreement for line wraps.
+    final visualWidth = measured +
+        (settings.artistLogoFx > 0 && model.active ? 20.0 : 0.0);
+    _artistWidthCache[key] = visualWidth;
+    return visualWidth;
   }
 
   // One line-break rule for ALL themes. Match the precise Riot glyph width
@@ -6313,7 +6349,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         );
       }));
     }
-    Widget lineWidget(String line) => (vhs || _vhsOn)
+    Widget lineWidget(String line) =>
+      (vhs || _vhsOn) && settings.artistLogoFx == 0
         ? _split((c) => _artistText(fontSize, color: c, letteringOverride: line),
             main: textColor ?? Colors.white70,
             leftGhost: _artistNeonPalette.a.withOpacity(.60),
