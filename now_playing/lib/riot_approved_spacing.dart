@@ -16,7 +16,7 @@ const Map<String, double> riotApprovedPairOffsets = <String, double>{
   "@#": -0.07,
   "/D": -0.14,
   "&B": -0.14,
-  "$%": -0.08,
+  '\$%': -0.08,
   "0;": -0.05,
   "02": -0.14,
   "0U": -0.07,
