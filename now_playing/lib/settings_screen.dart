@@ -14,6 +14,7 @@ import 'fx_library.dart';
 import 'media_cache.dart';
 import 'portable_media_cache.dart';
 import 'artist_fanart.dart';
+import 'artist_fonts.dart';
 import 'local_artwork.dart';
 
 const _cyan = Color(0xFFFF005E);
@@ -510,6 +511,52 @@ class SettingsScreen extends StatelessWidget {
     final isFanartTheme = s.theme == AppSettings.tCinematic ||
         s.theme == AppSettings.tEditorial;
     return [
+      _section('Artist font comparison'),
+      const Text('Riot is permanently preserved as the default. '
+        'To preview your Envato fonts, import their TTF files from this device. '
+        'Only artist names change; song and album typography stay intact. '
+        'Disable Clearlogo in Customize to see the selected font.'),
+      _action(
+        'Import font files',
+        'Select your Beach Club, Gojira Black and Smasher TTFs. '
+          'You can select multiple files at once; nothing is uploaded.',
+        'Import',
+        () async {
+          try {
+            final added = await ArtistFonts.instance.importFromDevice();
+            if (!context.mounted) return;
+            s.update(() {}, persist: false);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(added.isEmpty
+                ? 'No matching font files imported. Choose the six original TTF files.'
+                : 'Imported: ${added.join(', ')}'),
+            ));
+          } catch (e) {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Font import failed: $e'),
+            ));
+          }
+        },
+      ),
+      _choices(
+        'Artist name font',
+        [for (final font in ArtistFonts.options)
+          ArtistFonts.instance.available(font.key)
+            ? font.label : '${font.label} — import first'],
+        ArtistFonts.options.indexWhere((o) => o.key == s.artistFontChoice)
+            .clamp(0, ArtistFonts.options.length - 1).toInt(),
+        (i) {
+          final font = ArtistFonts.options[i];
+          if (!ArtistFonts.instance.available(font.key)) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Import the font file before selecting it.'),
+            ));
+            return;
+          }
+          s.update(() => s.artistFontChoice = font.key);
+        },
+      ),
       _section('Backgrounds & visual effects'),
       const Text('Choose a theme in the Theme Library on the playback controls. Use Customize for the most common adjustments; these advanced visual settings remain available here.'),
       // Scene selection and both speed sliders live in Quick Customize.

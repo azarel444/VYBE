@@ -5,11 +5,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'native_preferences.dart';
+import 'artist_fonts.dart';
 
 import 'now_playing_screen.dart';
 import 'onboarding.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final initialRoute = ui.PlatformDispatcher.instance.defaultRouteName;
   // This isolated route is an opt-in FlutterView/WindowManager experiment.
@@ -17,6 +18,13 @@ void main() {
   if (initialRoute == '/drive-overlay-probe') {
     runApp(const _DriveOverlayProbeApp());
     return;
+  }
+  // Load only the fonts the owner privately installed on this device.
+  // Failure should never prevent VYBE from starting with its original Riot.
+  try {
+    await ArtistFonts.instance.initialize();
+  } catch (e) {
+    debugPrint('VYBE: custom font initialization failed: $e');
   }
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   // The see-through Drive window starts the same app on the '/drive' route.

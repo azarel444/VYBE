@@ -38,6 +38,7 @@ import 'coverflow_theme.dart';
 import 'music_video_theme.dart';
 import 'music_video_vhs.dart';
 import 'riot_fixed_spacing.dart';
+import 'artist_fonts.dart';
 import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
 
@@ -5818,7 +5819,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _riotWordGap(String previous, String next, double fontSize) =>
       fontSize * (previous == 'Y' && next == 'S' ? .11 : .22);
 
+  String? get _alternateArtistFamily =>
+      ArtistFonts.instance.familyFor(settings.artistFontChoice);
+
   Widget _artistText(double size, {Color? color, String? letteringOverride}) {
+    // Imported fonts use their real typography: preserve ligatures, natural
+    // letter spacing and capitalization instead of Riot's per-glyph painter,
+    // first-letter scaling and 165 hand-tuned Riot-specific kerning pairs.
+    final alternative = _alternateArtistFamily;
+    if (alternative != null) {
+      final lettering = letteringOverride ?? _artistStr;
+      final style = TextStyle(
+        fontFamily: alternative,
+        fontFamilyFallback: const ['Roboto'],
+        fontSize: size * 1.25,
+        height: 1.0,
+        color: color ?? Colors.white,
+        shadows: _artistNeonShadows,
+      );
+      final painter = TextPainter(
+        text: TextSpan(text: lettering, style: style),
+        maxLines: 1, textDirection: TextDirection.ltr,
+      )..layout();
+      return SizedBox(
+        width: math.max(1, painter.width),
+        height: math.max(1, painter.height),
+        child: Text(lettering, maxLines: 1, softWrap: false, style: style),
+      );
+    }
+    // Restore the untouched Riot glyph renderer whenever Riot is selected
+    // or the user has not yet imported the alternative font file.
     final lettering = (letteringOverride ?? _artistStr).toUpperCase();
     final fontSize = size * 1.45;
     final style = TextStyle(
@@ -5922,9 +5952,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // Calculate widths with the SAME optical overlaps as the approved glyphs.
   // Width measurement is cached so visualizer frames don't repeatedly measure.
   double _artistRunWidth(String lettering, double size) {
-    final key = size.toStringAsFixed(2) + '|' + lettering;
+    final alternative = _alternateArtistFamily;
+    final key = (alternative ?? 'VYBERiot') + '|' +
+        size.toStringAsFixed(2) + '|' + lettering;
     final saved = _artistWidthCache[key];
     if (saved != null) return saved;
+    if (alternative != null) {
+      final style = TextStyle(fontFamily: alternative,
+        fontFamilyFallback: const ['Roboto'],
+        fontSize: size * 1.25, height: 1.0);
+      final painter = TextPainter(
+        text: TextSpan(text: lettering, style: style),
+        textDirection: TextDirection.ltr, maxLines: 1,
+      )..layout();
+      if (_artistWidthCache.length > 256) _artistWidthCache.clear();
+      _artistWidthCache[key] = painter.width;
+      return painter.width;
+    }
     final fontSize = size * 1.45;
     final style = TextStyle(fontFamily: 'VYBERiot',
         fontFamilyFallback: const ['Roboto'],
@@ -6008,7 +6052,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       Widget Function(String) render) {
     final wordWidth = _artistRunWidth(line, size) + size * .10;
     final travel = math.max(0.0, wordWidth - available);
-    final lineHeight = size * 1.45 * _riotWordInitialScale * 1.12;
+    final lineHeight = _alternateArtistFamily != null
+        ? size * 1.25 * 1.32
+        : size * 1.45 * _riotWordInitialScale * 1.12;
     final seconds = (travel / 42.0 + 4.0).clamp(9.0, 40.0).toDouble();
     return SizedBox(
       width: available,
@@ -6266,8 +6312,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final screen = MediaQuery.sizeOf(context);
       final available = box.maxWidth.isFinite
           ? math.max(1.0, box.maxWidth) : math.max(1.0, screen.width * .88);
+      final alternative = _alternateArtistFamily != null;
       final lines = _artistLines(
-          _artistStr.toUpperCase().trim(), fontSize, available);
+          alternative ? _artistStr.trim() : _artistStr.toUpperCase().trim(),
+          fontSize, available);
       // Break only at word boundaries; an oversized single word scrolls.
       // Do not use FittedBox on any artist text, including Focused.
       Widget renderedLine(String line) =>
@@ -6276,7 +6324,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               : lineWidget(line);
       return _shaded(
         lines.length > 1
-            ? _compactRiotLines(lines, fontSize, a, renderedLine)
+            ? (alternative
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final line in lines)
+                        Align(alignment: a, child: renderedLine(line)),
+                    ],
+                  )
+                : _compactRiotLines(lines, fontSize, a, renderedLine))
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,

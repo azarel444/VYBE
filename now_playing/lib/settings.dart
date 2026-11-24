@@ -116,6 +116,13 @@ class AppSettings extends ChangeNotifier {
   bool fanartOverride = false;
   bool useArtistClearLogo = true; // Per-theme artist-name replacement.
   double artistLogoScale = 1.0; // Relative logo size, 0.5 .. 2.0.
+  // Per-theme artist typography. Riot is unchanged; alternatives load only
+  // from fonts privately installed on this device by their license holder.
+  String artistFontChoice = 'riot';
+  static const artistFontKeys = <String>[
+    'riot', 'beachScript', 'beachSwash', 'gojira',
+    'gojiraSlant', 'smasher', 'smasherSwash',
+  ];
   int fanartCycleSeconds = 10; // Random artist background interval, minimum 5 seconds.
   // Legacy storage key; used only to migrate existing per-theme selections.
   int fanartThemeSource = 0; // 0 auto fanart, 1 forced album, 2 forced animation
@@ -288,6 +295,7 @@ class AppSettings extends ChangeNotifier {
     'fanartCycleSeconds': fanartCycleSeconds,
     'useArtistClearLogo': useArtistClearLogo,
     'artistLogoScale': artistLogoScale,
+    'artistFontChoice': artistFontChoice,
     'layoutSwap': layoutSwap,
     'cinematicFallback': cinematicFallback,
     'animationUseAlbumColors': animationUseAlbumColors,
@@ -376,6 +384,9 @@ class AppSettings extends ChangeNotifier {
     fanartCycleSeconds = integer('fanartCycleSeconds', 10, 5, 300);
     useArtistClearLogo = flag('useArtistClearLogo', true);
     artistLogoScale = number('artistLogoScale', 1.0, 0.5, 2.0);
+    final savedFont = profile['artistFontChoice'];
+    artistFontChoice = savedFont is String && artistFontKeys.contains(savedFont)
+        ? savedFont : 'riot';
     layoutSwap = flag('layoutSwap', false);
     cinematicFallback = integer('cinematicFallback', 1, 0, 2);
     animationUseAlbumColors = flag('animationUseAlbumColors', false);
@@ -609,6 +620,9 @@ class AppSettings extends ChangeNotifier {
     fanartCycleSeconds = _int(p, 'fanartCycleSeconds', 10, 5, 300);
     useArtistClearLogo = p.getBool('useArtistClearLogo') ?? true;
     artistLogoScale = (p.getDouble('artistLogoScale') ?? 1.0).clamp(0.5, 2.0).toDouble();
+    final savedFontChoice = p.getString('artistFontChoice') ?? 'riot';
+    artistFontChoice = artistFontKeys.contains(savedFontChoice)
+        ? savedFontChoice : 'riot';
     animationUseAlbumColors = p.getBool('animationUseAlbumColors') ?? false;
     cinematicPalette = _int(p, 'cinematicPalette', 15, 1, 19);
     // Users who previously selected Rave land on Club Stage rather than
@@ -816,6 +830,7 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('fanartCycleSeconds', fanartCycleSeconds);
     await p.setBool('useArtistClearLogo', useArtistClearLogo);
     await p.setDouble('artistLogoScale', artistLogoScale);
+    await p.setString('artistFontChoice', artistFontChoice);
     // Keep the old key meaningful for users upgrading from older builds.
     await p.setInt('fanartThemeSource',
         fanartOverride ? (fanartFallbackSource == 1 ? 2 : 1) : 0);

@@ -40,11 +40,48 @@ open class MainActivity : FlutterActivity() {
 
     private var artworkFolderResult: MethodChannel.Result? = null
     private var cacheFolderResult: MethodChannel.Result? = null
+    private var fontImportResult: MethodChannel.Result? = null
     private val artworkRequestCode = 8943
     private val cacheRequestCode = 8944
+    private val fontRequestCode = 8945
     @Deprecated("Legacy activity result used for Android 9 compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == fontRequestCode) {
+            val pending = fontImportResult
+            fontImportResult = null
+            if (pending == null) return
+            if (resultCode != android.app.Activity.RESULT_OK || data == null) {
+                pending.success(emptyList<Map<String, Any>>())
+                return
+            }
+            val chosen = mutableListOf<Uri>()
+            data.clipData?.let { clips ->
+                for (i in 0 until clips.itemCount) chosen.add(clips.getItemAt(i).uri)
+            }
+            data.data?.let { if (!chosen.contains(it)) chosen.add(it) }
+            Thread {
+                val files = mutableListOf<Map<String, Any>>()
+                for (uri in chosen) {
+                    try {
+                        var name = ""
+                        contentResolver.query(
+                            uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                            null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) name = cursor.getString(0) ?: ""
+                        }
+                        // Import only fonts the user selected explicitly.
+                        if (!name.endsWith(".ttf", true) && !name.endsWith(".otf", true)) continue
+                        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: continue
+                        if (bytes.size < 100 || bytes.size > 6 * 1024 * 1024) continue
+                        files.add(mapOf("name" to name, "bytes" to bytes))
+                    } catch (_: Exception) { /* Ignore unreadable selections. */ }
+                }
+                runOnUiThread { pending.success(files) }
+            }.start()
+            return
+        }
         if (requestCode != artworkRequestCode && requestCode != cacheRequestCode) return
         val cachePicker = requestCode == cacheRequestCode
         val pending = if (cachePicker) cacheFolderResult else artworkFolderResult
@@ -374,6 +411,31 @@ open class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
+
+        MethodChannel(messenger, "vybe/artist_fonts").setMethodCallHandler { call, result ->
+            if (call.method == "pickFonts") {
+                if (fontImportResult != null || artworkFolderResult != null ||
+                    cacheFolderResult != null) {
+                    result.error("busy", "A file picker is already open", null)
+                } else {
+                    fontImportResult = result
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try {
+                        startActivityForResult(intent, fontRequestCode)
+                    } catch (error: Exception) {
+                        fontImportResult = null
+                        result.error("font_picker", error.message, null)
+                    }
+                }
+            } else {
+                result.notImplemented()
+            }
+        }
 
         MethodChannel(messenger, "vybe/local_art").setMethodCallHandler { call, result ->
             when (call.method) {

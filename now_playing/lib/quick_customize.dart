@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'settings.dart';
+import 'artist_fonts.dart';
 
 /// Opens only from the floating Customize button. The host bottom-sheet route
 /// supplies the upward entrance/exit animation; no persistent pull handle.
@@ -308,6 +309,58 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                       ],
                     );
                   }),
+                  const Divider(height: 14, color: Colors.white24),
+                  Row(children: [
+                    const SizedBox(width: 95,
+                      child: Text('Artist font',
+                        style: TextStyle(fontSize: 13, color: Colors.white))),
+                    Expanded(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: ArtistFonts.instance.available(s.artistFontChoice)
+                            ? s.artistFontChoice : 'riot',
+                        underline: const SizedBox.shrink(),
+                        dropdownColor: const Color(0xFF242833),
+                        items: [
+                          for (final font in ArtistFonts.options)
+                            if (ArtistFonts.instance.available(font.key))
+                              DropdownMenuItem(
+                                value: font.key,
+                                child: Text(font.label,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 13))),
+                        ],
+                        onChanged: (v) {
+                          if (v != null) s.update(() => s.artistFontChoice = v);
+                        },
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Import my TTF fonts',
+                      icon: const Icon(Icons.file_upload_outlined),
+                      onPressed: () async {
+                        try {
+                          final added = await ArtistFonts.instance.importFromDevice();
+                          if (!mounted) return;
+                          s.update(() {}, persist: false);
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(added.isEmpty
+                                ? 'No matching fonts imported'
+                                : 'Imported ${added.length} artist fonts'),
+                          ));
+                        } catch (e) {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text('Font import failed: $e'),
+                          ));
+                        }
+                      },
+                    ),
+                  ]),
+                  const Text(
+                    'Turn Clearlogo off to preview artist text fonts.',
+                    style: TextStyle(fontSize: 11, color: Colors.white54),
+                  ),
                   const Divider(height: 14, color: Colors.white24),
                   Wrap(spacing: 10, runSpacing: 2,
                     crossAxisAlignment: WrapCrossAlignment.center,
