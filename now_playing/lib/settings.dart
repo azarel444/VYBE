@@ -121,7 +121,8 @@ class AppSettings extends ChangeNotifier {
   // 5 electric, 6 holographic. Each theme saves its own treatment.
   int artistLogoFx = 1;
   double artistLogoDepth = 0.65;
-  double artistLogoEdge = 0.55;
+  double artistLogoEdge = 0.75;
+  double artistLogoColor = 1.0; // 0 monochrome, 1 extracted album colors
   double artistLogoMotion = 0.25; // 0 freezes lighting, 2 accelerates it.
   bool artistLogoBeat = true;
   static const artistLogoFxNames = <String>[
@@ -304,6 +305,7 @@ class AppSettings extends ChangeNotifier {
     'artistLogoFx': artistLogoFx,
     'artistLogoDepth': artistLogoDepth,
     'artistLogoEdge': artistLogoEdge,
+    'artistLogoColor': artistLogoColor,
     'artistLogoMotion': artistLogoMotion,
     'artistLogoBeat': artistLogoBeat,
     'layoutSwap': layoutSwap,
@@ -396,7 +398,8 @@ class AppSettings extends ChangeNotifier {
     artistLogoScale = number('artistLogoScale', 1.0, 0.5, 2.0);
     artistLogoFx = integer('artistLogoFx', 1, 0, artistLogoFxNames.length - 1);
     artistLogoDepth = number('artistLogoDepth', .65, 0.0, 1.0);
-    artistLogoEdge = number('artistLogoEdge', .55, 0.0, 1.0);
+    artistLogoEdge = number('artistLogoEdge', .75, 0.0, 1.0);
+    artistLogoColor = number('artistLogoColor', 1.0, 0.0, 1.0);
     artistLogoMotion = number('artistLogoMotion', .25, 0.0, 2.0);
     artistLogoBeat = flag('artistLogoBeat', true);
     layoutSwap = flag('layoutSwap', false);
@@ -636,7 +639,9 @@ class AppSettings extends ChangeNotifier {
         .clamp(0, artistLogoFxNames.length - 1).toInt();
     artistLogoDepth = (p.getDouble('artistLogoDepth') ?? .65)
         .clamp(0.0, 1.0).toDouble();
-    artistLogoEdge = (p.getDouble('artistLogoEdge') ?? .55)
+    artistLogoEdge = (p.getDouble('artistLogoEdge') ?? .75)
+        .clamp(0.0, 1.0).toDouble();
+    artistLogoColor = (p.getDouble('artistLogoColor') ?? 1.0)
         .clamp(0.0, 1.0).toDouble();
     artistLogoMotion = (p.getDouble('artistLogoMotion') ?? .25)
         .clamp(0.0, 2.0).toDouble();
@@ -851,6 +856,7 @@ class AppSettings extends ChangeNotifier {
     await p.setInt('artistLogoFx', artistLogoFx);
     await p.setDouble('artistLogoDepth', artistLogoDepth);
     await p.setDouble('artistLogoEdge', artistLogoEdge);
+    await p.setDouble('artistLogoColor', artistLogoColor);
     await p.setDouble('artistLogoMotion', artistLogoMotion);
     await p.setBool('artistLogoBeat', artistLogoBeat);
     // Keep the old key meaningful for users upgrading from older builds.

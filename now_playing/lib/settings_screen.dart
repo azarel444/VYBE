@@ -541,6 +541,11 @@ class SettingsScreen extends StatelessWidget {
           s.artistLogoEdge, 0, 1,
           (v) => s.update(() => s.artistLogoEdge = v, persist: false),
           s.save),
+        _slider('Album color intensity',
+          '${(s.artistLogoColor * 100).round()}%',
+          s.artistLogoColor, 0, 1,
+          (v) => s.update(() => s.artistLogoColor = v, persist: false),
+          s.save),
         _slider('Moving reflections',
           s.artistLogoMotion == 0 ? 'Off' :
               '${s.artistLogoMotion.toStringAsFixed(2)}x',

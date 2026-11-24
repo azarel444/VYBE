@@ -357,6 +357,10 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                           '${(s.artistLogoEdge * 100).round()}%',
                           (v) => s.artistLogoEdge = v)),
                         SizedBox(width: cell, child: _compactSlider(
+                          'Album colors', s.artistLogoColor, 0, 1,
+                          '${(s.artistLogoColor * 100).round()}%',
+                          (v) => s.artistLogoColor = v)),
+                        SizedBox(width: cell, child: _compactSlider(
                           'Light speed', s.artistLogoMotion, 0, 2,
                           s.artistLogoMotion == 0 ? 'Off' :
                               '${s.artistLogoMotion.toStringAsFixed(2)}x',

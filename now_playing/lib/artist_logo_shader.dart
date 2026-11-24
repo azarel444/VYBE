@@ -15,6 +15,8 @@ class ArtistLogoShaderLayer extends StatefulWidget {
   final double edge;
   final Color accent;
   final Color secondary;
+  final Color tertiary;
+  final double colorStrength;
 
   const ArtistLogoShaderLayer({
     super.key,
@@ -27,6 +29,8 @@ class ArtistLogoShaderLayer extends StatefulWidget {
     required this.edge,
     required this.accent,
     required this.secondary,
+    required this.tertiary,
+    required this.colorStrength,
   });
 
   @override
@@ -89,6 +93,10 @@ class _ArtistLogoShaderLayerState extends State<ArtistLogoShaderLayer> {
         shader.setFloat(10, widget.secondary.red / 255.0);
         shader.setFloat(11, widget.secondary.green / 255.0);
         shader.setFloat(12, widget.secondary.blue / 255.0);
+        shader.setFloat(13, widget.tertiary.red / 255.0);
+        shader.setFloat(14, widget.tertiary.green / 255.0);
+        shader.setFloat(15, widget.tertiary.blue / 255.0);
+        shader.setFloat(16, widget.colorStrength.clamp(0.0, 1.0).toDouble());
         return ImageFiltered(
           imageFilter: ui.ImageFilter.shader(shader),
           child: child!,

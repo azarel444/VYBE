@@ -5868,6 +5868,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       bool logoTreatment = true}) {
     final lettering = (letteringOverride ?? _artistStr).toUpperCase();
     final fontSize = size * 1.45;
+    // The original alpha mask accidentally contained Riot's pre-existing
+    // multicolor Flutter drop shadows. Those shadows blurred the silhouette,
+    // making six shader treatments look like nearly identical white glows.
+    // The GPU now receives ONLY sharp, fully opaque Riot glyphs.
+    final gpuLogo = logoTreatment && settings.artistLogoFx != 0 && model.active;
     final style = TextStyle(
       fontFamily: 'VYBERiot',
       fontFamilyFallback: const ['Roboto'],
@@ -5875,8 +5880,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       height: 1.0,
       letterSpacing: 0,
       wordSpacing: 0,
-      color: color ?? Colors.white,
-      shadows: _artistNeonShadows,
+      color: gpuLogo ? Colors.white : (color ?? Colors.white),
+      shadows: gpuLogo ? const <Shadow>[] : _artistNeonShadows,
     );
     // Measure glyphs first, then center every glyph within the tallest line
     // box. This centers the enlarged initial both above and below its word.
@@ -5952,7 +5957,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ]),
       ),
     );
-    if (!logoTreatment || settings.artistLogoFx == 0 || !model.active) {
+    if (!gpuLogo) {
       return wordmark;
     }
     // The GPU reads this entire composited wordmark as one alpha mask,
@@ -5968,8 +5973,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       edge: settings.artistLogoEdge,
       accent: _artistNeonPalette.a,
       secondary: _artistNeonPalette.b,
+      tertiary: _artistNeonPalette.c,
+      colorStrength: settings.artistLogoColor,
       child: Padding(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         child: wordmark,
       ),
     );
@@ -6046,10 +6053,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     final measured = math.max(x, maxX) - minX;
     if (_artistWidthCache.length > 256) _artistWidthCache.clear();
-    // FX adds a ten-pixel margin on either side of the processed mask.
-    // Keep measuring and painting in exact agreement for line wraps.
+    // Match the 16px per-side alpha-mask margin so the artist wrap/marquee
+    // calculations include the stronger three-stage shader glow.
     final visualWidth = measured +
-        (settings.artistLogoFx > 0 && model.active ? 20.0 : 0.0);
+        (settings.artistLogoFx > 0 && model.active ? 32.0 : 0.0);
     _artistWidthCache[key] = visualWidth;
     return visualWidth;
   }
