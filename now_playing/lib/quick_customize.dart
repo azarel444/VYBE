@@ -8,12 +8,14 @@ class QuickCustomizeSheet extends StatefulWidget {
   final AppSettings settings;
   final Color accent;
   final VoidCallback onOpenFx;
+  final VoidCallback onOpenRiotEditor;
 
   const QuickCustomizeSheet({
     super.key,
     required this.settings,
     required this.accent,
     required this.onOpenFx,
+    required this.onOpenRiotEditor,
   });
 
   @override
@@ -328,6 +330,15 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         onPressed: widget.onOpenFx,
                         icon: const Icon(Icons.auto_awesome, size: 17),
                         label: const Text('FX Gallery'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: widget.onOpenRiotEditor,
+                        icon: const Icon(Icons.text_fields, size: 17),
+                        label: const Text('Riot Spacing Editor'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           visualDensity: VisualDensity.compact,

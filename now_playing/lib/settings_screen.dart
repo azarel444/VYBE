@@ -26,8 +26,10 @@ const bool _showDiagnostics = true;
 class SettingsScreen extends StatelessWidget {
   final AppSettings settings;
   final NowPlayingModel model;
+  final VoidCallback? onOpenRiotEditor;
 
-  const SettingsScreen({super.key, required this.settings, required this.model});
+  const SettingsScreen({super.key, required this.settings,
+    required this.model, this.onOpenRiotEditor});
 
   static const _tabNames = [
     'General',
@@ -510,6 +512,14 @@ class SettingsScreen extends StatelessWidget {
     final isFanartTheme = s.theme == AppSettings.tCinematic ||
         s.theme == AppSettings.tEditorial;
     return [
+      if (onOpenRiotEditor != null) ...[
+        _section('VYBE Riot typography'),
+        _action('Riot Spacing Editor',
+          'Adjust uppercase letters, numbers, punctuation and symbols. '
+          'Tune pair spacing and each character\'s horizontal/vertical '
+          'placement. Original font and artwork stay unchanged.',
+          'Open editor', onOpenRiotEditor!),
+      ],
       _section('Backgrounds & visual effects'),
       const Text('Choose a theme in the Theme Library on the playback controls. Use Customize for the most common adjustments; these advanced visual settings remain available here.'),
       // Scene selection and both speed sliders live in Quick Customize.

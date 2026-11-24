@@ -38,6 +38,8 @@ import 'coverflow_theme.dart';
 import 'music_video_theme.dart';
 import 'music_video_vhs.dart';
 import 'riot_fixed_spacing.dart';
+import 'riot_spacing_store.dart';
+import 'riot_spacing_editor.dart';
 import 'laser_tunnel_background.dart';
 import 'fx_composite.dart';
 
@@ -213,6 +215,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _fxProfiler.start();
     model.addListener(_onModel);
     settings.addListener(_onSettings);
+    RiotSpacingStore.instance.addListener(_onRiotSpacingChanged);
+    unawaited(RiotSpacingStore.instance.load());
     model.start();
     if (!widget.driveHost) {
       VybeLink.instance.addListener(_onLinkFanart);
@@ -268,6 +272,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     if (!widget.driveHost) VybeLink.instance.removeListener(_onLinkFanart);
     model.removeListener(_onModel);
     settings.removeListener(_onSettings);
+    RiotSpacingStore.instance.removeListener(_onRiotSpacingChanged);
     _ticker.dispose();
     _hideTimer?.cancel();
     _brightnessChannel.invokeMethod<void>('setNight', false).catchError((Object _) {});
@@ -712,7 +717,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   void _openSettings() {
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => SettingsScreen(settings: settings, model: model),
+      builder: (_) => SettingsScreen(settings: settings, model: model,
+        onOpenRiotEditor: _openRiotSpacingEditor),
+    ));
+  }
+
+  void _onRiotSpacingChanged() {
+    // Both rendering and wrapping use the same saved measurements.
+    _artistWidthCache.clear();
+    if (mounted) setState(() {});
+  }
+
+  void _openRiotSpacingEditor() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => RiotSpacingEditor(
+        initialText: model.active && model.artist.trim().isNotEmpty
+            ? model.artist : 'A.B, C 2026',
+        previewBuilder: (text, size) => _artistText(
+          size, letteringOverride: text, color: Colors.white),
+      ),
     ));
   }
 
@@ -743,6 +766,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             Navigator.of(sheetContext).pop();
             Navigator.of(context).push(MaterialPageRoute<void>(
               builder: (_) => FxLibraryScreen(settings: settings)));
+          },
+          onOpenRiotEditor: () {
+            Navigator.of(sheetContext).pop();
+            _openRiotSpacingEditor();
           },
         ),
       ),
@@ -5605,10 +5632,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   // This one method is used by both glyph placement and line measurement.
   double _riotPairOverlap(String previous, String character,
       double fontSize, double glyphWidth) {
-    final original = _riotDefaultPairOverlap(
-        previous, character, fontSize, glyphWidth);
-    // Saved user corrections are fixed font defaults, never preferences.
-    return original - (riotFixedPairOffsets[previous + character] ?? 0.0) * fontSize;
+    // The aggressive letter-to-letter overlap must NOT apply to digits
+    // or punctuation, otherwise a dot/comma can end up under adjacent ink.
+    // Letter pairs retain the exact saved factory kerning.
+    final original = _riotIsLetter(previous) && _riotIsLetter(character)
+        ? _riotDefaultPairOverlap(previous, character, fontSize, glyphWidth)
+        : 0.0;
+    return original - (riotFixedPairOffsets[previous + character] ?? 0.0) * fontSize
+        - RiotSpacingStore.instance.deltaFor(previous + character) * fontSize;
   }
 
   double _riotDefaultPairOverlap(String previous, String character,
@@ -5837,6 +5868,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final glyphStyles = <TextStyle>[];
     final glyphPositions = <double>[];
     final glyphHeights = <double>[];
+    final glyphVertical = <double>[];
+    final overrides = RiotSpacingStore.instance;
+    var minX = 0.0, maxX = 0.0;
+    var minY = 0.0, maxY = 0.0;
     var x = 0.0;
     var previous = '';
     var pendingWordGap = false;
@@ -5865,25 +5900,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       } else if (previous.isNotEmpty) {
         x -= _riotPairOverlap(previous, character, fontSize, glyphWidth);
       }
+      final dx = overrides.xFor(character) * fontSize;
+      final dy = overrides.yFor(character) * fontSize;
+      final glyphX = x + dx;
       glyphCharacters.add(character);
       glyphStyles.add(glyphStyle);
-      glyphPositions.add(x);
+      glyphPositions.add(glyphX);
       glyphHeights.add(painter.height);
-      x += glyphWidth;
+      glyphVertical.add(dy);
+      minX = math.min(minX, glyphX);
+      maxX = math.max(maxX, glyphX + glyphWidth);
+      minY = math.min(minY, dy);
+      maxY = math.max(maxY, dy);
+      x += glyphWidth + overrides.afterFor(character) * fontSize;
       previous = character;
       pendingWordGap = false;
     }
+    final leftInset = -minX;
+    final totalWidth = math.max(x, maxX) - minX;
     return Transform(
       alignment: Alignment.center,
       transform: Matrix4.skewX(-.16),
       child: SizedBox(
-        width: math.max(1, x),
-        height: maxHeight,
+        width: math.max(1, totalWidth),
+        height: maxHeight + (maxY - minY),
         child: Stack(clipBehavior: Clip.none, children: [
           for (var i = 0; i < glyphCharacters.length; i++)
             Positioned(
-              left: glyphPositions[i],
-              top: (maxHeight - glyphHeights[i]) / 2,
+              left: glyphPositions[i] + leftInset,
+              top: (maxHeight - glyphHeights[i]) / 2 +
+                  glyphVertical[i] - minY,
               child: Text(glyphCharacters[i], maxLines: 1,
                   softWrap: false, style: glyphStyles[i]),
             ),
@@ -5930,6 +5976,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         fontFamilyFallback: const ['Roboto'],
         fontSize: fontSize, letterSpacing: 0, wordSpacing: 0);
     var x = 0.0;
+    var minX = 0.0, maxX = 0.0;
+    final overrides = RiotSpacingStore.instance;
     var prev = '';
     var pendingWordGap = false;
     for (final rune in lettering.runes) {
@@ -5952,13 +6000,17 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       } else if (prev.isNotEmpty) {
         x -= _riotPairOverlap(prev, c, fontSize, width);
       }
-      x += width;
+      final glyphX = x + overrides.xFor(c) * fontSize;
+      minX = math.min(minX, glyphX);
+      maxX = math.max(maxX, glyphX + width);
+      x += width + overrides.afterFor(c) * fontSize;
       prev = c;
       pendingWordGap = false;
     }
+    final measured = math.max(x, maxX) - minX;
     if (_artistWidthCache.length > 256) _artistWidthCache.clear();
-    _artistWidthCache[key] = x;
-    return x;
+    _artistWidthCache[key] = measured;
+    return measured;
   }
 
   // One line-break rule for ALL themes. Match the precise Riot glyph width
