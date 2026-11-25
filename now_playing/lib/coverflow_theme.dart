@@ -114,10 +114,15 @@ class CoverflowScene extends StatelessWidget {
       // 4.5% screen top which leaves a disproportionate gap below it.
       // Use the projected sleeve's upper edge so this also scales on
       // phones with different aspect ratios and album sizes.
-      final portraitHeaderHeight = h * .18;
       final upperCoverEdge = math.min(selectedQuad[0].dy, selectedQuad[1].dy);
+      final safeTop = MediaQuery.paddingOf(context).top + h * .012;
+      // The portrait header must end BEFORE the projected sleeve begins.
+      // Give two-line Riot names room, but never let their box intrude
+      // into the cover's actual upper edge.
+      final portraitHeaderHeight = math.max(1.0,
+          math.min(h * .245, upperCoverEdge - safeTop - h * .032));
       final portraitHeaderTop = math.max(
-          h * .045, (upperCoverEdge - portraitHeaderHeight) * .5);
+          safeTop, (upperCoverEdge - portraitHeaderHeight) * .5);
       final side = queue.where((e) =>
           e.slot != 0 && e.slot.abs() <= (portrait ? 2 : 3) &&
           e.thumb != null && e.thumb!.isNotEmpty).toList()
@@ -331,7 +336,9 @@ class CoverflowScene extends StatelessWidget {
               top: portrait ? portraitHeaderTop : h * .002,
               left: w * .095, width: w * .81,
               height: portrait ? portraitHeaderHeight : h * .255,
-              child: Center(child: artistHeader),
+              // Clip even the GPU glow and skew at this boundary so a long
+              // name cannot paint across the projected cover.
+              child: ClipRect(child: Center(child: artistHeader)),
             ),
             Positioned(
               left: w * .12, right: w * .12,

@@ -2284,26 +2284,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         Positioned(right: w * .04, top: h * .055, width: w * .56,
           child: readable(Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: flipped
-                ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+            // Keep Muzine's right-hand metadata panel where it is, but
+            // center EACH role on the same axis regardless of text length.
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               if (settings.useArtistClearLogo &&
                   _clearLogoBytes != null && model.active)
                 SizedBox(width: w * .44, height: h * .19,
-                  child: _scaledClearLogo(alignment: flipped
-                      ? Alignment.centerLeft : Alignment.centerRight))
+                  child: _scaledClearLogo(alignment: Alignment.center))
               else
-                _artist(h * .085,
-                  flipped ? Alignment.centerLeft : Alignment.centerRight,
-                  false),
+                _artist(h * .085, Alignment.center, false),
               SizedBox(height: h * .009),
-              _metadataText(_VybeTextRole.title,
-                  flipped ? Alignment.centerLeft : Alignment.centerRight),
+              _metadataText(_VybeTextRole.title, Alignment.center),
               if (_showAlbumLabel) ...[
                 SizedBox(height: h * .008),
                 _metadataText(_VybeTextRole.album, Alignment.center,
-                  flushFrame: flipped ? Alignment.centerLeft
-                      : Alignment.centerRight),
+                  flushFrame: Alignment.center),
               ],
             ]))),
         if (_hasLyrics)
@@ -6367,23 +6363,61 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final screen = MediaQuery.sizeOf(context);
       final available = box.maxWidth.isFinite
           ? math.max(1.0, box.maxWidth) : math.max(1.0, screen.width * .88);
-      final lines = _artistLines(
-          _artistStr.toUpperCase().trim(), fontSize, available);
-      // Break only at word boundaries; an oversized single word scrolls.
-      // Do not use FittedBox on any artist text, including Focused.
+      final name = _artistStr.toUpperCase().trim();
+      var lines = _artistLines(name, fontSize, available);
+      // Portrait artist headers used to grow to 5-8 rows for compilation
+      // credits and overflow directly on top of the covers. Preserve the
+      // full name and full Riot glyph size: restrict to at most TWO rows,
+      // and marquee horizontally within either row when necessary.
+      if (_textPortrait && lines.length > 2) {
+        final words = name.split(RegExp(r'\s+'));
+        var bestSplit = 1;
+        var bestScore = double.infinity;
+        for (var i = 1; i < words.length; i++) {
+          final first = words.take(i).join(' ');
+          final second = words.skip(i).join(' ');
+          final aWidth = _artistRunWidth(first, fontSize);
+          final bWidth = _artistRunWidth(second, fontSize);
+          final score = math.max(aWidth, bWidth) +
+              .12 * (aWidth - bWidth).abs();
+          if (score < bestScore) {
+            bestScore = score;
+            bestSplit = i;
+          }
+        }
+        if (words.length > 1) {
+          lines = [
+            words.take(bestSplit).join(' '),
+            words.skip(bestSplit).join(' '),
+          ];
+        } else {
+          lines = [name];
+        }
+      }
+      // Finite artist slots (Coverflow/Focused) must NOT paint into album
+      // artwork. If two full-size rows exceed the available height, show
+      // the whole name as one horizontally scrolling row instead.
+      final rowHeight = fontSize * 1.45 * _riotWordInitialScale;
+      final twoRowsHeight = rowHeight * 1.47 +
+          (settings.artistLogoFx > 0 && model.active ? 26.0 : 0.0);
+      if (_textPortrait && lines.length > 1 &&
+          box.maxHeight.isFinite &&
+          twoRowsHeight > box.maxHeight - 2.0) {
+        lines = [name];
+      }
+      // Long single words/lines scroll with fading edges, never shrink.
       Widget renderedLine(String line) =>
           _artistRunWidth(line, fontSize) > available
               ? _overflowRiotWord(line, fontSize, available, lineWidget)
               : lineWidget(line);
-      return _shaded(
-        lines.length > 1
-            ? _compactRiotLines(lines, fontSize, a, renderedLine)
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [Align(alignment: a, child: renderedLine(lines.first))],
-              ),
-      );
+      final artistBlock = lines.length > 1
+          ? _compactRiotLines(lines, fontSize, a, renderedLine)
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [Align(alignment: a, child: renderedLine(lines.first))],
+            );
+      return _shaded(artistBlock);
     });
   }
 
