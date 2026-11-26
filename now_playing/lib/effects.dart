@@ -338,66 +338,66 @@ Offset _artCenter(GlobalKey key, Size size, {GlobalKey? layerKey}) {
   return globalCenter;
 }
 
-/// Floating, softly focused bokeh lights. Rendered over the full-screen
-/// transparent canvas so shrinking the effect never exposes a hard border.
+/// Soft photographic bokeh with genuine filled defocus and light bleed.
+/// Each depth plane drifts away from the artwork without outlined rings.
 class GlowPainter extends CustomPainter {
   final FxClock clock;
   final ArtPalette palette;
   final double k;
   final double effectSize;
+  final Offset origin;
 
   GlowPainter({
     required this.clock,
     required this.palette,
     required this.k,
     this.effectSize = 1.0,
+    this.origin = const Offset(.5,.5),
     required Listenable repaint,
   }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
     final t = clock.t;
-    final scale = effectSize.clamp(0.15, 3.0);
+    final scale = effectSize.clamp(.35, 2.5);
     final shortest = math.min(size.width, size.height);
-    final colors = palette.colors;
-    // Three optical depth planes: distant pin lights, mid-field discs and
-    // large defocused foreground circles. All positions are deterministic.
-    for (int layer = 0; layer < 3; layer++) {
-      final count = layer == 0 ? 24 : (layer == 1 ? 12 : 7);
-      final parallax = layer == 0 ? .25 : (layer == 1 ? .65 : 1.35);
-      for (int i = 0; i < count; i++) {
-        final seed = (i + layer * 47) * 2.399963229728653;
-        final nx = .5 + .64 * math.sin(seed * 1.37 + t * .035 * parallax);
-        final ny = .5 + .68 * math.cos(seed * .87 + t * .023 * parallax);
-        final center = Offset(nx * size.width, ny * size.height);
-        final fraction = (i % 7) / 6.0;
-        final radius = shortest * (layer == 0
-            ? (.002 + fraction * .005)
-            : layer == 1
-                ? (.015 + fraction * .037)
-                : (.075 + fraction * .115)) * scale;
-        final focus = layer == 0 ? .75 : (layer == 1 ? .45 : .12);
-        final shimmer = .83 + .17 * math.sin(t * .38 + seed);
-        final opacity = _a((layer == 0 ? .56 : layer == 1 ? .33 : .17)
-            * k * shimmer * (1.0 + .10 * clock.bass));
-        final base = colors[(i + layer) % colors.length];
-        final highlight = Color.lerp(base, const Color(0xFFFFE4A1),
-            layer == 0 ? .38 : .20)!;
-        final paint = Paint()
-          ..shader = ui.Gradient.radial(center, radius, [
-            highlight.withOpacity(opacity),
-            base.withOpacity(opacity * (layer == 2 ? .74 : .85)),
-            base.withOpacity(opacity * (layer == 0 ? .36 : .46)),
-            base.withOpacity(0),
-          ], [0.0, focus, layer == 2 ? .78 : .87, 1.0]);
-        canvas.drawCircle(center, radius, paint);
-      }
+    final source = Offset(size.width*origin.dx,size.height*origin.dy);
+    for (var i=0;i<25;i++) {
+      final seed=i*2.399963;
+      final phase=((t*(.009+(i%7)*.0015)+i*.277)%1.0);
+      final angle=seed + .22*math.sin(t*.11+i*1.3);
+      final distance=shortest*(.03+phase*1.32);
+      final pos=source+Offset(math.cos(angle),math.sin(angle))*distance;
+      final depth=i%3;
+      final radius=shortest*(depth==0 ? .028 : depth==1 ? .075 : .14)*
+          scale*(.75+(i%5)*.11);
+      final life=(math.min(phase/.18,1.0)*
+          math.min((1-phase)/.18,1.0)).clamp(0.0,1.0);
+      if(life<=0)continue;
+      final color=palette.colors[i%3];
+      final opacity=(k*life*(depth == 0 ? 0.53 : depth == 1 ? 0.30 : 0.18)*
+          (.86+.14*math.sin(t*.54+seed))).clamp(0.0,1.0).toDouble();
+      // Filled center, feathered aperture and broad atmospheric spill.
+      canvas.drawCircle(pos,radius*2.2,Paint()..shader=ui.Gradient.radial(
+        pos,radius*2.2,[
+          color.withOpacity(opacity*.5),
+          color.withOpacity(opacity*.28),
+          color.withOpacity(0),
+        ],[0,.38,1]));
+      canvas.drawCircle(pos,radius,Paint()..shader=ui.Gradient.radial(
+        pos,radius,[
+          Color.lerp(color,Colors.white,.28)!.withOpacity(opacity),
+          color.withOpacity(opacity*.76),
+          color.withOpacity(opacity*.30),
+          color.withOpacity(0),
+        ],[0,.33,.77,1]));
     }
   }
 
   @override
   bool shouldRepaint(GlowPainter old) =>
-      old.palette != palette || old.k != k || old.effectSize != effectSize;
+      old.palette != palette || old.k != k ||
+      old.effectSize != effectSize || old.origin != origin;
 }
 
 /// Aurora sweep: slow soft bands of the art colors roll across the screen.
@@ -892,7 +892,9 @@ class ExpandedFxPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (k <= 0) return;
     final w = size.width, h = size.height, t = clock.t;
-    final center = Offset(w * .5, h * .5);
+    final center = pinnedOrigin == null
+        ? Offset(w * .5, h * .5)
+        : Offset(w * pinnedOrigin!.dx, h * pinnedOrigin!.dy);
     final bright = palette.a.withOpacity((.72 * k).clamp(0.0, 1.0));
     final second = palette.b.withOpacity((.68 * k).clamp(0.0, 1.0));
     final stroke = Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5..color = bright;
@@ -960,43 +962,63 @@ class ExpandedFxPainter extends CustomPainter {
             ..color = Color.lerp(color, Colors.white, .55)!.withOpacity(.5 * k));
         }
         break;
-      case 3: // Vortex tunnel
-        for (var i = 0; i < 7; i++) {
+      case 3: // Vortex: visible rotating spirals and receding tunnel rings.
+        final reach = math.sqrt(w * w + h * h) * .95;
+        for (var i = 0; i < 8; i++) {
           final path = Path();
-          for (var j = 0; j < 150; j++) {
-            final a = j / 150 * math.pi * 5 + t * .55 + i * math.pi / 3.5;
-            final r = (j / 150) * w * .53;
-            final pt = center + Offset(math.cos(a) * r, math.sin(a) * r * h / w);
-            if (j == 0) {path.moveTo(pt.dx,pt.dy);} else {path.lineTo(pt.dx,pt.dy);}
+          for (var j = 0; j <= 144; j++) {
+            final f = j / 144.0;
+            final radius = reach * f;
+            final a = t * .82 + i * 2 * math.pi / 8 +
+                f * math.pi * 5.5;
+            final pt = center + Offset(math.cos(a), math.sin(a)) * radius;
+            if (j == 0) { path.moveTo(pt.dx, pt.dy); }
+            else { path.lineTo(pt.dx, pt.dy); }
           }
-          final color = palette.at(i / 7);
+          final color = palette.at(i / 8);
           canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 11..color = color.withOpacity(.15 * k)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
+            ..strokeWidth = 23..color = color.withOpacity(.28 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 21));
           canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5 + k * 2
-            ..color = color.withOpacity(.72 * k));
+            ..strokeWidth = 5..color = color.withOpacity(.47 * k)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
+          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6..color =
+                Color.lerp(color, Colors.white, .65)!.withOpacity(.82 * k));
+        }
+        for (var i = 0; i < 6; i++) {
+          final radius = (i + .8) / 6 * math.min(w,h) *
+              (.82 + .05 * math.sin(t * .9 + i));
+          canvas.drawCircle(center, radius, Paint()
+            ..style = PaintingStyle.stroke..strokeWidth = 1.3
+            ..color = palette.at(i / 6).withOpacity(.24 * k));
         }
         break;
-      case 4: // Electric arcs: jagged filaments with a luminous corona.
-        for (var i = 0; i < 7; i++) {
+      case 4: // Jagged electrical branches emitting from the cover.
+        final reach = math.sqrt(w*w + h*h) * .9;
+        final flicker = (t * 13).floor();
+        for (var i = 0; i < 9; i++) {
           final path = Path();
-          final seed = (t * 8).floor() + i * 19;
-          for (var j = 0; j < 28; j++) {
-            final x = w * j / 27;
-            final y = h * (.13 + i * .12) +
-                math.sin(j * 9.3 + seed * 3.7) * h * .038 +
-                math.cos(j * 4.1 + seed * 1.3) * h * .018;
-            if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
+          final direction = i * 2.399963 + .13 * math.sin(t*.35+i);
+          for (var j=0; j <= 54; j++) {
+            final f=j/54.0;
+            final radius=reach*(.04+f*.94);
+            final a=direction + f*.12 +
+                (.035+.045*f)*math.sin(j*5.71+flicker*.91+i*7.4) +
+                .018*math.sin(j*13.13-flicker*1.17+i*2.3);
+            final pt=center+Offset(math.cos(a),math.sin(a))*radius;
+            if (j==0) {path.moveTo(pt.dx,pt.dy);}
+            else {path.lineTo(pt.dx,pt.dy);}
           }
-          final c = palette.at(i / 7);
-          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 12..color = c.withOpacity(.26 * k)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11));
-          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 2.0..color = c.withOpacity(.83 * k));
-          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = .65..color = Colors.white.withOpacity(.7 * k));
+          final c=palette.at(i/9);
+          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
+            ..strokeWidth=22..color=c.withOpacity(.23*k)
+            ..maskFilter=const MaskFilter.blur(BlurStyle.normal,17));
+          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
+            ..strokeWidth=4.0..color=c.withOpacity(.62*k)
+            ..maskFilter=const MaskFilter.blur(BlurStyle.normal,4));
+          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
+            ..strokeWidth=1.15..color=Colors.white.withOpacity(.84*k));
         }
         break;
       case 5: // Prism shards: sparse glass facets, no full wireframe outlines.
@@ -1026,52 +1048,68 @@ class ExpandedFxPainter extends CustomPainter {
           }
         }
         break;
-      case 6: // Light trails: streaks with bloom and a bright moving head.
-        for (var i = 0; i < 12; i++) {
-          final path = Path();
-          for (var j = 0; j <= 45; j++) {
-            final x = w * j / 45;
-            final y = h * (.12 + i * .07) +
-              h * (.06 + .035 * clock.bass) *
-              math.sin(j * .12 + t * (.75 + i * .04) + i);
-            if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
+      case 6: // Hot moving light tips and luminous curved tails.
+        // Draw in artwork-centered polar space, not horizontal waves.
+        final reach = math.sqrt(w*w+h*h) * .82;
+        for (var i=0; i<11; i++) {
+          final progress = (t*(.17+i*.008)+i*.19)%1.0;
+          final headRadius=reach*(.10+progress*.94);
+          final path=Path();
+          Offset head=center;
+          for (var j=0;j<=72;j++) {
+            final f=j/72.0;
+            final radius=headRadius*f;
+            final angle=i*2.399963 + radius/reach*1.04 +
+                .22*math.sin(radius/reach*5.9-t*.62+i*.8);
+            final point=center+Offset(math.cos(angle),math.sin(angle))*radius;
+            if (j==0) {path.moveTo(point.dx,point.dy);}
+            else {path.lineTo(point.dx,point.dy);}
+            head=point;
           }
-          final c = palette.at(i / 12);
-          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 9..color = c.withOpacity(.19 * k)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
-          canvas.drawPath(path, Paint()..style = PaintingStyle.stroke
-            ..strokeWidth = 1.4 + (i % 3) * .5
-            ..color = c.withOpacity(.78 * k));
-          final head = (t * (.13 + i * .003) + i * .19) % 1.0;
-          final y = h * (.12 + i * .07) +
-            h * (.06 + .035 * clock.bass) *
-            math.sin(head * 45 * .12 + t * (.75 + i * .04) + i);
-          final pt = Offset(w * head, y);
-          canvas.drawCircle(pt, 4 + 4 * clock.bass,
-            Paint()..color = c.withOpacity(.72 * k)
-              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
-          canvas.drawCircle(pt, 1.8, Paint()..color = Colors.white.withOpacity(.85 * k));
+          final c=palette.at(i/11);
+          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
+            ..strokeWidth=25..color=c.withOpacity(.26*k)
+            ..maskFilter=const MaskFilter.blur(BlurStyle.normal,21));
+          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
+            ..strokeWidth=7..color=c.withOpacity(.57*k)
+            ..maskFilter=const MaskFilter.blur(BlurStyle.normal,7));
+          canvas.drawPath(path, Paint()..style=PaintingStyle.stroke
+            ..strokeWidth=2..color=
+                Color.lerp(c,Colors.white,.7)!.withOpacity(.86*k));
+          canvas.drawCircle(head,26,Paint()..shader=ui.Gradient.radial(
+            head,26,[c.withOpacity(.65*k),c.withOpacity(.20*k),
+            c.withOpacity(0)],[0,.35,1]));
+          canvas.drawCircle(head,2.8,Paint()
+            ..color=Colors.white.withOpacity(.97*k));
         }
         break;
-      case 7: // Morphing wireframe
-        for (var i = 0; i <= 15; i++) {
-          final path = Path();
-          for (var j = 0; j <= 35; j++) {
-            final x = w * j / 35;
-            final y = h * (-.20 + i * .095) + h * .085 * math.sin(j*.25 + t + i*.5);
-            if (j == 0) {path.moveTo(x,y);} else {path.lineTo(x,y);}
-          }
-          canvas.drawPath(path, stroke..strokeWidth=1.2..color=bright);
-        }
-        for (var j=0;j<=25;j++) {
-          final x=w*j/25;
+      case 7: // Polar morphing wireframe, projected from album center.
+        final reach=math.sqrt(w*w+h*h)*.8;
+        for (var ring=1;ring<=13;ring++) {
           final path=Path();
-          for(var i=0;i<=15;i++) {
-            final y=h*(-.20+i*.095)+h*.085*math.sin(j/25*35*.25+t+i*.5);
-            if(i==0){path.moveTo(x,y);}else{path.lineTo(x,y);}
+          for (var j=0;j<=120;j++) {
+            final angle=j/120.0*2*math.pi;
+            final radius=ring/13.0*reach*
+                (1+.055*math.sin(angle*7+t*.58+ring*.4));
+            final pt=center+Offset(math.cos(angle),math.sin(angle))*radius;
+            if(j==0){path.moveTo(pt.dx,pt.dy);}
+            else {path.lineTo(pt.dx,pt.dy);}
           }
-          canvas.drawPath(path,stroke..strokeWidth=.9..color=second);
+          canvas.drawPath(path,Paint()..style=PaintingStyle.stroke
+            ..strokeWidth=1.1..color=palette.at(ring/13).withOpacity(.48*k));
+        }
+        for (var spoke=0;spoke<24;spoke++) {
+          final path=Path();
+          for(var j=0;j<=36;j++) {
+            final f=j/36.0;
+            final angle=spoke*2*math.pi/24+.055*math.sin(f*9-t*.62);
+            final radius=reach*f;
+            final pt=center+Offset(math.cos(angle),math.sin(angle))*radius;
+            if(j==0){path.moveTo(pt.dx,pt.dy);}
+            else {path.lineTo(pt.dx,pt.dy);}
+          }
+          canvas.drawPath(path,Paint()..style=PaintingStyle.stroke
+            ..strokeWidth=.95..color=second);
         }
         break;
       case 8: // Particle currents
