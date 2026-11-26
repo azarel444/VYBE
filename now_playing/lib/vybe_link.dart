@@ -1327,7 +1327,7 @@ class VybeLink extends ChangeNotifier {
           'link_address', 'link_paired_receiver', 'link_direct_receiver_id',
           'link_direct_peer', 'link_direct_peer_name', 'link_wired_address',
         ]) {
-          await prefs.remove(key);
+          await prefs.setString(key, '');
         }
       } catch (error) {
         directPairingDiagnostic = 'Could not clear saved receiver: $error';
