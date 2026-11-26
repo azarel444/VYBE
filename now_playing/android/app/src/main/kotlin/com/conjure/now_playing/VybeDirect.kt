@@ -1042,6 +1042,82 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         return true
     }
 
+
+    /**
+     * Explicit user recovery. Clear all native in-flight pairing/discovery
+     * gates and remove an existing P2P group, on sender OR receiver. This is
+     * deliberately separate from resetStaleGroup(), which protects healthy
+     * links during automatic recovery.
+     */
+    fun resetSession(): Boolean {
+        val service = manager ?: return false
+        if (!permitted()) return false
+        val ch = p2pChannel ?: createP2pChannel()?.also {
+            p2pChannel = it
+        } ?: return false
+        resettingStaleGroup = true
+        val epoch = ++resetGroupGeneration
+        connectingAddress = null
+        connectPreflightPassed = false
+        connectAttemptGeneration++
+        hostPending = false
+        hostReadyChecks = 0
+        pendingHostReceiverId = ""
+        discoveryPending = false
+        discoveryGeneration++
+        lastDiscoveryStartedMs = 0L
+        verifiedReceivers.clear()
+        verifiedReceiverSeen.clear()
+        publishVerifiedReceivers()
+        // Do not allow old service registration or discovery callbacks to
+        // resurrect the previous pairing after a user-initiated reset.
+        forgetReceiverAdvertisement()
+        serviceRequest?.let { req ->
+            try { service.removeServiceRequest(ch, req, null) }
+            catch (_: Exception) {}
+        }
+        serviceRequest = null
+        listenersInstalled = false
+        fun complete(ok: Boolean, message: String) {
+            if (epoch != resetGroupGeneration || !resettingStaleGroup) return
+            resettingStaleGroup = false
+            val type = if (ok) "reset_complete" else "reset_failed"
+            event(mapOf("type" to type, "message" to message))
+        }
+        mainHandler.postDelayed({
+            complete(false, "Android did not finish Wi-Fi Direct reset. Retry or toggle Wi-Fi.")
+        }, 12000L)
+        try {
+            // Android permits cancelConnect() without a pending invitation;
+            // BUSY/ERROR callbacks are not authoritative about group state.
+            try { service.cancelConnect(ch, null) } catch (_: Exception) {}
+            try { service.stopPeerDiscovery(ch, null) } catch (_: Exception) {}
+            service.requestGroupInfo(ch) { group ->
+                if (epoch != resetGroupGeneration || !resettingStaleGroup)
+                    return@requestGroupInfo
+                if (group == null) {
+                    complete(true, "Old Wi-Fi Direct session cleared; ready for new pairing")
+                } else {
+                    try {
+                        service.removeGroup(ch, object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                complete(true, "Old Wi-Fi Direct group removed; ready for new pairing")
+                            }
+                            override fun onFailure(reason: Int) {
+                                complete(false, "Android could not remove the old Wi-Fi Direct group (code $reason)")
+                            }
+                        })
+                    } catch (error: Exception) {
+                        complete(false, "Cannot release Wi-Fi Direct group: ${error.message}")
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            complete(false, "Wi-Fi Direct reset failed: ${error.message}")
+        }
+        return true
+    }
+
     /**
      * Called when the user turns automatic pairing off. Abort any pending
      * automatic request and peer discovery, but preserve verified VYBE

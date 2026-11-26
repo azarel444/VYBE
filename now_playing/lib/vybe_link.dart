@@ -170,6 +170,8 @@ class VybeLink extends ChangeNotifier {
   bool _tcpConnectedViaDirect = false;
   bool _senderReceiverIdentityVerified = false;
   bool _staleDirectGroupResetBusy = false;
+  bool _directResetInProgress = false;
+  bool get directResetInProgress => _directResetInProgress;
   int _directTcpFailureCount = 0;
   bool _directRecoveryBusy = false;
   int _lastDirectRecoveryMs = 0;
@@ -217,7 +219,8 @@ class VybeLink extends ChangeNotifier {
   /// Wi-Fi Direct MAC. Only called when TCP is disconnected; never tears down
   /// a working socket, hotspot or manually established LAN connection.
   Future<void> _recoverDirect({bool immediately = false}) async {
-    if (!enabled || !autoConnect || !_directPreferred || !directAvailable ||
+    if (_directResetInProgress ||
+        !enabled || !autoConnect || !_directPreferred || !directAvailable ||
         // A strict-band trial is manual to avoid repeated failures while
         // Android 9's group owner hosts on an incompatible band.
         (role == 'sender' && (directBandMode != 'auto' ||
@@ -286,7 +289,7 @@ class VybeLink extends ChangeNotifier {
         _pendingDirectReceiverId.isNotEmpty &&
         DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs &&
         _manualDirectRecoveryAttempts < 2;
-    if (!enabled || !_directPreferred ||
+    if (_directResetInProgress || !enabled || !_directPreferred ||
         role != 'sender' || _socket != null || _directGroupConnected ||
         _directPairingInProgress ||
         (!manuallyRetrying && !_mayAutoPairDirect)) return;
@@ -320,7 +323,41 @@ class VybeLink extends ChangeNotifier {
       _direct.setMethodCallHandler((call) async {
         if (call.method != 'event') return;
         final data = Map<String, dynamic>.from(call.arguments as Map);
-        switch (data['type']) {
+        final eventType = data['type']?.toString() ?? '';
+        // A delayed broadcast from the OLD Android group must not restore
+        // stale pairing state while the user is explicitly clearing it.
+        if (_directResetInProgress && eventType != 'reset_complete' &&
+            eventType != 'reset_failed') return;
+        switch (eventType) {
+          case 'reset_complete':
+            _directResetInProgress = false;
+            _directGroupConnected = false;
+            _directGroupOwnerIp = '';
+            _directPairingInProgress = false;
+            _directPairingStartedMs = 0;
+            _lastDirectPeerAttemptMs = 0;
+            directPeers = [];
+            directStatus = data['message']?.toString() ??
+                'Previous Wi-Fi Direct session cleared';
+            status = role == 'receiver'
+                ? 'Wi-Fi Direct reset; reopening head-unit receiver'
+                : 'Wi-Fi Direct reset; ready to discover another head unit';
+            // Do not infer a successful pairing here. Only the next TCP
+            // hello is allowed to save the receiver as trusted.
+            if (enabled) {
+              Future<void>.delayed(const Duration(milliseconds: 650), () {
+                if (enabled && !_directResetInProgress) {
+                  unawaited(directStart(receiver: role == 'receiver'));
+                }
+              });
+            }
+            break;
+          case 'reset_failed':
+            _directResetInProgress = false;
+            directStatus = data['message']?.toString() ??
+                'Android could not reset Wi-Fi Direct';
+            status = 'Wi-Fi Direct reset failed; tap Reset to retry';
+            break;
           case 'peers':
             directPeers = (data['items'] as List).map((e) => Map<String, String>.from(e as Map)).toList();
             directStatus = directPeers.isEmpty
@@ -452,6 +489,17 @@ class VybeLink extends ChangeNotifier {
                 _pendingDirectReceiverId.isNotEmpty &&
                 DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs &&
                 _manualDirectRecoveryAttempts < 2;
+            if (!manualRecovery && _pendingDirectReceiverId.isNotEmpty) {
+              // A failed invitation is not a saved connection. Discard its
+              // transient identity so a new manual selection is never
+              // compared against the previous failed head unit.
+              _pendingDirectReceiverId = '';
+              _pendingDirectPeerAddress = '';
+              _pendingDirectPeerName = '';
+              _pendingDirectRemember = false;
+              _manualPairDeadlineMs = 0;
+              _manualDirectRecoveryAttempts = 0;
+            }
             if (_directPreferred && enabled &&
                 (manualRecovery || _mayAutoPairDirect)) {
               Future<void>.delayed(const Duration(milliseconds: 1800), () {
@@ -627,6 +675,12 @@ class VybeLink extends ChangeNotifier {
         notifyListeners(); return;
       }
       directActive = true;
+      if (!receiver && _directPairingInProgress &&
+          _directPairingStartedMs > 0 &&
+          DateTime.now().millisecondsSinceEpoch - _directPairingStartedMs > 27000) {
+        await resetDirectSession();
+        return;
+      }
       _directPreferred = true;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('link_direct_preferred', true);
@@ -634,7 +688,7 @@ class VybeLink extends ChangeNotifier {
         if (role != 'receiver' || !enabled) await configure(isEnabled: true, deviceRole: 'receiver');
         // The head unit must accept the metadata TCP connection even when
         // automatic pairing is switched OFF or the app was restarted.
-        if (_server == null && !_connecting) await connect(manual: true);
+        if (_server == null) await connect(manual: true);
         directStatus = 'Requesting head-unit Wi-Fi Direct group...';
         notifyListeners();
         final accepted = await _direct.invokeMethod<bool>(
@@ -657,7 +711,7 @@ class VybeLink extends ChangeNotifier {
 
   Future<void> directConnectPeer(String address,
       {bool remember = true, bool manuallySelected = false}) async {
-    if (address.isEmpty) return;
+    if (address.isEmpty || _directResetInProgress) return;
     try {
       final candidates = directPeers.where((item) =>
           item['address'] == address && (item['id'] ?? '').length == 32).toList();
@@ -1178,10 +1232,17 @@ class VybeLink extends ChangeNotifier {
   /// One recovery action covers BOTH the underlying Wi-Fi Direct network and
   /// TCP transport. It never requires a numeric IP address.
   Future<void> reconnectAutomatically() async {
+    if (_directResetInProgress) return;
     // This is a one-shot USER action, not authorization to turn on
     // persistent automatic reconnection.
     if (!enabled) await configure(isEnabled: true);
     if (role == 'receiver') {
+      // A manual retry must also be able to clear a group that Android
+      // reports as formed but that will no longer accept any phone.
+      if (_directPreferred && _directGroupConnected && _socket == null) {
+        await resetDirectSession();
+        return;
+      }
       if (_directPreferred && !_directGroupConnected) {
         await directStart(receiver: true);
       }
@@ -1189,6 +1250,13 @@ class VybeLink extends ChangeNotifier {
       return;
     }
     if (_socket != null) return;
+    if (_directPreferred && (_directGroupConnected ||
+        _directPairingInProgress)) {
+      // Old "Reconnect" kept redialing a dead group-owner IP forever.
+      // Repair the network layer FIRST, then rediscover the receiver.
+      await resetDirectSession();
+      return;
+    }
     _manualPairDeadlineMs =
         DateTime.now().millisecondsSinceEpoch + 40000;
     if (_directPreferred && !_directGroupConnected) {
@@ -1200,6 +1268,90 @@ class VybeLink extends ChangeNotifier {
     await connect(manual: true);
   }
 
+
+
+  /// Recover from a wedged Android pairing without reinstalling VYBE.
+  /// Optional Forget clears ONLY the previously trusted receiver identity
+  /// and network addresses; the device's own identity is preserved.
+  Future<void> resetDirectSession({bool forgetSaved = false}) async {
+    if (_directResetInProgress) return;
+    _directResetInProgress = true;
+    _generation++;
+    _retry?.cancel(); _retry = null;
+    _helloTimer?.cancel(); _helloTimer = null;
+    _sendTimer?.cancel(); _sendTimer = null;
+    _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
+    _connectPending = false;
+    _directPairingInProgress = false;
+    _directPairingStartedMs = 0;
+    _manualPairDeadlineMs = 0;
+    _manualDirectRecoveryAttempts = 0;
+    _pendingDirectReceiverId = '';
+    _pendingDirectPeerAddress = '';
+    _pendingDirectPeerName = '';
+    _pendingDirectRemember = false;
+    _directRecoveryBusy = false;
+    _directTcpFailureCount = 0;
+    _lastDirectRecoveryMs = 0;
+    _lastDirectPeerAttemptMs = 0;
+    _directGroupConnected = false;
+    _directGroupOwnerIp = '';
+    _senderReceiverIdentityVerified = false;
+    _staleDirectGroupResetBusy = false;
+    _tcpConnectedViaDirect = false;
+    _tcpConnectedViaWired = false;
+    _socketSub?.cancel(); _socketSub = null;
+    _socket?.destroy(); _socket = null;
+    _model?.setLinkReceiverActive(false);
+    activeTransport = role == 'receiver'
+        ? 'Listening on available networks' : 'Disconnected';
+    directPeers = [];
+    if (forgetSaved && role == 'sender') {
+      // Do not let auto-reconnect immediately select a device that the
+      // user explicitly chose to forget.
+      autoConnect = false;
+      _autoPreferenceExplicit = true;
+      _directPreferred = false;
+      receiverAddress = '';
+      pairedReceiverId = '';
+      _savedDirectReceiverId = '';
+      _savedDirectPeerAddress = '';
+      _savedDirectPeerName = '';
+      _savedWiredReceiverIp = '';
+      receivers = [];
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('link_auto', false);
+        await prefs.setBool('link_direct_preferred', false);
+        for (final key in <String>[
+          'link_address', 'link_paired_receiver', 'link_direct_receiver_id',
+          'link_direct_peer', 'link_direct_peer_name', 'link_wired_address',
+        ]) {
+          await prefs.remove(key);
+        }
+      } catch (error) {
+        directPairingDiagnostic = 'Could not clear saved receiver: $error';
+      }
+    }
+    status = forgetSaved
+        ? 'Old head-unit identity forgotten; clearing Android Wi-Fi Direct'
+        : 'Clearing stalled Wi-Fi Direct session';
+    directStatus = status;
+    notifyListeners();
+    try {
+      final accepted = await _direct.invokeMethod<bool>('resetSession') ?? false;
+      if (!accepted && _directResetInProgress) {
+        _directResetInProgress = false;
+        directStatus = 'Android could not start a Wi-Fi Direct reset; check permissions';
+        status = 'Reset unavailable; check Wi-Fi and Nearby devices permission';
+      }
+    } catch (error) {
+      _directResetInProgress = false;
+      directStatus = 'Wi-Fi Direct reset request failed: $error';
+      status = 'Reset failed; check permissions and retry';
+    }
+    notifyListeners();
+  }
 
   /// Choose the installed device once, instead of asking the user to pick
   /// sender/receiver again in Connect settings.

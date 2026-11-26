@@ -204,9 +204,58 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                   '${link.directPairingDiagnostic}',
                   style: const TextStyle(color: Colors.white70)),
             OutlinedButton.icon(
-              onPressed: () => link.reconnectAutomatically(),
+              onPressed: link.directResetInProgress
+                  ? null : () => link.reconnectAutomatically(),
               icon: const Icon(Icons.refresh),
               label: const Text('Reconnect'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: link.directResetInProgress
+                  ? null : () => link.resetDirectSession(),
+              icon: const Icon(Icons.restart_alt),
+              label: Text(link.directResetInProgress
+                  ? 'Clearing Android Wi-Fi Direct...'
+                  : (headUnit
+                      ? 'Reset head-unit Wi-Fi Direct'
+                      : 'Reset stuck Wi-Fi Direct connection')),
+            ),
+            if (!headUnit) ...[
+              const SizedBox(height: 7),
+              OutlinedButton.icon(
+                onPressed: link.directResetInProgress ? null : () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      title: const Text('Forget saved head unit?'),
+                      content: const Text(
+                        'Remove VYBE\'s saved receiver identity and IP, '
+                        'cancel any stalled pairing, and release the old '
+                        'Wi-Fi Direct group. This does NOT delete artwork, '
+                        'music, or VYBE settings. Re-pair from the device list.'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel')),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Forget and reset')),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await link.resetDirectSession(forgetSaved: true);
+                  }
+                },
+                icon: const Icon(Icons.link_off),
+                label: const Text('Forget saved head unit & reset link'),
+              ),
+            ],
+            const Text(
+              'Use Reset if pairing gets stuck or Android retains a dead '
+              'group. Forget clears the saved device so you can select '
+              'a different head unit without reinstalling VYBE.',
+              style: TextStyle(color: Colors.white60, fontSize: 12),
             ),
             const Divider(),
             ExpansionTile(

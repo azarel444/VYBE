@@ -696,6 +696,7 @@ open class MainActivity : FlutterActivity() {
                     call.argument<String>("bandMode") ?: "auto"))
                 "cancelAuto" -> result.success(direct.cancelAutomaticPairing())
                 "resetGroup" -> result.success(direct.resetStaleGroup())
+                "resetSession" -> result.success(direct.resetSession())
                 "stop" -> { direct.stop(); result.success(true) }
                 else -> result.notImplemented()
             }
