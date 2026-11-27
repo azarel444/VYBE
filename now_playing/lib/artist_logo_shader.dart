@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 /// This intentionally never mutates the font, glyph editor, or artwork cache.
 class ArtistLogoShaderLayer extends StatefulWidget {
   final Widget child;
+  final Widget fallback;
+  final bool compatibilityMode;
   final Listenable repaint;
   final double Function() clock;
   final double Function() bass;
@@ -21,6 +23,8 @@ class ArtistLogoShaderLayer extends StatefulWidget {
   const ArtistLogoShaderLayer({
     super.key,
     required this.child,
+    required this.fallback,
+    this.compatibilityMode = false,
     required this.repaint,
     required this.clock,
     required this.bass,
@@ -42,6 +46,7 @@ class _ArtistLogoShaderLayerState extends State<ArtistLogoShaderLayer> {
   ui.FragmentShader? _front;
   ui.FragmentShader? _back;
   bool _toggle = false;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -56,7 +61,7 @@ class _ArtistLogoShaderLayerState extends State<ArtistLogoShaderLayer> {
       });
     }).catchError((Object error) {
       debugPrint('VYBE Artist Logo shader unavailable: $error');
-      // On unsupported GPUs VYBE retains its original legible Riot font.
+      if (mounted) setState(() => _failed = true);
     });
   }
 
@@ -69,8 +74,9 @@ class _ArtistLogoShaderLayerState extends State<ArtistLogoShaderLayer> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.treatment <= 0 ||
-        _front == null || _back == null) return widget.child;
+    if (widget.treatment <= 0) return widget.child;
+    if (widget.compatibilityMode || _failed || !ui.ImageFilter.isShaderFilterSupported ||
+        _front == null || _back == null) return widget.fallback;
 
     // Paint text only once. Flutter's ImageFilter.shader has a filter-cache
     // issue with in-place shader uniform updates on some engine versions.
@@ -80,6 +86,8 @@ class _ArtistLogoShaderLayerState extends State<ArtistLogoShaderLayer> {
       animation: widget.repaint,
       child: RepaintBoundary(child: widget.child),
       builder: (context, child) {
+        if (_failed) return widget.fallback;
+        try {
         _toggle = !_toggle;
         final shader = _toggle ? _front! : _back!;
         shader.setFloat(2, widget.clock());
@@ -101,7 +109,74 @@ class _ArtistLogoShaderLayerState extends State<ArtistLogoShaderLayer> {
           imageFilter: ui.ImageFilter.shader(shader),
           child: child!,
         );
+        } catch (error) {
+          _failed = true;
+          debugPrint('VYBE Artist Logo runtime shader failed: $error');
+          return widget.fallback;
+        }
       },
     );
   }
+}
+
+/// Ordinary Flutter glyph paint, no runtime image-filter shader. Each finish
+/// uses the same measured Riot glyphs and album palette as the full material.
+TextStyle artistLogoFallbackStyle(TextStyle base, {
+  required int treatment, required double position, required double depth,
+  required double edge, required Color accent, required Color secondary,
+  required Color tertiary, required double colorStrength,
+}) {
+  final mix = colorStrength.clamp(0.0, 1.0).toDouble();
+  final t = position.clamp(0.0, 1.0).toDouble();
+  final palette = t < .5 ? Color.lerp(accent, secondary, t*2)!
+      : Color.lerp(secondary, tertiary, (t-.5)*2)!;
+  final tint = Color.lerp(const Color(0xFFBFC6D3), palette, mix)!;
+  final lit = Color.lerp(tint, Colors.white, .38)!;
+  final dark = Color.lerp(tint, Colors.black, .75)!;
+  final radius = 2.0 + edge*4.0;
+  final extent = 2.0 + depth*6.0;
+  final shadows = <Shadow>[
+    const Shadow(color: Color(0xE0000000), offset: Offset(1, 2), blurRadius: 3),
+  ];
+  Color face = lit;
+  switch (treatment) {
+    case 1: // chrome: cold face with contrasting dark relief
+      face = Color.lerp(lit, Colors.white, .55)!;
+      shadows.add(Shadow(color: dark, offset: const Offset(1.5, 2.5)));
+      shadows.add(Shadow(color: tint.withOpacity(.7), blurRadius: radius));
+      break;
+    case 2: // neon: dark glass, bright colored outline and soft bloom
+      face = Color.lerp(tint, Colors.white, .20)!;
+      for (final offset in const [Offset(-1,0), Offset(1,0), Offset(0,-1), Offset(0,1)]) {
+        shadows.add(Shadow(color: lit, offset: offset));
+      }
+      shadows.add(Shadow(color: tint.withOpacity(.9), blurRadius: radius));
+      break;
+    case 3: // 3D: contiguous solid shadow extrusion
+      face = lit;
+      for (var i=extent.ceil(); i>=1; i--) {
+        shadows.add(Shadow(color: dark, offset: Offset(i*.78, i.toDouble())));
+      }
+      shadows.add(Shadow(color: Colors.white.withOpacity(.7), offset: const Offset(-1,-1)));
+      break;
+    case 4: // emboss: compact raised rim, distinct from long extrusion
+      face = Color.lerp(tint, Colors.white, .24)!;
+      shadows.add(Shadow(color: dark, offset: const Offset(2,2)));
+      shadows.add(Shadow(color: lit, offset: const Offset(-1,-1)));
+      break;
+    case 5: // electric: sharp charged edge with restrained dark body
+      face = Color.lerp(tint, Colors.black, .44)!;
+      for (final offset in const [Offset(-1.4,0), Offset(1.4,0), Offset(0,-1.4), Offset(0,1.4)]) {
+        shadows.add(Shadow(color: lit, offset: offset));
+      }
+      shadows.add(Shadow(color: tint.withOpacity(.95), blurRadius: radius+2));
+      break;
+    case 6: // holographic: smooth alternating pearl-like album colors
+      face = Color.lerp(lit, Colors.white, .16)!;
+      shadows.add(Shadow(color: Color.lerp(secondary, Colors.white, .4)!.withOpacity(.75),
+          offset: const Offset(-1, 0), blurRadius: 2));
+      shadows.add(Shadow(color: tint.withOpacity(.65), offset: const Offset(1, 2), blurRadius: radius));
+      break;
+  }
+  return base.copyWith(color: face, shadows: shadows);
 }

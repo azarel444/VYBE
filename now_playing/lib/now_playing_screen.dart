@@ -769,9 +769,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         // Quick Customize floats above the bottom edge, unlike the playback
         // controls. Corners match the subtle album-cover rounding.
         padding: EdgeInsets.fromLTRB(
-          12, 0, 12, math.max(12.0, MediaQuery.viewPaddingOf(sheetContext).bottom)),
+          _headUnitControls ? 24 : 12, 0, _headUnitControls ? 24 : 12,
+          math.max(_headUnitControls ? 24.0 : 12.0, MediaQuery.viewPaddingOf(sheetContext).bottom)),
         child: QuickCustomizeSheet(
           settings: settings,
+          headUnit: _headUnitControls,
           accent: _palette.a,
           onOpenFx: () {
             Navigator.of(sheetContext).pop();
@@ -5860,6 +5862,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _riotWordGap(String previous, String next, double fontSize) =>
       fontSize * (previous == 'Y' && next == 'S' ? .11 : .22);
 
+  bool get _headUnitControls => VybeLink.instance.deviceType == 'head_unit';
+
   Widget _artistText(double size, {Color? color, String? letteringOverride,
       bool logoTreatment = true}) {
     final lettering = (letteringOverride ?? _artistStr).toUpperCase();
@@ -5935,7 +5939,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
     final leftInset = -minX;
     final totalWidth = math.max(x, maxX) - minX;
-    final wordmark = Transform(
+    Widget buildWordmark({bool fallback = false}) => Transform(
       alignment: Alignment.center,
       transform: Matrix4.skewX(-.16),
       child: SizedBox(
@@ -5948,13 +5952,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               top: (maxHeight - glyphHeights[i]) / 2 +
                   glyphVertical[i] - minY,
               child: Text(glyphCharacters[i], maxLines: 1,
-                  softWrap: false, style: glyphStyles[i]),
+                  softWrap: false, style: fallback
+                      ? artistLogoFallbackStyle(glyphStyles[i],
+                          treatment: settings.artistLogoFx,
+                          position: glyphCharacters.length <= 1 ? .5 : i / (glyphCharacters.length - 1),
+                          depth: settings.artistLogoDepth, edge: settings.artistLogoEdge,
+                          accent: _artistNeonPalette.a, secondary: _artistNeonPalette.b,
+                          tertiary: _artistNeonPalette.c, colorStrength: settings.artistLogoColor)
+                      : glyphStyles[i]),
             ),
         ]),
       ),
     );
     if (!gpuLogo) {
-      return wordmark;
+      return buildWordmark();
     }
     // The GPU reads this entire composited wordmark as one alpha mask,
     // not separately illuminated characters. Padding preserves room for
@@ -5971,9 +5982,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       secondary: _artistNeonPalette.b,
       tertiary: _artistNeonPalette.c,
       colorStrength: settings.artistLogoColor,
+      compatibilityMode: _headUnitControls && (VybeLink.instance.directAndroidSdk == 0 || VybeLink.instance.directAndroidSdk <= 28),
+      fallback: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: buildWordmark(fallback: true),
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        child: wordmark,
+        child: buildWordmark(),
       ),
     );
   }
@@ -6743,10 +6759,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _musicVideoUtilityPopup() {
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 680;
-    final margin = compact ? 8.0 : size.width * .27;
+    final head = _headUnitControls;
+    final margin = head ? 24.0 : (compact ? 8.0 : size.width * .27);
 
     Widget action(IconData icon, String label, VoidCallback callback) {
-      return Expanded(child: Tooltip(
+      final button = Tooltip(
         message: label,
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
@@ -6756,21 +6773,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             callback();
           },
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 3),
+            padding: EdgeInsets.symmetric(vertical: head ? 13 : 8, horizontal: head ? 12 : 3),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon, color: Colors.white, size: compact ? 20 : 25),
+              Icon(icon, color: Colors.white, size: head ? 31 : (compact ? 20 : 25)),
               const SizedBox(height: 4),
               Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: Colors.white,
-                    fontSize: compact ? 10.0 : 12.0)),
+                    fontSize: head ? 14.0 : (compact ? 10.0 : 12.0))),
             ]),
           ),
         ),
-      ));
+      );
+      return head ? ConstrainedBox(constraints: const BoxConstraints(minWidth: 64, minHeight: 64), child: button) : Expanded(child: button);
     }
 
+    final actions = [action(Icons.grid_view_rounded, 'Themes', _pickTheme),
+      action(Icons.tune_rounded, 'Customize', _openQuickCustomize),
+      action(Icons.settings_outlined, 'Settings', _openSettings),
+      action(Icons.navigation_rounded, 'Drive', _startDrive)];
     return Positioned(
-      top: 0, left: margin, right: margin,
+      top: head ? 24 : 0, left: margin, right: margin,
       child: IgnorePointer(
         ignoring: !_showControls,
         child: AnimatedSlide(
@@ -6793,13 +6815,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               SafeArea(
                 top: true, bottom: false,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 7),
-                  child: Row(children: [
-                    action(Icons.grid_view_rounded, 'Themes', _pickTheme),
-                    action(Icons.tune_rounded, 'Customize', _openQuickCustomize),
-                    action(Icons.settings_outlined, 'Settings', _openSettings),
-                    action(Icons.navigation_rounded, 'Drive', _startDrive),
-                  ]),
+                  padding: EdgeInsets.symmetric(horizontal: head ? 14 : 7, vertical: head ? 8 : 0),
+                  child: head ? Wrap(alignment: WrapAlignment.center, spacing: 14, runSpacing: 10, children: actions) : Row(children: actions),
                 ),
               ),
             ]),
@@ -6815,8 +6832,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   Widget _controls() {
     final screen = MediaQuery.sizeOf(context);
     final compact = screen.width < 610;
-    final iconSize = compact ? 23.0 : 29.0;
-    final playSize = compact ? 34.0 : 45.0;
+    final head = _headUnitControls;
+    final iconSize = head ? 34.0 : (compact ? 23.0 : 29.0);
+    final playSize = head ? 44.0 : (compact ? 34.0 : 45.0);
 
     Widget btn(IconData icon, String tooltip, VoidCallback onTap,
         {double? size}) => Tooltip(
@@ -6824,10 +6842,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       child: IconButton(
         iconSize: size ?? iconSize,
         constraints: BoxConstraints(
-          minWidth: compact ? 41 : 48,
-          minHeight: compact ? 41 : 48),
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+          minWidth: head ? 64 : (compact ? 41 : 48),
+          minHeight: head ? 64 : (compact ? 41 : 48)),
+        visualDensity: head ? VisualDensity.standard : VisualDensity.compact,
+        padding: EdgeInsets.symmetric(horizontal: head ? 5 : 3, vertical: head ? 5 : 3),
         color: Colors.white,
         icon: Icon(icon),
         onPressed: () {
@@ -6873,14 +6891,31 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       // panel full-width and anchored at the bottom.
                       // SafeArea also respects Android navigation insets.
                       padding: EdgeInsets.fromLTRB(
-                        compact ? 8 : 22, 7, compact ? 8 : 22,
-                        math.max(20.0, math.min(30.0, screen.height * .045))),
+                        head ? 26 : (compact ? 8 : 22), head ? 12 : 7,
+                        head ? 26 : (compact ? 8 : 22),
+                        head ? 26 : math.max(20.0, math.min(30.0, screen.height * .045))),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           _seekBar(width: double.infinity),
-                          const SizedBox(height: 2),
-                          Row(children: [
+                          SizedBox(height: head ? 8 : 2),
+                          if (head) ...[
+                            Wrap(alignment: WrapAlignment.center, spacing: 14, runSpacing: 8, children: [
+                              btn(Icons.grid_view_rounded, 'Themes', _pickTheme),
+                              btn(Icons.tune_rounded, 'Customize', _openQuickCustomize),
+                              btn(Icons.settings_outlined, 'Settings', _openSettings),
+                              if (screen.width > screen.height && const [1,3,5,6,7,8,9,10,11].contains(settings.theme))
+                                btn(Icons.swap_horiz_rounded, 'Flip layout', () => settings.update(() => settings.layoutSwap = !settings.layoutSwap)),
+                              if (widget.driveHost) ...[
+                                btn(Icons.map_outlined, 'Show map', _hideDrive),
+                                btn(Icons.close_rounded, 'Close Drive', _exitDrive),
+                              ] else btn(Icons.navigation_rounded, 'Drive', _startDrive),
+                              btn(Icons.skip_previous_rounded, 'Previous', model.previous, size: playSize),
+                              btn(model.playing ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                                  model.playing ? 'Pause' : 'Play', model.playPause, size: playSize + 8),
+                              btn(Icons.skip_next_rounded, 'Next', model.next, size: playSize),
+                            ]),
+                          ] else Row(children: [
                             btn(Icons.grid_view_rounded, 'Themes', _pickTheme),
                             btn(Icons.tune_rounded, 'Customize', _openQuickCustomize),
                             btn(Icons.settings_outlined, 'Settings', _openSettings),

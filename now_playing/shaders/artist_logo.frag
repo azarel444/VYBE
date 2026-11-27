@@ -7,7 +7,7 @@
 uniform vec2 u_size;
 uniform sampler2D u_texture;
 uniform float u_time;           // continuous independent lighting clock
-uniform float u_mode;           // 1 chrome, 2 neon, 3 distressed, 4 emboss, 5 electric, 6 holo
+uniform float u_mode;           // 1 chrome, 2 neon, 3 extruded 3D, 4 emboss, 5 electric, 6 holo
 uniform float u_depth;
 uniform float u_edge;
 uniform float u_beat;
@@ -127,22 +127,16 @@ void main() {
     extrusion = .09*d;
     extrudeColor = rimColor*.14;
   } else if (mode < 3.5) {
-    // DISTRESSED METAL: opaque worn colored steel, pale gouges and
-    // contrasting dark scratches. Not merely darkened chrome.
-    float grain = hash21(floor(p*.91));
-    float scratch = sin(p.y*1.5 + 2.7*sin(p.x*.16));
-    float cut = smoothstep(.75,.97,grain*.58 + .42*abs(scratch));
-    float fleck = step(.984,hash21(floor(p*1.5+18.0)));
-    vec3 base = mix(vec3(.26,.31,.38),gradient,.60*chroma);
-    face = base * (.88 + .23*highlight + .20*d);
-    face -= vec3(.31)*cut;
-    face += mix(vec3(.86),rimColor,.35)*(.45*fleck+.34*bevel*highlight);
-    face += vec3(.15)*smoothstep(.91,1.0,grain);
-    glowTint = gradient;
-    ring = .23*edge*outline;
-    haze = .06*edge*halo1;
-    extrusion = .50*d;
-    extrudeColor = gradient*.20 + vec3(.055);
+    // Solid extruded 3D lettering: sculpted face, sharply separated side walls.
+    vec3 base = artColor(sat(x*.30+y*.70),a,b,c);
+    face = mix(base*.48,base*.88+vec3(.12),1.0-y);
+    face += vec3(.52)*bevel*highlight;
+    face -= vec3(.38)*bevel*shadowSide;
+    glowTint = mix(rimColor,vec3(.08),.45);
+    ring = (.32+.30*edge)*outline;
+    haze = .025*halo1;
+    extrusion = 1.0;
+    extrudeColor = mix(vec3(.035,.045,.08),base*.32,.62);
   } else if (mode < 4.5) {
     // DEEP EMBOSS: bold SOLID album-colored face, hard highlight
     // from upper left, dark opposing bevel and thick visible backing.
@@ -156,22 +150,28 @@ void main() {
     extrusion = .96*d;
     extrudeColor = mix(vec3(.026,.035,.075),gradient*.25,.50);
   } else if (mode < 5.5) {
-    // LIVE ELECTRIC: highly saturated interior plasma plus fast
-    // crisscrossing charged filaments. Strong album-colored bloom.
-    float current = pow(sat(.5+.5*sin(x*65.0+y*38.0-phase*3.6)),17.0);
-    float current2 = pow(sat(.5+.5*sin(x*22.0-y*59.0+phase*2.5)),21.0);
-    float charged = sat(current*.85 + current2*.55 + beat*.28);
-    face = mix(gradient*.70, movingColor*.98, .45);
-    face += mix(a,c,.5)*(.45+.45*edge)*charged;
-    face += vec3(.72)*charged*.48;
-    face += rimColor*.40*bevel*edge;
-    face *= 1.0 + .28*beat;
-    glowTint = movingColor;
-    ring = (.45+.42*edge+.14*beat)*outline;
-    haze = (.24+.44*edge+.20*beat)*halo1;
-    farHaze = (.06+.25*edge+.12*beat)*halo2;
-    extrusion = .13*d;
-    extrudeColor = gradient*.20;
+    // ELECTRIC ENERGY: a dark solid face with fast branching lightning
+    // restricted to the actual glyph contour. No interior holographic stripes.
+    float cell = floor(phase*10.0);
+    vec2 jitter = vec2(hash21(vec2(cell, floor(p.y*.30))),
+                       hash21(vec2(cell+19.0, floor(p.x*.24))))-.5;
+    vec2 q = p + jitter*5.5;
+    float path = q.x*.19 + q.y*.26 + .65*sin(q.y*.49+cell*1.7)
+               + .33*sin(q.x*.71-cell*2.1) - phase*7.0;
+    float spark = pow(sat(.5+.5*sin(path)),15.0);
+    float branch = pow(sat(.5+.5*sin(q.x*.31-q.y*.39+sin(q.y*.81)*1.5+phase*8.0)),23.0);
+    float burst = sat(spark+branch*.70);
+    float live = sat(.32+burst*.75+beat*.22);
+    float innerRim = sat(bevel*1.75);
+    face = mix(gradient*.20,gradient*.42,.42+highlight*.26);
+    face += rimColor*innerRim*(.65+live*.65);
+    face += vec3(1.0)*innerRim*burst*(.75+.35*edge);
+    glowTint = mix(movingColor,vec3(.90,.98,1.0),burst*.68);
+    ring = outline*(.32+.65*live);
+    haze = halo1*(.12+.43*burst+.18*beat);
+    farHaze = halo2*(.04+.25*burst);
+    extrusion = .08*d;
+    extrudeColor = gradient*.14;
   } else {
     // HOLOGRAPHIC: vivid tricolor iridescent face, moving rainbow
     // interference within the ACTUAL album palette, not silver chrome.
@@ -194,6 +194,14 @@ void main() {
   float back = max(max(maskAt(uv - px*vec2(2.5+7.0*d,3.0+6.5*d)),
                        maskAt(uv - px*vec2(1.1+4.0*d,1.5+3.5*d))),
                        maskAt(uv - px*vec2(.8+2.0*d,.9+2.2*d)));
+  if (mode > 2.5 && mode < 3.5) {
+    float lengthPx = 3.0+9.0*d;
+    back = 0.0;
+    for (int i=1; i<=12; i++) {
+      float stepPx = float(i)*lengthPx/12.0;
+      back = max(back,maskAt(uv-px*vec2(stepPx*.80,stepPx)));
+    }
+  }
   float solidBack = sat(back-alpha)*extrusion;
 
   // Output MUST be premultiplied. Never reuse the input RGBA's old white

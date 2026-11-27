@@ -117,9 +117,9 @@ class AppSettings extends ChangeNotifier {
   bool useArtistClearLogo = true; // Per-theme artist-name replacement.
   double artistLogoScale = 1.0; // Relative logo size, 0.5 .. 2.0.
   // GPU-treated Riot artist wordmark, distinct from downloaded clearlogos.
-  // 0 original, 1 chrome, 2 neon, 3 distressed, 4 emboss,
+  // 0 original, 1 chrome, 2 neon, 3 extruded 3D, 4 emboss,
   // 5 electric, 6 holographic. Each theme saves its own treatment.
-  int artistLogoFx = 1;
+  int artistLogoFx = 0;
   double artistLogoDepth = 0.65;
   double artistLogoEdge = 0.75;
   double artistLogoColor = 1.0; // 0 monochrome, 1 extracted album colors
@@ -127,7 +127,7 @@ class AppSettings extends ChangeNotifier {
   bool artistLogoBeat = true;
   static const artistLogoFxNames = <String>[
     'Original Riot', 'Sculpted Chrome', 'Neon Edge',
-    'Distressed Metal', 'Deep Emboss', 'Electric Energy',
+    '3D Text', 'Deep Emboss', 'Electric Energy',
     'Holographic',
   ];
   int fanartCycleSeconds = 10; // Random artist background interval, minimum 5 seconds.
@@ -396,7 +396,7 @@ class AppSettings extends ChangeNotifier {
     fanartCycleSeconds = integer('fanartCycleSeconds', 10, 5, 300);
     useArtistClearLogo = flag('useArtistClearLogo', true);
     artistLogoScale = number('artistLogoScale', 1.0, 0.5, 2.0);
-    artistLogoFx = integer('artistLogoFx', 1, 0, artistLogoFxNames.length - 1);
+    artistLogoFx = integer('artistLogoFx', 0, 0, artistLogoFxNames.length - 1);
     artistLogoDepth = number('artistLogoDepth', .65, 0.0, 1.0);
     artistLogoEdge = number('artistLogoEdge', .75, 0.0, 1.0);
     artistLogoColor = number('artistLogoColor', 1.0, 0.0, 1.0);
@@ -635,7 +635,7 @@ class AppSettings extends ChangeNotifier {
     fanartCycleSeconds = _int(p, 'fanartCycleSeconds', 10, 5, 300);
     useArtistClearLogo = p.getBool('useArtistClearLogo') ?? true;
     artistLogoScale = (p.getDouble('artistLogoScale') ?? 1.0).clamp(0.5, 2.0).toDouble();
-    artistLogoFx = (p.getInt('artistLogoFx') ?? 1)
+    artistLogoFx = (p.getInt('artistLogoFx') ?? 0)
         .clamp(0, artistLogoFxNames.length - 1).toInt();
     artistLogoDepth = (p.getDouble('artistLogoDepth') ?? .65)
         .clamp(0.0, 1.0).toDouble();

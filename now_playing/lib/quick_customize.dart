@@ -7,6 +7,7 @@ import 'settings.dart';
 class QuickCustomizeSheet extends StatefulWidget {
   final AppSettings settings;
   final Color accent;
+  final bool headUnit;
   final VoidCallback onOpenFx;
   final VoidCallback onOpenRiotEditor;
 
@@ -14,6 +15,7 @@ class QuickCustomizeSheet extends StatefulWidget {
     super.key,
     required this.settings,
     required this.accent,
+    this.headUnit = false,
     required this.onOpenFx,
     required this.onOpenRiotEditor,
   });
@@ -79,7 +81,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
   Widget _compactSlider(String label, double value, double min, double max,
       String valueLabel, ValueChanged<double> change) {
     return SizedBox(
-      height: 47,
+      height: widget.headUnit ? 58 : 47,
       child: Row(children: [
         SizedBox(width: 110, child: Text(label, maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -87,8 +89,8 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
         Expanded(child: SliderTheme(
           data: SliderTheme.of(context).copyWith(
             trackHeight: 3,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 13),
+            thumbShape: RoundSliderThumbShape(enabledThumbRadius: widget.headUnit ? 11 : 7),
+            overlayShape: RoundSliderOverlayShape(overlayRadius: widget.headUnit ? 22 : 13),
           ),
           child: Slider(
             value: value.clamp(min, max).toDouble(),
@@ -117,7 +119,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
         const SizedBox(width: 110, child: Text('Scene',
             style: TextStyle(color: Colors.white, fontSize: 13))),
         Expanded(child: Container(
-          height: 43,
+          height: widget.headUnit ? 58 : 43,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: const Color(0xB5242832),
@@ -158,13 +160,33 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
       label: Text(label, style: TextStyle(
           fontSize: 13, color: selected ? Colors.black : Colors.white)),
       selected: selected,
+      materialTapTargetSize: widget.headUnit ? MaterialTapTargetSize.padded : MaterialTapTargetSize.shrinkWrap,
+      padding: widget.headUnit ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8) : null,
       showCheckmark: false,
       selectedColor: _controlAccent,
       backgroundColor: const Color(0xFF242833),
       side: const BorderSide(color: Colors.white24),
-      visualDensity: VisualDensity.compact,
+      visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact,
       onSelected: (_) => _chooseBackground(index),
     );
+  }
+
+  Widget _optionRow(String label, List<String> labels, int value, ValueChanged<int> onChange) {
+    return Padding(padding: EdgeInsets.symmetric(vertical: widget.headUnit ? 6 : 2),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 5),
+        Wrap(spacing: widget.headUnit ? 12 : 6, runSpacing: widget.headUnit ? 8 : 3,
+          children: [for (var i=0; i<labels.length; i++)
+            ChoiceChip(label: Text(labels[i]), selected: value == i,
+              selectedColor: _controlAccent, showCheckmark: false,
+              labelStyle: TextStyle(color: value == i ? Colors.black : Colors.white),
+              padding: widget.headUnit ? const EdgeInsets.symmetric(horizontal: 12, vertical: 10) : null,
+              visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.padded,
+              onSelected: (_) => onChange(i)),
+          ]),
+      ]));
   }
 
   @override
@@ -260,9 +282,9 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                   Color(0xFF05E2F3)]))),
             ConstrainedBox(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * .72),
+                maxHeight: MediaQuery.sizeOf(context).height * (widget.headUnit ? .84 : .72)),
               child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
+            padding: EdgeInsets.fromLTRB(widget.headUnit ? 24 : 18, 12, widget.headUnit ? 24 : 18, 10),
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -275,7 +297,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         fontWeight: FontWeight.w700))),
                     IconButton(
                       tooltip: 'Close customization',
-                      visualDensity: VisualDensity.compact,
+                      visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact,
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.close_rounded),
                     ),
@@ -297,6 +319,28 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                   ]),
                   if (_backgroundChoice == 2)
                     _animatedSceneDropdown(),
+                  _optionRow('Animation colors', const ['Default', 'Use album colors'],
+                    s.animationUseAlbumColors ? 1 : 0,
+                    (i) => s.update(() => s.animationUseAlbumColors = i == 1)),
+                  const Divider(height: 14, color: Colors.white24),
+                  const Text('VISUALIZER', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFFF6BB5))),
+                  SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Show visualizer'),
+                    value: s.visualizer, onChanged: (v) => s.update(() => s.visualizer = v)),
+                  if (s.visualizer) ...[
+                    if (s.theme == AppSettings.tCinematic)
+                      _optionRow('Waveform type', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+                        s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i))
+                    else
+                      _optionRow('Waveform type', const ['Bars', 'Smooth Wave', 'Dot Wave'],
+                        s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
+                    if (s.theme == 0)
+                      _optionRow('Focused style (current orientation)', const ['Ring', 'Bars'],
+                        s.focusedStyleFor(MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width * 1.1),
+                        (i) => s.setFocusedStyleFor(MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width * 1.1, i)),
+                    _optionRow('Number of bars', AppSettings.barCounts.map((e) => '$e').toList(),
+                      AppSettings.barCounts.indexOf(s.barCount),
+                      (i) => s.update(() => s.barCount = AppSettings.barCounts[i])),
+                  ],
                   const SizedBox(height: 5),
                   LayoutBuilder(builder: (context, bounds) {
                     final twoColumns = bounds.maxWidth >= 570;
@@ -392,20 +436,20 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         selected: s.useArtistClearLogo,
                         onSelected: (v) =>
                             s.update(() => s.useArtistClearLogo = v),
-                        visualDensity: VisualDensity.compact),
+                        visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact),
                       FilterChip(
                         label: const Text('VYBE palette'),
                         selected: s.useVybePalette,
                         onSelected: (v) =>
                             s.update(() => s.useVybePalette = v),
-                        visualDensity: VisualDensity.compact),
+                        visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact),
                       OutlinedButton.icon(
                         onPressed: widget.onOpenFx,
                         icon: const Icon(Icons.auto_awesome, size: 17),
                         label: const Text('FX Gallery'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
-                          visualDensity: VisualDensity.compact,
+                          visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact,
                         ),
                       ),
                       OutlinedButton.icon(
@@ -414,7 +458,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         label: const Text('Riot Spacing Editor'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
-                          visualDensity: VisualDensity.compact,
+                          visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact,
                         ),
                       ),
                     ],

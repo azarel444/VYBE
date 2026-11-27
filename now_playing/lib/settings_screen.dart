@@ -560,14 +560,7 @@ class SettingsScreen extends StatelessWidget {
           'testing. You can re-enable Clearlogo from Quick Customize.'),
       _section('Backgrounds & visual effects'),
       const Text('Choose a theme in the Theme Library on the playback controls. Use Customize for the most common adjustments; these advanced visual settings remain available here.'),
-      // Scene selection and both speed sliders live in Quick Customize.
-      // Keep the advanced scene color override here.
-      _choices('Animation colors',
-        const ['Default', 'Use album colors'],
-        s.animationUseAlbumColors ? 1 : 0,
-        (i) => s.update(() => s.animationUseAlbumColors = i == 1)),
-      const Text('Default keeps each animated scene\'s original colors. '
-          'Use album colors applies the current album artwork palette.'),
+      // Animation colors and speed are adjusted from floating Customize.
       // Live source, tone and motion-speed controls are in Quick Customize.
       // Clearlogo visibility and size now live in Quick Customize.
       _section('Artist fanart slideshow'),
@@ -593,22 +586,7 @@ class SettingsScreen extends StatelessWidget {
       // The VYBE/album color switch is in Quick Customize.
       _switch('Show visualizer', 'Turn the bars and ring off completely',
         s.visualizer, (v) => s.update(() => s.visualizer = v)),
-      if (s.visualizer) ...[
-        _choices('Bigfan waveform', const ['Bars', 'Smooth Wave', 'Dot Wave'],
-          s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i)),
-        _choices('Visualizer shape (including circular layouts)', const ['Bars', 'Smooth Wave', 'Dot Wave'],
-          s.diagonalWaveStyle, (i) => s.update(() => s.diagonalWaveStyle = i)),
-        // All visualizers have a fixed 50% amplification; no gain slider.
-        _choices('Focused style (current orientation)', const ['Ring', 'Bars'],
-          s.focusedStyleFor(MediaQuery.of(context).size.height >
-              MediaQuery.of(context).size.width * 1.1),
-          (i) => s.setFocusedStyleFor(
-              MediaQuery.of(context).size.height >
-                  MediaQuery.of(context).size.width * 1.1, i)),
-        _choices('Number of bars', AppSettings.barCounts.map((e) => '$e').toList(),
-          AppSettings.barCounts.indexOf(s.barCount),
-          (i) => s.update(() => s.barCount = AppSettings.barCounts[i])),
-      ],
+      const Text('Waveform type and number of bars are in floating Customize.'),
       _section('Visual effects'),
       _action('FX Library',
         'Configure each effect: blend mode, intensity, size and opacity',
