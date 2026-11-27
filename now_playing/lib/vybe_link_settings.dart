@@ -61,8 +61,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
             Text('Network: ${link.activeTransport}'),
             SwitchListTile(
               title: const Text('Reconnect automatically'),
-              subtitle: const Text('Off: no background pairing or retries. '
-                  'Use Find VYBE head units to connect manually.'),
+              subtitle: Text(headUnit ? 'Off: select your phone manually.' : 'Off: start the phone network manually.'),
               value: link.autoConnect,
               onChanged: (value) => link.configure(automatic: value),
             ),
@@ -70,59 +69,39 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
             const SizedBox(height: 8),
             const Text('Wi-Fi connection',
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-            const Text('Only head units advertising the VYBE receiver '
-                'service appear during pairing. Nearby printers and generic '
-                'Android devices are hidden.'),
+            Text(headUnit ? 'Find and join the Wi-Fi Direct network created by your VYBE phone.' : 'Your phone creates the Wi-Fi Direct network. Start it here, then select this phone on the head unit.'),
             const SizedBox(height: 8),
             ElevatedButton.icon(
               onPressed: link.directResetInProgress ? null : () => link.directStart(receiver: headUnit),
               icon: const Icon(Icons.wifi),
               label: Text(headUnit
-                  ? 'Set up head-unit Wi-Fi Direct'
-                  : 'Find VYBE head units'),
+                  ? 'Find VYBE phones'
+                  : 'Start phone Wi-Fi Direct'),
             ),
             const SizedBox(height: 6),
             Text('Wi-Fi Direct: ${link.directStatus}',
                 style: const TextStyle(color: Colors.white70)),
-            if (headUnit && link.localDeviceId.length >= 6)
-              Text('Advertised as: VYBE Head Unit · '
+            if (!headUnit && link.localDeviceId.length >= 6)
+              Text('Advertised as: VYBE Phone · '
                   '${link.localDeviceId.substring(link.localDeviceId.length - 6).toUpperCase()}',
                   style: const TextStyle(color: Colors.white70)),
-            if (!headUnit) ...[
-              // Saved identity is persistent even if the head unit's Wi-Fi
-              // briefly vanishes or a new scan yields no advertisements.
-              if (link.hasSavedDirectReceiver &&
-                  !link.directPeers.any(
-                      (peer) => peer['id'] == link.savedDirectReceiverId))
-                ListTile(
-                  title: Text(link.savedDirectReceiverLabel),
-                  subtitle: const Text('Saved head unit · not responding yet. '
-                      'Tap to scan again without losing the pairing.'),
-                  trailing: const Icon(Icons.refresh),
-                  onTap: () => link.directStart(receiver: false),
-                ),
-              if (link.directPeers.isEmpty && !link.hasSavedDirectReceiver)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text('No VYBE head units discovered yet. Enable '
-                      'VYBE Connect and set up Wi-Fi Direct on the head '
-                      'unit first, then search here. You can also use '
-                      'shared Wi-Fi pairing below.',
-                      style: TextStyle(color: Colors.white70)),
-                ),
+            if (headUnit) ...[
+              if (link.directPeers.isEmpty)
+                const Text('No VYBE phones found. Start phone Wi-Fi Direct on your phone, then search here.'),
               for (final peer in link.directPeers)
                 ListTile(
-                  title: Text(peer['name'] ?? 'VYBE Head Unit'),
-                  subtitle: Text(peer['id'] == link.savedDirectReceiverId
-                      ? 'Saved VYBE head unit'
-                      : 'Verified VYBE receiver found'),
+                  title: Text(peer['name'] ?? 'VYBE Phone'),
+                  subtitle: Text(peer['id'] == link.savedDirectPhoneId
+                      ? 'Saved VYBE phone' : 'Tap to join this phone'),
                   trailing: link.directPairingInProgress
-                      ? const Icon(Icons.hourglass_top)
-                      : const Icon(Icons.link),
-                  onTap: link.directPairingInProgress
-                      ? null : () => link.directConnectPeer(
-                          peer['address'] ?? '', manuallySelected: true),
+                      ? const Icon(Icons.hourglass_top) : const Icon(Icons.link),
+                  onTap: link.directPairingInProgress ? null : () =>
+                    link.directConnectPeer(peer['address'] ?? '', manuallySelected: true),
                 ),
+            ],
+            if (!headUnit) ...[
+              if (link.hasSavedDirectReceiver)
+                Text('Paired head unit: ${link.savedDirectReceiverLabel}'),
               OutlinedButton.icon(
                 onPressed: link.searchingReceivers
                     ? null : () => link.findReceivers(),
@@ -142,51 +121,9 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                 ),
             ],
             const SizedBox(height: 10),
-            const Text('Wi-Fi Direct band test',
+            const Text('Wi-Fi Direct frequency',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-            Text(headUnit
-                ? 'This head unit runs Android 9. Android does not provide '
-                    'an app-controlled 2.4/5 GHz Wi-Fi Direct setting or '
-                    'an actual-frequency reading on Android 9. '
-                    'Check the measured band on the connected phone.'
-                : 'Automatic is recommended. Strict 2.4/5 GHz modes '
-                    'restrict which Wi-Fi Direct group your phone will JOIN. '
-                    'They cannot force the Android 9 head unit to change bands.',
-                style: const TextStyle(color: Colors.white70)),
-            if (!headUnit) ...[
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: link.directBandMode,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Wi-Fi Direct connection band'),
-                items: const [
-                  DropdownMenuItem(value: 'auto',
-                      child: Text('Automatic (recommended)')),
-                  DropdownMenuItem(value: '2ghz',
-                      child: Text('2.4 GHz only — test')),
-                  DropdownMenuItem(value: '5ghz',
-                      child: Text('5 GHz only — test')),
-                ],
-                onChanged: link.directBandSelectable
-                    ? (value) {
-                        if (value != null) {
-                          unawaited(link.setDirectBandMode(value));
-                        }
-                      }
-                    : null,
-              ),
-              if (!link.directBandSelectable)
-                const Text('This phone needs Android 10 or newer for band '
-                    'selection; Automatic remains available.',
-                    style: TextStyle(color: Colors.white70)),
-              if (link.directBandMode != 'auto')
-                const Text('Test mode applies when establishing a new '
-                    'Wi-Fi Direct connection. The ATOTO must already host '
-                    'on the chosen band. If pairing fails, choose Automatic '
-                    'and reconnect; continuous automatic retries are '
-                    'suppressed in test mode.',
-                    style: TextStyle(color: Colors.white70)),
-            ],
+            const Text('The phone owns the group. Automatic band selection is used in this test build.'),
             const SizedBox(height: 6),
             Text('Actual Wi-Fi Direct band: ${link.directActualBand}'
                 '${link.directFrequencyMHz > 0 ? " (${link.directFrequencyMHz} MHz)" : ""}'),
@@ -219,16 +156,16 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                   ? 'Clearing Android Wi-Fi Direct...'
                   : (headUnit
                       ? 'Reset head-unit Wi-Fi Direct'
-                      : 'Reset stuck Wi-Fi Direct connection')),
+                      : 'Reset phone Wi-Fi Direct')),
             ),
-            if (!headUnit) ...[
+            ...[
               const SizedBox(height: 7),
               OutlinedButton.icon(
                 onPressed: link.directResetInProgress ? null : () async {
                   final confirmed = await showDialog<bool>(
                     context: context,
                     builder: (dialogContext) => AlertDialog(
-                      title: const Text('Forget saved head unit?'),
+                      title: Text(headUnit ? 'Forget saved phone?' : 'Forget saved head unit?'),
                       content: const Text(
                         'Remove VYBE\'s saved receiver identity and IP, '
                         'cancel any stalled pairing, and release the old '
@@ -249,13 +186,13 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                   }
                 },
                 icon: const Icon(Icons.link_off),
-                label: const Text('Forget saved head unit & reset link'),
+                label: Text(headUnit ? 'Forget saved phone & reset link' : 'Forget saved head unit & reset link'),
               ),
             ],
             const Text(
               'Use Reset if pairing gets stuck or Android retains a dead '
               'group. Forget clears the saved device so you can select '
-              'a different head unit without reinstalling VYBE.',
+              'a different device without reinstalling VYBE.',
               style: TextStyle(color: Colors.white60, fontSize: 12),
             ),
             const Divider(),

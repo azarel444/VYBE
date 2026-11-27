@@ -28,7 +28,7 @@ import io.flutter.plugin.common.MethodChannel
  */
 class VybeDirect(private val activity: Activity, private val channel: MethodChannel) {
     companion object {
-        private const val INSTANCE_NAME = "VYBE-Receiver"
+        private const val INSTANCE_NAME = "VYBE-Phone"
         private const val SERVICE_TYPE = "_vybe-link._tcp"
         private const val APP_MARKER = "vybe"
         private const val PROTOCOL_VERSION = "2"
@@ -392,7 +392,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         val info = WifiP2pDnsSdServiceInfo.newInstance(
             INSTANCE_NAME, SERVICE_TYPE, mapOf(
                 "app" to APP_MARKER,
-                "role" to "receiver",
+                "role" to "sender",
                 "v" to PROTOCOL_VERSION,
                 "id" to receiverId.lowercase(),
                 "port" to "38927"))
@@ -407,7 +407,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 advertisementTimeoutRetries = 0
                 localService = info
                 event(mapOf("type" to "status",
-                    "message" to "VYBE Head Unit visible to VYBE devices"))
+                    "message" to "VYBE Phone visible to VYBE devices"))
             }
             override fun onFailure(reason: Int) {
                 if (generation != advertisingGeneration) return
@@ -434,7 +434,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     }, 1200L * advertisingFailures)
                 } else {
                     event(mapOf("type" to "error",
-                        "message" to "Could not advertise VYBE receiver ($reason); use Set up head-unit Wi-Fi Direct again"))
+                        "message" to "Could not advertise VYBE receiver ($reason); use Set up phone Wi-Fi Direct again"))
                 }
             }
         })
@@ -493,7 +493,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 val receiverId = record["id"] ?: ""
                 val valid = validDomain &&
                     record["app"] == APP_MARKER &&
-                    record["role"] == "receiver" &&
+                    record["role"] == "sender" &&
                     record["v"] == PROTOCOL_VERSION &&
                     record["port"] == "38927" &&
                     receiverId.matches(Regex("[0-9a-fA-F]{32}"))
@@ -506,7 +506,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 verifiedReceivers[id] = mapOf(
                     "address" to address,
                     "id" to id,
-                    "name" to "VYBE Head Unit · ${id.takeLast(6).uppercase()}")
+                    "name" to "VYBE Phone · ${id.takeLast(6).uppercase()}")
                 publishVerifiedReceivers()
             })
         listenersInstalled = true
@@ -700,7 +700,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 hostReadyChecks++
                 mainHandler.postDelayed({ reportGroupReady(service, ch, epoch) }, 750L)
             } else {
-                hostFailed(ch, epoch, "Android accepted group creation but no head-unit group became ready")
+                hostFailed(ch, epoch, "Android accepted group creation but no phone group became ready")
             }
         }
     }
@@ -779,7 +779,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         hostReadyChecks = 0
         val epoch = ++hostGeneration
         mainHandler.postDelayed({
-            hostFailed(ch, epoch, "Android did not finish creating the head-unit group; tap Set up to retry")
+            hostFailed(ch, epoch, "Android did not finish creating the phone group; tap Set up to retry")
         }, 45000L)
         beginHost(epoch, 3)
     }
@@ -837,12 +837,12 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             now - (verifiedReceiverSeen[knownId] ?: 0L) < 60000L
         if (!known) {
             event(mapOf("type" to "error",
-                "message" to "Receiver address is no longer verified; scan for VYBE head units again"))
+                "message" to "Receiver address is no longer verified; scan for VYBE phones again"))
             return false
         }
         if (connectingAddress != null) {
             event(mapOf("type" to "pairing",
-                "message" to "Already pairing with a VYBE head unit; no repeat request sent"))
+                "message" to "Already pairing with a VYBE phone; no repeat request sent"))
             return true
         }
 
@@ -865,7 +865,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     .setGroupOperatingBand(band)
                     .build().apply {
                         wps.setup = WpsInfo.PBC
-                        groupOwnerIntent = 0 // ATOTO remains group owner
+                        groupOwnerIntent = 0 // phone remains group owner
                     }
             } else {
                 WifiP2pConfig().apply {
@@ -883,7 +883,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         connectPreflightPassed = false
         val generation = ++connectAttemptGeneration
         event(mapOf("type" to "pairing",
-            "message" to "Requesting Wi-Fi Direct pairing with verified VYBE head unit..."))
+            "message" to "Requesting Wi-Fi Direct pairing with verified VYBE phone..."))
 
         fun formedGroup(host: String, isOwner: Boolean) {
             if (generation != connectAttemptGeneration) return
@@ -905,7 +905,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             val message = when (reason) {
                 WifiP2pManager.ERROR ->
                     if (strictBand)
-                        "Android rejected the ${if (requestedBand == "5ghz") "5 GHz" else "2.4 GHz"}-only attempt. The Android 9 head unit may be hosting on another band; switch to Automatic to reconnect."
+                        "Android rejected the ${if (requestedBand == "5ghz") "5 GHz" else "2.4 GHz"}-only attempt. The phone may be hosting on another band; switch to Automatic to reconnect."
                     else "Android rejected Wi-Fi Direct connect request (ERROR 0); rechecking group/peer state"
                 WifiP2pManager.BUSY ->
                     "Android Wi-Fi Direct is busy (2); wait for group setup, then scan again"
@@ -1247,7 +1247,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             try { service.stopPeerDiscovery(ch, null) } catch (_: Exception) {}
         }
         event(mapOf("type" to "manual",
-            "message" to "Automatic pairing paused; choose a VYBE head unit manually"))
+            "message" to "Automatic pairing paused; choose a VYBE phone manually"))
         return true
     }
 

@@ -165,6 +165,17 @@ class VybeLink extends ChangeNotifier {
   String get savedDirectReceiverLabel => hasSavedDirectReceiver
       ? 'VYBE Head Unit · ${savedDirectReceiverId.substring(savedDirectReceiverId.length - 6).toUpperCase()}'
       : '';
+  ServerSocket? _phoneDirectServer;
+  bool _phoneListenerBusy = false;
+  bool _directDialBusy = false;
+  bool _directRequested = false;
+  int _directEpoch = 0;
+  String _savedDirectPhoneId = '';
+  String _selectedDirectPhoneId = '';
+  bool _restartDirectAfterReset = false;
+  String get savedDirectPhoneId => _savedDirectPhoneId;
+  bool _directAuthorized() => autoConnect ||
+      DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs;
   bool _directGroupConnected = false;
   String _directGroupOwnerIp = '';
   bool _tcpConnectedViaDirect = false;
@@ -219,68 +230,27 @@ class VybeLink extends ChangeNotifier {
   /// Wi-Fi Direct MAC. Only called when TCP is disconnected; never tears down
   /// a working socket, hotspot or manually established LAN connection.
   Future<void> _recoverDirect({bool immediately = false}) async {
-    if (_directResetInProgress ||
-        !enabled || (role == 'sender' && !autoConnect) ||
-        !_directPreferred || !directAvailable ||
-        // A strict-band trial is manual to avoid repeated failures while
-        // Android 9's group owner hosts on an incompatible band.
-        (role == 'sender' && (directBandMode != 'auto' ||
-                              !_hasConfirmedDirectReceiver)) ||
-        _directRecoveryBusy ||
-        (activeTransport == 'USB tethering' && _socket != null) ||
-        (role == 'sender' &&
-            (_socket != null || _directGroupConnected ||
-             _directPairingInProgress))) return;
-    // A Wi-Fi Direct group can survive an Android process restart while the
-    // VYBE DNS-SD advertisement does not. Re-publish the receiver's identity
-    // even when the radio reports that the group is already formed.
-    if (role == 'receiver' && _server == null) {
-      // Do not advertise a P2P receiver until the TCP listener is bound.
-      // The independent receiver watchdog will retry opening that listener.
-      return;
-    }
-    if (role == 'receiver' && _directGroupConnected) {
-      if (_socket != null) return;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (!immediately && now - _lastDirectRecoveryMs < 30000) return;
-      _lastDirectRecoveryMs = now;
-      try {
-        await _direct.invokeMethod<bool>(
-            'host', {'receiverId': localDeviceId, 'refreshAdvertisement': true});
-      } catch (error) {
-        directStatus = 'Cannot advertise VYBE head unit: $error';
-        notifyListeners();
-      }
-      return;
-    }
+    if (!enabled || !_directPreferred || !_directRequested ||
+        _directResetInProgress || _directRecoveryBusy || _socket != null ||
+        !_directAuthorized()) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (!immediately && now - _lastDirectRecoveryMs < 10000) return;
     _lastDirectRecoveryMs = now;
     _directRecoveryBusy = true;
     try {
-      // Existing OS permission only. Never pop a permission dialog during
-      // background recovery; manual setup remains available if needed.
-      final started = await _direct.invokeMethod<bool>('start') ?? false;
-      if (!started) {
-        directStatus = 'Wi-Fi Direct permission or service unavailable';
-        notifyListeners();
-        return;
+      if (_directGroupConnected) {
+        if (role == 'sender') {
+          await _openPhoneDirectListener();
+          if (_phoneDirectServer != null) {
+            await _direct.invokeMethod<bool>('host', {'receiverId': localDeviceId,
+              'refreshAdvertisement': true});
+          }
+        } else {
+          await _dialPhoneDirect();
+        }
+      } else if (!_directPairingInProgress) {
+        await _startDirectNetwork();
       }
-      directActive = true;
-      if (role == 'sender' &&
-          (_directGroupConnected || _directPairingInProgress)) {
-        return; // A group is already ready or still negotiating.
-      }
-      if (role == 'receiver') {
-        directStatus = 'Restoring head-unit Wi-Fi Direct group...';
-        await _direct.invokeMethod<bool>('host', {
-          'receiverId': localDeviceId,
-        });
-      } else if (role == 'sender') {
-        directStatus = 'Searching for saved head unit over Wi-Fi Direct...';
-        await _direct.invokeMethod<bool>('discover');
-      }
-      notifyListeners();
     } catch (error) {
       directStatus = 'Wi-Fi Direct recovery: $error';
       notifyListeners();
@@ -290,36 +260,18 @@ class VybeLink extends ChangeNotifier {
   }
 
   void _trySavedDirectPeer() {
-    final manuallyRetrying = directBandMode == 'auto' &&
-        _pendingDirectReceiverId.isNotEmpty &&
-        DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs &&
-        _manualDirectRecoveryAttempts < 2;
-    if (_directResetInProgress || !enabled || !_directPreferred ||
-        role != 'sender' || _socket != null || _directGroupConnected ||
-        _directPairingInProgress ||
-        (!manuallyRetrying && !_mayAutoPairDirect)) return;
+    if (role != 'receiver' || !enabled || !_directRequested ||
+        !_directAuthorized() || _directResetInProgress ||
+        _directGroupConnected || _directPairingInProgress || _socket != null) return;
+    final id = _selectedDirectPhoneId.isNotEmpty
+        ? _selectedDirectPhoneId : _savedDirectPhoneId;
+    if (id.isEmpty) return; // New phones must be explicitly selected.
+    final matches = directPeers.where((p) => p['id'] == id).toList();
+    if (matches.length != 1) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastDirectPeerAttemptMs < 12000) return;
-
-    // All visible peers passed Android's VYBE DNS-SD service check. For a
-    // returning user, choose ONLY the previously paired receiver by stable
-    // VYBE ID. For FIRST-TIME setup, automatically choose only when exactly
-    // one VYBE head unit is advertised. Never guess between two receivers.
-    // A native connect() request being accepted never establishes trust.
-    // On startup auto-connect only to a receiver whose TCP hello we verified.
-    final receiverId = manuallyRetrying
-        ? _pendingDirectReceiverId : pairedReceiverId;
-    final matches = directPeers.where((item) {
-      final id = item['id'] ?? '';
-      if (id.length != 32) return false;
-      return id == receiverId;
-    }).toList();
-    if (matches.length != 1) return;
-    final address = matches.single['address'];
-    if (address == null || address.isEmpty) return;
     _lastDirectPeerAttemptMs = now;
-    if (manuallyRetrying) _manualDirectRecoveryAttempts++;
-    unawaited(directConnectPeer(address, remember: true));
+    unawaited(directConnectPeer(matches.single['address'] ?? ''));
   }
 
   Future<void> directInitialize() async {
@@ -333,191 +285,106 @@ class VybeLink extends ChangeNotifier {
         // stale pairing state while the user is explicitly clearing it.
         if (_directResetInProgress && eventType != 'reset_complete' &&
             eventType != 'reset_failed') return;
+        if (!enabled && eventType != 'reset_complete' && eventType != 'reset_failed') return;
         switch (eventType) {
           case 'reset_complete':
+          case 'reset_failed':
             _directResetInProgress = false;
             _directGroupConnected = false;
             _directGroupOwnerIp = '';
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
-            _lastDirectPeerAttemptMs = 0;
             directPeers = [];
-            directStatus = data['message']?.toString() ??
-                'Previous Wi-Fi Direct session cleared';
-            status = role == 'receiver'
-                ? 'Wi-Fi Direct reset; reopening head-unit receiver'
-                : 'Wi-Fi Direct reset; ready to discover another head unit';
-            // Do not infer a successful pairing here. Only the next TCP
-            // hello is allowed to save the receiver as trusted.
-            if (enabled && role == 'receiver') {
-              Future<void>.delayed(const Duration(milliseconds: 650), () {
-                if (enabled && role == 'receiver' && !_directResetInProgress) {
-                  unawaited(directStart(receiver: role == 'receiver'));
+            directStatus = data['message']?.toString() ?? 'Wi-Fi Direct reset finished';
+            final restart = _restartDirectAfterReset && eventType == 'reset_complete';
+            _restartDirectAfterReset = false;
+            status = !enabled ? 'Disabled' : (restart
+                ? 'Restarting Wi-Fi Direct' : 'Ready for manual Wi-Fi Direct setup');
+            if (enabled && restart) {
+              final epoch = _directEpoch;
+              Future<void>.delayed(const Duration(milliseconds: 1500), () {
+                if (epoch == _directEpoch && enabled && !_directResetInProgress) {
+                  unawaited(_startDirectNetwork());
                 }
               });
             }
             break;
-          case 'reset_failed':
-            _directResetInProgress = false;
-            directStatus = data['message']?.toString() ??
-                'Android could not reset Wi-Fi Direct';
-            status = 'Wi-Fi Direct reset failed; tap Reset to retry';
-            break;
           case 'peers':
-            directPeers = (data['items'] as List).map((e) => Map<String, String>.from(e as Map)).toList();
-            directStatus = directPeers.isEmpty
-                ? 'No VYBE head units found yet; other devices are hidden'
-                : 'Found ${directPeers.length} VYBE head unit${directPeers.length == 1 ? "" : "s"}';
+            if (role != 'receiver' || !_directRequested) break;
+            directPeers = (data['items'] as List).map((e) =>
+                Map<String, String>.from(e as Map)).toList();
+            directStatus = directPeers.isEmpty ? 'Searching for VYBE phones...'
+                : 'Found ${directPeers.length} VYBE phone(s); select your phone';
             _trySavedDirectPeer();
             break;
           case 'connected':
-            final host = data['host']?.toString() ?? '';
+            if (!_directRequested || !_directPreferred) break;
             final owner = data['owner'] == true;
-            // An old P2P group can survive reinstall/relaunch. Do not let a
-            // first-time sender treat it as a verified receiver connection.
-            if (role == 'sender' && !_hasConfirmedDirectReceiver &&
-                _pendingDirectReceiverId.isEmpty) {
-              directStatus = 'Found an existing Wi-Fi Direct group; choose a verified VYBE head unit';
+            final host = data['host']?.toString() ?? '';
+            if (owner != (role == 'sender')) {
+              directStatus = 'Old Wi-Fi Direct group uses the previous connection direction; resetting';
+              if (!_directResetInProgress) {
+                unawaited(resetDirectSession(restart: true));
+              }
               break;
             }
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
-            _bandRefreshRetries = 0;
-            directBandVerified = false;
-            directActualBand = 'Measuring new Wi-Fi Direct group...';
-            directFrequencyMHz = 0;
             _directGroupConnected = true;
-            directPairingDiagnostic = '';
-            _directTcpFailureCount = 0;
             _directGroupOwnerIp = host;
             directActive = true;
-            directStatus = owner && role == 'receiver'
-                ? 'Head-unit Wi-Fi Direct group ready; waiting for verified phone'
-                : 'Wi-Fi Direct group formed; verifying receiver connection';
-            // Read the *actual* P2P group frequency from modern phones.
-            // Android 9 reports Unknown rather than guessing from STA Wi-Fi.
+            directStatus = owner ? 'Phone owns Wi-Fi Direct; waiting for head unit'
+                : 'Joined phone Wi-Fi Direct; connecting data link';
             unawaited(refreshDirectBandInfo());
-            // The Android Wi-Fi Direct API supplies groupOwnerAddress.
-            // NEVER ask the user for an IP or hardcode one for all networks.
-            await _updateAddresses();
-            if (role == 'sender' && host.isNotEmpty && _socket == null) {
-              // The Android group-owner IP is the preferred TCP target.
-              // Never interrupt an already working LAN/hotspot socket just
-              // because a duplicate Direct broadcast announces another IP.
-              receiverAddress = host;
-              if (autoConnect || DateTime.now().millisecondsSinceEpoch <
-                  _manualPairDeadlineMs) {
-                if (directBandMode == 'auto') {
-                  unawaited(connect());
-                } else {
-                  // Verify phone-measured actual P2P frequency first.
-                  unawaited(refreshDirectBandInfo());
-                }
-              }
+            if (owner) {
+              unawaited(_openPhoneDirectListener());
+            } else if (_directAuthorized() && _selectedDirectPhoneId.isNotEmpty) {
+              unawaited(_dialPhoneDirect());
             }
             break;
           case 'disconnected':
-            _bandRefreshRetries = 0;
+          case 'channel_reset':
+            _directGroupConnected = false;
+            _directGroupOwnerIp = '';
             directBandGroupFormed = false;
             directBandVerified = false;
             directFrequencyMHz = 0;
             directActualBand = 'No Wi-Fi Direct group';
-            _directGroupConnected = false;
-            _directGroupOwnerIp = '';
-            _directTcpFailureCount = 0;
-            _directPairingInProgress = false;
-            _directPairingStartedMs = 0;
-            _lastDirectPeerAttemptMs = 0;
-            directStatus = autoConnect
-            ? 'Wi-Fi Direct disconnected; restoring automatically'
-            : 'Wi-Fi Direct disconnected; manual pairing only';
-            // The underlying Direct link disappeared. A TCP Socket can stay
-            // non-null for several seconds even though its route is dead.
-            // Invalidate ONLY a socket actually using the Direct host; do
-            // not disrupt a healthy shared-Wi-Fi or hotspot connection.
-            if (role == 'sender' && _tcpConnectedViaDirect) {
-              final disconnectedPeer = _socket;
-              if (disconnectedPeer != null) {
-                _senderDisconnected(disconnectedPeer);
-                disconnectedPeer.destroy();
+            if (eventType == 'channel_reset') {
+              _directPairingInProgress = false;
+              _directPairingStartedMs = 0;
+              directPeers = [];
+            }
+            // A disconnected broadcast can also be emitted while hosting starts.
+            if (_directPairingInProgress && eventType == 'disconnected') break;
+            unawaited(_closePhoneDirectListener());
+            if (_tcpConnectedViaDirect && _socket != null) {
+              final peer = _socket!;
+              if (role == 'sender') {
+                _senderDisconnected(peer);
+              } else {
+                _receiverDisconnected(peer);
               }
+              peer.destroy();
             }
-            // A TCP retry cannot recreate a lost P2P group. Recover the
-            // underlying network separately, with a short settling delay.
-            final manuallyRetrying = _pendingDirectReceiverId.isNotEmpty &&
-                DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs;
-            if (_directPreferred && enabled &&
-                (manuallyRetrying || autoConnect || role == 'receiver')) {
-              Future<void>.delayed(const Duration(seconds: 2), () {
-                if (!enabled || _directResetInProgress || !_directPreferred || _directGroupConnected) return;
-                if (manuallyRetrying && _pendingDirectReceiverId.isNotEmpty) {
-                  unawaited(_direct.invokeMethod<bool>(
-                      'discover', {'force': true}));
-                } else if (autoConnect || role == 'receiver') {
-                  unawaited(_recoverDirect(immediately: true));
-                }
-              });
-            }
+            _tcpConnectedViaDirect = false;
+            directStatus = 'Wi-Fi Direct disconnected';
             break;
-          case 'manual':
-            _directPairingInProgress = false;
-            _directPairingStartedMs = 0;
-            directStatus = data['message']?.toString() ??
-                'Automatic pairing disabled; select a VYBE head unit';
+          case 'channel_recovered':
+            directStatus = 'Android Wi-Fi Direct service ready again';
+            unawaited(_recoverDirect(immediately: true));
             break;
           case 'pairing':
-            if (!_directPairingInProgress && _connecting && _socket == null) {
-              // A saved-IP/UDP TCP attempt can have started before Android
-              // began forming the Direct group. Discard its eventual result;
-              // the group-formed event will connect to the correct owner IP.
-              _generation++;
-            }
             _directPairingInProgress = true;
-            if (_directPairingStartedMs == 0) {
-              _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
-            }
-            _retry?.cancel();
-            _retry = null;
-            directStatus = data['message']?.toString() ??
-                'Waiting for Wi-Fi Direct group to form';
+            _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
+            directStatus = data['message']?.toString() ?? 'Pairing with VYBE phone';
             break;
+          case 'manual':
           case 'pairing_failed':
           case 'pairing_timeout':
-            // The next TXT discovery should be allowed to reconnect promptly
-            // after a failed manual attempt, not throttled for 12 seconds.
-            _lastDirectPeerAttemptMs = 0;
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
-            directStatus = data['message']?.toString() ??
-                'Wi-Fi Direct pairing did not finish';
-            final manualRecovery = directBandMode == 'auto' &&
-                _pendingDirectReceiverId.isNotEmpty &&
-                DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs &&
-                _manualDirectRecoveryAttempts < 2;
-            if (!manualRecovery && _pendingDirectReceiverId.isNotEmpty) {
-              // A failed invitation is not a saved connection. Discard its
-              // transient identity so a new manual selection is never
-              // compared against the previous failed head unit.
-              _pendingDirectReceiverId = '';
-              _pendingDirectPeerAddress = '';
-              _pendingDirectPeerName = '';
-              _pendingDirectRemember = false;
-              _manualPairDeadlineMs = 0;
-              _manualDirectRecoveryAttempts = 0;
-            }
-            if (_directPreferred && enabled &&
-                (manualRecovery || _mayAutoPairDirect)) {
-              Future<void>.delayed(const Duration(milliseconds: 1800), () {
-                if (!enabled || _directGroupConnected ||
-                    _directPairingInProgress) return;
-                if (manualRecovery) {
-                  unawaited(_direct.invokeMethod<bool>(
-                      'discover', {'force': true}));
-                } else {
-                  unawaited(_recoverDirect(immediately: true));
-                }
-              });
-            }
+            directStatus = data['message']?.toString() ?? 'Pairing ended; tap to try again';
             break;
           case 'diagnostic':
             directPairingDiagnostic = data['message']?.toString() ?? '';
@@ -526,92 +393,25 @@ class VybeLink extends ChangeNotifier {
             directAndroidSdk = (data['sdk'] as num?)?.toInt() ?? directAndroidSdk;
             directBandGroupFormed = data['groupFormed'] == true;
             directBandVerified = data['verified'] == true;
-            directFrequencyMHz =
-                (data['frequencyMHz'] as num?)?.toInt() ?? 0;
+            directFrequencyMHz = (data['frequencyMHz'] as num?)?.toInt() ?? 0;
             directActualBand = data['band']?.toString() ?? 'Unknown';
-            if (role == 'sender' && directBandMode != 'auto' &&
-                _directGroupConnected && _socket == null) {
-              final expected = directBandMode == '5ghz' ? '5 GHz' : '2.4 GHz';
-              if (!directBandVerified || directActualBand != expected) {
-                directStatus = 'Band test: expected $expected, '
-                    'but actual P2P band is $directActualBand. '
-                    'The Android 9 head unit selects its own band.';
-                // Wi-Fi Direct broadcasts can precede the GroupInfo
-                // frequency measurement on a slow head unit. Retry only
-                // this read, not group formation, a couple of times.
-                if (!directBandVerified && _bandRefreshRetries < 3) {
-                  _bandRefreshRetries++;
-                  Future<void>.delayed(const Duration(milliseconds: 700), () {
-                    if (enabled && _directGroupConnected &&
-                        directBandMode != 'auto' && _socket == null) {
-                      unawaited(refreshDirectBandInfo());
-                    }
-                  });
-                }
-              } else if (autoConnect ||
-                  DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs) {
-                unawaited(connect());
-              }
-            }
-            break;
-          case 'error':
-            directStatus = data['message']?.toString() ?? 'Wi-Fi Direct error';
-            break;
-          case 'status':
-            directStatus = data['message']?.toString() ?? 'Wi-Fi Direct in progress';
-            break;
-          case 'channel_reset':
-            _directGroupConnected = false;
-            _directTcpFailureCount = 0;
-            _directGroupOwnerIp = '';
-            _directPairingInProgress = false;
-            _directPairingStartedMs = 0;
-            _lastDirectPeerAttemptMs = 0;
-            directPeers = [];
-            directStatus = data['message']?.toString() ??
-                'Android Wi-Fi Direct service was reset';
-            if (_tcpConnectedViaDirect && _socket != null) {
-              final oldSocket = _socket!;
-              _senderDisconnected(oldSocket);
-              oldSocket.destroy();
-            }
-            break;
-          case 'channel_recovered':
-            directStatus = data['message']?.toString() ??
-                'Android Wi-Fi Direct service ready again';
-            if (enabled && _directPreferred) {
-              final recoveringManualChannel =
-                  _pendingDirectReceiverId.isNotEmpty &&
-                  DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs;
-              if (role == 'sender' && recoveringManualChannel) {
-                unawaited(_direct.invokeMethod<bool>(
-                    'discover', {'force': true}));
-              } else if (autoConnect || role == 'receiver') {
-                unawaited(_recoverDirect(immediately: true));
-              }
-            }
             break;
           case 'state':
             if (data['enabled'] != true) {
-              // Android invalidates any pending native connect() when the
-              // P2P radio switches off. Clear Flutter's pairing gate too;
-              // otherwise manually selecting a receiver stays disabled even
-              // after Wi-Fi Direct becomes available again.
               _directGroupConnected = false;
-              _directGroupOwnerIp = '';
               _directPairingInProgress = false;
-              _directPairingStartedMs = 0;
-              _lastDirectPeerAttemptMs = 0;
+              unawaited(_closePhoneDirectListener());
             }
-            directStatus = data['enabled'] == true
-                ? 'Wi-Fi Direct available' : 'Wi-Fi Direct disabled';
-            if (data['enabled'] == true && _directPreferred && enabled &&
-                (role == 'receiver' || (autoConnect && _hasConfirmedDirectReceiver))) {
-              unawaited(_recoverDirect(immediately: true));
-            }
+            directStatus = data['enabled'] == true ? 'Wi-Fi Direct available' : 'Wi-Fi Direct disabled';
             break;
+          case 'error':
+            _directPairingInProgress = false;
+            _directPairingStartedMs = 0;
+            directStatus = data['message']?.toString() ?? 'Wi-Fi Direct error';
+            break;
+          case 'status':
           case 'action':
-            directStatus = '${data['name']} request ${data['ok'] == true ? 'accepted' : 'failed'}';
+            directStatus = data['message']?.toString() ?? directStatus;
             break;
         }
         notifyListeners();
@@ -670,113 +470,268 @@ class VybeLink extends ChangeNotifier {
 
   Future<void> directStart({required bool receiver}) async {
     if (_directResetInProgress) return;
-    directStatus = receiver ? 'Preparing head-unit Wi-Fi Direct...' : 'Starting a new VYBE head-unit search...';
+    if (_socket != null && _tcpConnectedViaDirect) return;
+    _directRequested = true;
+    _manualPairDeadlineMs = DateTime.now().millisecondsSinceEpoch + 120000;
+    _lastDirectRecoveryMs = 0;
+    _lastDirectPeerAttemptMs = 0;
+    _directPreferred = true;
+    _selectedDirectPhoneId = '';
+    directBandMode = 'auto';
+    status = receiver ? 'Looking for your VYBE phone' : 'Preparing phone Wi-Fi Direct network';
+    directStatus = status;
     notifyListeners();
+    if (role != (receiver ? 'receiver' : 'sender') || !enabled) {
+      await configure(isEnabled: true, deviceRole: receiver ? 'receiver' : 'sender');
+    }
     await directInitialize();
-    if (!directAvailable) { directStatus = 'Wi-Fi Direct not supported on this device'; notifyListeners(); return; }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('link_direct_preferred', true);
+    await prefs.setString('link_direct_band_mode', 'auto');
+    await _startDirectNetwork(manual: true);
+  }
+
+  Future<void> _startDirectNetwork({bool manual = false}) async {
+    if (!enabled || !_directRequested || _directResetInProgress || _socket != null) return;
     try {
-      var ready = await _direct.invokeMethod<bool>('start') ?? false;
+      final ready = await _direct.invokeMethod<bool>('start') ?? false;
       if (!ready) {
-        await _direct.invokeMethod('requestPermission');
+        if (manual) await _direct.invokeMethod('requestPermission');
         directStatus = 'Allow Nearby devices / Location, then tap again';
-        notifyListeners(); return;
-      }
-      directActive = true;
-      if (!receiver && _directPairingInProgress &&
-          _directPairingStartedMs > 0 &&
-          DateTime.now().millisecondsSinceEpoch - _directPairingStartedMs > 27000) {
-        await resetDirectSession();
+        notifyListeners();
         return;
       }
-      _directPreferred = true;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('link_direct_preferred', true);
-      if (receiver) {
-        if (role != 'receiver' || !enabled) await configure(isEnabled: true, deviceRole: 'receiver');
-        // The head unit must accept the metadata TCP connection even when
-        // automatic pairing is switched OFF or the app was restarted.
-        if (_server == null) await connect(manual: true);
-        directStatus = 'Requesting head-unit Wi-Fi Direct group...';
-        notifyListeners();
-        final accepted = await _direct.invokeMethod<bool>(
-            'host', {
-          'receiverId': localDeviceId,
-          'refreshAdvertisement': true,
-        }) ?? false;
-        if (!accepted) directStatus = 'Cannot start Wi-Fi Direct on head unit (permission or service unavailable)';
-      } else {
-        if (role != 'sender' || !enabled) await configure(isEnabled: true, deviceRole: 'sender');
-        directStatus = 'Searching only for VYBE head units...';
-        notifyListeners();
-        final accepted = await _direct.invokeMethod<bool>(
-            'discover', {'force': true}) ?? false;
-        if (!accepted) directStatus = 'Cannot start Wi-Fi Direct discovery (permission or service unavailable)';
-      }
+      directActive = true;
+      final hosting = role == 'sender';
+      directStatus = hosting ? 'Creating phone Wi-Fi Direct group...'
+          : 'Searching only for VYBE phones...';
+      notifyListeners();
+      final ok = hosting
+          ? await _direct.invokeMethod<bool>('host', {
+              'receiverId': localDeviceId, 'refreshAdvertisement': manual})
+          : await _direct.invokeMethod<bool>('discover', {'force': manual});
+      if (ok != true) directStatus = 'Android could not start Wi-Fi Direct; tap again';
     } catch (e) { directStatus = 'Wi-Fi Direct setup failed: $e'; }
     notifyListeners();
   }
 
   Future<void> directConnectPeer(String address,
       {bool remember = true, bool manuallySelected = false}) async {
-    if (address.isEmpty || _directResetInProgress) return;
+    if (role != 'receiver' || !enabled || !_directRequested ||
+        _directResetInProgress || _directPairingInProgress || address.isEmpty) return;
+    final candidates = directPeers.where((p) =>
+        p['address'] == address && (p['id'] ?? '').length == 32).toList();
+    if (candidates.length != 1) return;
+    if (manuallySelected) {
+      _manualPairDeadlineMs = DateTime.now().millisecondsSinceEpoch + 120000;
+    }
+    _selectedDirectPhoneId = candidates.single['id']!;
+    _directPairingInProgress = true;
+    _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
+    directStatus = 'Joining selected VYBE phone...';
+    notifyListeners();
     try {
-      final candidates = directPeers.where((item) =>
-          item['address'] == address && (item['id'] ?? '').length == 32).toList();
-      if (candidates.length != 1) {
-        directStatus = 'Only verified VYBE head units can be paired';
-        notifyListeners();
-        return;
-      }
-      if (_directPairingInProgress) {
-        directStatus = 'Pairing already in progress; waiting for Android to connect';
-        notifyListeners();
-        return;
-      }
-      // Selecting the device manually authorizes a single, bounded pairing
-      // session even if persistent auto-reconnect is disabled.
-      if (manuallySelected) {
-        _manualPairDeadlineMs =
-            DateTime.now().millisecondsSinceEpoch + 90000;
-        _manualDirectRecoveryAttempts = 0;
-      }
-      if (remember) {
-        _pendingDirectReceiverId = candidates.single['id'] ?? '';
-        _pendingDirectPeerAddress = address;
-        _pendingDirectPeerName = candidates.single['name'] ?? '';
-        _pendingDirectRemember = true;
-      }
-      _directPairingInProgress = true;
-      directPairingDiagnostic = '';
-      _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
-      if (directBandMode != 'auto' && !directBandSelectable) {
-        _directPairingInProgress = false;
-        directStatus = 'Band selection requires Android 10+ on this device';
-        notifyListeners();
-        return;
-      }
-      final ok = await _direct.invokeMethod<bool>(
-          'connect', {'address': address, 'bandMode': directBandMode}) ?? false;
+      final ok = await _direct.invokeMethod<bool>('connect',
+          {'address': address, 'bandMode': 'auto'}) ?? false;
       if (!ok) {
         _directPairingInProgress = false;
-        _directPairingStartedMs = 0;
+        directStatus = 'Phone no longer available; search again';
       }
-      // Native connect() returns as soon as the request is submitted, but
-      // Android can report pairing_failed or connected before that Future
-      // completes. Never overwrite the newer native result with "requested".
-      if (!ok) {
-        directStatus = 'Device no longer in nearby list; scan again';
-      } else if (_directPairingInProgress && !_directGroupConnected) {
-        directStatus =
-            'Pairing requested; waiting for Android to form Wi-Fi Direct group';
-      }
-      // Android accepting WifiP2pManager.connect() is not proof of pairing.
-      // Save the selected stable ID ONLY after the head unit's TCP hello.
     } catch (e) {
       _directPairingInProgress = false;
-      _directPairingStartedMs = 0;
-      directStatus = 'Direct connection failed: $e';
+      directStatus = 'Could not join phone: $e';
     }
     notifyListeners();
+  }
+
+  Future<void> _closePhoneDirectListener() async {
+    final server = _phoneDirectServer;
+    _phoneDirectServer = null;
+    await server?.close();
+  }
+
+  Future<void> _openPhoneDirectListener() async {
+    if (_phoneListenerBusy || _phoneDirectServer != null ||
+        !enabled || role != 'sender' || !_directRequested ||
+        !_directGroupConnected || _directGroupOwnerIp.isEmpty) return;
+    _phoneListenerBusy = true;
+    final epoch = _directEpoch;
+    final host = _directGroupOwnerIp;
+    try {
+      final server = await ServerSocket.bind(host, port);
+      if (epoch != _directEpoch || !enabled || !_directGroupConnected ||
+          role != 'sender' || !_directRequested) {
+        await server.close();
+        return;
+      }
+      _phoneDirectServer = server;
+      status = 'Phone network ready; select this phone on the head unit';
+      activeTransport = 'Wi-Fi Direct host';
+      server.listen((peer) {
+        if (epoch != _directEpoch || !enabled || !_directRequested ||
+            !_directGroupConnected || !_directAuthorized() || _socket != null) {
+          peer.destroy();
+          return;
+        }
+        // This listener is bound only to the actual P2P owner address.
+        // The receiver must still prove its VYBE identity in the hello.
+        _attachDirectSender(peer);
+      }, onError: (Object error) {
+        if (identical(_phoneDirectServer, server)) {
+          unawaited(_closePhoneDirectListener());
+          directStatus = 'Phone data listener failed: $error';
+          notifyListeners();
+        }
+      });
+    } catch (e) {
+      directStatus = 'Could not open phone Wi-Fi Direct data listener: $e';
+    } finally {
+      _phoneListenerBusy = false;
+      notifyListeners();
+    }
+  }
+
+  void _attachDirectSender(Socket peer) {
+    final generation = ++_generation;
+    _retry?.cancel(); _retry = null;
+    _sendTimer?.cancel(); _sendTimer = null;
+    _helloTimer?.cancel(); _helloTimer = null;
+    _lastPayload = ''; _lastTrack = ''; _lastArtHash = 0;
+    _lastMetadataState = ''; _lastMetadataSentAt = 0;
+    _lastSentLyricsTrack = ''; _lastSentLyrics = null;
+    _lastSentCoverflowRevision = -1;
+    _artGeneration++; _fanartGeneration++; _clearLogoGeneration++;
+    _sentFanartArtist = ''; _sentFanartHash = 0;
+    _sentClearLogoArtist = ''; _sentClearLogoHash = 0;
+    _encodingClearLogoArtist = ''; _encodingClearLogoHash = 0;
+    _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
+    _socket = peer;
+    _tcpConnectedViaDirect = true;
+    _tcpConnectedViaWired = false;
+    activeTransport = 'Wi-Fi Direct';
+    _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
+    _senderReceiverIdentityVerified = false;
+    status = 'Verifying head unit identity...';
+    final address = peer.remoteAddress.address;
+    try {
+      peer.writeln(jsonEncode({'v': 2, 'kind': 'phone_hello', 'id': localDeviceId}));
+    } catch (_) {
+      _senderDisconnected(peer); peer.destroy(); return;
+    }
+    _helloTimer = Timer(const Duration(seconds: 10), () {
+      if (identical(_socket, peer) && !_senderReceiverIdentityVerified) {
+        _senderDisconnected(peer); peer.destroy();
+        directStatus = 'Head unit did not confirm its identity'; notifyListeners();
+      }
+    });
+    _socketSub = peer.cast<List<int>>().transform(utf8.decoder)
+        .transform(const LineSplitter()).listen((line) {
+      if (generation != _generation || !identical(_socket, peer)) return;
+      try {
+        final data = jsonDecode(line);
+        if (data is! Map || data['v'] != 2) return;
+        _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
+        if (!_senderReceiverIdentityVerified) {
+          if (data['kind'] != 'hello') return;
+          final id = data['id']?.toString() ?? '';
+          if (!RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(id) ||
+              (pairedReceiverId.isNotEmpty && pairedReceiverId != id)) {
+            _senderDisconnected(peer); peer.destroy();
+            directStatus = 'Different head unit; forget the old pairing on the phone first';
+            notifyListeners(); return;
+          }
+          _helloTimer?.cancel(); _helloTimer = null;
+          pairedReceiverId = id;
+          _savedDirectReceiverId = id;
+          receiverAddress = address;
+          _senderReceiverIdentityVerified = true;
+          status = 'Connected to head unit via phone Wi-Fi Direct';
+          directStatus = status;
+          unawaited(SharedPreferences.getInstance().then((p) async {
+            await p.setString('link_paired_receiver', id);
+            await p.setString('link_direct_receiver_id', id);
+            await p.setString('link_address', address);
+          }));
+          _sendTimer = Timer.periodic(const Duration(seconds: 2), (_) => _send());
+          _send(); notifyListeners(); return;
+        }
+        if (data['kind'] == 'ping') {
+          peer.writeln(jsonEncode({'v': 2, 'kind': 'pong'}));
+        } else if (data['kind'] == 'clearlogo_ack' &&
+            data['artist'] == _sentClearLogoArtist && data['hash'] == _sentClearLogoHash) {
+          _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
+          artworkStatus = 'Clearlogo received by head unit'; notifyListeners();
+        }
+      } catch (_) {}
+    }, onDone: () => _senderDisconnected(peer),
+      onError: (_) => _senderDisconnected(peer), cancelOnError: true);
+    notifyListeners();
+  }
+
+  Future<void> _dialPhoneDirect() async {
+    if (_directDialBusy || _socket != null || role != 'receiver' ||
+        !_directGroupConnected || !_directRequested || !_directAuthorized() ||
+        _directGroupOwnerIp.isEmpty) return;
+    final expected = _selectedDirectPhoneId.isNotEmpty
+        ? _selectedDirectPhoneId : _savedDirectPhoneId;
+    if (expected.isEmpty) return;
+    _directDialBusy = true;
+    final epoch = _directEpoch;
+    try {
+      final peer = await Socket.connect(_directGroupOwnerIp, port,
+          timeout: const Duration(seconds: 4));
+      if (epoch != _directEpoch || !enabled || !_directGroupConnected ||
+          role != 'receiver' || _socket != null || !_directRequested) {
+        peer.destroy(); return;
+      }
+      _socket = peer;
+      _tcpConnectedViaDirect = true;
+      _lastPeerResponse = DateTime.now().millisecondsSinceEpoch;
+      bool verified = false;
+      status = 'Verifying VYBE phone...';
+      _helloTimer?.cancel();
+      _helloTimer = Timer(const Duration(seconds: 10), () {
+        if (identical(peer, _socket) && !verified) {
+          _receiverDisconnected(peer); peer.destroy();
+          directStatus = 'Phone did not confirm its identity'; notifyListeners();
+        }
+      });
+      _socketSub = peer.cast<List<int>>().transform(utf8.decoder)
+          .transform(const LineSplitter()).listen((line) {
+        if (!identical(peer, _socket) || epoch != _directEpoch) return;
+        if (!verified) {
+          try {
+            final data = jsonDecode(line);
+            if (data is! Map || data['v'] != 2 || data['kind'] != 'phone_hello') return;
+            if (data['id'] != expected) {
+              _receiverDisconnected(peer); peer.destroy();
+              directStatus = 'Phone identity mismatch; reset and select the phone again';
+              notifyListeners(); return;
+            }
+            verified = true;
+            _helloTimer?.cancel(); _helloTimer = null;
+            _savedDirectPhoneId = expected;
+            unawaited(SharedPreferences.getInstance().then((p) =>
+                p.setString('link_direct_phone_id', expected)).then<void>((_) {}));
+            activeTransport = 'Wi-Fi Direct';
+            status = 'Connected to VYBE phone';
+            directStatus = status;
+            _model?.setLinkReceiverActive(true);
+            peer.writeln(jsonEncode({'v': 2, 'kind': 'hello', 'id': localDeviceId}));
+            notifyListeners();
+          } catch (_) {}
+          return;
+        }
+        _receive(line);
+      }, onDone: () => _receiverDisconnected(peer),
+        onError: (_) => _receiverDisconnected(peer), cancelOnError: true);
+      notifyListeners();
+    } catch (e) {
+      directStatus = 'Phone data connection failed: $e';
+      notifyListeners();
+    } finally {
+      _directDialBusy = false;
+    }
   }
 
   int _generation = 0;
@@ -1077,9 +1032,11 @@ class VybeLink extends ChangeNotifier {
     _savedDirectPeerName = p.getString('link_direct_peer_name') ?? '';
     _savedDirectReceiverId = p.getString('link_direct_receiver_id') ?? '';
     _directPreferred = p.getBool('link_direct_preferred') ?? false;
-    final savedBandMode = p.getString('link_direct_band_mode') ?? 'auto';
-    directBandMode = <String>['auto', '2ghz', '5ghz'].contains(savedBandMode)
-        ? savedBandMode : 'auto';
+    _savedDirectPhoneId = p.getString('link_direct_phone_id') ?? '';
+    _directRequested = _directPreferred && autoConnect;
+    status = enabled ? (role == 'sender' ? 'Ready to start phone Wi-Fi Direct' :
+        'Ready to find VYBE phone') : 'Disabled';
+    directBandMode = 'auto';
     localDeviceId = p.getString('link_device_id') ?? '';
     if (localDeviceId.isEmpty) {
       final random = Random.secure();
@@ -1101,20 +1058,18 @@ class VybeLink extends ChangeNotifier {
       // before we ever try connecting to the saved group-owner IP.
       unawaited(connect());
     }
-    if (enabled && (autoConnect || role == 'receiver') && _directPreferred && directAvailable) {
+    if (enabled && autoConnect && _directPreferred && directAvailable) {
       try { await _direct.invokeMethod<bool>('start'); } catch (_) {}
     }
     // Network auto-reconnect is not enough if Wi-Fi Direct itself vanished.
     // When the user has already chosen Direct, restore its group/peer without
     // asking for the IP again. A running LAN socket takes priority.
-    if (enabled && (autoConnect || role == 'receiver') && _directPreferred) {
+    if (enabled && autoConnect && _directPreferred) {
       unawaited(_recoverDirect(immediately: true));
     }
     _directRecoveryTimer?.cancel();
     _directRecoveryTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (enabled && _directPreferred && !_directResetInProgress &&
-          (role == 'receiver' ? _socket == null :
-              autoConnect && !_directGroupConnected && _socket == null)) {
+      if (enabled && _directPreferred && _directRequested && !_directResetInProgress && _socket == null && _directAuthorized()) {
         unawaited(_recoverDirect());
       }
     });
@@ -1150,6 +1105,10 @@ class VybeLink extends ChangeNotifier {
         unawaited(_ensureResponder());
       }
       if (_connecting || _retry?.isActive == true) return;
+      if (_directPreferred && _directRequested) {
+        if (_socket == null) unawaited(_recoverDirect());
+        return;
+      }
       if (role == 'sender' && _socket == null) {
         if (_directPreferred && !_directGroupConnected) {
           // No IP address is reachable until Android actually forms Direct.
@@ -1190,6 +1149,12 @@ class VybeLink extends ChangeNotifier {
   }
 
   Future<void> pairReceiver(LinkReceiver receiver) async {
+    _directRequested = false;
+    _directPreferred = false;
+    _directEpoch++;
+    await _closePhoneDirectListener();
+    final settings = await SharedPreferences.getInstance();
+    await settings.setBool('link_direct_preferred', false);
     pairedReceiverId = receiver.id;
     receiverAddress = receiver.address;
     _manualPairDeadlineMs =
@@ -1231,7 +1196,11 @@ class VybeLink extends ChangeNotifier {
       return;
     }
     if (!autoConnect) return;
-    if (_directPreferred) unawaited(_recoverDirect(immediately: true));
+    if (_directPreferred) {
+      _directRequested = true;
+      unawaited(_recoverDirect(immediately: true));
+      return;
+    }
     if (_connecting) return;
     if (role == 'sender' && _socket == null &&
         (!_directPreferred || _directGroupConnected)) connect();
@@ -1240,51 +1209,37 @@ class VybeLink extends ChangeNotifier {
   /// One recovery action covers BOTH the underlying Wi-Fi Direct network and
   /// TCP transport. It never requires a numeric IP address.
   Future<void> reconnectAutomatically() async {
-    if (_directResetInProgress) return;
-    // This is a one-shot USER action, not authorization to turn on
-    // persistent automatic reconnection.
+    if (_directResetInProgress || _socket != null) return;
+    if (_directPreferred) {
+      await directStart(receiver: role == 'receiver');
+      return;
+    }
     if (!enabled) await configure(isEnabled: true);
     if (role == 'receiver') {
-      // A manual retry must also be able to clear a group that Android
-      // reports as formed but that will no longer accept any phone.
-      if (_directPreferred && _directGroupConnected && _socket == null) {
-        await resetDirectSession();
-        return;
-      }
-      if (_directPreferred && !_directGroupConnected) {
-        await directStart(receiver: true);
-      }
       if (_server == null) await connect(manual: true);
       return;
     }
-    if (_socket != null) return;
-    if (_directPreferred && (_directGroupConnected ||
-        _directPairingInProgress)) {
-      // Old "Reconnect" kept redialing a dead group-owner IP forever.
-      // Repair the network layer FIRST, then rediscover the receiver.
-      await resetDirectSession();
-      return;
-    }
-    _manualPairDeadlineMs =
-        DateTime.now().millisecondsSinceEpoch + 40000;
-    if (_directPreferred && !_directGroupConnected) {
-      // A one-shot manual Reconnect can scan even if background auto is off.
-      await directStart(receiver: false);
-      return;
-    }
-    if (!_directPreferred) unawaited(findReceivers());
+    _manualPairDeadlineMs = DateTime.now().millisecondsSinceEpoch + 40000;
+    await findReceivers();
     await connect(manual: true);
   }
-
-
 
   /// Recover from a wedged Android pairing without reinstalling VYBE.
   /// Optional Forget clears ONLY the previously trusted receiver identity
   /// and network addresses; the device's own identity is preserved.
-  Future<void> resetDirectSession({bool forgetSaved = false}) async {
+  Future<void> resetDirectSession({bool forgetSaved = false, bool restart = false}) async {
     if (_directResetInProgress) return;
     _directResetInProgress = true;
+    _restartDirectAfterReset = restart;
+    _directRequested = restart;
+    _directEpoch++;
+    if (!restart) _selectedDirectPhoneId = '';
     _generation++;
+    unawaited(_closePhoneDirectListener());
+    final oldServer = _server; _server = null;
+    final oldResponder = _responder; _responder = null;
+    await oldServer?.close();
+    await oldResponder?.close();
     _retry?.cancel(); _retry = null;
     _helloTimer?.cancel(); _helloTimer = null;
     _sendTimer?.cancel(); _sendTimer = null;
@@ -1292,7 +1247,7 @@ class VybeLink extends ChangeNotifier {
     _connectPending = false;
     _directPairingInProgress = false;
     _directPairingStartedMs = 0;
-    _manualPairDeadlineMs = 0;
+    _manualPairDeadlineMs = restart ? DateTime.now().millisecondsSinceEpoch + 120000 : 0;
     _manualDirectRecoveryAttempts = 0;
     _pendingDirectReceiverId = '';
     _pendingDirectPeerAddress = '';
@@ -1314,6 +1269,16 @@ class VybeLink extends ChangeNotifier {
     activeTransport = role == 'receiver'
         ? 'Listening on available networks' : 'Disconnected';
     directPeers = [];
+    if (forgetSaved && role == 'receiver') {
+      _savedDirectPhoneId = '';
+      autoConnect = false;
+      _autoPreferenceExplicit = true;
+      _directPreferred = false;
+      final p = await SharedPreferences.getInstance();
+      await p.setString('link_direct_phone_id', '');
+      await p.setBool('link_auto', false);
+      await p.setBool('link_direct_preferred', false);
+    }
     if (forgetSaved && role == 'sender') {
       // Do not let auto-reconnect immediately select a device that the
       // user explicitly chose to forget.
@@ -1406,7 +1371,12 @@ class VybeLink extends ChangeNotifier {
         _generation++;
       }
     }
-    if (!enabled) _directGroupConnected = false;
+    if (!enabled) {
+      _directRequested = false; _directEpoch++;
+      _directGroupConnected = false; _directPairingInProgress = false;
+      unawaited(_closePhoneDirectListener());
+      try { await _direct.invokeMethod<bool>('cancelAuto'); } catch (_) {}
+    }
     if (disabledAuto &&
         DateTime.now().millisecondsSinceEpoch >= _manualPairDeadlineMs) {
       _directPairingInProgress = false;
@@ -1458,6 +1428,7 @@ class VybeLink extends ChangeNotifier {
     }
     await connection;
     if (enabled && automatic == true && _directPreferred && _socket == null) {
+      _directRequested = true;
       unawaited(_recoverDirect(immediately: true));
     }
   }
@@ -1503,6 +1474,8 @@ class VybeLink extends ChangeNotifier {
   /// required. Receiver identity is learned asynchronously without blocking
   /// the first metadata packet.
   Future<void> connect({bool manual = false}) async {
+    if (enabled && role == 'sender' && _directPreferred) return;
+    if (enabled && role == 'receiver' && _directRequested && _socket != null) return;
     if (enabled && role == 'sender' && _directPreferred &&
         _directGroupConnected && directBandMode != 'auto') {
       final expected = directBandMode == '5ghz' ? '5 GHz' : '2.4 GHz';
@@ -1603,6 +1576,7 @@ class VybeLink extends ChangeNotifier {
           if (generation != _generation || role != 'receiver' || !enabled) {
             client.destroy(); return;
           }
+          if (_directRequested && (_tcpConnectedViaDirect || _directDialBusy)) { client.destroy(); return; }
           _socketSub?.cancel();
           _socket?.destroy();
           _socket = client;
@@ -1909,6 +1883,8 @@ class VybeLink extends ChangeNotifier {
 
   void _receiverDisconnected(Socket client) {
     if (!identical(client, _socket)) return;
+    _helloTimer?.cancel(); _helloTimer = null;
+    _tcpConnectedViaDirect = false;
     _socket = null; _model?.setLinkReceiverActive(false);
     _remoteWasPlaying = false;
     activeTransport = 'Listening on available networks';
@@ -2310,18 +2286,6 @@ class VybeLink extends ChangeNotifier {
           notifyListeners();
         }
         metadataReceived++;
-        // After a real VYBE metadata exchange, the head unit can restore
-        // its P2P group automatically on later starts. New installations
-        // remain manual until this first successful session; never override
-        // an explicit Auto Connect OFF preference.
-        if (!_autoPreferenceExplicit && !autoConnect &&
-            _directPreferred && _directGroupConnected) {
-          autoConnect = true;
-          unawaited(SharedPreferences.getInstance().then((prefs) async {
-            await prefs.setBool('link_auto', true);
-          }));
-          notifyListeners();
-        }
         // The phone's existing VYBE Connect playback state is an Android-
         // independent trigger. Only the first PLAYING transition requests
         // activation of the user-selected media session on the head unit.
@@ -2430,6 +2394,7 @@ class VybeLink extends ChangeNotifier {
     _sendTimer?.cancel(); _helloTimer?.cancel();
     _model?.removeListener(_onModel);
     _socketSub?.cancel(); _socket?.destroy(); _server?.close();
+    _directRecoveryTimer?.cancel(); _phoneDirectServer?.close();
     _responder?.close();
     super.dispose();
   }
