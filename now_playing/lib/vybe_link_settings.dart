@@ -72,7 +72,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
             Text(headUnit ? 'Find and join the Wi-Fi Direct network created by your VYBE phone.' : 'Your phone creates the Wi-Fi Direct network. Start it here, then select this phone on the head unit.'),
             const SizedBox(height: 8),
             ElevatedButton.icon(
-              onPressed: link.directResetInProgress ? null : () => link.directStart(receiver: headUnit),
+              onPressed: link.directResetInProgress || (headUnit && link.directPairingInProgress) ? null : () => link.directStart(receiver: headUnit),
               icon: const Icon(Icons.wifi),
               label: Text(headUnit
                   ? (link.directSearchActive && !link.directRawScan ? 'Searching for VYBE phones...' : 'Find VYBE phones')
@@ -89,7 +89,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               Text('Wi-Fi Direct network: ${link.phoneNetworkName}'),
             if (headUnit) ...[
               const SizedBox(height: 12),
-              const Text('Available VYBE phones', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('Available VYBE phones (${link.directPeers.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               if (link.directPeers.isEmpty)
                 Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(border: Border.all(color: Colors.white24), borderRadius: BorderRadius.circular(8)), child: Text(link.directSearchActive && !link.directRawScan ? 'Scanning... waiting for phones to appear.' : 'No phones found. Start the network on your phone, then tap Find VYBE phones.')),
               for (final peer in link.directPeers)
@@ -103,10 +103,10 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                     link.directConnectPeer(peer['address'] ?? '', manuallySelected: true),
                 )),
               const SizedBox(height: 8),
-              OutlinedButton.icon(onPressed: link.directPairingInProgress || link.directResetInProgress ? null : () => link.findSystemDirectDevices(), icon: const Icon(Icons.wifi_find), label: const Text('Find system Wi-Fi Direct devices (fallback)')),
+              OutlinedButton.icon(onPressed: link.directPairingInProgress || link.directResetInProgress ? null : () => link.findSystemDirectDevices(), icon: const Icon(Icons.search), label: const Text('Find system Wi-Fi Direct devices (fallback)')),
               if (link.directRawScan) ...[
                 const Text('System Wi-Fi Direct devices — unverified', style: TextStyle(fontWeight: FontWeight.bold)),
-                const Text('Select your phone by its Android device name and enter the six-character pairing code shown on the phone. Other devices will not receive music data.'),
+                const Text('Select your phone by its Android device name and enter the six-character pairing code shown on the phone. VYBE checks the phone code before accepting its playback data.'),
                 if (link.directRawPeers.isEmpty) Text(link.directSearchActive ? 'Scanning system devices...' : 'No system Wi-Fi Direct devices found.'),
                 for (final peer in link.directRawPeers)
                   Card(child: ListTile(title: Text(peer['name'] ?? 'Android device'), subtitle: const Text('Tap to verify phone code and join'), trailing: const Icon(Icons.link), onTap: link.directPairingInProgress ? null : () async {

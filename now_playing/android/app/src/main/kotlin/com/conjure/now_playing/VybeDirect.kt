@@ -472,7 +472,9 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
 
     // Only publish after Flutter has bound its TCP listener on the owner IP.
     fun publishHost(receiverId: String): Boolean {
-        if (!permitted() || resettingStaleGroup || pendingHostReceiverId != receiverId) return false
+        if (!permitted() || resettingStaleGroup || !receiverId.matches(Regex("[0-9a-fA-F]{32}"))) return false
+        if (pendingHostReceiverId.isNotEmpty() && pendingHostReceiverId != receiverId) return false
+        pendingHostReceiverId = receiverId
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
         service.requestConnectionInfo(ch) { info ->
@@ -502,7 +504,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             for (peer in peers.deviceList) {
                 if (peer.deviceAddress.isNullOrBlank()) continue
                 rawPeers[peer.deviceAddress] = mapOf("address" to peer.deviceAddress,
-                    "name" to (peer.deviceName.takeIf { it.isNotBlank() } ?: "Android Wi-Fi Direct device"))
+                    "name" to (peer.deviceName?.takeIf { it.isNotBlank() } ?: "Android Wi-Fi Direct device"))
             }
             event(mapOf("type" to "raw_peers", "items" to rawPeers.values.toList()))
         }
@@ -514,26 +516,51 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         if (!start() || resettingStaleGroup || connectingAddress != null) return false
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
-        discoveryGeneration++
+        val epoch = ++discoveryGeneration
         discoveryPending = false
         lastDiscoveryStartedMs = 0L
         rawDiscovery = true
         rawPeers.clear()
         event(mapOf("type" to "raw_peers", "items" to emptyList<Map<String, String>>()))
-        service.discoverPeers(ch, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                if (rawDiscovery && ch === p2pChannel) {
-                    publishRawPeers()
-                    event(mapOf("type" to "status", "message" to "Scanning system Wi-Fi Direct devices"))
+        fun current(): Boolean = rawDiscovery && ch === p2pChannel && epoch == discoveryGeneration
+        fun fail(reason: String) {
+            if (!current()) return
+            rawDiscovery = false
+            event(mapOf("type" to "error", "message" to reason))
+        }
+        var scanStarted = false
+        fun scan() {
+            if (!current() || scanStarted) return
+            scanStarted = true
+            service.discoverPeers(ch, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    if (current()) {
+                        publishRawPeers()
+                        event(mapOf("type" to "status", "message" to "Scanning system Wi-Fi Direct devices"))
+                    }
                 }
-            }
-            override fun onFailure(reason: Int) {
-                if (rawDiscovery && ch === p2pChannel) {
-                    rawDiscovery = false
-                    event(mapOf("type" to "error", "message" to "System Wi-Fi Direct scan failed ($reason)"))
+                override fun onFailure(reason: Int) {
+                    fail("System Wi-Fi Direct scan failed ($reason); tap Find again")
                 }
-            }
+            })
+        }
+        var clearStarted = false
+        fun clearOldRequests() {
+            if (!current() || clearStarted) return
+            clearStarted = true
+            serviceRequest = null
+            service.clearServiceRequests(ch, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() { scan() }
+                override fun onFailure(reason: Int) { scan() }
+            })
+            mainHandler.postDelayed({ scan() }, 1500L)
+        }
+        // Stop DNS-SD discovery before issuing ordinary P2P discovery.
+        service.stopPeerDiscovery(ch, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() { clearOldRequests() }
+            override fun onFailure(reason: Int) { clearOldRequests() }
         })
+        mainHandler.postDelayed({ clearOldRequests() }, 1500L)
         return true
     }
 
@@ -647,7 +674,10 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             val request = WifiP2pDnsSdServiceRequest.newInstance()
             service.addServiceRequest(ch, request, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
-                    if (generation != discoveryGeneration) return
+                    if (generation != discoveryGeneration) {
+                        try { service.removeServiceRequest(ch, request, null) } catch (_: Exception) {}
+                        return
+                    }
                     serviceRequest = request
                     event(mapOf("type" to "status",
                         "message" to "VYBE service request registered; searching for VYBE phones..."))
