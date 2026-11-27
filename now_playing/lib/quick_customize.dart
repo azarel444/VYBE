@@ -130,7 +130,8 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
             child: DropdownButton<int>(
               value: current,
               isExpanded: true,
-              isDense: true,
+              isDense: !widget.headUnit,
+              itemHeight: widget.headUnit ? 58 : 48,
               dropdownColor: const Color(0xFF242833),
               style: const TextStyle(color: Colors.white, fontSize: 14),
               icon: const Icon(Icons.keyboard_arrow_down_rounded,
@@ -297,6 +298,8 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         fontWeight: FontWeight.w700))),
                     IconButton(
                       tooltip: 'Close customization',
+                      constraints: widget.headUnit ? const BoxConstraints(minWidth: 60, minHeight: 60) : null,
+                      iconSize: widget.headUnit ? 30 : 24,
                       visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact,
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.close_rounded),
@@ -327,7 +330,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                   SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Show visualizer'),
                     value: s.visualizer, onChanged: (v) => s.update(() => s.visualizer = v)),
                   if (s.visualizer) ...[
-                    if (s.theme == AppSettings.tCinematic)
+                    if (s.theme == AppSettings.tCinematic || s.theme == AppSettings.tEditorial)
                       _optionRow('Waveform type', const ['Bars', 'Smooth Wave', 'Dot Wave'],
                         s.cinematicWaveStyle, (i) => s.update(() => s.cinematicWaveStyle = i))
                     else
@@ -365,6 +368,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                     Expanded(child: DropdownButton<int>(
                       value: s.artistLogoFx,
                       isExpanded: true,
+                      itemHeight: widget.headUnit ? 60 : 48,
                       dropdownColor: const Color(0xFF1B1F2D),
                       items: [
                         for (var i=0; i<AppSettings.artistLogoFxNames.length; i++)
@@ -428,7 +432,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                     'on below to restore downloaded artist logos.',
                     style: TextStyle(color: Colors.white54, fontSize: 11)),
                   const Divider(height: 14, color: Colors.white24),
-                  Wrap(spacing: 10, runSpacing: 2,
+                  Wrap(spacing: widget.headUnit ? 14 : 10, runSpacing: widget.headUnit ? 10 : 2,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       FilterChip(
@@ -449,6 +453,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         label: const Text('FX Gallery'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
+                          minimumSize: widget.headUnit ? const Size(64, 56) : null,
                           visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact,
                         ),
                       ),
@@ -458,6 +463,7 @@ class _QuickCustomizeSheetState extends State<QuickCustomizeSheet> {
                         label: const Text('Riot Spacing Editor'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
+                          minimumSize: widget.headUnit ? const Size(64, 56) : null,
                           visualDensity: widget.headUnit ? VisualDensity.standard : VisualDensity.compact,
                         ),
                       ),

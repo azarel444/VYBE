@@ -98,6 +98,8 @@ class AppSettings extends ChangeNotifier {
 
   static const barCounts = [32, 48, 64, 96];
 
+  // Shared persisted profile for the separate Drive Flutter engine.
+  bool headUnitDevice = false;
   int theme = 0; // index into themeNames
   bool visualizer = true;
   int diagonalWaveStyle = 0; // 0 bars, 1 smooth wave, 2 dot wave
@@ -618,6 +620,8 @@ class AppSettings extends ChangeNotifier {
       debugPrint('VYBE settings synchronization failed: $e');
     });
     final p = await SharedPreferences.getInstance();
+    headUnitDevice = (p.getString('vybe_device_type') ??
+        (p.getString('link_role') == 'receiver' ? 'head_unit' : 'phone')) == 'head_unit';
     // The Drive overlay uses a separate Flutter engine with its own cache.
     // Refresh from Android storage before reading changes made by that engine.
     await p.reload();

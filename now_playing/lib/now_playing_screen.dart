@@ -318,6 +318,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   void _onLinkFanart() {
     if (!mounted) return;
     final link = VybeLink.instance;
+    final head = link.deviceType == 'head_unit';
+    if (settings.headUnitDevice != head) {
+      setState(() => settings.headUnitDevice = head);
+    }
     if (link.role == 'sender') {
       // Replay the current logo after initial metadata is sent on reconnect.
       if (settings.useArtistClearLogo &&
@@ -5862,7 +5866,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   double _riotWordGap(String previous, String next, double fontSize) =>
       fontSize * (previous == 'Y' && next == 'S' ? .11 : .22);
 
-  bool get _headUnitControls => VybeLink.instance.deviceType == 'head_unit';
+  bool get _headUnitControls => widget.driveHost ? settings.headUnitDevice :
+      VybeLink.instance.deviceType == 'head_unit';
 
   Widget _artistText(double size, {Color? color, String? letteringOverride,
       bool logoTreatment = true}) {
