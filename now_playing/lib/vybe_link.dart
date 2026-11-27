@@ -220,7 +220,8 @@ class VybeLink extends ChangeNotifier {
   /// a working socket, hotspot or manually established LAN connection.
   Future<void> _recoverDirect({bool immediately = false}) async {
     if (_directResetInProgress ||
-        !enabled || !autoConnect || !_directPreferred || !directAvailable ||
+        !enabled || (role == 'sender' && !autoConnect) ||
+        !_directPreferred || !directAvailable ||
         // A strict-band trial is manual to avoid repeated failures while
         // Android 9's group owner hosts on an incompatible band.
         (role == 'sender' && (directBandMode != 'auto' ||
@@ -239,9 +240,13 @@ class VybeLink extends ChangeNotifier {
       return;
     }
     if (role == 'receiver' && _directGroupConnected) {
+      if (_socket != null) return;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (!immediately && now - _lastDirectRecoveryMs < 30000) return;
+      _lastDirectRecoveryMs = now;
       try {
         await _direct.invokeMethod<bool>(
-            'host', {'receiverId': localDeviceId});
+            'host', {'receiverId': localDeviceId, 'refreshAdvertisement': true});
       } catch (error) {
         directStatus = 'Cannot advertise VYBE head unit: $error';
         notifyListeners();
@@ -344,9 +349,9 @@ class VybeLink extends ChangeNotifier {
                 : 'Wi-Fi Direct reset; ready to discover another head unit';
             // Do not infer a successful pairing here. Only the next TCP
             // hello is allowed to save the receiver as trusted.
-            if (enabled) {
+            if (enabled && role == 'receiver') {
               Future<void>.delayed(const Duration(milliseconds: 650), () {
-                if (enabled && !_directResetInProgress) {
+                if (enabled && role == 'receiver' && !_directResetInProgress) {
                   unawaited(directStart(receiver: role == 'receiver'));
                 }
               });
@@ -442,13 +447,13 @@ class VybeLink extends ChangeNotifier {
             final manuallyRetrying = _pendingDirectReceiverId.isNotEmpty &&
                 DateTime.now().millisecondsSinceEpoch < _manualPairDeadlineMs;
             if (_directPreferred && enabled &&
-                (manuallyRetrying || autoConnect)) {
+                (manuallyRetrying || autoConnect || role == 'receiver')) {
               Future<void>.delayed(const Duration(seconds: 2), () {
-                if (!enabled || _directGroupConnected) return;
-                if (manuallyRetrying) {
+                if (!enabled || _directResetInProgress || !_directPreferred || _directGroupConnected) return;
+                if (manuallyRetrying && _pendingDirectReceiverId.isNotEmpty) {
                   unawaited(_direct.invokeMethod<bool>(
                       'discover', {'force': true}));
-                } else if (autoConnect) {
+                } else if (autoConnect || role == 'receiver') {
                   unawaited(_recoverDirect(immediately: true));
                 }
               });
@@ -581,7 +586,7 @@ class VybeLink extends ChangeNotifier {
               if (role == 'sender' && recoveringManualChannel) {
                 unawaited(_direct.invokeMethod<bool>(
                     'discover', {'force': true}));
-              } else if (autoConnect) {
+              } else if (autoConnect || role == 'receiver') {
                 unawaited(_recoverDirect(immediately: true));
               }
             }
@@ -601,8 +606,7 @@ class VybeLink extends ChangeNotifier {
             directStatus = data['enabled'] == true
                 ? 'Wi-Fi Direct available' : 'Wi-Fi Direct disabled';
             if (data['enabled'] == true && _directPreferred && enabled &&
-                autoConnect &&
-                (role == 'receiver' || _hasConfirmedDirectReceiver)) {
+                (role == 'receiver' || (autoConnect && _hasConfirmedDirectReceiver))) {
               unawaited(_recoverDirect(immediately: true));
             }
             break;
@@ -665,6 +669,9 @@ class VybeLink extends ChangeNotifier {
   }
 
   Future<void> directStart({required bool receiver}) async {
+    if (_directResetInProgress) return;
+    directStatus = receiver ? 'Preparing head-unit Wi-Fi Direct...' : 'Starting a new VYBE head-unit search...';
+    notifyListeners();
     await directInitialize();
     if (!directAvailable) { directStatus = 'Wi-Fi Direct not supported on this device'; notifyListeners(); return; }
     try {
@@ -1094,19 +1101,20 @@ class VybeLink extends ChangeNotifier {
       // before we ever try connecting to the saved group-owner IP.
       unawaited(connect());
     }
-    if (enabled && autoConnect && _directPreferred && directAvailable) {
+    if (enabled && (autoConnect || role == 'receiver') && _directPreferred && directAvailable) {
       try { await _direct.invokeMethod<bool>('start'); } catch (_) {}
     }
     // Network auto-reconnect is not enough if Wi-Fi Direct itself vanished.
     // When the user has already chosen Direct, restore its group/peer without
     // asking for the IP again. A running LAN socket takes priority.
-    if (enabled && autoConnect && _directPreferred) {
+    if (enabled && (autoConnect || role == 'receiver') && _directPreferred) {
       unawaited(_recoverDirect(immediately: true));
     }
     _directRecoveryTimer?.cancel();
     _directRecoveryTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (enabled && autoConnect && _directPreferred &&
-          !_directGroupConnected && (role == 'receiver' || _socket == null)) {
+      if (enabled && _directPreferred && !_directResetInProgress &&
+          (role == 'receiver' ? _socket == null :
+              autoConnect && !_directGroupConnected && _socket == null)) {
         unawaited(_recoverDirect());
       }
     });
@@ -1136,7 +1144,7 @@ class VybeLink extends ChangeNotifier {
         try { peer.writeln(jsonEncode({'v': 2, 'kind': 'ping'})); }
         catch (_) { if (role == 'sender') _senderDisconnected(peer); else _receiverDisconnected(peer); }
       }
-      if (!enabled || !autoConnect) return;
+      if (!enabled || (role == 'sender' && !autoConnect)) return;
       // Keep UDP pairing discoverable even if it failed after TCP binding.
       if (role == 'receiver' && _server != null && _responder == null) {
         unawaited(_ensureResponder());

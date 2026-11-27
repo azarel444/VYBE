@@ -75,12 +75,15 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                 'Android devices are hidden.'),
             const SizedBox(height: 8),
             ElevatedButton.icon(
-              onPressed: () => link.directStart(receiver: headUnit),
+              onPressed: link.directResetInProgress ? null : () => link.directStart(receiver: headUnit),
               icon: const Icon(Icons.wifi),
               label: Text(headUnit
                   ? 'Set up head-unit Wi-Fi Direct'
                   : 'Find VYBE head units'),
             ),
+            const SizedBox(height: 6),
+            Text('Wi-Fi Direct: ${link.directStatus}',
+                style: const TextStyle(color: Colors.white70)),
             if (headUnit && link.localDeviceId.length >= 6)
               Text('Advertised as: VYBE Head Unit · '
                   '${link.localDeviceId.substring(link.localDeviceId.length - 6).toUpperCase()}',
@@ -197,8 +200,6 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh Wi-Fi Direct frequency'),
             ),
-            Text('Wi-Fi Direct: ${link.directStatus}',
-                style: const TextStyle(color: Colors.white70)),
             if (link.directPairingDiagnostic.isNotEmpty)
               SelectableText('Last Android pairing diagnostic: '
                   '${link.directPairingDiagnostic}',

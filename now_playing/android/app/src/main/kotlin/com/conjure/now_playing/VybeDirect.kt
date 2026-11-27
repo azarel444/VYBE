@@ -38,6 +38,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     // Android can drop the underlying P2P framework channel without a Wi-Fi
     // radio broadcast. A permanently-held null-listener channel required an
     // app force-close to recover. Recreate it and all per-channel state.
+    private var channelGeneration = 0
     private var p2pChannel: WifiP2pManager.Channel? = createP2pChannel()
     private var registered = false
     private var advertised = false
@@ -70,9 +71,11 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
 
     private fun createP2pChannel(): WifiP2pManager.Channel? {
         val service = manager ?: return null
+        val generation = ++channelGeneration
         return service.initialize(activity, Looper.getMainLooper(),
             object : WifiP2pManager.ChannelListener {
                 override fun onChannelDisconnected() {
+                    if (generation != channelGeneration) return
                     p2pChannel = null
                     resettingStaleGroup = false
                     connectingAddress = null
@@ -265,11 +268,13 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     }
 
     fun available(): Boolean =
-        manager != null && p2pChannel != null &&
+        manager != null &&
         activity.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)
 
     fun start(): Boolean {
         if (!available() || !permitted()) return false
+        if (p2pChannel == null) p2pChannel = createP2pChannel()
+        if (p2pChannel == null) return false
         if (!registered) {
             val filter = IntentFilter().apply {
                 addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
@@ -527,7 +532,10 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 "message" to "Pairing in progress; waiting for Wi-Fi Direct group"))
             return true
         }
-        if (discoveryPending) return true
+        if (discoveryPending) {
+            event(mapOf("type" to "status", "message" to "VYBE discovery is already starting; waiting for Android"))
+            return true
+        }
         val now = SystemClock.elapsedRealtime()
         // Android's discovery callback means the SEARCH started, not that
         // the scan finished. The 10-second Flutter recovery loop must not
@@ -637,13 +645,30 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 }
             })
         }
-        if (serviceRequest != null) beginSearch(1)
+        if (force) {
+            // A deliberate Find tap must not reuse an OS request from a dead session.
+            serviceRequest = null
+            service.stopPeerDiscovery(ch, object : WifiP2pManager.ActionListener {
+                private fun clearAndSearch() {
+                    if (generation != discoveryGeneration) return
+                    service.clearServiceRequests(ch, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() { registerAndSearch(1) }
+                        override fun onFailure(reason: Int) {
+                            fail("Cannot clear stale VYBE discovery requests (Android code $reason); tap Find again")
+                        }
+                    })
+                }
+                override fun onSuccess() { clearAndSearch() }
+                override fun onFailure(reason: Int) { clearAndSearch() }
+            })
+        } else if (serviceRequest != null) beginSearch(1)
         else registerAndSearch(1)
         // Service callbacks can be lost on some radios; allow the next
         // deliberate scan to recover without restarting the app.
         mainHandler.postDelayed({
             if (generation == discoveryGeneration && discoveryPending) {
-                fail("Wi-Fi Direct discovery timed out; retrying with a fresh request")
+                serviceRequest = null
+                fail("Wi-Fi Direct discovery timed out; tap Find to start a fresh request")
             }
         }, 12000L)
         return true
@@ -1081,8 +1106,30 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         fun complete(ok: Boolean, message: String) {
             if (epoch != resetGroupGeneration || !resettingStaleGroup) return
             resettingStaleGroup = false
-            val type = if (ok) "reset_complete" else "reset_failed"
-            event(mapOf("type" to type, "message" to message))
+            var ready = ok
+            if (ok) {
+                // Retire the old framework channel and its callback generation.
+                // Channel.close is public on API 27+, including Android 9.
+                channelGeneration++
+                p2pChannel = null
+                if (Build.VERSION.SDK_INT >= 27) {
+                    try { ch.close() } catch (_: Exception) {}
+                }
+                p2pChannel = try { createP2pChannel() } catch (_: Exception) { null }
+                ready = p2pChannel != null
+            }
+            val type = if (ready) "reset_complete" else "reset_failed"
+            event(mapOf("type" to type, "message" to if (ok && !ready)
+                "Old group removed but Android channel could not reopen; tap Reset again" else message))
+        }
+        fun verifyRemoved(attempt: Int) {
+            if (epoch != resetGroupGeneration || !resettingStaleGroup) return
+            service.requestGroupInfo(ch) { current ->
+                if (epoch != resetGroupGeneration || !resettingStaleGroup) return@requestGroupInfo
+                if (current == null) complete(true, "Old Wi-Fi Direct session cleared; fresh discovery channel ready")
+                else if (attempt < 8) mainHandler.postDelayed({ verifyRemoved(attempt + 1) }, 500L)
+                else complete(false, "Android still reports the old Wi-Fi Direct group; tap Reset again")
+            }
         }
         mainHandler.postDelayed({
             complete(false, "Android did not finish Wi-Fi Direct reset. Retry or toggle Wi-Fi.")
@@ -1096,12 +1143,12 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 if (epoch != resetGroupGeneration || !resettingStaleGroup)
                     return@requestGroupInfo
                 if (group == null) {
-                    complete(true, "Old Wi-Fi Direct session cleared; ready for new pairing")
+                    verifyRemoved(0)
                 } else {
                     try {
                         service.removeGroup(ch, object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
-                                complete(true, "Old Wi-Fi Direct group removed; ready for new pairing")
+                                mainHandler.postDelayed({ verifyRemoved(0) }, 400L)
                             }
                             override fun onFailure(reason: Int) {
                                 complete(false, "Android could not remove the old Wi-Fi Direct group (code $reason)")
