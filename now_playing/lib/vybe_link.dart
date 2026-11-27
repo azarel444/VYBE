@@ -298,6 +298,9 @@ class VybeLink extends ChangeNotifier {
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct reset finished';
             final restart = _restartDirectAfterReset && eventType == 'reset_complete';
             _restartDirectAfterReset = false;
+            if (enabled && role == 'receiver' && _server == null && !restart) {
+              unawaited(connect(manual: true));
+            }
             status = !enabled ? 'Disabled' : (restart
                 ? 'Restarting Wi-Fi Direct' : 'Ready for manual Wi-Fi Direct setup');
             if (enabled && restart) {
@@ -321,7 +324,8 @@ class VybeLink extends ChangeNotifier {
             if (!_directRequested || !_directPreferred) break;
             final owner = data['owner'] == true;
             final host = data['host']?.toString() ?? '';
-            if (owner != (role == 'sender')) {
+            if (owner != (role == 'sender') ||
+                (!owner && _selectedDirectPhoneId.isEmpty && _savedDirectPhoneId.isEmpty)) {
               directStatus = 'Old Wi-Fi Direct group uses the previous connection direction; resetting';
               if (!_directResetInProgress) {
                 unawaited(resetDirectSession(restart: true));
@@ -338,7 +342,8 @@ class VybeLink extends ChangeNotifier {
             unawaited(refreshDirectBandInfo());
             if (owner) {
               unawaited(_openPhoneDirectListener());
-            } else if (_directAuthorized() && _selectedDirectPhoneId.isNotEmpty) {
+            } else if (_directAuthorized() &&
+                (_selectedDirectPhoneId.isNotEmpty || _savedDirectPhoneId.isNotEmpty)) {
               unawaited(_dialPhoneDirect());
             }
             break;
@@ -471,6 +476,9 @@ class VybeLink extends ChangeNotifier {
   Future<void> directStart({required bool receiver}) async {
     if (_directResetInProgress) return;
     if (_socket != null && _tcpConnectedViaDirect) return;
+    if (_socket == null && role == 'sender') {
+      _generation++; _retry?.cancel(); _retry = null; _connectPending = false;
+    }
     _directRequested = true;
     _manualPairDeadlineMs = DateTime.now().millisecondsSinceEpoch + 120000;
     _lastDirectRecoveryMs = 0;
@@ -501,8 +509,17 @@ class VybeLink extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      if (_directResetInProgress || !_directRequested || !enabled) return;
       directActive = true;
       final hosting = role == 'sender';
+      if (!hosting && _directGroupConnected) {
+        if (_savedDirectPhoneId.isNotEmpty || _selectedDirectPhoneId.isNotEmpty) {
+          await _dialPhoneDirect();
+        } else {
+          await resetDirectSession(restart: true);
+        }
+        return;
+      }
       directStatus = hosting ? 'Creating phone Wi-Fi Direct group...'
           : 'Searching only for VYBE phones...';
       notifyListeners();
@@ -569,7 +586,7 @@ class VybeLink extends ChangeNotifier {
       activeTransport = 'Wi-Fi Direct host';
       server.listen((peer) {
         if (epoch != _directEpoch || !enabled || !_directRequested ||
-            !_directGroupConnected || !_directAuthorized() || _socket != null) {
+            !_directGroupConnected || !_directAuthorized() || _socket != null || role != 'sender') {
           peer.destroy();
           return;
         }
@@ -1151,7 +1168,13 @@ class VybeLink extends ChangeNotifier {
   Future<void> pairReceiver(LinkReceiver receiver) async {
     _directRequested = false;
     _directPreferred = false;
+    _directGroupConnected = false;
+    _directGroupOwnerIp = '';
     _directEpoch++;
+    if (_tcpConnectedViaDirect && _socket != null) {
+      final peer = _socket!;
+      _senderDisconnected(peer); peer.destroy();
+    }
     await _closePhoneDirectListener();
     final settings = await SharedPreferences.getInstance();
     await settings.setBool('link_direct_preferred', false);
@@ -1189,13 +1212,13 @@ class VybeLink extends ChangeNotifier {
     if (role == 'receiver' && _server == null && !_connecting) {
       unawaited(() async {
         await connect(manual: true);
-        if (enabled && autoConnect && _directPreferred && _server != null) {
+        if (enabled && _directAuthorized() && _directRequested && _directPreferred && _server != null) {
           await _recoverDirect(immediately: true);
         }
       }());
       return;
     }
-    if (!autoConnect) return;
+    if (!_directAuthorized()) return;
     if (_directPreferred) {
       _directRequested = true;
       unawaited(_recoverDirect(immediately: true));
@@ -1238,8 +1261,8 @@ class VybeLink extends ChangeNotifier {
     unawaited(_closePhoneDirectListener());
     final oldServer = _server; _server = null;
     final oldResponder = _responder; _responder = null;
-    await oldServer?.close();
-    await oldResponder?.close();
+    try { await oldServer?.close(); } catch (_) {}
+    try { await oldResponder?.close(); } catch (_) {}
     _retry?.cancel(); _retry = null;
     _helloTimer?.cancel(); _helloTimer = null;
     _sendTimer?.cancel(); _sendTimer = null;
@@ -1274,10 +1297,12 @@ class VybeLink extends ChangeNotifier {
       autoConnect = false;
       _autoPreferenceExplicit = true;
       _directPreferred = false;
-      final p = await SharedPreferences.getInstance();
-      await p.setString('link_direct_phone_id', '');
-      await p.setBool('link_auto', false);
-      await p.setBool('link_direct_preferred', false);
+      try {
+        final p = await SharedPreferences.getInstance();
+        await p.setString('link_direct_phone_id', '');
+        await p.setBool('link_auto', false);
+        await p.setBool('link_direct_preferred', false);
+      } catch (e) { directPairingDiagnostic = 'Could not clear saved phone: $e'; }
     }
     if (forgetSaved && role == 'sender') {
       // Do not let auto-reconnect immediately select a device that the
@@ -1307,7 +1332,7 @@ class VybeLink extends ChangeNotifier {
       }
     }
     status = forgetSaved
-        ? 'Old head-unit identity forgotten; clearing Android Wi-Fi Direct'
+        ? 'Old device identity forgotten; clearing Android Wi-Fi Direct'
         : 'Clearing stalled Wi-Fi Direct session';
     directStatus = status;
     notifyListeners();
@@ -1376,6 +1401,9 @@ class VybeLink extends ChangeNotifier {
       _directGroupConnected = false; _directPairingInProgress = false;
       unawaited(_closePhoneDirectListener());
       try { await _direct.invokeMethod<bool>('cancelAuto'); } catch (_) {}
+      if (directActive && !_directResetInProgress) {
+        await resetDirectSession();
+      }
     }
     if (disabledAuto &&
         DateTime.now().millisecondsSinceEpoch >= _manualPairDeadlineMs) {
@@ -1399,7 +1427,7 @@ class VybeLink extends ChangeNotifier {
         (_socket != null && role == 'sender')
             ? 'Connected to ${receiverAddress}' :
         (!autoConnect && !manualWindow && role == 'sender')
-            ? 'Manual mode: select your VYBE head unit to connect' :
+            ? 'Manual mode: start phone Wi-Fi Direct or find a shared Wi-Fi head unit' :
         'Connecting...';
     notifyListeners();
     // Turning off automatic reconnection must NOT call connect() again.
@@ -1476,6 +1504,7 @@ class VybeLink extends ChangeNotifier {
   Future<void> connect({bool manual = false}) async {
     if (enabled && role == 'sender' && _directPreferred) return;
     if (enabled && role == 'receiver' && _directRequested && _socket != null) return;
+    if (_directResetInProgress && enabled) return;
     if (enabled && role == 'sender' && _directPreferred &&
         _directGroupConnected && directBandMode != 'auto') {
       final expected = directBandMode == '5ghz' ? '5 GHz' : '2.4 GHz';
