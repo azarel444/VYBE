@@ -60,6 +60,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private val verifiedReceivers = linkedMapOf<String, Map<String, String>>()
     private val verifiedReceiverSeen = mutableMapOf<String, Long>()
     private var hostPending = false
+    private var hostGeneration = 0
     private var hostReadyChecks = 0
     private var pendingHostReceiverId = ""
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -122,7 +123,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     val service = manager ?: return
                     val ch = p2pChannel ?: return
                     service.requestConnectionInfo(ch) { info ->
-                        if (info.groupFormed && resettingStaleGroup)
+                        if (ch !== p2pChannel || resettingStaleGroup)
                             return@requestConnectionInfo
                         if (info.groupFormed && info.groupOwnerAddress != null) {
                             val requestedAddress = connectingAddress
@@ -132,7 +133,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                                 // is the selected VYBE device before accepting
                                 // this broadcast as a completed pairing.
                                 service.requestGroupInfo(ch) { group ->
-                                    if (connectingAddress != requestedAddress)
+                                    if (ch !== p2pChannel || resettingStaleGroup || connectingAddress != requestedAddress)
                                         return@requestGroupInfo
                                     val actualOwner = group?.owner?.deviceAddress
                                     if (connectPreflightPassed &&
@@ -288,7 +289,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         // Dart must verify the receiver's TCP hello before marking Connect up.
         val ch = p2pChannel ?: return false
         manager?.requestConnectionInfo(ch) { info ->
-            if (info.groupFormed && info.groupOwnerAddress != null &&
+            if (ch === p2pChannel && info.groupFormed && info.groupOwnerAddress != null &&
                 connectingAddress == null && !resettingStaleGroup) {
                 event(mapOf("type" to "connected",
                     "host" to info.groupOwnerAddress.hostAddress,
@@ -674,77 +675,113 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         return true
     }
 
-    private fun retryHostAfterDiscovery() {
-        android.os.Handler(Looper.getMainLooper()).postDelayed({
-            beginHost(false)
-        }, 1000L)
+    private fun hostCurrent(ch: WifiP2pManager.Channel, epoch: Int): Boolean =
+        hostPending && hostGeneration == epoch && ch === p2pChannel &&
+            !resettingStaleGroup && pendingHostReceiverId.isNotEmpty()
+
+    private fun hostFailed(ch: WifiP2pManager.Channel, epoch: Int, message: String) {
+        if (!hostCurrent(ch, epoch)) return
+        hostPending = false
+        hostReadyChecks = 0
+        event(mapOf("type" to "error", "message" to message))
     }
 
-    private fun reportGroupReady(service: WifiP2pManager, ch: WifiP2pManager.Channel) {
-        // createGroup().onSuccess means Android accepted the request, NOT
-        // that the head unit has a usable P2P group. Keep hostPending set
-        // until connection info actually confirms a group owner. Otherwise
-        // the recovery timer can issue another createGroup() mid-negotiation.
+    private fun reportGroupReady(service: WifiP2pManager, ch: WifiP2pManager.Channel, epoch: Int) {
+        if (!hostCurrent(ch, epoch)) return
         service.requestConnectionInfo(ch) { info ->
-            if (info.groupFormed && info.isGroupOwner &&
-                info.groupOwnerAddress != null) {
+            if (!hostCurrent(ch, epoch)) return@requestConnectionInfo
+            if (info.groupFormed && info.isGroupOwner && info.groupOwnerAddress != null) {
                 hostPending = false
                 hostReadyChecks = 0
-                if (pendingHostReceiverId.isNotEmpty()) {
-                    advertiseReceiver(pendingHostReceiverId)
-                }
-                event(mapOf("type" to "action", "name" to "host", "ok" to true))
+                advertiseReceiver(pendingHostReceiverId)
                 event(mapOf("type" to "connected",
-                    "host" to info.groupOwnerAddress.hostAddress,
-                    "owner" to true))
-            } else if (hostPending && hostReadyChecks < 24) {
+                    "host" to info.groupOwnerAddress.hostAddress, "owner" to true))
+            } else if (hostReadyChecks < 24) {
                 hostReadyChecks++
-                mainHandler.postDelayed({
-                    if (hostPending) reportGroupReady(service, ch)
-                }, 750L)
-            } else if (hostPending) {
-                hostPending = false
-                hostReadyChecks = 0
-                event(mapOf("type" to "error",
-                    "message" to "Head unit Wi-Fi Direct group did not become ready"))
+                mainHandler.postDelayed({ reportGroupReady(service, ch, epoch) }, 750L)
+            } else {
+                hostFailed(ch, epoch, "Android accepted group creation but no head-unit group became ready")
             }
         }
     }
 
-    private fun beginHost(allowRetry: Boolean) {
+    // Android may remain BUSY after removeGroup() reports success. Cancel
+    // invitations, stop discovery, then wait for the framework to settle.
+    // A lost callback must not permanently latch hostPending.
+    private fun retryBusyHost(service: WifiP2pManager, ch: WifiP2pManager.Channel,
+                              epoch: Int, retries: Int) {
+        if (!hostCurrent(ch, epoch)) return
+        var stopStarted = false
+        var retryScheduled = false
+        fun scheduleRetry() {
+            if (retryScheduled || !hostCurrent(ch, epoch)) return
+            retryScheduled = true
+            val delay = when (retries) { 3 -> 1500L; 2 -> 3000L; else -> 5000L }
+            mainHandler.postDelayed({
+                if (hostCurrent(ch, epoch)) beginHost(epoch, retries - 1)
+            }, delay)
+        }
+        fun stopDiscovery() {
+            if (stopStarted || !hostCurrent(ch, epoch)) return
+            stopStarted = true
+            try {
+                service.stopPeerDiscovery(ch, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() { scheduleRetry() }
+                    override fun onFailure(reason: Int) { scheduleRetry() }
+                })
+            } catch (_: Exception) { scheduleRetry() }
+            mainHandler.postDelayed({ scheduleRetry() }, 1500L)
+        }
+        try {
+            service.cancelConnect(ch, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() { stopDiscovery() }
+                override fun onFailure(reason: Int) { stopDiscovery() }
+            })
+        } catch (_: Exception) { stopDiscovery() }
+        mainHandler.postDelayed({ stopDiscovery() }, 1500L)
+    }
+
+    private fun beginHost(epoch: Int, retries: Int) {
         val service = manager ?: return
         val ch = p2pChannel ?: return
+        if (!hostCurrent(ch, epoch)) return
         service.requestGroupInfo(ch) { group ->
+            if (!hostCurrent(ch, epoch)) return@requestGroupInfo
             if (group?.isGroupOwner == true) {
-                reportGroupReady(service, ch)
+                reportGroupReady(service, ch, epoch)
             } else if (group != null) {
-                hostPending = false
-                event(mapOf("type" to "error",
-                    "message" to "Already connected to another Wi-Fi Direct group"))
+                hostFailed(ch, epoch, "Already connected to another Wi-Fi Direct group; reset the head-unit connection")
             } else {
                 service.createGroup(ch, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        reportGroupReady(service, ch)
+                        reportGroupReady(service, ch, epoch)
                     }
                     override fun onFailure(reason: Int) {
-                        if (reason == WifiP2pManager.BUSY && allowRetry) {
+                        if (!hostCurrent(ch, epoch)) return
+                        if (reason == WifiP2pManager.BUSY && retries > 0) {
                             event(mapOf("type" to "status",
-                                "message" to "Wi-Fi Direct busy; retrying group creation"))
-                            service.stopPeerDiscovery(ch, object : WifiP2pManager.ActionListener {
-                                override fun onSuccess() { retryHostAfterDiscovery() }
-                                override fun onFailure(reason: Int) { retryHostAfterDiscovery() }
-                            })
+                                "message" to "Android Wi-Fi Direct busy; releasing stale invitation and retrying (" + (4 - retries) + "/3)"))
+                            retryBusyHost(service, ch, epoch, retries)
                         } else {
-                            hostPending = false
-                            val message = if (reason == WifiP2pManager.BUSY)
-                                "Wi-Fi Direct busy; use shared Wi-Fi as an alternative"
-                            else "Wi-Fi Direct group creation failed ($reason)"
-                            event(mapOf("type" to "error", "message" to message))
+                            hostFailed(ch, epoch, if (reason == WifiP2pManager.BUSY)
+                                "Android Wi-Fi Direct still busy after recovery; toggle Wi-Fi on the head unit, then tap Set up again"
+                            else "Wi-Fi Direct group creation failed ($reason); tap Set up again")
                         }
                     }
                 })
             }
         }
+    }
+
+    private fun startHostAttempt() {
+        val ch = p2pChannel ?: return
+        hostPending = true
+        hostReadyChecks = 0
+        val epoch = ++hostGeneration
+        mainHandler.postDelayed({
+            hostFailed(ch, epoch, "Android did not finish creating the head-unit group; tap Set up to retry")
+        }, 45000L)
+        beginHost(epoch, 3)
     }
 
     fun host(receiverId: String, refreshAdvertisement: Boolean = false): Boolean {
@@ -754,6 +791,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 "message" to "VYBE receiver identity unavailable; reopen Connect"))
             return false
         }
+        if (resettingStaleGroup) return false
         pendingHostReceiverId = receiverId
         // A deliberate setup tap must recover even if the Android framework
         // silently forgot a DNS-SD service while keeping the same P2P group.
@@ -771,9 +809,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         if (refreshAdvertisement && localService != null) {
             forgetReceiverAdvertisement {
                 if (pendingHostReceiverId == receiverId && !hostPending) {
-                    hostPending = true
-                    hostReadyChecks = 0
-                    beginHost(true)
+                    startHostAttempt()
                 }
             }
             return true
@@ -782,9 +818,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         // the group. Advertising too early lets the phone tap a receiver
         // that cannot yet accept a connect() invitation (often ERROR 0).
         if (hostPending) return true
-        hostPending = true
-        hostReadyChecks = 0
-        beginHost(true)
+        startHostAttempt()
         return true
     }
 
@@ -1082,6 +1116,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         } ?: return false
         resettingStaleGroup = true
         val epoch = ++resetGroupGeneration
+        hostGeneration++
         connectingAddress = null
         connectPreflightPassed = false
         connectAttemptGeneration++
@@ -1135,11 +1170,11 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             complete(false, "Android did not finish Wi-Fi Direct reset. Retry or toggle Wi-Fi.")
         }, 12000L)
         try {
-            // Android permits cancelConnect() without a pending invitation;
-            // BUSY/ERROR callbacks are not authoritative about group state.
-            try { service.cancelConnect(ch, null) } catch (_: Exception) {}
-            try { service.stopPeerDiscovery(ch, null) } catch (_: Exception) {}
-            service.requestGroupInfo(ch) { group ->
+            // Wait for cancellation and discovery stop before asking Android
+            // to remove the group. A null callback can leave teardown in flight.
+            fun removeOldGroup() {
+                if (epoch != resetGroupGeneration || !resettingStaleGroup) return
+                service.requestGroupInfo(ch) { group ->
                 if (epoch != resetGroupGeneration || !resettingStaleGroup)
                     return@requestGroupInfo
                 if (group == null) {
@@ -1158,7 +1193,33 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                         complete(false, "Cannot release Wi-Fi Direct group: ${error.message}")
                     }
                 }
+                }
             }
+            var stopStarted = false
+            var removalStarted = false
+            fun finishStop() {
+                if (removalStarted || epoch != resetGroupGeneration || !resettingStaleGroup) return
+                removalStarted = true
+                mainHandler.postDelayed({ removeOldGroup() }, 500L)
+            }
+            fun stopSearch() {
+                if (stopStarted || epoch != resetGroupGeneration || !resettingStaleGroup) return
+                stopStarted = true
+                try {
+                    service.stopPeerDiscovery(ch, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() { finishStop() }
+                        override fun onFailure(reason: Int) { finishStop() }
+                    })
+                } catch (_: Exception) { finishStop() }
+                mainHandler.postDelayed({ finishStop() }, 1200L)
+            }
+            try {
+                service.cancelConnect(ch, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() { stopSearch() }
+                    override fun onFailure(reason: Int) { stopSearch() }
+                })
+            } catch (_: Exception) { stopSearch() }
+            mainHandler.postDelayed({ stopSearch() }, 1200L)
         } catch (error: Exception) {
             complete(false, "Wi-Fi Direct reset failed: ${error.message}")
         }
