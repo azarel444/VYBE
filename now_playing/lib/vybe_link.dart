@@ -167,6 +167,82 @@ class VybeLink extends ChangeNotifier {
       : '';
   ServerSocket? _phoneDirectServer;
   bool _phoneListenerBusy = false;
+  bool _phoneAdvertised = false;
+  String phoneNetworkName = '';
+  List<Map<String, String>> directRawPeers = [];
+  bool directRawScan = false;
+  bool directSearchActive = false;
+  Timer? _directSearchTimer;
+  String _selectedDirectPhoneCode = '';
+  bool get phoneDirectReady => role == 'sender' && _directGroupConnected &&
+      _phoneDirectServer != null && _phoneAdvertised;
+  void _updatePhoneReady() {
+    if (phoneDirectReady && _socket == null) {
+      status = 'Phone network ready; select this phone on the head unit';
+      directStatus = 'Ready for head-unit connection';
+      activeTransport = 'Wi-Fi Direct host';
+    }
+  }
+  Future<void> _publishPhoneHost() async {
+    if (!enabled || !_directRequested || role != 'sender' ||
+        _phoneDirectServer == null || !_directGroupConnected || _phoneAdvertised) return;
+    try {
+      final ok = await _direct.invokeMethod<bool>('publishHost', {'receiverId': localDeviceId});
+      if (ok != true) directStatus = 'Phone advertisement not ready; retry Start';
+    } catch (e) { directStatus = 'Phone advertisement failed: $e'; }
+    notifyListeners();
+  }
+  void _startScanTimer() {
+    _directSearchTimer?.cancel();
+    directSearchActive = true;
+    final epoch = _directEpoch;
+    _directSearchTimer = Timer(const Duration(seconds: 20), () {
+      if (epoch != _directEpoch || role != 'receiver') return;
+      directSearchActive = false;
+      if (_socket == null && !_directPairingInProgress && !_directGroupConnected) {
+        status = directPeers.isEmpty && directRawPeers.isEmpty
+            ? 'No phones found; scan again or try system devices'
+            : 'Select a phone from the list';
+      }
+      notifyListeners();
+    });
+  }
+  Future<void> findSystemDirectDevices() async {
+    if (role != 'receiver' || !enabled || _directResetInProgress || _directPairingInProgress) return;
+    if (!_directRequested) await directStart(receiver: true);
+    if (_directGroupConnected) return;
+    directRawScan = true;
+    directRawPeers = [];
+    _manualPairDeadlineMs = DateTime.now().millisecondsSinceEpoch + 120000;
+    status = 'Searching system Wi-Fi Direct devices';
+    _startScanTimer(); notifyListeners();
+    try {
+      final ok = await _direct.invokeMethod<bool>('discoverRaw') ?? false;
+      if (!ok) { directSearchActive = false; directStatus = 'Could not start system scan'; }
+    } catch (e) { directSearchActive = false; directStatus = 'System scan failed: $e'; }
+    notifyListeners();
+  }
+  Future<void> joinSystemDirectDevice(String address, String code) async {
+    final normalized = code.trim().toLowerCase();
+    if (role != 'receiver' || !directRawScan || !_directRequested ||
+        !RegExp(r'^[0-9a-f]{6}$').hasMatch(normalized) ||
+        !directRawPeers.any((p) => p['address'] == address) ||
+        _directPairingInProgress || _directResetInProgress) return;
+    _selectedDirectPhoneId = '';
+    _selectedDirectPhoneCode = normalized;
+    _manualPairDeadlineMs = DateTime.now().millisecondsSinceEpoch + 120000;
+    _directPairingInProgress = true;
+    directSearchActive = false;
+    _directSearchTimer?.cancel();
+    directStatus = 'Joining selected system device; will verify phone code';
+    notifyListeners();
+    try {
+      final ok = await _direct.invokeMethod<bool>('connect', {
+        'address': address, 'bandMode': 'auto', 'rawSelected': true}) ?? false;
+      if (!ok) { _directPairingInProgress = false; directStatus = 'System device no longer available'; }
+    } catch (e) { _directPairingInProgress = false; directStatus = 'Join failed: $e'; }
+    notifyListeners();
+  }
   bool _directDialBusy = false;
   bool _directRequested = false;
   int _directEpoch = 0;
@@ -241,14 +317,12 @@ class VybeLink extends ChangeNotifier {
       if (_directGroupConnected) {
         if (role == 'sender') {
           await _openPhoneDirectListener();
-          if (_phoneDirectServer != null) {
-            await _direct.invokeMethod<bool>('host', {'receiverId': localDeviceId,
-              'refreshAdvertisement': true});
-          }
+          await _publishPhoneHost();
+          _updatePhoneReady();
         } else {
           await _dialPhoneDirect();
         }
-      } else if (!_directPairingInProgress) {
+      } else if (!_directPairingInProgress && !directRawScan && !directSearchActive) {
         await _startDirectNetwork();
       }
     } catch (error) {
@@ -260,7 +334,7 @@ class VybeLink extends ChangeNotifier {
   }
 
   void _trySavedDirectPeer() {
-    if (role != 'receiver' || !enabled || !_directRequested ||
+    if (role != 'receiver' || !enabled || !_directRequested || directRawScan ||
         !_directAuthorized() || _directResetInProgress ||
         _directGroupConnected || _directPairingInProgress || _socket != null) return;
     final id = _selectedDirectPhoneId.isNotEmpty
@@ -312,12 +386,28 @@ class VybeLink extends ChangeNotifier {
               });
             }
             break;
+          case 'host_advertised':
+            if (role == 'sender' && data['id'] == localDeviceId && _directGroupConnected) {
+              _phoneAdvertised = true;
+              _updatePhoneReady();
+            }
+            break;
+          case 'host_network':
+            if (role == 'sender') phoneNetworkName = data['name']?.toString() ?? '';
+            break;
+          case 'raw_peers':
+            if (role == 'receiver' && directRawScan) {
+              directRawPeers = (data['items'] as List).map((e) => Map<String, String>.from(e as Map)).toList();
+              if (directRawPeers.isNotEmpty) status = 'Select your phone from system devices';
+            }
+            break;
           case 'peers':
             if (role != 'receiver' || !_directRequested) break;
             directPeers = (data['items'] as List).map((e) =>
                 Map<String, String>.from(e as Map)).toList();
             directStatus = directPeers.isEmpty ? 'Searching for VYBE phones...'
                 : 'Found ${directPeers.length} VYBE phone(s); select your phone';
+            if (directPeers.isNotEmpty && !directRawScan && _socket == null) status = 'Select your VYBE phone';
             _trySavedDirectPeer();
             break;
           case 'connected':
@@ -325,7 +415,7 @@ class VybeLink extends ChangeNotifier {
             final owner = data['owner'] == true;
             final host = data['host']?.toString() ?? '';
             if (owner != (role == 'sender') ||
-                (!owner && _selectedDirectPhoneId.isEmpty && _savedDirectPhoneId.isEmpty)) {
+                (!owner && _selectedDirectPhoneId.isEmpty && _savedDirectPhoneId.isEmpty && _selectedDirectPhoneCode.isEmpty)) {
               directStatus = 'Old Wi-Fi Direct group uses the previous connection direction; resetting';
               if (!_directResetInProgress) {
                 unawaited(resetDirectSession(restart: true));
@@ -336,14 +426,20 @@ class VybeLink extends ChangeNotifier {
             _directPairingStartedMs = 0;
             _directGroupConnected = true;
             _directGroupOwnerIp = host;
+            directSearchActive = false;
+            _directSearchTimer?.cancel();
             directActive = true;
             directStatus = owner ? 'Phone owns Wi-Fi Direct; waiting for head unit'
                 : 'Joined phone Wi-Fi Direct; connecting data link';
             unawaited(refreshDirectBandInfo());
             if (owner) {
-              unawaited(_openPhoneDirectListener());
+              unawaited(() async {
+                await _openPhoneDirectListener();
+                await _publishPhoneHost();
+                _updatePhoneReady(); notifyListeners();
+              }());
             } else if (_directAuthorized() &&
-                (_selectedDirectPhoneId.isNotEmpty || _savedDirectPhoneId.isNotEmpty)) {
+                (_selectedDirectPhoneId.isNotEmpty || _savedDirectPhoneId.isNotEmpty || _selectedDirectPhoneCode.isNotEmpty)) {
               unawaited(_dialPhoneDirect());
             }
             break;
@@ -351,6 +447,8 @@ class VybeLink extends ChangeNotifier {
           case 'channel_reset':
             _directGroupConnected = false;
             _directGroupOwnerIp = '';
+            _phoneAdvertised = false;
+            phoneNetworkName = '';
             directBandGroupFormed = false;
             directBandVerified = false;
             directFrequencyMHz = 0;
@@ -413,6 +511,9 @@ class VybeLink extends ChangeNotifier {
             _directPairingInProgress = false;
             _directPairingStartedMs = 0;
             directStatus = data['message']?.toString() ?? 'Wi-Fi Direct error';
+            if (_socket == null && !phoneDirectReady) status = directStatus;
+            directSearchActive = false;
+            _directSearchTimer?.cancel();
             break;
           case 'status':
           case 'action':
@@ -476,6 +577,13 @@ class VybeLink extends ChangeNotifier {
   Future<void> directStart({required bool receiver}) async {
     if (_directResetInProgress) return;
     if (_socket != null && _tcpConnectedViaDirect) return;
+    if (!receiver && phoneDirectReady) {
+      _manualPairDeadlineMs = DateTime.now().millisecondsSinceEpoch + 120000;
+      _updatePhoneReady(); notifyListeners(); return;
+    }
+    directRawScan = false;
+    directRawPeers = [];
+    _selectedDirectPhoneCode = '';
     if (_socket == null && role == 'sender') {
       _generation++; _retry?.cancel(); _retry = null; _connectPending = false;
     }
@@ -512,6 +620,11 @@ class VybeLink extends ChangeNotifier {
       if (_directResetInProgress || !_directRequested || !enabled) return;
       directActive = true;
       final hosting = role == 'sender';
+      if (hosting && _directGroupConnected) {
+        await _openPhoneDirectListener();
+        await _publishPhoneHost();
+        _updatePhoneReady(); notifyListeners(); return;
+      }
       if (!hosting && _directGroupConnected) {
         if (_savedDirectPhoneId.isNotEmpty || _selectedDirectPhoneId.isNotEmpty) {
           await _dialPhoneDirect();
@@ -520,6 +633,7 @@ class VybeLink extends ChangeNotifier {
         }
         return;
       }
+      if (!hosting) _startScanTimer();
       directStatus = hosting ? 'Creating phone Wi-Fi Direct group...'
           : 'Searching only for VYBE phones...';
       notifyListeners();
@@ -527,7 +641,10 @@ class VybeLink extends ChangeNotifier {
           ? await _direct.invokeMethod<bool>('host', {
               'receiverId': localDeviceId, 'refreshAdvertisement': manual})
           : await _direct.invokeMethod<bool>('discover', {'force': manual});
-      if (ok != true) directStatus = 'Android could not start Wi-Fi Direct; tap again';
+      if (ok != true) {
+        directStatus = 'Android could not start Wi-Fi Direct; tap again';
+        status = directStatus; directSearchActive = false;
+      }
     } catch (e) { directStatus = 'Wi-Fi Direct setup failed: $e'; }
     notifyListeners();
   }
@@ -542,7 +659,10 @@ class VybeLink extends ChangeNotifier {
     if (manuallySelected) {
       _manualPairDeadlineMs = DateTime.now().millisecondsSinceEpoch + 120000;
     }
+    _selectedDirectPhoneCode = '';
     _selectedDirectPhoneId = candidates.single['id']!;
+    directSearchActive = false;
+    _directSearchTimer?.cancel();
     _directPairingInProgress = true;
     _directPairingStartedMs = DateTime.now().millisecondsSinceEpoch;
     directStatus = 'Joining selected VYBE phone...';
@@ -564,6 +684,7 @@ class VybeLink extends ChangeNotifier {
   Future<void> _closePhoneDirectListener() async {
     final server = _phoneDirectServer;
     _phoneDirectServer = null;
+    _phoneAdvertised = false;
     await server?.close();
   }
 
@@ -582,7 +703,7 @@ class VybeLink extends ChangeNotifier {
         return;
       }
       _phoneDirectServer = server;
-      status = 'Phone network ready; select this phone on the head unit';
+      status = 'Phone group created; advertising VYBE service';
       activeTransport = 'Wi-Fi Direct host';
       server.listen((peer) {
         if (epoch != _directEpoch || !enabled || !_directRequested ||
@@ -602,6 +723,7 @@ class VybeLink extends ChangeNotifier {
       });
     } catch (e) {
       directStatus = 'Could not open phone Wi-Fi Direct data listener: $e';
+      status = directStatus;
     } finally {
       _phoneListenerBusy = false;
       notifyListeners();
@@ -689,9 +811,10 @@ class VybeLink extends ChangeNotifier {
     if (_directDialBusy || _socket != null || role != 'receiver' ||
         !_directGroupConnected || !_directRequested || !_directAuthorized() ||
         _directGroupOwnerIp.isEmpty) return;
+    final code = _selectedDirectPhoneCode;
     final expected = _selectedDirectPhoneId.isNotEmpty
-        ? _selectedDirectPhoneId : _savedDirectPhoneId;
-    if (expected.isEmpty) return;
+        ? _selectedDirectPhoneId : (code.isEmpty ? _savedDirectPhoneId : '');
+    if (expected.isEmpty && code.isEmpty) return;
     _directDialBusy = true;
     final epoch = _directEpoch;
     try {
@@ -720,16 +843,21 @@ class VybeLink extends ChangeNotifier {
           try {
             final data = jsonDecode(line);
             if (data is! Map || data['v'] != 2 || data['kind'] != 'phone_hello') return;
-            if (data['id'] != expected) {
+            final id = data['id']?.toString().toLowerCase() ?? '';
+            if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(id) ||
+                (expected.isNotEmpty ? id != expected : !id.endsWith(code))) {
               _receiverDisconnected(peer); peer.destroy();
               directStatus = 'Phone identity mismatch; reset and select the phone again';
               notifyListeners(); return;
             }
             verified = true;
             _helloTimer?.cancel(); _helloTimer = null;
-            _savedDirectPhoneId = expected;
+            _savedDirectPhoneId = id;
+            _selectedDirectPhoneId = id;
+            _selectedDirectPhoneCode = '';
+            directRawScan = false;
             unawaited(SharedPreferences.getInstance().then((p) =>
-                p.setString('link_direct_phone_id', expected)).then<void>((_) {}));
+                p.setString('link_direct_phone_id', id)).then<void>((_) {}));
             activeTransport = 'Wi-Fi Direct';
             status = 'Connected to VYBE phone';
             directStatus = status;
@@ -1256,7 +1384,11 @@ class VybeLink extends ChangeNotifier {
     _restartDirectAfterReset = restart;
     _directRequested = restart;
     _directEpoch++;
-    if (!restart) _selectedDirectPhoneId = '';
+    _phoneAdvertised = false;
+    phoneNetworkName = '';
+    directRawScan = false; directRawPeers = [];
+    directSearchActive = false; _directSearchTimer?.cancel();
+    if (!restart) { _selectedDirectPhoneId = ''; _selectedDirectPhoneCode = ''; }
     _generation++;
     unawaited(_closePhoneDirectListener());
     final oldServer = _server; _server = null;
@@ -1925,13 +2057,13 @@ class VybeLink extends ChangeNotifier {
     _tcpConnectedViaDirect = false;
     _tcpConnectedViaWired = false;
     _senderReceiverIdentityVerified = false;
-    activeTransport = 'Disconnected';
+    activeTransport = phoneDirectReady ? 'Wi-Fi Direct host' : 'Disconnected';
     _sendTimer?.cancel(); _sendTimer = null;
     _helloTimer?.cancel(); _helloTimer = null;
     _clearLogoAckTimer?.cancel(); _clearLogoAckTimer = null;
-    status = autoConnect
+    status = phoneDirectReady ? 'Phone network ready; waiting for head unit' : (autoConnect
         ? 'Connection lost; reconnecting automatically...'
-        : 'Connection lost; manual reconnection is enabled';
+        : 'Connection lost; manual reconnection is enabled');
     notifyListeners();
     if (autoConnect) {
       if (_directPreferred) unawaited(_recoverDirect());
@@ -2423,7 +2555,7 @@ class VybeLink extends ChangeNotifier {
     _sendTimer?.cancel(); _helloTimer?.cancel();
     _model?.removeListener(_onModel);
     _socketSub?.cancel(); _socket?.destroy(); _server?.close();
-    _directRecoveryTimer?.cancel(); _phoneDirectServer?.close();
+    _directRecoveryTimer?.cancel(); _directSearchTimer?.cancel(); _phoneDirectServer?.close();
     _responder?.close();
     super.dispose();
   }

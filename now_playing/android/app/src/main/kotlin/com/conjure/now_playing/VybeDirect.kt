@@ -50,6 +50,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private var advertisingFailures = 0
     private var advertisementTimeoutRetries = 0
     private var serviceRequest: WifiP2pServiceRequest? = null
+    private var rawDiscovery = false
+    private val rawPeers = linkedMapOf<String, Map<String, String>>()
     private var discoveryPending = false
     private var discoveryGeneration = 0
     private var lastDiscoveryStartedMs = 0L
@@ -116,8 +118,9 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-                // The generic PEERS_CHANGED broadcast is deliberately NOT
-                // shown in VYBE. Printers and unrelated Androids stay hidden.
+                WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> {
+                    if (rawDiscovery) publishRawPeers()
+                }
                 WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
                     if (!permitted()) return
                     val service = manager ?: return
@@ -159,10 +162,6 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                             } else {
                                 hostPending = false
                                 hostReadyChecks = 0
-                                if (info.isGroupOwner &&
-                                    pendingHostReceiverId.isNotEmpty()) {
-                                    advertiseReceiver(pendingHostReceiverId)
-                                }
                                 // The Flutter side verifies the receiver's
                                 // hello before reporting an app connection.
                                 event(mapOf(
@@ -278,6 +277,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         if (p2pChannel == null) return false
         if (!registered) {
             val filter = IntentFilter().apply {
+                addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
                 addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
                 addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
             }
@@ -379,7 +379,11 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             return
         }
         if (advertisementRemovalPending) return
-        if ((advertised || advertisingPending) && receiverId == localServiceId) return
+        if (advertised && receiverId == localServiceId) {
+            event(mapOf("type" to "host_advertised", "id" to receiverId))
+            return
+        }
+        if (advertisingPending && receiverId == localServiceId) return
 
         // If the ID changes (e.g. reinstall), retire only OUR advertisement.
         val previous = localService
@@ -406,8 +410,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 advertisingFailures = 0
                 advertisementTimeoutRetries = 0
                 localService = info
-                event(mapOf("type" to "status",
-                    "message" to "VYBE Phone visible to VYBE devices"))
+                event(mapOf("type" to "host_advertised", "id" to receiverId))
             }
             override fun onFailure(reason: Int) {
                 if (generation != advertisingGeneration) return
@@ -467,6 +470,73 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         }, 8500L)
     }
 
+    // Only publish after Flutter has bound its TCP listener on the owner IP.
+    fun publishHost(receiverId: String): Boolean {
+        if (!permitted() || resettingStaleGroup || pendingHostReceiverId != receiverId) return false
+        val service = manager ?: return false
+        val ch = p2pChannel ?: return false
+        service.requestConnectionInfo(ch) { info ->
+            if (ch !== p2pChannel || resettingStaleGroup || pendingHostReceiverId != receiverId)
+                return@requestConnectionInfo
+            if (info.groupFormed && info.isGroupOwner) {
+                advertiseReceiver(receiverId)
+                service.requestGroupInfo(ch) { group ->
+                    if (ch === p2pChannel && pendingHostReceiverId == receiverId && group?.isGroupOwner == true) {
+                        event(mapOf("type" to "host_network", "name" to group.networkName))
+                    }
+                }
+            } else {
+                event(mapOf("type" to "error", "message" to "Phone is not the Wi-Fi Direct group owner"))
+            }
+        }
+        return true
+    }
+
+    private fun publishRawPeers() {
+        if (!rawDiscovery || !permitted()) return
+        val service = manager ?: return
+        val ch = p2pChannel ?: return
+        service.requestPeers(ch) { peers ->
+            if (!rawDiscovery || ch !== p2pChannel) return@requestPeers
+            rawPeers.clear()
+            for (peer in peers.deviceList) {
+                if (peer.deviceAddress.isNullOrBlank()) continue
+                rawPeers[peer.deviceAddress] = mapOf("address" to peer.deviceAddress,
+                    "name" to (peer.deviceName.takeIf { it.isNotBlank() } ?: "Android Wi-Fi Direct device"))
+            }
+            event(mapOf("type" to "raw_peers", "items" to rawPeers.values.toList()))
+        }
+    }
+
+    // Explicit fallback for devices that cannot deliver DNS-SD TXT responses.
+    // These peers are not VYBE-verified and never auto-pair.
+    fun discoverRaw(): Boolean {
+        if (!start() || resettingStaleGroup || connectingAddress != null) return false
+        val service = manager ?: return false
+        val ch = p2pChannel ?: return false
+        discoveryGeneration++
+        discoveryPending = false
+        lastDiscoveryStartedMs = 0L
+        rawDiscovery = true
+        rawPeers.clear()
+        event(mapOf("type" to "raw_peers", "items" to emptyList<Map<String, String>>()))
+        service.discoverPeers(ch, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                if (rawDiscovery && ch === p2pChannel) {
+                    publishRawPeers()
+                    event(mapOf("type" to "status", "message" to "Scanning system Wi-Fi Direct devices"))
+                }
+            }
+            override fun onFailure(reason: Int) {
+                if (rawDiscovery && ch === p2pChannel) {
+                    rawDiscovery = false
+                    event(mapOf("type" to "error", "message" to "System Wi-Fi Direct scan failed ($reason)"))
+                }
+            }
+        })
+        return true
+    }
+
     private fun publishVerifiedReceivers() {
         event(mapOf("type" to "peers",
             "items" to verifiedReceivers.values.toList(),
@@ -484,7 +554,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 if (instance == INSTANCE_NAME &&
                     serviceType.contains(SERVICE_TYPE, ignoreCase = true)) {
                     event(mapOf("type" to "status",
-                        "message" to "Checking nearby VYBE receiver identity..."))
+                        "message" to "Checking nearby VYBE phone identity..."))
                 }
             },
             WifiP2pManager.DnsSdTxtRecordListener { domain, record, device ->
@@ -527,6 +597,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         if (!start()) return false
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
+        rawDiscovery = false
+        rawPeers.clear()
         installServiceResponseListeners()
         if (connectingAddress != null) {
             event(mapOf("type" to "pairing",
@@ -571,20 +643,20 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
 
         fun registerAndSearch(recoveriesRemaining: Int) {
             if (generation != discoveryGeneration) return
-            val request = WifiP2pDnsSdServiceRequest.newInstance(
-                INSTANCE_NAME, SERVICE_TYPE)
+            // Query all DNS-SD records; only the VYBE marker and sender role are accepted above.
+            val request = WifiP2pDnsSdServiceRequest.newInstance()
             service.addServiceRequest(ch, request, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     if (generation != discoveryGeneration) return
                     serviceRequest = request
                     event(mapOf("type" to "status",
-                        "message" to "VYBE service request registered; searching for head units..."))
+                        "message" to "VYBE service request registered; searching for VYBE phones..."))
                     service.discoverServices(ch, object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
                             if (generation != discoveryGeneration) return
                             discoveryPending = false
                             event(mapOf("type" to "status",
-                                "message" to "Scanning for verified VYBE receivers..."))
+                                "message" to "Scanning for verified VYBE phones..."))
                         }
                         override fun onFailure(reason: Int) {
                             if (generation != discoveryGeneration) return
@@ -628,7 +700,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                     if (generation != discoveryGeneration) return
                     discoveryPending = false
                     event(mapOf("type" to "status",
-                        "message" to "Scanning for verified VYBE receivers..."))
+                        "message" to "Scanning for verified VYBE phones..."))
                 }
                 override fun onFailure(reason: Int) {
                     if (generation != discoveryGeneration) return
@@ -693,7 +765,6 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             if (info.groupFormed && info.isGroupOwner && info.groupOwnerAddress != null) {
                 hostPending = false
                 hostReadyChecks = 0
-                advertiseReceiver(pendingHostReceiverId)
                 event(mapOf("type" to "connected",
                     "host" to info.groupOwnerAddress.hostAddress, "owner" to true))
             } else if (hostReadyChecks < 24) {
@@ -750,7 +821,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
             if (group?.isGroupOwner == true) {
                 reportGroupReady(service, ch, epoch)
             } else if (group != null) {
-                hostFailed(ch, epoch, "Already connected to another Wi-Fi Direct group; reset the head-unit connection")
+                hostFailed(ch, epoch, "Already connected to another Wi-Fi Direct group; reset the phone connection")
             } else {
                 service.createGroup(ch, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
@@ -764,7 +835,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                             retryBusyHost(service, ch, epoch, retries)
                         } else {
                             hostFailed(ch, epoch, if (reason == WifiP2pManager.BUSY)
-                                "Android Wi-Fi Direct still busy after recovery; toggle Wi-Fi on the head unit, then tap Set up again"
+                                "Android Wi-Fi Direct still busy after recovery; toggle Wi-Fi on the phone, then tap Start again"
                             else "Wi-Fi Direct group creation failed ($reason); tap Set up again")
                         }
                     }
@@ -785,44 +856,15 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
     }
 
     fun host(receiverId: String, refreshAdvertisement: Boolean = false): Boolean {
-        if (!start()) return false
-        if (!receiverId.matches(Regex("[0-9a-fA-F]{32}"))) {
-            event(mapOf("type" to "error",
-                "message" to "VYBE receiver identity unavailable; reopen Connect"))
-            return false
-        }
-        if (resettingStaleGroup) return false
+        if (!start() || resettingStaleGroup) return false
+        if (!receiverId.matches(Regex("[0-9a-fA-F]{32}"))) return false
         pendingHostReceiverId = receiverId
-        // A deliberate setup tap must recover even if the Android framework
-        // silently forgot a DNS-SD service while keeping the same P2P group.
-        // Automatic recovery leaves a healthy advertisement untouched.
-        if (refreshAdvertisement && advertisingPending) {
-            // Let the in-flight add resolve before replacing it. Cancelling
-            // its generation without an accepted localService handle loses
-            // the ability to remove it cleanly from the framework.
-            mainHandler.postDelayed({
-                if (pendingHostReceiverId == receiverId)
-                    host(receiverId, refreshAdvertisement = true)
-            }, 750L)
-            return true
-        }
-        if (refreshAdvertisement && localService != null) {
-            forgetReceiverAdvertisement {
-                if (pendingHostReceiverId == receiverId && !hostPending) {
-                    startHostAttempt()
-                }
-            }
-            return true
-        }
-        // Don't broadcast VYBE's identity before Android finishes creating
-        // the group. Advertising too early lets the phone tap a receiver
-        // that cannot yet accept a connect() invitation (often ERROR 0).
         if (hostPending) return true
         startHostAttempt()
         return true
     }
 
-    fun connect(address: String, requestedBand: String = "auto"): Boolean {
+    fun connect(address: String, requestedBand: String = "auto", rawSelected: Boolean = false): Boolean {
         if (!start()) return false
         val service = manager ?: return false
         val ch = p2pChannel ?: return false
@@ -835,7 +877,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         }?.key
         val known = knownId != null &&
             now - (verifiedReceiverSeen[knownId] ?: 0L) < 60000L
-        if (!known) {
+        if (!known && !(rawSelected && rawDiscovery && rawPeers.containsKey(address))) {
             event(mapOf("type" to "error",
                 "message" to "Receiver address is no longer verified; scan for VYBE phones again"))
             return false
@@ -879,6 +921,7 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
                 "message" to "Cannot prepare ${requestedBand} Wi-Fi Direct connection: ${error.message}"))
             return false
         }
+        rawDiscovery = false
         connectingAddress = address
         connectPreflightPassed = false
         val generation = ++connectAttemptGeneration
@@ -1123,6 +1166,8 @@ class VybeDirect(private val activity: Activity, private val channel: MethodChan
         hostPending = false
         hostReadyChecks = 0
         pendingHostReceiverId = ""
+        rawDiscovery = false
+        rawPeers.clear()
         discoveryPending = false
         discoveryGeneration++
         lastDiscoveryStartedMs = 0L

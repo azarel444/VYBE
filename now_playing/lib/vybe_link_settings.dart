@@ -61,7 +61,7 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
             Text('Network: ${link.activeTransport}'),
             SwitchListTile(
               title: const Text('Reconnect automatically'),
-              subtitle: Text(headUnit ? 'Off: select your phone manually.' : 'Off: start the phone network manually.'),
+              subtitle: Text(link.autoConnect ? (headUnit ? 'On: reconnect to saved phone.' : 'On: restore phone network automatically.') : (headUnit ? 'Off: select your phone manually.' : 'Off: start the phone network manually.')),
               value: link.autoConnect,
               onChanged: (value) => link.configure(automatic: value),
             ),
@@ -75,21 +75,25 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
               onPressed: link.directResetInProgress ? null : () => link.directStart(receiver: headUnit),
               icon: const Icon(Icons.wifi),
               label: Text(headUnit
-                  ? 'Find VYBE phones'
-                  : 'Start phone Wi-Fi Direct'),
+                  ? (link.directSearchActive && !link.directRawScan ? 'Searching for VYBE phones...' : 'Find VYBE phones')
+                  : (link.phoneDirectReady ? 'Phone Wi-Fi Direct ready' : 'Start phone Wi-Fi Direct')),
             ),
             const SizedBox(height: 6),
             Text('Wi-Fi Direct: ${link.directStatus}',
                 style: const TextStyle(color: Colors.white70)),
             if (!headUnit && link.localDeviceId.length >= 6)
-              Text('Advertised as: VYBE Phone · '
+              Text('Phone pairing code: '
                   '${link.localDeviceId.substring(link.localDeviceId.length - 6).toUpperCase()}',
                   style: const TextStyle(color: Colors.white70)),
+            if (!headUnit && link.phoneNetworkName.isNotEmpty)
+              Text('Wi-Fi Direct network: ${link.phoneNetworkName}'),
             if (headUnit) ...[
+              const SizedBox(height: 12),
+              const Text('Available VYBE phones', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               if (link.directPeers.isEmpty)
-                const Text('No VYBE phones found. Start phone Wi-Fi Direct on your phone, then search here.'),
+                Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(border: Border.all(color: Colors.white24), borderRadius: BorderRadius.circular(8)), child: Text(link.directSearchActive && !link.directRawScan ? 'Scanning... waiting for phones to appear.' : 'No phones found. Start the network on your phone, then tap Find VYBE phones.')),
               for (final peer in link.directPeers)
-                ListTile(
+                Card(child: ListTile(
                   title: Text(peer['name'] ?? 'VYBE Phone'),
                   subtitle: Text(peer['id'] == link.savedDirectPhoneId
                       ? 'Saved VYBE phone' : 'Tap to join this phone'),
@@ -97,7 +101,20 @@ class _VybeLinkSettingsState extends State<VybeLinkSettings> {
                       ? const Icon(Icons.hourglass_top) : const Icon(Icons.link),
                   onTap: link.directPairingInProgress ? null : () =>
                     link.directConnectPeer(peer['address'] ?? '', manuallySelected: true),
-                ),
+                )),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(onPressed: link.directPairingInProgress || link.directResetInProgress ? null : () => link.findSystemDirectDevices(), icon: const Icon(Icons.wifi_find), label: const Text('Find system Wi-Fi Direct devices (fallback)')),
+              if (link.directRawScan) ...[
+                const Text('System Wi-Fi Direct devices — unverified', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text('Select your phone by its Android device name and enter the six-character pairing code shown on the phone. Other devices will not receive music data.'),
+                if (link.directRawPeers.isEmpty) Text(link.directSearchActive ? 'Scanning system devices...' : 'No system Wi-Fi Direct devices found.'),
+                for (final peer in link.directRawPeers)
+                  Card(child: ListTile(title: Text(peer['name'] ?? 'Android device'), subtitle: const Text('Tap to verify phone code and join'), trailing: const Icon(Icons.link), onTap: link.directPairingInProgress ? null : () async {
+                    String code = '';
+                    final selected = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Enter phone pairing code'), content: TextField(autofocus: true, maxLength: 6, textCapitalization: TextCapitalization.characters, onChanged: (value) => code = value, decoration: const InputDecoration(labelText: 'Six-character code')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')), FilledButton(onPressed: () { if (RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(code.trim())) Navigator.pop(dialogContext, code.trim()); }, child: const Text('Join'))]));
+                    if (selected != null) await link.joinSystemDirectDevice(peer['address'] ?? '', selected);
+                  })),
+              ],
             ],
             if (!headUnit) ...[
               if (link.hasSavedDirectReceiver)

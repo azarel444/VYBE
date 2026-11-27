@@ -689,11 +689,14 @@ open class MainActivity : FlutterActivity() {
                 "host" -> result.success(direct.host(
                     call.argument<String>("receiverId") ?: "",
                     call.argument<Boolean>("refreshAdvertisement") ?: false))
+                "publishHost" -> result.success(direct.publishHost(call.argument<String>("receiverId") ?: ""))
+                "discoverRaw" -> result.success(direct.discoverRaw())
                 "discover" -> result.success(direct.discover(
                     call.argument<Boolean>("force") ?: false))
                 "connect" -> result.success(direct.connect(
                     call.argument<String>("address") ?: "",
-                    call.argument<String>("bandMode") ?: "auto"))
+                    call.argument<String>("bandMode") ?: "auto",
+                    call.argument<Boolean>("rawSelected") ?: false))
                 "cancelAuto" -> result.success(direct.cancelAutomaticPairing())
                 "resetGroup" -> result.success(direct.resetStaleGroup())
                 "resetSession" -> result.success(direct.resetSession())
